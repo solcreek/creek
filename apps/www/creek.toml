@@ -1,3 +1,9 @@
+# creek.dev — deployed on Cloudflare Workers using Creek's pipeline.
+#
+# Current: scripts/deploy.sh (legacy workarounds for Next.js SSR on Workers).
+# Goal: Replace with `creek deploy --yes` once adapter-nextjs handles all cases.
+# Tracked: https://github.com/solcreek/creek/issues/1
+
 [project]
 name = "www"
 framework = "nextjs"
