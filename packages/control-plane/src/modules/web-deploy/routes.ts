@@ -10,15 +10,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
-
-interface DeployRequest {
-  type: "template" | "repo";
-  template?: string;
-  data?: Record<string, string>;
-  repo?: string;
-  branch?: string;
-  path?: string;
-}
+import { buildAndDeploy, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
 
 type AppEnv = { Bindings: Env };
 
@@ -71,12 +63,10 @@ webDeploy.post("/", async (c) => {
   const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";
   const rateLimitKey = `rate:${hashIp(ip)}`;
   const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
-  if (currentCount >= 3) {
+  if (currentCount >= 5) {
     return c.json({
       error: "rate_limited",
-      message: "You've used all 3 free deploys this hour.",
-      action: "Sign up for unlimited deploys — free forever.",
-      signupUrl: "https://creek.dev/docs/getting-started",
+      message: "You've used all 5 free deploys this hour.",
       retryAfter: 3600,
     }, 429);
   }
@@ -85,20 +75,14 @@ webDeploy.post("/", async (c) => {
   // Generate build ID
   const buildId = crypto.randomUUID().slice(0, 12);
 
-  // Store initial status
-  await c.env.BUILD_STATUS.put(
-    `build:${buildId}`,
-    JSON.stringify({
-      buildId,
-      status: "building",
-      type: body.type,
-      createdAt: new Date().toISOString(),
-    }),
-    { expirationTtl: 3600 },
-  );
+  // Store initial status + enqueue build
+  await updateStatus(c.env, buildId, {
+    status: "building",
+    type: body.type,
+    createdAt: new Date().toISOString(),
+  });
 
-  // Background: build + deploy
-  c.executionCtx.waitUntil(buildAndDeploy(buildId, body, c.env));
+  await buildAndDeploy(buildId, body, c.env);
 
   return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
 });
@@ -110,141 +94,3 @@ webDeploy.get("/:buildId", async (c) => {
   if (!data) return c.json({ error: "Build not found" }, 404);
   return c.json(JSON.parse(data));
 });
-
-// --- Background task ---
-
-async function buildAndDeploy(buildId: string, body: DeployRequest, env: Env) {
-  try {
-    let buildReq: Record<string, unknown>;
-    if (body.type === "template") {
-      buildReq = {
-        repoUrl: "https://github.com/solcreek/templates",
-        path: body.template,
-        templateData: body.data,
-      };
-    } else {
-      const repoUrl = body.repo!.startsWith("http") ? body.repo! : `https://github.com/${body.repo}`;
-      buildReq = { repoUrl, branch: body.branch, path: body.path };
-    }
-
-    // Call remote builder via service binding
-    const buildRes = await env.REMOTE_BUILDER.fetch("http://remote-builder/build", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Secret": env.INTERNAL_SECRET,
-      },
-      body: JSON.stringify(buildReq),
-    });
-
-    const buildResult = (await buildRes.json()) as any;
-
-    if (!buildResult.success) {
-      await env.BUILD_STATUS.put(
-        `build:${buildId}`,
-        JSON.stringify({
-          buildId,
-          status: "failed",
-          error: buildResult.message || buildResult.error || "Build failed",
-          failedStep: "build",
-        }),
-        { expirationTtl: 3600 },
-      );
-      return;
-    }
-
-    // Update: deploying
-    await env.BUILD_STATUS.put(
-      `build:${buildId}`,
-      JSON.stringify({ buildId, status: "deploying" }),
-      { expirationTtl: 3600 },
-    );
-
-    // Forward bundle to sandbox API
-    const sandboxRes = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Secret": env.INTERNAL_SECRET,
-      },
-      body: JSON.stringify({
-        assets: buildResult.bundle.assets,
-        serverFiles: buildResult.bundle.serverFiles,
-        manifest: buildResult.bundle.manifest,
-        framework: buildResult.config.framework,
-        source: "web",
-      }),
-    });
-
-    if (!sandboxRes.ok) {
-      const err = await sandboxRes.text();
-      await env.BUILD_STATUS.put(
-        `build:${buildId}`,
-        JSON.stringify({
-          buildId,
-          status: "failed",
-          error: `Deploy failed: ${err.slice(0, 200)}`,
-          failedStep: "deploy",
-        }),
-        { expirationTtl: 3600 },
-      );
-      return;
-    }
-
-    const sandbox = (await sandboxRes.json()) as any;
-
-    // Poll sandbox until active
-    let sandboxStatus = sandbox;
-    for (let i = 0; i < 60; i++) {
-      if (sandboxStatus.status === "active" || sandboxStatus.status === "failed") break;
-      await new Promise((r) => setTimeout(r, 1000));
-      const statusRes = await fetch(sandbox.statusUrl);
-      sandboxStatus = await statusRes.json();
-    }
-
-    if (sandboxStatus.status === "active") {
-      await env.BUILD_STATUS.put(
-        `build:${buildId}`,
-        JSON.stringify({
-          buildId,
-          status: "active",
-          sandboxId: sandbox.sandboxId,
-          previewUrl: sandbox.previewUrl,
-          expiresAt: sandbox.expiresAt,
-        }),
-        { expirationTtl: 3600 },
-      );
-    } else {
-      await env.BUILD_STATUS.put(
-        `build:${buildId}`,
-        JSON.stringify({
-          buildId,
-          status: "failed",
-          error: sandboxStatus.errorMessage || "Deploy timed out",
-          failedStep: "deploy",
-        }),
-        { expirationTtl: 3600 },
-      );
-    }
-  } catch (err) {
-    await env.BUILD_STATUS.put(
-      `build:${buildId}`,
-      JSON.stringify({
-        buildId,
-        status: "failed",
-        error: err instanceof Error ? err.message : String(err),
-        failedStep: "build",
-      }),
-      { expirationTtl: 3600 },
-    );
-  }
-}
-
-function hashIp(ip: string): string {
-  let hash = 0;
-  for (let i = 0; i < ip.length; i++) {
-    hash = ((hash << 5) - hash) + ip.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36);
-}
