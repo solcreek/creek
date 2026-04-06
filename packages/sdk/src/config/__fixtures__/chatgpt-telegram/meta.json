@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/TBXark/ChatGPT-Telegram-Workers",
+  "license": "MIT",
+  "description": "Telegram ChatGPT bot on Workers + KV",
+  "expectedBindings": [
+    { "type": "kv", "name": "DATABASE" }
+  ],
+  "expectedFramework": null,
+  "notes": "KV binding named 'DATABASE' (non-canonical). Empty id values (user must fill in)."
+}

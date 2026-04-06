@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/ccbikai/cloudflare-worker-image",
+  "license": "Apache-2.0",
+  "description": "Image processing with Durable Objects (JSONC format)",
+  "expectedBindings": [
+    { "type": "durable_object", "name": "PHOTON_CONTAINER" }
+  ],
+  "expectedFramework": null,
+  "notes": "Uses Durable Objects (unsupported by Creek provisioning but should be parsed). Also uses Containers (not in our parser)."
+}

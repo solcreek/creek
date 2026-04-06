@@ -1,0 +1,28 @@
+{
+  // Synthetic fixture: JSONC format with comments and trailing commas
+  "name": "jsonc-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  /* Database bindings */
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "my-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+    },
+  ],
+
+  // R2 for file uploads
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "my-uploads",
+    },
+  ],
+
+  "vars": {
+    "API_VERSION": "v1",
+  },
+}

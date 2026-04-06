@@ -1,0 +1,8 @@
+{
+  "source": "https://github.com/eidam/cf-workers-status-page",
+  "license": "MIT",
+  "description": "Status page with cron triggers (legacy webpack config)",
+  "expectedBindings": [],
+  "expectedFramework": null,
+  "notes": "Legacy wrangler v1 config with [site] and webpack — no modern bindings"
+}

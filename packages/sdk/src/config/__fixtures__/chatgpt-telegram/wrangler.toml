@@ -1,0 +1,13 @@
+name = 'chatgpt-telegram-workers'
+workers_dev = true
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat_v2"]
+
+main = './dist/index.js'
+
+kv_namespaces = [
+  { binding = 'DATABASE', id = '', preview_id = '' }
+]
+
+[vars]
+TELEGRAM_AVAILABLE_TOKENS = ''

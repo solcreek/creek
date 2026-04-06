@@ -1,0 +1,20 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "image",
+	"main": "src/index.js",
+	"compatibility_date": "2025-06-24",
+	"vars": {
+		"WHITE_LIST": "miantiao.me,mt.ci"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "PHOTON_CONTAINER",
+				"class_name": "PhotonContainer"
+			}
+		]
+	}
+}

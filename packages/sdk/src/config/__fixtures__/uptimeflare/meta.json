@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/lyc8503/UptimeFlare",
+  "license": "MIT",
+  "description": "Serverless uptime monitoring on Workers + D1",
+  "expectedBindings": [
+    { "type": "d1", "name": "UPTIMEFLARE_D1" }
+  ],
+  "expectedFramework": null
+}

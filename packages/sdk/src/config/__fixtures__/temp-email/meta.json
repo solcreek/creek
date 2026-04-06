@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/dreamhunter2333/cloudflare_temp_email",
+  "license": "MIT",
+  "description": "Temp email service on Workers + D1 + Hono (many vars)",
+  "expectedBindings": [
+    { "type": "d1", "name": "DB" }
+  ],
+  "expectedFramework": null,
+  "notes": "Heavy use of [vars] with complex types (arrays, booleans as strings). Tests parser resilience with many config options."
+}

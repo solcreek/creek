@@ -1,0 +1,8 @@
+{
+  "source": "https://github.com/ciiiii/cloudflare-docker-proxy",
+  "license": "MIT",
+  "description": "Docker registry proxy — no bindings, multi-environment config",
+  "expectedBindings": [],
+  "expectedFramework": null,
+  "notes": "Zero bindings. Tests that parser handles [env.*] sections and [dev] without crashing."
+}

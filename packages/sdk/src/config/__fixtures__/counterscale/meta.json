@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/benvinegar/counterscale",
+  "license": "MIT",
+  "description": "Self-hosted web analytics with Analytics Engine + R2",
+  "expectedBindings": [
+    { "type": "analytics_engine", "name": "WEB_COUNTER_AE" },
+    { "type": "r2", "name": "DAILY_ROLLUPS" }
+  ],
+  "expectedFramework": null,
+  "notes": "JSON format (not TOML). Uses Analytics Engine which Creek marks as binding but doesn't provision."
+}

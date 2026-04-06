@@ -1,0 +1,293 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`real-world wrangler config fixtures > chatgpt-telegram (Telegram ChatGPT bot on Workers + KV) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "DATABASE",
+      "type": "kv",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2024-11-11",
+  "compatibilityFlags": [
+    "nodejs_compat_v2",
+  ],
+  "framework": null,
+  "projectName": "chatgpt-telegram-workers",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {
+    "TELEGRAM_AVAILABLE_TOKENS": "",
+  },
+  "workerEntry": "./dist/index.js",
+}
+`;
+
+exports[`real-world wrangler config fixtures > counterscale (Self-hosted web analytics with Analytics Engine + R2) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "DAILY_ROLLUPS",
+      "type": "r2",
+    },
+    {
+      "name": "WEB_COUNTER_AE",
+      "type": "analytics_engine",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2024-12-13",
+  "compatibilityFlags": [
+    "nodejs_compat_v2",
+  ],
+  "framework": null,
+  "projectName": "counterscale",
+  "source": "wrangler.json",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": "./workers/app.ts",
+}
+`;
+
+exports[`real-world wrangler config fixtures > docker-proxy (Docker registry proxy — no bindings, multi-environment config) > matches snapshot 1`] = `
+{
+  "bindings": [],
+  "buildCommand": "npm run build",
+  "buildOutput": "dist",
+  "compatibilityDate": "2023-12-01",
+  "compatibilityFlags": [],
+  "framework": null,
+  "projectName": "cloudflare-docker-proxy",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": null,
+}
+`;
+
+exports[`real-world wrangler config fixtures > jsonc-basic (Synthetic: JSONC format with comments and trailing commas) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "DB",
+      "type": "d1",
+    },
+    {
+      "name": "UPLOADS",
+      "type": "r2",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-03-01",
+  "compatibilityFlags": [
+    "nodejs_compat",
+  ],
+  "framework": null,
+  "projectName": "jsonc-app",
+  "source": "wrangler.jsonc",
+  "unsupportedBindings": [],
+  "vars": {
+    "API_VERSION": "v1",
+  },
+  "workerEntry": "src/index.ts",
+}
+`;
+
+exports[`real-world wrangler config fixtures > multi-d1 (Synthetic: multiple D1 databases + KV + AI (Creek takes first D1)) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "PRIMARY_DB",
+      "type": "d1",
+    },
+    {
+      "name": "CACHE",
+      "type": "kv",
+    },
+    {
+      "name": "AI",
+      "type": "ai",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-01-15",
+  "compatibilityFlags": [],
+  "framework": null,
+  "projectName": "multi-db-app",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": "src/index.ts",
+}
+`;
+
+exports[`real-world wrangler config fixtures > pastebin-worker (Open-source pastebin on Workers + KV + R2) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "PB",
+      "type": "kv",
+    },
+    {
+      "name": "R2",
+      "type": "r2",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-04-24",
+  "compatibilityFlags": [],
+  "framework": null,
+  "projectName": "pb",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {
+    "DEFAULT_EXPIRATION": "7d",
+    "DEPLOY_URL": "https://shz.al",
+    "INDEX_PAGE_TITLE": "Pastebin Worker",
+    "MAX_EXPIRATION": "30d",
+    "REPO": "https://github.com/SharzyL/pastebin-worker",
+  },
+  "workerEntry": "worker/index.ts",
+}
+`;
+
+exports[`real-world wrangler config fixtures > sink (URL shortener with AI + Analytics Engine + KV + R2 (JSONC with inline comments)) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "KV",
+      "type": "kv",
+    },
+    {
+      "name": "R2",
+      "type": "r2",
+    },
+    {
+      "name": "AI",
+      "type": "ai",
+    },
+    {
+      "name": "ANALYTICS",
+      "type": "analytics_engine",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-05-08",
+  "compatibilityFlags": [
+    "nodejs_compat",
+  ],
+  "framework": null,
+  "projectName": "sink",
+  "source": "wrangler.jsonc",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": ".output/server/index.mjs",
+}
+`;
+
+exports[`real-world wrangler config fixtures > status-page (Status page with cron triggers (legacy webpack config)) > matches snapshot 1`] = `
+{
+  "bindings": [],
+  "buildCommand": "npm run build",
+  "buildOutput": "dist",
+  "compatibilityDate": "2021-07-23",
+  "compatibilityFlags": [],
+  "framework": null,
+  "projectName": "cf-workers-status-page",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": null,
+}
+`;
+
+exports[`real-world wrangler config fixtures > temp-email (Temp email service on Workers + D1 + Hono (many vars)) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "DB",
+      "type": "d1",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-04-01",
+  "compatibilityFlags": [
+    "nodejs_compat",
+  ],
+  "framework": null,
+  "projectName": "cloudflare_temp_email",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {
+    "BLACK_LIST": "",
+    "DEFAULT_DOMAINS": [
+      "xxx.xxx1",
+      "xxx.xxx2",
+    ],
+    "DOMAINS": [
+      "xxx.xxx1",
+      "xxx.xxx2",
+    ],
+    "ENABLE_AUTO_REPLY": false,
+    "ENABLE_USER_CREATE_EMAIL": true,
+    "ENABLE_USER_DELETE_EMAIL": true,
+    "JWT_SECRET": "xxx",
+    "PREFIX": "tmp",
+  },
+  "workerEntry": "src/worker.ts",
+}
+`;
+
+exports[`real-world wrangler config fixtures > uptimeflare (Serverless uptime monitoring on Workers + D1) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "UPTIMEFLARE_D1",
+      "type": "d1",
+    },
+  ],
+  "buildCommand": "npm run build",
+  "buildOutput": "dist",
+  "compatibilityDate": "2025-04-02",
+  "compatibilityFlags": [
+    "nodejs_compat",
+  ],
+  "framework": null,
+  "projectName": "uptimeflare",
+  "source": "wrangler.toml",
+  "unsupportedBindings": [],
+  "vars": {},
+  "workerEntry": null,
+}
+`;
+
+exports[`real-world wrangler config fixtures > worker-image (Image processing with Durable Objects (JSONC format)) > matches snapshot 1`] = `
+{
+  "bindings": [
+    {
+      "name": "PHOTON_CONTAINER",
+      "type": "durable_object",
+    },
+  ],
+  "buildCommand": "",
+  "buildOutput": ".",
+  "compatibilityDate": "2025-06-24",
+  "compatibilityFlags": [],
+  "framework": null,
+  "projectName": "image",
+  "source": "wrangler.jsonc",
+  "unsupportedBindings": [],
+  "vars": {
+    "WHITE_LIST": "miantiao.me,mt.ci",
+  },
+  "workerEntry": "src/index.js",
+}
+`;

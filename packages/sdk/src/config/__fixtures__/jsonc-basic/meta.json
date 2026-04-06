@@ -1,0 +1,11 @@
+{
+  "source": "synthetic",
+  "license": "N/A",
+  "description": "Synthetic: JSONC format with comments and trailing commas",
+  "expectedBindings": [
+    { "type": "d1", "name": "DB" },
+    { "type": "r2", "name": "UPLOADS" }
+  ],
+  "expectedFramework": null,
+  "notes": "Tests JSONC parsing: line comments, block comments, trailing commas"
+}

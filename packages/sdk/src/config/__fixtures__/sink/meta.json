@@ -1,0 +1,13 @@
+{
+  "source": "https://github.com/ccbikai/Sink",
+  "license": "AGPL-3.0",
+  "description": "URL shortener with AI + Analytics Engine + KV + R2 (JSONC with inline comments)",
+  "expectedBindings": [
+    { "type": "ai", "name": "AI" },
+    { "type": "analytics_engine", "name": "ANALYTICS" },
+    { "type": "kv", "name": "KV" },
+    { "type": "r2", "name": "R2" }
+  ],
+  "expectedFramework": null,
+  "notes": "JSONC format with inline // comments on same line as values. Tests real-world JSONC complexity."
+}

@@ -1,0 +1,37 @@
+name = "pb"
+compatibility_date = "2025-04-24"
+
+workers_dev = false
+main = "worker/index.ts"
+
+[[rules]]
+type = "Text"
+globs = [ "**/*.html", "**/*.md", "**/*.css" ]
+fallthrough = true
+
+[assets]
+directory = "dist/frontend"
+run_worker_first = true
+binding = "ASSETS"
+
+[triggers]
+crons = ["0 0 * * *"]
+
+[[routes]]
+pattern = "shz.al"
+custom_domain = true
+
+[[kv_namespaces]]
+binding = "PB"
+id = "435f8959b9de485ea48751ba557d90f5"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "pb-shz-al"
+
+[vars]
+DEPLOY_URL = "https://shz.al"
+REPO = "https://github.com/SharzyL/pastebin-worker"
+INDEX_PAGE_TITLE = "Pastebin Worker"
+DEFAULT_EXPIRATION = "7d"
+MAX_EXPIRATION = "30d"

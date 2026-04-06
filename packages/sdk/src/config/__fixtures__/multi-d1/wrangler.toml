@@ -1,0 +1,21 @@
+# Synthetic fixture: multiple D1 databases (Creek takes first, warns about rest)
+name = "multi-db-app"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+
+[[d1_databases]]
+binding = "PRIMARY_DB"
+database_name = "main"
+database_id = "aaaa-bbbb"
+
+[[d1_databases]]
+binding = "ANALYTICS_DB"
+database_name = "analytics"
+database_id = "cccc-dddd"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "eeee-ffff"
+
+[ai]
+binding = "AI"

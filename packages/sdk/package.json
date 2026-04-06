@@ -1,0 +1,66 @@
+{
+  "name": "@solcreek/sdk",
+  "version": "0.1.0-alpha.5",
+  "description": "TypeScript SDK for the Creek deployment platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "default": "./dist/config/index.js"
+    },
+    "./framework": {
+      "types": "./dist/framework/index.d.ts",
+      "default": "./dist/framework/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "creek",
+    "deployment",
+    "cloudflare",
+    "workers",
+    "sdk"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/sdk"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.2"
+  }
+}

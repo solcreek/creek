@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/SharzyL/pastebin-worker",
+  "license": "MIT",
+  "description": "Open-source pastebin on Workers + KV + R2",
+  "expectedBindings": [
+    { "type": "kv", "name": "PB" },
+    { "type": "r2", "name": "R2" }
+  ],
+  "expectedFramework": null
+}
