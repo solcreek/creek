@@ -1,0 +1,47 @@
+{
+  "name": "create-creek-app",
+  "version": "0.1.0",
+  "description": "Create a new Creek project from a template",
+  "type": "module",
+  "bin": {
+    "create-creek-app": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "creek",
+    "create",
+    "scaffold",
+    "template",
+    "cloudflare",
+    "workers",
+    "d1"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/create-creek-app"
+  },
+  "dependencies": {
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "giget": "^2.0.0",
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.1"
+  }
+}

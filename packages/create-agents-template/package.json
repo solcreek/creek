@@ -1,0 +1,35 @@
+{
+  "name": "create-agents-template",
+  "version": "0.0.0-dev.0",
+  "description": "Create AI agent templates — sites, apps, workflows, and connectors",
+  "type": "module",
+  "bin": {
+    "create-agents-template": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "echo 'placeholder'",
+    "test": "echo 'placeholder'"
+  },
+  "keywords": [
+    "agents",
+    "template",
+    "ai",
+    "workflow",
+    "deploy",
+    "cloudflare",
+    "workers",
+    "creek"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/create-agents-template"
+  }
+}

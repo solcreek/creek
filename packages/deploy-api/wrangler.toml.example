@@ -1,0 +1,19 @@
+name = "creek-deploy-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "BUILD_STATUS"
+id = ""  # wrangler kv namespace list
+
+[[services]]
+binding = "REMOTE_BUILDER"
+service = "creek-remote-builder"
+
+[vars]
+SANDBOX_API_URL = ""           # e.g. "https://sandbox-api.yourdomain.dev"
+ALLOWED_ORIGINS = "http://localhost:3000"  # add your production domains
+
+# Secrets — set via `wrangler secret put`:
+# INTERNAL_SECRET

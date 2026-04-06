@@ -1,0 +1,7 @@
+node_modules
+src
+scripts
+*.ts
+tsconfig.json
+package.json
+pnpm-lock.yaml
