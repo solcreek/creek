@@ -1,0 +1,25 @@
+name = "creek-sandbox-dispatch"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+workers_dev = true
+
+[[routes]]
+pattern = "*/*"
+zone_name = ""  # e.g. "creeksandbox.com"
+
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "creek-sandbox-workers"
+remote = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-sandbox-db"
+database_id = ""  # wrangler d1 list
+
+[[kv_namespaces]]
+binding = "KV"
+id = ""  # wrangler kv namespace list
+
+[vars]
+SANDBOX_DOMAIN = ""  # e.g. "creeksandbox.com"

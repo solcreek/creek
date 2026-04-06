@@ -1,0 +1,34 @@
+name = "creek-sandbox-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-sandbox-db"
+database_id = ""  # wrangler d1 list
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "creek-sandbox-assets"
+
+[vars]
+SANDBOX_DOMAIN = ""            # e.g. "creeksandbox.com"
+DISPATCH_NAMESPACE = "creek-sandbox-workers"
+CLOUDFLARE_ACCOUNT_ID = ""     # wrangler whoami
+SANDBOX_TTL_MINUTES = "60"
+
+# Custom domain
+[[routes]]
+pattern = ""  # e.g. "sandbox-api.yourdomain.dev"
+custom_domain = true
+
+# Stale sandbox cleanup (every 5 minutes)
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Secrets — set via `wrangler secret put`:
+# CLOUDFLARE_API_TOKEN
+# INTERNAL_SECRET
+# IP_HASH_SALT
