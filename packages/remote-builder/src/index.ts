@@ -4,10 +4,12 @@
  * GET  /         → health check (wakes container)
  * POST /build    → build only, return bundle JSON
  * POST /deploy   → build + deploy to Creek API, return live URL
+ * queue()        → web-deploy: build + sandbox deploy + KV status update
  */
 
 import { Container } from "@cloudflare/containers";
 import { deployToCreek } from "./creek-api.js";
+import { handleWebBuild } from "./web-build.js";
 
 export class BuildContainer extends Container {
   defaultPort = 8080;
@@ -16,7 +18,9 @@ export class BuildContainer extends Container {
 
 type Env = {
   BUILD_CONTAINER: DurableObjectNamespace<BuildContainer>;
+  BUILD_STATUS?: KVNamespace;
   INTERNAL_SECRET?: string;
+  SANDBOX_API_URL?: string;
 };
 
 export default {
@@ -135,6 +139,35 @@ export default {
           message: err instanceof Error ? err.message : String(err),
         },
       }, { headers: corsHeaders() });
+    }
+  },
+
+  // Queue consumer: web-deploy build requests
+  async queue(batch: MessageBatch, env: Env): Promise<void> {
+    for (const msg of batch.messages) {
+      const data = msg.body as any;
+      if (!data.buildId || !env.BUILD_STATUS || !env.SANDBOX_API_URL) {
+        msg.ack();
+        continue;
+      }
+
+      const container = getContainer(env);
+      const buildFn = async (req: any) => {
+        const buildRes = await container.fetch("http://container:8080/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        });
+        return buildRes.json();
+      };
+
+      try {
+        await handleWebBuild(data, { BUILD_STATUS: env.BUILD_STATUS, SANDBOX_API_URL: env.SANDBOX_API_URL!, INTERNAL_SECRET: env.INTERNAL_SECRET }, buildFn);
+        msg.ack();
+      } catch {
+        // Let Queue retry
+        msg.retry();
+      }
     }
   },
 };
