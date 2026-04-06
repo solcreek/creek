@@ -78,6 +78,7 @@ export default function ChangelogPage() {
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
             <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>
             <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
+            <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
             <a href="/changelog" className="text-foreground">Changelog</a>
             <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
           </div>

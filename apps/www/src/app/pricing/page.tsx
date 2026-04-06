@@ -86,6 +86,7 @@ export default function PricingPage() {
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
             <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>
             <a href="/pricing" className="text-foreground">Pricing</a>
+            <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
             <a href="/changelog" className="hover:text-foreground transition-colors">Changelog</a>
             <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
           </div>
