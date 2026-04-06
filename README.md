@@ -80,15 +80,15 @@ Creek detects your framework, builds your project, and deploys it.
 No `creek.toml`, no `wrangler.toml`, no `vercel.json`.
 
 ```bash
-cd my-next-app
+cd my-vite-app
 npx creek deploy
-#  Detected: Next.js (SSR) + monorepo
+#  Detected: Vite (React)
 #  Building...
 #  Deploying to edge...
-#  Live → https://my-next-app-myteam.bycreek.com
+#  Live → https://my-vite-app-myteam.bycreek.com
 ```
 
-Supports: **Next.js** · **React** · **Vue** · **Svelte** · **Astro** · **Nuxt** · **Remix** · **Solid** · **TanStack Start** · **Hono** · static HTML
+Supports: **React** · **Vue** · **Svelte** · **Astro** · **Solid** · **Hono** · **TanStack Start** · static HTML · Next.js (WIP) · Nuxt (WIP) · Remix (WIP)
 
 ---
 
@@ -119,7 +119,7 @@ Every deploy runs on Cloudflare's global edge — 300+ locations, millisecond co
 - **Per-tenant V8 isolate isolation** via Workers for Platforms
 - **Built-in database** (D1), object storage (R2), key-value (KV)
 - **Zero egress fees** — unlimited bandwidth on paid plans
-- **SSR at the edge** — Next.js, Nuxt, SvelteKit with full SSR support on Workers
+- **SSR at the edge** — framework SSR on Workers (Next.js, Nuxt, SvelteKit — WIP)
 
 ---
 
