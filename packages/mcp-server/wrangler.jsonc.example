@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "creek-mcp-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Stateless protocol translator — all logic in sandbox-api and control-plane.
+
+  "vars": {
+    "SANDBOX_API_URL": "",       // e.g. "https://sandbox-api.yourdomain.dev"
+    "CONTROL_PLANE_URL": ""      // e.g. "https://api.yourdomain.dev"
+  }
+
+  // Secrets — set via `wrangler secret put`:
+  // INTERNAL_SECRET
+}
