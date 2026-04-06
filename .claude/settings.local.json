@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api:*)",
+      "Bash(pnpm turbo:*)",
+      "Bash(pnpm -r --filter @solcreek/cli run build)",
+      "WebFetch(domain:alchemy.run)",
+      "Bash(pnpm -r --filter @solcreek/control-plane run build)"
+    ]
+  }
+}

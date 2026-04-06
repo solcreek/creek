@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.wrangler/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.env.production
+.dev.vars
+
+# Production wrangler configs (contain account/resource IDs)
+# Use wrangler.toml.example as template
+packages/*/wrangler.toml
+packages/*/wrangler.jsonc
+apps/*/wrangler.toml
+apps/*/wrangler.jsonc
+# Exception: test fixtures are safe (third-party project configs)
+!packages/sdk/src/config/__fixtures__/**/wrangler.*
+
+# Internal planning docs
+product-planning/
+
+# Build output
+.next/
+.open-next/
+.source/
