@@ -1,0 +1,179 @@
+interface Env {
+  DISPATCHER: {
+    get(name: string): { fetch(request: Request): Promise<Response> };
+  };
+  DB: D1Database;
+  CREEK_DOMAIN: string;
+}
+
+interface ParsedHostname {
+  type: "production" | "branch" | "deployment" | "custom";
+  team?: string;
+  project?: string;
+  branch?: string;
+  deployId?: string;
+  customHostname?: string;
+}
+
+// Cache team slugs (refreshed every 5 minutes)
+let teamSlugsCache: string[] = [];
+let teamSlugsCacheTime = 0;
+const TEAM_CACHE_TTL = 5 * 60 * 1000;
+
+async function getTeamSlugs(db: D1Database): Promise<string[]> {
+  if (Date.now() - teamSlugsCacheTime < TEAM_CACHE_TTL) return teamSlugsCache;
+  const rows = await db
+    .prepare("SELECT slug FROM teams ORDER BY length(slug) DESC")
+    .all<{ slug: string }>();
+  teamSlugsCache = rows.results.map((r) => r.slug);
+  teamSlugsCacheTime = Date.now();
+  return teamSlugsCache;
+}
+
+async function parseHostname(
+  hostname: string,
+  domain: string,
+  db: D1Database,
+): Promise<ParsedHostname> {
+  const suffix = `.${domain}`;
+  if (!hostname.endsWith(suffix)) {
+    return { type: "custom", customHostname: hostname };
+  }
+
+  const sub = hostname.slice(0, -suffix.length);
+  if (!sub || sub.includes(".")) {
+    return { type: "custom", customHostname: hostname };
+  }
+
+  // Try to match a team slug from the right
+  const teams = await getTeamSlugs(db);
+  for (const team of teams) {
+    if (!sub.endsWith(`-${team}`)) continue;
+    const rest = sub.slice(0, -(team.length + 1));
+    if (!rest) continue;
+
+    // Check for branch preview: {project}-git-{branch}
+    const gitIdx = rest.lastIndexOf("-git-");
+    if (gitIdx !== -1) {
+      return {
+        type: "branch",
+        team,
+        project: rest.slice(0, gitIdx),
+        branch: rest.slice(gitIdx + 5),
+      };
+    }
+
+    // Check for deployment preview: {project}-{8hexchars}
+    const lastDash = rest.lastIndexOf("-");
+    if (lastDash !== -1) {
+      const candidate = rest.slice(lastDash + 1);
+      if (/^[0-9a-f]{8}$/.test(candidate)) {
+        return {
+          type: "deployment",
+          team,
+          project: rest.slice(0, lastDash),
+          deployId: candidate,
+        };
+      }
+    }
+
+    // Production: {project}
+    return { type: "production", team, project: rest };
+  }
+
+  return { type: "custom", customHostname: hostname };
+}
+
+async function resolveScriptName(
+  parsed: ParsedHostname,
+  db: D1Database,
+): Promise<string | null> {
+  switch (parsed.type) {
+    case "production": {
+      const row = await db
+        .prepare(
+          `SELECT p.production_deployment_id FROM projects p
+           JOIN teams t ON p.team_id = t.id
+           WHERE p.slug = ? AND t.slug = ?`,
+        )
+        .bind(parsed.project, parsed.team)
+        .first<{ production_deployment_id: string | null }>();
+      if (!row?.production_deployment_id) return null;
+      return `${parsed.project}-${parsed.team}`;
+    }
+
+    case "branch": {
+      const row = await db
+        .prepare(
+          `SELECT d.id FROM deployments d
+           JOIN projects p ON d.project_id = p.id
+           JOIN teams t ON p.team_id = t.id
+           WHERE p.slug = ? AND t.slug = ? AND d.branch = ?
+             AND d.status = 'active'
+           ORDER BY d.created_at DESC LIMIT 1`,
+        )
+        .bind(parsed.project, parsed.team, parsed.branch)
+        .first<{ id: string }>();
+      if (!row) return null;
+      return `${parsed.project}-git-${parsed.branch}-${parsed.team}`;
+    }
+
+    case "deployment":
+      return `${parsed.project}-${parsed.deployId}-${parsed.team}`;
+
+    case "custom": {
+      const row = await db
+        .prepare(
+          `SELECT p.slug, t.slug as team_slug FROM custom_domains cd
+           JOIN projects p ON cd.project_id = p.id
+           JOIN teams t ON p.team_id = t.id
+           WHERE cd.hostname = ? AND cd.status = 'active'`,
+        )
+        .bind(parsed.customHostname)
+        .first<{ slug: string; team_slug: string }>();
+      if (!row) return null;
+      return `${row.slug}-${row.team_slug}`;
+    }
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const hostname = new URL(request.url).hostname;
+
+    // Edge cache (GET only)
+    if (request.method === "GET") {
+      const cached = await caches.default.match(request);
+      if (cached) return cached;
+    }
+
+    const parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
+    const scriptName = await resolveScriptName(parsed, env.DB);
+
+    if (!scriptName) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    try {
+      const userWorker = env.DISPATCHER.get(scriptName);
+      const response = await userWorker.fetch(request);
+
+      if (request.method === "GET" && response.ok) {
+        const cc = response.headers.get("Cache-Control");
+        if (cc && (cc.includes("s-maxage") || cc.includes("max-age"))) {
+          await caches.default.put(request, response.clone());
+        }
+      }
+
+      return response;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.startsWith("Worker not found")) {
+        return new Response(`Deployment '${scriptName}' not found`, {
+          status: 404,
+        });
+      }
+      return new Response(`Error: ${message}`, { status: 500 });
+    }
+  },
+};
