@@ -259,7 +259,7 @@ describe("D1Database interface compatibility", () => {
 
   test("throws when DB is not configured", () => {
     _setEnv({});
-    expect(() => db.prepare("SELECT 1")).toThrow("Database (D1) is not enabled");
+    expect(() => db.prepare("SELECT 1")).toThrow("Database is not enabled");
   });
 });
 

@@ -18,9 +18,9 @@ export const CreekConfigSchema = z.object({
     worker: z.string().optional(),
   }).default({}),
   resources: z.object({
-    d1: z.boolean().default(false),
-    kv: z.boolean().default(false),
-    r2: z.boolean().default(false),
+    database: z.boolean().default(false),
+    cache: z.boolean().default(false),
+    storage: z.boolean().default(false),
     ai: z.boolean().default(false),
   }).default({}),
 });

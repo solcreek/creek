@@ -101,10 +101,11 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
   const config = parseConfig(toml);
   const bindings: BindingDeclaration[] = [];
 
-  if (config.resources.d1) bindings.push({ type: "d1", name: BINDING_NAMES.d1 });
-  if (config.resources.r2) bindings.push({ type: "r2", name: BINDING_NAMES.r2 });
-  if (config.resources.kv) bindings.push({ type: "kv", name: BINDING_NAMES.kv });
-  if (config.resources.ai) bindings.push({ type: "ai", name: BINDING_NAMES.ai });
+  // Semantic config names → CF-native binding types
+  if (config.resources.database) bindings.push({ type: "d1", name: BINDING_NAMES.d1 });
+  if (config.resources.storage)  bindings.push({ type: "r2", name: BINDING_NAMES.r2 });
+  if (config.resources.cache)    bindings.push({ type: "kv", name: BINDING_NAMES.kv });
+  if (config.resources.ai)       bindings.push({ type: "ai", name: BINDING_NAMES.ai });
 
   return {
     source: "creek.toml",

@@ -133,7 +133,7 @@ describe("fromCreekConfig", () => {
   test("converts resources booleans to bindings with canonical names", () => {
     writeFileSync(
       join(cwd, "creek.toml"),
-      `[project]\nname = "my-app"\n\n[resources]\nd1 = true\nr2 = true\nkv = false\nai = true\n`,
+      `[project]\nname = "my-app"\n\n[resources]\ndatabase = true\nstorage = true\ncache = false\nai = true\n`,
     );
 
     const config = resolveConfig(cwd);
@@ -283,7 +283,7 @@ describe("formatDetectionSummary", () => {
   test("creek.toml with framework + resources", () => {
     writeFileSync(
       join(cwd, "creek.toml"),
-      `[project]\nname = "app"\nframework = "react-router"\n\n[resources]\nd1 = true\n`,
+      `[project]\nname = "app"\nframework = "react-router"\n\n[resources]\ndatabase = true\n`,
     );
     const config = resolveConfig(cwd);
     expect(formatDetectionSummary(config)).toBe("creek.toml (React Router + D1)");

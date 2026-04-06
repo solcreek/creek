@@ -29,7 +29,7 @@ describe("TEMPLATES", () => {
   });
 
   it("capabilities are valid strings", () => {
-    const validCaps = ["d1", "kv", "r2", "ai", "realtime", "cron", "queue", "email", "ftp"];
+    const validCaps = ["database", "cache", "storage", "ai", "realtime", "cron", "queue", "email", "ftp"];
     for (const t of TEMPLATES) {
       for (const cap of t.capabilities) {
         expect(validCaps).toContain(cap);

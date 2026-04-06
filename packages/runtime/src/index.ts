@@ -178,7 +178,7 @@ function createDbProxy(): CreekDatabase {
       const binding = env.DB as D1Database | undefined;
       if (!binding) {
         throw new Error(
-          "[creek] Database (D1) is not enabled. Add `d1 = true` to [resources] in creek.toml",
+          "[creek] Database is not enabled. Add `database = true` to [resources] in creek.toml",
         );
       }
 

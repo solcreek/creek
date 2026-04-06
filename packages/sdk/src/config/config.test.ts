@@ -10,9 +10,9 @@ name = "my-app"
     expect(config.project.name).toBe("my-app");
     expect(config.build.command).toBe("npm run build");
     expect(config.build.output).toBe("dist");
-    expect(config.resources.d1).toBe(false);
-    expect(config.resources.r2).toBe(false);
-    expect(config.resources.kv).toBe(false);
+    expect(config.resources.database).toBe(false);
+    expect(config.resources.storage).toBe(false);
+    expect(config.resources.cache).toBe(false);
     expect(config.resources.ai).toBe(false);
   });
 
@@ -27,18 +27,18 @@ command = "pnpm build"
 output = "build/client"
 
 [resources]
-d1 = true
-r2 = true
-kv = false
+database = true
+storage = true
+cache = false
 ai = true
 `);
     expect(config.project.name).toBe("my-saas");
     expect(config.project.framework).toBe("react-router");
     expect(config.build.command).toBe("pnpm build");
     expect(config.build.output).toBe("build/client");
-    expect(config.resources.d1).toBe(true);
-    expect(config.resources.r2).toBe(true);
-    expect(config.resources.kv).toBe(false);
+    expect(config.resources.database).toBe(true);
+    expect(config.resources.storage).toBe(true);
+    expect(config.resources.cache).toBe(false);
     expect(config.resources.ai).toBe(true);
   });
 
@@ -56,7 +56,7 @@ name = "My App"
 [project]
 name = "simple"
 `);
-    expect(config.resources).toEqual({ d1: false, r2: false, kv: false, ai: false });
+    expect(config.resources).toEqual({ database: false, storage: false, cache: false, ai: false });
   });
 
   test("defaults build section when omitted", () => {
