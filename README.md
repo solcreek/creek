@@ -69,7 +69,7 @@ name = "my-app"
 worker = "worker/index.ts"
 
 [resources]
-d1 = true   # Creek provisions the database and realtime service automatically.
+database = true   # Creek provisions the database and realtime service automatically.
 ```
 
 ---

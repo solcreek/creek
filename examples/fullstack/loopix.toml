@@ -7,5 +7,5 @@ output = "dist"
 worker = "dist/worker.js"
 
 [resources]
-d1 = true
-kv = true
+database = true
+cache = true

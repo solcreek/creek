@@ -6,7 +6,7 @@ command = "npx vite build --mode production"
 output = "dist"
 
 [resources]
-d1 = false
-r2 = false
-kv = false
+database = false
+storage = false
+cache = false
 ai = false

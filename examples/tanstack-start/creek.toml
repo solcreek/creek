@@ -7,6 +7,6 @@ command = "npm run build"
 output = "dist"
 
 [resources]
-d1 = false
-kv = false
-r2 = false
+database = false
+cache = false
+storage = false

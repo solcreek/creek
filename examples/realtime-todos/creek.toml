@@ -7,4 +7,4 @@ output = "dist"
 worker = "worker/index.ts"
 
 [resources]
-d1 = true
+database = true
