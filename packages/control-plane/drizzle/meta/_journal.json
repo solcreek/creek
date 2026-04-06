@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1774485892145,
+      "tag": "0000_curvy_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774738120535,
+      "tag": "0001_pale_rumiko_fujikawa",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+name = "creek-control-plane"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-db"
+database_id = ""  # wrangler d1 list
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "creek-assets"
+
+[[kv_namespaces]]
+binding = "BUILD_STATUS"
+id = ""  # wrangler kv namespace list
+
+[[services]]
+binding = "REMOTE_BUILDER"
+service = "creek-remote-builder"
+
+[vars]
+CREEK_DOMAIN = ""              # e.g. "bycreek.com" — your tenant domain
+SANDBOX_API_URL = ""           # e.g. "https://sandbox-api.yourdomain.dev"
+CREEK_REALTIME_URL = ""        # e.g. "https://rt.yourdomain.dev"
+CLOUDFLARE_ZONE_ID = ""        # wrangler zones list
+DISPATCH_NAMESPACE = "creek-user-workers"
+CLOUDFLARE_ACCOUNT_ID = ""     # wrangler whoami
+
+# Custom domain for API
+[[routes]]
+pattern = ""  # e.g. "api.yourdomain.dev"
+custom_domain = true
+
+# Stale deployment sweeper + resource cleanup (every 5 minutes)
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Secrets — set via `wrangler secret put`:
+# CLOUDFLARE_API_TOKEN
+# BETTER_AUTH_SECRET
+# BETTER_AUTH_URL
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
+# ENCRYPTION_KEY
+# IP_HASH_SALT
+# INTERNAL_SECRET
