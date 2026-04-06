@@ -31,6 +31,7 @@ export interface Env {
   // Web deploy (public, no auth required)
   BUILD_STATUS: KVNamespace;
   REMOTE_BUILDER: Fetcher;
+  WEB_BUILDS: Queue;
   SANDBOX_API_URL: string;
   INTERNAL_SECRET: string;
 
