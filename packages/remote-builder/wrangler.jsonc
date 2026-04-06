@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "creek-remote-builder",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "kv_namespaces": [
+    { "binding": "BUILD_STATUS", "id": "5f22449ab2094383a3c95fb80aa10fa2" }
+  ],
+
+  // Queue consumer: receives web-deploy build requests from control-plane
+  "queues": {
+    "consumers": [
+      {
+        "queue": "creek-web-builds",
+        "max_batch_size": 1,
+        "max_concurrency": 3,
+        "max_retries": 2,
+        "dead_letter_queue": "creek-web-builds-dlq"
+      }
+    ]
+  },
+
+  "vars": {
+    "SANDBOX_API_URL": "https://sandbox-api.creek.dev"
+  },
+
+  "containers": [
+    {
+      "class_name": "BuildContainer",
+      "image": "../build-container/Dockerfile",
+      "max_instances": 3,
+      "instance_type": "standard-2"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "BuildContainer",
+        "name": "BUILD_CONTAINER"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "new_sqlite_classes": ["BuildContainer"],
+      "tag": "v1"
+    }
+  ]
+}
