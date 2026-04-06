@@ -90,17 +90,31 @@ describe("handleWebBuild — happy path", () => {
     expect(s.sandboxId).toBe("sb-1");
   });
 
-  test("build + sandbox queued → KV status deploying with sandboxStatusUrl", async () => {
+  test("build + sandbox queued → polls until active → KV status active", async () => {
     const env = createEnv();
-    globalThis.fetch = vi.fn(async () =>
-      Response.json({ sandboxId: "sb-2", status: "queued", previewUrl: "https://sb-2.creeksandbox.com", statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-2/status", expiresAt: "2026-04-06T23:00:00Z" })
-    ) as any;
+    const origSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation((fn: any) => origSetTimeout(fn, 0));
+
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/sandbox/deploy")) {
+        return Response.json({ sandboxId: "sb-2", status: "queued", previewUrl: "https://sb-2.creeksandbox.com", statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-2/status", expiresAt: "2026-04-06T23:00:00Z" });
+      }
+      if (urlStr.includes("/status")) {
+        callCount++;
+        return Response.json({ status: callCount >= 3 ? "active" : "queued" });
+      }
+      return new Response("", { status: 404 });
+    }) as any;
 
     await handleWebBuild({ buildId: "b-2", repoUrl: "https://github.com/solcreek/templates", path: "landing" }, env, successBuild());
 
+    vi.restoreAllMocks();
+
     const s = getStatus(env, "b-2");
-    expect(s.status).toBe("deploying");
-    expect(s.sandboxStatusUrl).toBe("https://sandbox-api.creek.dev/api/sandbox/sb-2/status");
+    expect(s.status).toBe("active");
+    expect(callCount).toBeGreaterThanOrEqual(3);
   });
 });
 

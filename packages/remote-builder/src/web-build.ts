@@ -107,6 +107,7 @@ export async function handleWebBuild(
 
   const sandbox = (await sandboxRes.json()) as any;
 
+  // Write intermediate status with sandbox info
   await updateKV(env, buildId, {
     status: sandbox.status === "active" ? "active" : "deploying",
     sandboxId: sandbox.sandboxId,
@@ -114,6 +115,41 @@ export async function handleWebBuild(
     expiresAt: sandbox.expiresAt,
     sandboxStatusUrl: sandbox.statusUrl,
   });
+
+  // If not yet active, poll until terminal state.
+  // Queue consumer has no time limit — safe to poll here.
+  if (sandbox.status !== "active" && sandbox.status !== "failed" && sandbox.statusUrl) {
+    let finalStatus = sandbox;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const statusRes = await fetch(sandbox.statusUrl);
+        if (statusRes.ok) {
+          finalStatus = await statusRes.json();
+          if (finalStatus.status === "active" || finalStatus.status === "failed") break;
+        }
+      } catch {
+        // Network hiccup — retry
+      }
+    }
+
+    if (finalStatus.status === "active") {
+      await updateKV(env, buildId, {
+        status: "active",
+        sandboxId: sandbox.sandboxId,
+        previewUrl: sandbox.previewUrl,
+        expiresAt: sandbox.expiresAt,
+      });
+    } else if (finalStatus.status === "failed") {
+      await updateKV(env, buildId, {
+        status: "failed",
+        error: finalStatus.errorMessage || "Sandbox deploy failed",
+        failedStep: "deploy",
+      });
+    }
+    // If still not terminal after 60 polls (2 min), status stays "deploying"
+    // with sandboxStatusUrl for client fallback
+  }
 }
 
 async function updateKV(
