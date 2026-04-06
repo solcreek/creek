@@ -1,6 +1,0 @@
-{
-  "private": true,
-  "dependencies": {
-    "@opennextjs/cloudflare": "^1.18.0"
-  }
-}

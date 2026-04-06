@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "creek-www" generated at 2026-04-01T21:30:39.425Z.
