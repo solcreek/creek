@@ -1,0 +1,10 @@
+[project]
+name = "realtime-todos"
+
+[build]
+command = "npm run build"
+output = "dist"
+worker = "worker/index.ts"
+
+[resources]
+d1 = true

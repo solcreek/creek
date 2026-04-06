@@ -1,0 +1,12 @@
+[project]
+name = "tanstack-start"
+framework = "vite-react"
+
+[build]
+command = "npm run build"
+output = "dist"
+
+[resources]
+d1 = false
+kv = false
+r2 = false

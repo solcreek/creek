@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Creek Realtime Todos</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #0a0a0a;
+        color: #e5e5e5;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* Split layout — fills viewport exactly */
+      .split-layout {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        height: 100vh;
+      }
+
+      /* App chrome (browser bar) */
+      .app-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: #161616;
+        border-top: 1px solid #222;
+        border-bottom: 1px solid #222;
+        font-size: 11px;
+        font-family: monospace;
+        color: #555;
+        line-height: 1;
+      }
+      .db-chrome { background: #0d1117; border-top: 1px solid #1a2332; border-bottom: 1px solid #1a2332; }
+      .chrome-dots { display: flex; gap: 5px; align-items: center; }
+      .chrome-dots span:nth-child(1) { width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; flex-shrink: 0; }
+      .chrome-dots span:nth-child(2) { width: 8px; height: 8px; border-radius: 50%; background: #febc2e; flex-shrink: 0; }
+      .chrome-dots span:nth-child(3) { width: 8px; height: 8px; border-radius: 50%; background: #28c840; flex-shrink: 0; }
+      .app-chrome { position: relative; }
+      .chrome-url { position: absolute; left: 50%; transform: translateX(-50%); }
+
+      /* Status bar */
+      .status-bar { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #555; margin-left: auto; white-space: nowrap; }
+      .dot { width: 6px; height: 6px; border-radius: 50%; }
+      .dot.connected { background: #22c55e; }
+      .dot.disconnected { background: #555; }
+
+      /* App panel */
+      .app-panel { display: flex; flex-direction: column; overflow: hidden; }
+      .app-content {
+        padding: 0.75rem 1.2rem;
+        flex: 1;
+        max-width: 520px;
+        margin: 0 auto;
+        width: 100%;
+        overflow-y: auto;
+      }
+
+      /* Todo input */
+      .todo-input { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
+      .todo-input input {
+        flex: 1; padding: 0.45rem 0.6rem; border: 1px solid #2a2a2a; border-radius: 0.35rem;
+        background: #111; color: #e5e5e5; font-size: 0.8rem; outline: none;
+      }
+      .todo-input input:focus { border-color: #60d0e0; }
+      .todo-input button {
+        padding: 0.45rem 0.7rem; border: 1px solid #2a2a2a; border-radius: 0.35rem;
+        background: #141414; color: #e5e5e5; cursor: pointer; font-size: 0.78rem;
+      }
+      .todo-input button:hover { border-color: #60d0e0; color: #60d0e0; }
+
+      /* Todo list */
+      .todo-list { list-style: none; }
+      .todo-list li {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.35rem 0; border-bottom: 1px solid #151515; font-size: 0.82rem;
+        transition: opacity 0.15s;
+      }
+      .todo-list label { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; flex: 1; }
+      .todo-list li.completed .todo-text { text-decoration: line-through; color: #444; }
+      .delete-btn {
+        background: none; border: none; color: #333; cursor: pointer; font-size: 0.85rem;
+        padding: 0.1rem 0.3rem; opacity: 0; transition: opacity 0.15s;
+      }
+      .todo-list li:hover .delete-btn { opacity: 1; }
+      .delete-btn:hover { color: #ef4444; }
+      .empty { color: #444; text-align: center; padding: 1.5rem 0; font-size: 0.78rem; }
+
+      /* Share */
+      .share-row { margin-top: 0.6rem; display: flex; justify-content: center; }
+      .share-btn {
+        padding: 0.3rem 0.7rem; border: 1px solid #222; border-radius: 0.3rem;
+        background: transparent; color: #555; cursor: pointer; font-size: 0.7rem;
+      }
+      .share-btn:hover { border-color: #60d0e0; color: #60d0e0; }
+
+      /* Database panel */
+      .db-panel { display: flex; flex-direction: column; background: #0d1117; overflow: hidden; }
+      .db-view { padding: 0.5rem 0.75rem; flex: 1; overflow-y: auto; }
+      .db-header {
+        display: flex; align-items: center; gap: 0.4rem;
+        margin-bottom: 0.4rem; font-size: 0.7rem;
+      }
+      .db-icon { width: 8px; height: 8px; border-radius: 50%; background: #f97316; }
+      .db-title { font-weight: 600; font-size: 0.82rem; }
+      .db-meta { color: #555; font-size: 0.65rem; margin-left: auto; font-family: monospace; }
+
+      /* Database table */
+      .db-table-wrap { overflow-x: auto; }
+      .db-table {
+        width: 100%; border-collapse: collapse;
+        font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.62rem;
+      }
+      .db-table th {
+        text-align: left; padding: 0.25rem 0.5rem; color: #484f58;
+        border-bottom: 1px solid #1a2332; font-weight: 500; white-space: nowrap;
+      }
+      .db-table td {
+        padding: 0.3rem 0.5rem; border-bottom: 1px solid #111827;
+        white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+      }
+      .cell-id { color: #484f58; }
+      .cell-text { color: #c9d1d9; }
+      .cell-bool { color: #7ee787; }
+      .cell-date { color: #484f58; }
+      .cell-empty { color: #333; text-align: center; padding: 1rem; }
+
+      /* Row flash animation */
+      .row-flash { animation: rowHighlight 0.8s ease-out; }
+      @keyframes rowHighlight {
+        0% { background-color: rgba(34, 197, 94, 0.3); }
+        100% { background-color: transparent; }
+      }
+
+      /* Loading skeleton */
+      .skeleton { animation: pulse 1.5s ease-in-out infinite; }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.6; }
+      }
+      .skeleton-line {
+        height: 12px; background: #1a1a1a; border-radius: 4px; margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

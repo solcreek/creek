@@ -1,0 +1,6 @@
+[project]
+name = "dashboard"
+
+[build]
+command = "npm run build"
+output = "dist"

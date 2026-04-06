@@ -1,0 +1,11 @@
+[project]
+name = "fullstack-demo"
+
+[build]
+command = "npm run build"
+output = "dist"
+worker = "dist/worker.js"
+
+[resources]
+d1 = true
+kv = true

@@ -1,0 +1,20 @@
+{
+  "name": "example-fullstack",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node build-worker.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "creek": "file:../../packages/creek",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "esbuild": "^0.25.1",
+    "vite": "^6.3.5"
+  }
+}
