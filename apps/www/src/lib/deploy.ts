@@ -63,18 +63,44 @@ export function useWebDeploy() {
 
       // Poll for status (statusUrl is relative, prepend API base)
       const fullStatusUrl = `${API_BASE}${statusUrl}`;
+      let sandboxStatusUrl: string | null = null;
+
       pollRef.current = setInterval(async () => {
         try {
+          // If we have a sandbox status URL, poll it directly for faster updates
+          if (sandboxStatusUrl) {
+            const sandboxRes = await fetch(sandboxStatusUrl);
+            if (sandboxRes.ok) {
+              const sandboxData = await sandboxRes.json();
+              if (sandboxData.status === "active" || sandboxData.status === "failed") {
+                setState((s) => ({
+                  ...s,
+                  status: sandboxData.status,
+                  error: sandboxData.errorMessage || null,
+                }));
+                if (pollRef.current) clearInterval(pollRef.current);
+                return;
+              }
+            }
+          }
+
+          // Also poll the control-plane status for build phase updates
           const statusRes = await fetch(fullStatusUrl);
           if (!statusRes.ok) return;
 
           const data = await statusRes.json();
+
+          // Capture sandboxStatusUrl when available
+          if (data.sandboxStatusUrl) {
+            sandboxStatusUrl = data.sandboxStatusUrl;
+          }
+
           setState((s) => ({
             ...s,
             status: data.status,
-            previewUrl: data.previewUrl || null,
-            sandboxId: data.sandboxId || null,
-            expiresAt: data.expiresAt || null,
+            previewUrl: data.previewUrl || s.previewUrl,
+            sandboxId: data.sandboxId || s.sandboxId,
+            expiresAt: data.expiresAt || s.expiresAt,
             error: data.error || null,
           }));
 
