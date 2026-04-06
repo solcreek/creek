@@ -1,0 +1,39 @@
+{
+  "name": "dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/api-key": "^1.5.6",
+    "@solcreek/ui": "workspace:*",
+    "@tanstack/react-query": "^5.75.0",
+    "@tanstack/react-router": "^1.168.4",
+    "@tanstack/react-router-devtools": "^1.166.11",
+    "better-auth": "^1.5.6",
+    "lucide-react": "^1.6.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@tanstack/router-plugin": "^1.167.5",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^29.0.1",
+    "msw": "^2.12.14",
+    "tailwindcss": "^4",
+    "typescript": "^5.8.2",
+    "vite": "^6.3.5"
+  }
+}

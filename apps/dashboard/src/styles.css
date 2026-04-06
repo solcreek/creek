@@ -1,0 +1,6 @@
+@import "@solcreek/ui/styles/globals.css";
+@source "../../../packages/ui/src";
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+}
