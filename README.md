@@ -1,67 +1,157 @@
 # Creek
 
-**Deploy to the edge in seconds. No account required.**
+**Deploy to the edge. Realtime built in.**
 
 [![npm](https://img.shields.io/npm/v/creek/alpha?label=creek&color=blue)](https://www.npmjs.com/package/creek)
 [![SDK](https://img.shields.io/npm/v/@solcreek/sdk/alpha?label=sdk&color=blue)](https://www.npmjs.com/package/@solcreek/sdk)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-```bash
-npx creek deploy --demo
-```
+Creek is an open-source deployment platform on [Cloudflare Workers](https://workers.cloudflare.com/). One command deploys your full-stack app — with database, realtime sync, and edge performance — to 300+ locations worldwide.
 
-```
-  Deploying demo site...
-  Live in 8.3s -> https://a1b2c3d4.creeksandbox.com
+```bash
+npx creek deploy
 ```
 
 ---
 
-## What is Creek
+## Realtime in 6 lines
 
-Creek is an open-source deployment platform built entirely on [Cloudflare Workers for Platforms](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/). One command deploys your site to 300+ edge locations worldwide.
+WebSocket sync, optimistic updates, multi-user rooms. Zero boilerplate.
 
-- **Zero friction** -- deploy without an account, get a live URL in seconds
-- **Agent-first** -- structured JSON output, no CAPTCHAs, MCP-ready
-- **Cloudflare-native** -- runs on Workers, D1, R2, and KV with no abstraction tax
+**Server:**
+```typescript
+import { db } from "creek";
+import { room } from "creek/hono";
+
+app.use("/api/*", room());
+
+app.post("/api/todos", async (c) => {
+  const { text } = await c.req.json();
+  // db.mutate() auto-broadcasts to all connected clients. No WebSocket code.
+  await db.mutate(
+    "INSERT INTO todos (room_id, text) VALUES (?, ?)",
+    c.var.room, text
+  );
+  return c.json({ ok: true });
+});
+```
+
+**Client:**
+```tsx
+import { LiveRoom, useLiveQuery } from "creek/react";
+
+function App() {
+  return (
+    <LiveRoom id={roomId}>
+      <TodoApp />
+    </LiveRoom>
+  );
+}
+
+function TodoApp() {
+  // useLiveQuery auto-refetches when data changes. Optimistic updates with auto-rollback.
+  const { data: todos, mutate } = useLiveQuery("/api/todos");
+
+  const addTodo = (text) =>
+    mutate(
+      { method: "POST", path: "/api/todos", body: { text } },
+      (prev) => [{ text, completed: 0 }, ...prev],  // optimistic
+    );
+}
+```
+
+**Config:**
+```toml
+[project]
+name = "my-app"
+
+[build]
+worker = "worker/index.ts"
+
+[resources]
+d1 = true   # Creek provisions the database and realtime service automatically.
+```
+
+---
+
+## Zero config
+
+Creek detects your framework, builds your project, and deploys it.
+No `creek.toml`, no `wrangler.toml`, no `vercel.json`.
+
+```bash
+cd my-next-app
+npx creek deploy
+#  Detected: Next.js (SSR) + monorepo
+#  Building...
+#  Deploying to edge...
+#  Live → https://my-next-app-myteam.bycreek.com
+```
+
+Supports: **Next.js** · **React** · **Vue** · **Svelte** · **Astro** · **Nuxt** · **Remix** · **Solid** · **TanStack Start** · **Hono** · static HTML
+
+---
+
+## Built for AI agents
+
+The only deployment platform with a remote MCP server.
+Any AI agent can deploy with a single tool call, zero installation.
+
+```json
+{
+  "mcpServers": {
+    "creek": { "url": "https://mcp.creek.dev/mcp" }
+  }
+}
+```
+
+Agent-friendly by default:
+- `--json` output auto-enabled in non-TTY / CI
+- No CAPTCHAs — [Agent Challenge](https://creek.dev/docs/api#agent-challenge) for verified agent tokens
+- Breadcrumb hints in error responses guide agents to next steps
+
+---
+
+## Edge-native performance
+
+Every deploy runs on Cloudflare's global edge — 300+ locations, millisecond cold starts.
+
+- **Per-tenant V8 isolate isolation** via Workers for Platforms
+- **Built-in database** (D1), object storage (R2), key-value (KV)
+- **Zero egress fees** — unlimited bandwidth on paid plans
+- **SSR at the edge** — Next.js, Nuxt, SvelteKit with full SSR support on Workers
+
+---
+
+## Open source
+
+Apache 2.0 licensed. Self-host on your own Cloudflare account. No vendor lock-in.
+
+```bash
+git clone https://github.com/solcreek/creek.git
+cd creek && pnpm install
+# Copy wrangler.toml.example → wrangler.toml, fill in your CF account
+pnpm --filter @solcreek/control-plane deploy
+```
+
+The entire platform is open-source — CLI, control plane, dashboard, realtime, sandbox.
+Creek Cloud adds multi-tenant operations, billing, and abuse detection.
+
+---
 
 ## Quickstart
 
-### See it in action (no account needed)
-
 ```bash
+# See it in action (no account needed)
 npx creek deploy --demo
-```
 
-### Deploy your project
-
-```bash
+# Deploy your project
 cd my-vite-app
 npx creek deploy
-```
 
-Creek auto-detects your framework, runs the build, and deploys to a sandbox preview (60 min).
-
-### Deploy a directory
-
-```bash
+# Deploy a directory
 npx creek deploy ./dist
 ```
-
-Already built? Point Creek at any directory of static files.
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **10-second deploys** | From CLI to live URL on Cloudflare's global edge |
-| **Zero-config** | Auto-detects React, Vue, Svelte, Astro, and more |
-| **No account required** | Sandbox deploys work without signup or authentication |
-| **Agent-optimized** | `--json` output, structured API, no interactive prompts in CI |
-| **Framework detection** | Vite, Next.js, SvelteKit, Nuxt, Astro, Solid, TanStack Start |
-| **SSR support** | Server-side rendering on Workers via Static Assets API |
-| **Content scanning** | Phishing and abuse detection on sandbox deploys |
-| **Open source** | Apache 2.0 -- self-host on your own Cloudflare account |
 
 ## How It Works
 
@@ -243,10 +333,12 @@ We welcome contributions. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-Apache 2.0 -- see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).
 
-Commercial features (analytics, advanced abuse detection, SSO) are available under a separate license in `/ee`.
+Enterprise governance features (SSO, approval workflows, policy engine) will be available under a separate license in `/ee`.
 
 ---
+
+**[creek.dev](https://creek.dev)** · **[Docs](https://creek.dev/docs)** · **[Templates](https://templates.creek.dev)** · **[Discord](https://discord.gg/creek)**
 
 Built by [SolCreek](https://creek.dev).
