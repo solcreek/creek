@@ -1,0 +1,60 @@
+{
+  "name": "@solcreek/cli",
+  "version": "0.3.8",
+  "description": "CLI for the Creek deployment platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "creek",
+    "cli",
+    "deployment",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/cli"
+  },
+  "dependencies": {
+    "@solcreek/sdk": ">=0.1.0-alpha.5",
+    "ajv": "^8.17.1",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "esbuild": "^0.25.0",
+    "miniflare": "^4.20260317.3",
+    "smol-toml": "^1.3.1",
+    "ws": "^8.20.0"
+  },
+  "optionalDependencies": {
+    "@solcreek/adapter-creek": "*"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.19.15",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "hono": "^4.7.4",
+    "jsdom": "^29.0.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^5.8.2",
+    "vite": "^6.3.5"
+  }
+}

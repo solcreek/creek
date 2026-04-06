@@ -1,0 +1,55 @@
+{
+  "name": "creek",
+  "version": "0.3.11",
+  "description": "The Creek deployment platform — CLI and runtime",
+  "type": "module",
+  "bin": {
+    "creek": "./bin.js",
+    "ck": "./bin.js",
+    "crk": "./bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./react": {
+      "types": "./react.d.ts",
+      "default": "./react.js"
+    },
+    "./hono": {
+      "types": "./hono.d.ts",
+      "default": "./hono.js"
+    }
+  },
+  "files": [
+    "bin.js",
+    "index.js",
+    "index.d.ts",
+    "react.js",
+    "react.d.ts",
+    "hono.js",
+    "hono.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "creek",
+    "cli",
+    "deployment",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "SolCreek",
+  "license": "Apache-2.0",
+  "homepage": "https://creek.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/creek"
+  },
+  "dependencies": {
+    "@solcreek/cli": ">=0.3.7",
+    "@solcreek/runtime": "^0.2.3"
+  }
+}
