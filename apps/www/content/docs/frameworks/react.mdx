@@ -1,0 +1,60 @@
+---
+title: React (Vite)
+description: Deploy a Vite + React app to Creek.
+---
+
+## Quick Start
+
+```bash
+npm create vite@latest my-app -- --template react-ts
+cd my-app
+npm install
+npx creek deploy
+```
+
+Creek auto-detects Vite + React and deploys to a sandbox preview.
+
+## How It Works
+
+1. **Detection** — Creek reads `package.json` and finds `react` + `vite` dependencies
+2. **Build** — Runs `npm run build` (Vite outputs to `dist/`)
+3. **Upload** — Collects all files from `dist/` and uploads to Cloudflare's edge
+4. **Deploy** — Creates a Worker with SPA fallback routing
+
+## Configuration
+
+No configuration needed for standard Vite + React setups. Creek uses these defaults:
+
+| Setting | Value |
+|---------|-------|
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Render mode | SPA |
+| SPA fallback | `index.html` served for all non-file routes |
+
+Override in `creek.toml` if needed:
+
+```toml
+[project]
+name = "my-react-app"
+
+[build]
+command = "npm run build"
+output = "dist"
+```
+
+## What Gets Deployed
+
+All files in `dist/`:
+- `index.html` — entry point + SPA fallback
+- `assets/*.js` — hashed JavaScript bundles
+- `assets/*.css` — hashed CSS bundles
+- Static assets (images, fonts, etc.)
+
+## SPA Routing
+
+Creek serves `index.html` for any path that doesn't match a file. This means React Router, TanStack Router, and other client-side routers work out of the box.
+
+- `/about` → serves `index.html` (200)
+- `/assets/index-abc123.js` → serves the JS file (200)
+- `/favicon.ico` → serves the file (200)

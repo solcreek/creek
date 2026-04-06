@@ -1,0 +1,82 @@
+---
+title: Acceptable Use Policy
+description: Rules for using Creek services responsibly.
+---
+
+**Effective Date: March 28, 2026**
+
+This Acceptable Use Policy ("AUP") applies to all use of Creek services, including the deployment platform, sandbox, CLI, APIs, and MCP server. This AUP is part of Creek's [Terms of Service](/legal/terms).
+
+Violation of this AUP constitutes a material breach of the Terms of Service and may result in immediate suspension or termination of your access.
+
+## Core Principle
+
+Use Creek to build and deploy legitimate applications. Do not do anything that harms Creek, other users, or third parties.
+
+## Prohibited Content
+
+You may not deploy, host, or distribute content that:
+
+- **Phishing or fraud** -- impersonates another person, brand, or organization to deceive users or harvest credentials
+- **Malware** -- contains viruses, trojans, ransomware, spyware, or other malicious software
+- **Child exploitation** -- depicts or promotes the sexual exploitation of minors (CSAM). Creek reports all instances to NCMEC and relevant law enforcement
+- **Hate speech or violence** -- promotes hatred, discrimination, or violence against individuals or groups based on protected characteristics
+- **Non-consensual intimate content** -- includes deepfakes, synthetic, or real intimate imagery shared without the subject's consent
+- **Illegal goods or services** -- facilitates the sale of controlled substances, weapons, counterfeit goods, or other items prohibited by law
+- **Intellectual property infringement** -- violates any third party's copyright, trademark, trade secret, or other intellectual property rights
+- **Regulated data without authorization** -- processes protected health information (PHI/HIPAA), payment card data (PCI DSS), or other regulated data categories without a prior written agreement with Creek
+
+## Prohibited Activities
+
+You may not use Creek services to:
+
+- **Cryptocurrency mining** -- perform proof-of-work mining or similar computationally intensive operations
+- **Spam or unsolicited messaging** -- send bulk unsolicited communications or operate spam infrastructure
+- **Security attacks** -- conduct DDoS attacks, port scanning, vulnerability exploitation, or other security attacks against any system
+- **Circumvent limits** -- bypass rate limits, resource quotas, free tier restrictions, or other platform safeguards. Standard retry patterns that respect `Retry-After` headers and use exponential backoff are permitted
+- **Proxy or VPN hosting** -- operate proxy servers, VPN endpoints, or traffic relay services
+- **Storage-only use** -- use Creek solely as generic file storage or a CDN without deploying a web-accessible site. Static sites, single-page applications, and generated reports served via a URL are considered legitimate deployments
+- **Scraping or crawling** -- systematically harvest data from other services using Creek-hosted applications
+- **Account manipulation** -- create multiple accounts to circumvent restrictions or abuse free tier allocations
+- **Reverse engineering** -- decompile, disassemble, or reverse-engineer Creek's proprietary services (open-source components are governed by their respective licenses)
+- **Namespace squatting** -- register project names, subdomains, or custom domains in bad faith to resell or block others
+- **Violate AI safety mechanisms** -- bypass, extract, or disable safety mitigations in any AI-powered features
+- **Violate applicable law** -- engage in any activity that violates local, state, national, or international law
+
+## Sandbox-Specific Rules
+
+The sandbox environment (creeksandbox.com) has additional restrictions:
+
+- Sandbox is for legitimate preview and testing purposes only
+- Content is automatically scanned for policy violations at deploy time
+- Deployments that accumulate abuse reports may be automatically blocked
+- Rate limits apply per IP address, with different tiers for verified agents and human users
+- Each sandbox deployment is limited to 50 unique visitors
+
+## Enforcement
+
+Creek may take any of the following actions in response to AUP violations:
+
+1. **Warning** -- notify you of the violation and request correction
+2. **Content removal** -- remove or block the offending deployment
+3. **Suspension** -- temporarily suspend your access to the Services
+4. **Termination** -- permanently terminate your account
+
+For sandbox deployments, enforcement is automated: content scanning blocks policy-violating deploys at upload time, and community reports trigger automatic blocking after 2 or more reports.
+
+For all accounts (sandbox and production), if you believe an enforcement action was taken in error, contact abuse@creek.dev for review. Creek will respond to appeals within 5 business days.
+
+Creek reserves the right to remove any content or suspend any account for AUP violations. For non-AUP terminations, see the notice periods in the [Terms of Service](/legal/terms).
+
+## Reporting Violations
+
+To report a violation of this policy:
+
+- **Email:** abuse@creek.dev
+- **API:** `POST /api/sandbox/:id/report` (for sandbox deployments)
+
+We review all reports and take appropriate action.
+
+## Changes
+
+Creek may update this AUP at any time. Material changes will be communicated with at least 30 days' notice. Your continued use of the Services after the notice period constitutes acceptance.

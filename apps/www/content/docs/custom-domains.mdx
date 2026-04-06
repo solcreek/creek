@@ -1,0 +1,124 @@
+---
+title: Custom Domains
+description: Connect your own domain to a Creek project with automatic SSL.
+---
+
+## Overview
+
+Every Creek project gets a default URL like `my-app-my-team.bycreek.com`. You can also connect your own domain — Creek automatically provisions an SSL certificate and routes traffic to your project.
+
+## Add a Custom Domain
+
+```bash
+creek domains add app.example.com --project my-app
+```
+
+Creek will register the domain and provide DNS instructions:
+
+```
+✓ Added app.example.com (status: pending)
+
+  Point your DNS to Creek:
+    CNAME  app.example.com  →  cname.creek.dev
+
+  Or verify ownership first with a TXT record:
+    TXT  _cf-custom-hostname.app.example.com  →  4581f57c-...
+
+  Creek will automatically verify and provision SSL.
+  Run `creek domains ls --project my-app` to check status.
+```
+
+## Configure DNS
+
+Add a CNAME record at your DNS provider:
+
+| Type | Name | Target |
+|------|------|--------|
+| CNAME | `app.example.com` | `cname.creek.dev` |
+
+Once the CNAME is pointing to Creek, ownership verification and SSL provisioning happen automatically. This typically takes under a minute.
+
+## Check Status
+
+```bash
+creek domains ls --project my-app
+```
+
+```
+  ● app.example.com  active  (a91670d2)
+```
+
+Status values:
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Waiting for DNS verification |
+| `active` | Domain is live with SSL |
+| `failed` | Verification failed — check your DNS records |
+
+Creek checks pending domains automatically every few minutes. You can also trigger a check by viewing the domain:
+
+```bash
+creek domains ls --project my-app --json
+```
+
+## Remove a Domain
+
+```bash
+creek domains rm app.example.com --project my-app
+```
+
+This removes the domain from Creek and cleans up the SSL certificate. Remember to update your DNS records after removal.
+
+## Using `--project`
+
+All domain commands accept `--project <slug>` to specify which project to manage. If omitted, Creek reads the project name from `creek.toml` in the current directory.
+
+```bash
+# From the project directory (reads creek.toml)
+creek domains add app.example.com
+
+# From anywhere
+creek domains add app.example.com --project my-app
+```
+
+## Apex Domains
+
+To use a root domain (e.g., `example.com` without a subdomain), some DNS providers support CNAME flattening or ALIAS records at the apex. Set it to point to `cname.creek.dev` the same way.
+
+If your DNS provider doesn't support CNAME at the apex, use a subdomain like `www.example.com` instead.
+
+## Multiple Domains
+
+A project can have multiple custom domains. Each one gets its own SSL certificate.
+
+```bash
+creek domains add app.example.com --project my-app
+creek domains add staging.example.com --project my-app
+creek domains ls --project my-app
+```
+
+## JSON Output
+
+All domain commands support `--json` for scripting and CI/CD:
+
+```bash
+creek domains add app.example.com --project my-app --json
+```
+
+```json
+{
+  "ok": true,
+  "project": "my-app",
+  "domain": {
+    "id": "a916...",
+    "hostname": "app.example.com",
+    "status": "pending",
+    "cfCustomHostnameId": "7e78..."
+  },
+  "verification": {
+    "cname": { "name": "app.example.com", "target": "cname.creek.dev" },
+    "txt": { "type": "txt", "name": "_cf-custom-hostname.app.example.com", "value": "3aaf..." }
+  }
+}
+```

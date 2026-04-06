@@ -1,0 +1,379 @@
+---
+title: Realtime
+description: Add real-time sync to your app with LiveRoom, useLiveQuery, usePresence, and db.mutate.
+---
+
+## Overview
+
+Creek provides built-in realtime sync between your database and your UI. When any client writes to the database, all other connected clients see the update instantly — no polling, no manual WebSocket code.
+
+```
+Client A writes → db.mutate() → broadcast → Client B auto-refetches
+```
+
+This works through three layers:
+
+1. **Server**: `db.mutate()` automatically broadcasts changes
+2. **Client**: `useLiveQuery()` auto-refetches when it receives a change signal
+3. **Rooms**: `<LiveRoom>` scopes broadcasts so only relevant clients are notified
+
+## Quick Start
+
+### Server
+
+```ts title="worker/index.ts"
+import { Hono } from "hono";
+import { db } from "creek";
+import { room } from "creek/hono";
+
+const app = new Hono();
+app.use("/api/*", room());
+
+app.get("/api/todos", async (c) => {
+  return c.json(
+    await db.query("SELECT * FROM todos WHERE room_id = ?", c.var.room)
+  );
+});
+
+app.post("/api/todos", async (c) => {
+  const { text } = await c.req.json();
+  await db.mutate(
+    "INSERT INTO todos (room_id, text) VALUES (?, ?)",
+    c.var.room, text
+  );
+  // ↑ Auto-broadcasts to all clients in this room. No extra code.
+  return c.json({ ok: true });
+});
+```
+
+### Client
+
+```tsx title="App.tsx"
+import { LiveRoom, useLiveQuery } from "creek/react";
+
+function App() {
+  return (
+    <LiveRoom id={roomId}>
+      <TodoApp />
+    </LiveRoom>
+  );
+}
+
+function TodoApp() {
+  const { data: todos, mutate } = useLiveQuery<Todo[]>("/api/todos", {
+    initialData: [],
+  });
+
+  const addTodo = (text: string) =>
+    mutate(
+      { method: "POST", path: "/api/todos", body: { text } },
+      (prev) => [{ text, completed: 0 }, ...prev],
+    );
+
+  return <TodoList todos={todos} onAdd={addTodo} />;
+}
+```
+
+That's it. Open in two tabs — changes sync instantly.
+
+---
+
+## Server API
+
+### `db.mutate(sql, ...params)`
+
+Execute a write operation (INSERT, UPDATE, DELETE). Automatically broadcasts a change notification to all connected clients in the active room.
+
+```ts
+await db.mutate("INSERT INTO todos (text) VALUES (?)", text);
+// Returns: { changes: number, lastRowId: number }
+```
+
+The broadcast is fire-and-forget — it does not block the response.
+
+### `db.query(sql, ...params)`
+
+Execute a read query. Returns typed rows directly.
+
+```ts
+const todos = await db.query<Todo>("SELECT * FROM todos WHERE room_id = ?", roomId);
+// Returns: Todo[]
+```
+
+Does not trigger any broadcast.
+
+### `room()` middleware
+
+Hono middleware that scopes broadcasts to a room.
+
+```ts
+import { room } from "creek/hono";
+
+app.use("/api/*", room());
+// c.var.room is now available in handlers
+```
+
+### `broadcast(event?)`
+
+Manually trigger a broadcast. Useful when state changes happen outside of `db.mutate()`.
+
+```ts
+import { broadcast } from "creek/hono";
+
+app.post("/api/sync-external", async (c) => {
+  await externalService.update();
+  broadcast({ table: "todos" });
+});
+```
+
+---
+
+## Client API
+
+### `<LiveRoom id={...}>`
+
+Provider component that manages a shared WebSocket connection for realtime sync. All `useLiveQuery` hooks inside share one WebSocket and one query cache.
+
+```tsx
+import { LiveRoom } from "creek/react";
+
+<LiveRoom id="room-abc">
+  <App />
+</LiveRoom>
+```
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Room ID. Same ID = same room. |
+
+### `useRoom()`
+
+Access room metadata. Must be used inside `<LiveRoom>`.
+
+```tsx
+import { useRoom } from "creek/react";
+
+function StatusBar() {
+  const { roomId, isConnected, peers } = useRoom();
+
+  return (
+    <span>
+      {isConnected ? `${peers} viewer${peers > 1 ? "s" : ""}` : "Connecting..."}
+    </span>
+  );
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `roomId` | `string` | Current room ID |
+| `isConnected` | `boolean` | WebSocket connection status |
+| `peers` | `number` | Number of connected clients in this room |
+
+### `useLiveQuery(path, options?)`
+
+Fetch data and auto-refetch when the server broadcasts changes.
+
+```tsx
+import { useLiveQuery } from "creek/react";
+
+const { data, isLoading, error, mutate, isConnected } =
+  useLiveQuery<Todo[]>("/api/todos", { initialData: [] });
+```
+
+**Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `initialData` | `T?` | Initial data before first fetch. When provided, `data` is `T` instead of `T \| null`. |
+| `onChange` | `(data: T, prev: T \| null) => void` | Called when data changes. Useful for animations, logging, or derived state. |
+
+**Return values:**
+
+| Field | Type | Description |
+|-------------|------|-------------|
+| `data` | `T` or `T \| null` | Fetched data (`T` when `initialData` is provided) |
+| `isLoading` | `boolean` | `true` during initial fetch (`false` if `initialData` is set) |
+| `error` | `Error \| null` | Last fetch error |
+| `isConnected` | `boolean` | WebSocket connection status |
+| `refetch` | `() => Promise<void>` | Manually trigger a refetch |
+| `mutate` | See below | Run a mutation with optimistic update |
+
+**Query deduplication:** Multiple `useLiveQuery` calls with the same path inside a `<LiveRoom>` share one fetch — no duplicate network requests.
+
+### `mutate(action, optimistic?, options?)`
+
+Run a server mutation with optional optimistic UI update. Accepts a request descriptor or an async function.
+
+```tsx
+const { mutate } = useLiveQuery<Todo[]>("/api/todos", { initialData: [] });
+
+// Request descriptor — handles JSON, headers, and room context automatically
+await mutate(
+  { method: "POST", path: "/api/todos", body: { text: "New todo" } },
+  (prev) => [{ id: crypto.randomUUID(), text: "New todo", completed: 0 }, ...prev],
+  { retry: 3, retryDelay: 1000 },
+);
+
+// Or use an async function for advanced cases
+await mutate(
+  () => customApiCall(),
+  (prev) => [...prev, newItem],
+);
+```
+
+**How it works:**
+
+1. Snapshot the current data
+2. Apply the optimistic updater to the UI immediately
+3. Execute the server action
+4. If the action succeeds → wait for WebSocket broadcast to reconcile
+5. If the action fails → **roll back** to the snapshot automatically
+6. If `retry` is set → retry up to N times before rolling back
+7. Rapid mutations are safe — stale refetches are discarded automatically
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `retry` | `number` | `0` | Number of retry attempts on failure |
+| `retryDelay` | `number` | `1000` | Base delay in ms between retries |
+
+### `usePresence(roomId, options?)`
+
+Standalone presence hook — shows how many users are connected to a room. No `<LiveRoom>` wrapper needed.
+
+```tsx
+import { usePresence } from "creek/react";
+
+function OnlineBadge() {
+  const { count, isConnected } = usePresence("public-lobby");
+
+  if (!isConnected) return null;
+  return <span>{count} online</span>;
+}
+```
+
+**Options (only needed outside Creek apps):**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `realtimeUrl` | `string` | Realtime service URL. Auto-discovered inside Creek apps. |
+| `projectSlug` | `string` | Project slug. Auto-discovered inside Creek apps. |
+
+**Return values:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `count` | `number` | Number of connected clients in this room |
+| `isConnected` | `boolean` | WebSocket connection status |
+
+**Public rooms:** Room IDs starting with `public-` allow unauthenticated connections — useful for visitor counters on marketing pages or dashboards.
+
+```tsx
+// Marketing page — no Creek runtime needed
+const { count } = usePresence("public-homepage", {
+  realtimeUrl: "https://rt.creek.dev",
+  projectSlug: "my-project",
+});
+
+// Inside a Creek app — zero config
+const { count } = usePresence("public-lobby");
+```
+
+### `useQuery(path)`
+
+Static query — fetch once, refetch on demand. No realtime sync. Use this for data that doesn't need live updates.
+
+```tsx
+import { useQuery } from "creek/react";
+
+const { data, isLoading, error, refetch } = useQuery<User>("/api/profile");
+```
+
+---
+
+## Rooms
+
+Rooms scope both data and realtime broadcasts. Each room is isolated — changes in one room do not affect another.
+
+```
+Room "abc"                          Room "xyz"
+├── Client A                        ├── Client C
+├── Client B                        └── Client D
+│
+│ db.mutate() in room "abc"         Clients C and D are NOT notified.
+│ → Only clients A and B refetch.
+```
+
+### Creating Rooms
+
+Room IDs are strings you control. Common patterns:
+
+```tsx
+// Per-session (each visitor gets isolated data)
+<LiveRoom id={crypto.randomUUID().slice(0, 8)}>
+
+// Per-user (personal data sync across devices)
+<LiveRoom id={`user-${userId}`}>
+
+// Per-document (collaborative editing)
+<LiveRoom id={`doc-${documentId}`}>
+
+// Per-game (multiplayer)
+<LiveRoom id={`game-${gameId}`}>
+```
+
+### Sharing Rooms
+
+Same room ID = shared data. To let two users collaborate, give them the same room ID:
+
+```tsx
+// User A opens: app.example.com/?room=abc123
+// User B opens: app.example.com/?room=abc123
+// Both see the same data, both receive each other's updates.
+```
+
+### Room-Scoped Data
+
+On the server, use `c.var.room` to filter queries:
+
+```ts
+app.get("/api/todos", async (c) => {
+  return c.json(
+    await db.query("SELECT * FROM todos WHERE room_id = ?", c.var.room)
+  );
+});
+```
+
+---
+
+## ORM Compatibility
+
+`db` implements the full `D1Database` interface. Prisma and Drizzle work — writes still trigger broadcasts:
+
+```ts
+import { db } from "creek";
+import { drizzle } from "drizzle-orm/d1";
+
+const orm = drizzle(db);
+await orm.insert(todos).values({ roomId, text });
+// Drizzle calls db.prepare().run() internally → Creek auto-broadcasts
+```
+
+---
+
+## Configuration
+
+Enable the database in `creek.toml`:
+
+```toml
+[project]
+name = "my-app"
+
+[build]
+worker = "worker/index.ts"
+
+[resources]
+d1 = true
+```
+
+Creek provisions the database, configures the realtime service, and handles all routing automatically.

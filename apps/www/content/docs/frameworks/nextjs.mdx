@@ -1,0 +1,77 @@
+---
+title: Next.js
+description: Deploy a Next.js static site to Creek.
+---
+
+## Quick Start
+
+```bash
+npx create-next-app my-app
+cd my-app
+npx creek deploy
+```
+
+## Static Export (Recommended)
+
+For static sites, add `output: "export"` to your Next.js config:
+
+```ts title="next.config.ts"
+const nextConfig = {
+  output: "export",
+};
+export default nextConfig;
+```
+
+Creek deploys the `out/` directory as a static site.
+
+## Monorepo Setup
+
+In a pnpm/npm/yarn monorepo, Next.js 16+ requires `turbopack.root`:
+
+```ts title="next.config.ts"
+import { resolve } from "node:path";
+
+const nextConfig = {
+  output: "export",
+  turbopack: {
+    root: resolve(process.cwd(), "../.."),
+  },
+};
+export default nextConfig;
+```
+
+## Configuration
+
+```toml title="creek.toml"
+[project]
+name = "my-nextjs-app"
+
+[build]
+command = "npm run build"
+output = "out"
+```
+
+Note: Do **not** set `framework = "nextjs"` for static export — Creek treats it as a standard static site, which is correct.
+
+## SSR (Experimental)
+
+Next.js SSR on Cloudflare Workers is possible via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare). This is experimental and requires additional setup:
+
+```toml title="creek.toml"
+[project]
+name = "my-ssr-app"
+framework = "nextjs"
+
+[build]
+command = "npm run build:worker"
+output = ".open-next"
+```
+
+See the [Next.js on Cloudflare docs](https://developers.cloudflare.com/pages/framework-guides/nextjs/) for details.
+
+## Known Limitations
+
+- **SSR requires `@opennextjs/cloudflare`** — not built into Creek
+- **Bundle size** — large Next.js apps may exceed Workers limits
+- **ISR/Revalidation** — requires cache adapter (not yet supported)
+- **Image Optimization** — use `unoptimized: true` or a custom loader

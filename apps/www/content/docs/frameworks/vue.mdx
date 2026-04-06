@@ -1,0 +1,23 @@
+---
+title: Vue (Vite)
+description: Deploy a Vite + Vue app to Creek.
+---
+
+## Quick Start
+
+```bash
+npm create vite@latest my-app -- --template vue-ts
+cd my-app
+npm install
+npx creek deploy
+```
+
+## Configuration
+
+No configuration needed. Creek auto-detects Vue + Vite.
+
+| Setting | Default |
+|---------|---------|
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Render mode | SPA |

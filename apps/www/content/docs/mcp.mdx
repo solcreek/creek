@@ -1,0 +1,102 @@
+---
+title: MCP Server
+description: AI agent integration via Model Context Protocol. Deploy websites with a single tool call.
+---
+
+## Overview
+
+Creek provides a remote MCP server at `mcp.creek.dev` that lets any AI agent deploy websites without installing the CLI.
+
+One tool call. Zero installation. 10 seconds to a live URL.
+
+## Connect
+
+Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
+
+```json
+{
+  "mcpServers": {
+    "creek": {
+      "url": "https://mcp.creek.dev/mcp"
+    }
+  }
+}
+```
+
+No API key needed for sandbox tools.
+
+## Available Tools
+
+### `deploy`
+
+Deploy files to a sandbox preview (60 min).
+
+**Input:**
+- `files` — `Record<string, string>` — file path to content (UTF-8 strings, not base64)
+- `source` — `string` (optional) — source identifier for tracking
+
+**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `expiresAt`
+
+### `deploy_demo`
+
+Deploy a sample page instantly. Great for testing connectivity.
+
+**Input:** none
+
+**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`
+
+### `deploy_status`
+
+Check the status of a sandbox deployment.
+
+**Input:**
+- `sandboxId` — `string`
+
+**Output:** Full status object including `status`, `url`, `expiresInSeconds`, `claimable`
+
+### `deploy_delete`
+
+Delete a sandbox before it expires.
+
+**Input:**
+- `sandboxId` — `string`
+
+## Example
+
+An AI agent can deploy a website in a single tool call:
+
+```
+User: "Create a portfolio page and deploy it"
+
+Agent:
+1. Generates HTML/CSS
+2. Calls creek.deploy({ files: { "index.html": "<html>...", "style.css": "..." } })
+3. Returns: "Deployed to https://a1b2c3d4.creeksandbox.com"
+```
+
+## Authentication
+
+| Tools | Auth required |
+|-------|:------------:|
+| Sandbox tools (deploy, demo, status, delete) | No |
+| Production tools (coming soon) | API key |
+
+Production tools (project management, env vars, rollback) will be available with a Creek API key via `Authorization: Bearer crk_sk_live_...` header.
+
+## Rate Limits
+
+MCP requests are rate-limited per client IP (not per MCP server):
+
+- **10 sandbox deploys per hour** per IP
+- **Demo deploys are exempt** from rate limits
+- Rate limit info is returned in tool output when triggered
+
+## Technical Details
+
+- **Transport:** Streamable HTTP (Web Standard)
+- **Runtime:** Cloudflare Workers
+- **Protocol:** MCP 2025-03-26
+- **Endpoint:** `https://mcp.creek.dev/mcp`
+- **Health check:** `https://mcp.creek.dev/health`
+
+The MCP server is a stateless protocol translator — it forwards tool calls to Creek's Sandbox API. No data is stored in the MCP server itself.

@@ -1,0 +1,114 @@
+---
+title: Getting Started
+description: Deploy your first site to the edge in 60 seconds.
+---
+
+## Install
+
+Creek runs via `npx` — no global install needed:
+
+```bash
+npx creek deploy --demo
+```
+
+Or install globally:
+
+```bash
+npm install -g creek@alpha
+```
+
+After installing, you can use `creek`, `ck`, or `crk` interchangeably.
+
+## Deploy a Demo
+
+See Creek in action with zero setup:
+
+```bash
+npx creek deploy --demo
+```
+
+```
+  Deploying demo site...
+  Live in 8.3s -> https://a1b2c3d4.creeksandbox.com
+```
+
+This deploys a sample page to Cloudflare's edge. No account needed.
+
+## Deploy Your Project
+
+Navigate to any project with a `package.json`:
+
+```bash
+cd my-vite-app
+npx creek deploy
+```
+
+Creek auto-detects your framework, runs the build, and deploys to a sandbox preview (60 minutes).
+
+## Deploy a Directory
+
+Already have built files? Point Creek at any directory:
+
+```bash
+npx creek deploy ./dist
+```
+
+## Deploy Modes
+
+| Mode | Trigger | Account | TTL |
+|------|---------|:-------:|-----|
+| **Demo** | `--demo` flag | No | 60 min |
+| **Sandbox** | No `creek.toml` | No | 60 min |
+| **Production** | Has `creek.toml` + token | Yes | Permanent |
+
+## Make It Permanent
+
+Sandbox deploys expire after 60 minutes. To keep your site:
+
+```bash
+# 1. Create an account
+creek login
+
+# 2. Claim your sandbox deploy
+creek claim <sandboxId>
+
+# 3. Or set up a permanent project
+creek init
+creek deploy
+```
+
+## Supported Frameworks
+
+Creek auto-detects and configures:
+
+- Vite (React, Vue, Svelte, Solid)
+- Astro
+- Next.js (static export)
+- SvelteKit
+- Nuxt
+- TanStack Start
+- Any static site
+
+## Local Development
+
+Run the full Creek stack locally with a single command:
+
+```bash
+creek dev
+```
+
+This starts a local server with D1 (SQLite), KV, R2, and realtime WebSocket — all behind one port. Data persists in `.creek/dev/` across restarts.
+
+```bash
+creek dev --reset    # Clear local data
+creek dev --port 8080
+```
+
+See [CLI Reference](/docs/cli#creek-dev) for details.
+
+## Next Steps
+
+- [CLI Reference](/docs/cli) — all commands and flags
+- [Realtime](/docs/realtime) — LiveRoom, useLiveQuery, usePresence
+- [HTTP API](/docs/api) — deploy programmatically
+- [MCP Server](/docs/mcp) — AI agent integration

@@ -1,0 +1,179 @@
+---
+title: Privacy Policy
+description: How Creek collects, uses, and protects your data.
+---
+
+**Effective Date: March 28, 2026**
+
+SolCreek, Inc. ("Creek," "we," "us," or "our") is committed to protecting your privacy. This Privacy Policy describes how we collect, use, and share information when you use our services at creek.dev, app.creek.dev, creeksandbox.com, and related APIs, CLI tools, and MCP server (collectively, the "Services").
+
+## 1. Information We Collect
+
+### 1.1 Account Information
+
+When you create a Creek account, we collect:
+- Email address
+- Name
+- Authentication credentials (password hash, or OAuth tokens from GitHub/Google)
+- Team/organization name and membership
+
+### 1.2 Deployment Content
+
+When you deploy through Creek, we process your source code, assets, and configuration files ("Your Content") solely to provide the deployment service. We do not inspect, copy, or retain Your Content beyond what is necessary for service delivery.
+
+### 1.3 Automatically Collected Information
+
+When you use the Services, we automatically collect:
+- **IP address** -- used for security, rate limiting, and abuse prevention
+- **Country** -- derived from IP address via Cloudflare headers
+- **User agent** -- your browser or CLI version information
+- **Cloudflare Ray ID** -- a unique request identifier for debugging
+
+### 1.4 Audit and Security Data
+
+For all write operations (deployments, project changes, environment variable updates), we record:
+- User identity (user ID, email)
+- Team context
+- Action performed
+- IP address hash (SHA-256, 16 characters)
+- Country, user agent, and Cloudflare Ray ID
+- Timestamp
+
+Raw IP addresses are stored separately and automatically deleted after 30 days. IP hashes (pseudonymized, 16-character SHA-256) are retained for up to 3 years for security forensics, after which they are deleted.
+
+### 1.5 Sandbox Data
+
+For anonymous sandbox deployments, we collect:
+- IP address hash (for rate limiting and abuse prevention)
+- Raw IP address (retained 30 days, then deleted)
+- Country and user agent
+- Content fingerprint (SHA-256 hash of the deployment bundle)
+- Terms of Service acceptance version and timestamp
+
+### 1.6 Usage Data
+
+We collect aggregated, de-identified data about how the Services are used, including traffic metrics, deployment success rates, and performance data ("Usage Data"). Usage Data does not include Your Content, source code, or application logic.
+
+## 2. How We Use Your Information
+
+We use the information we collect to:
+- Provide, maintain, and improve the Services
+- Process deployments and manage your projects
+- Enforce our Terms of Service and Acceptable Use Policy
+- Detect and prevent fraud, abuse, and security incidents
+- Respond to your requests and provide support
+- Send service-related communications (deployment status, security alerts)
+- Generate Usage Data for analytics and service improvement
+
+### What We Do Not Do
+
+- **We do not sell your personal information** to third parties
+- **We do not use Your Content for AI/ML training**, and we do not permit third parties to do so
+- **We do not use advertising or tracking cookies** -- we use only essential cookies for session management
+- **We do not profile you** for advertising purposes
+
+## 3. How We Share Your Information
+
+We may share your information with:
+
+- **Infrastructure sub-processors** -- see Sub-Processors section below
+- **Legal authorities** -- when required by law, court order, or government request, or when we believe disclosure is necessary to protect our rights, your safety, or the safety of others
+- **Business transfers** -- in connection with a merger, acquisition, or sale of assets, with notice to affected users
+
+We do not share Your Content with any third party except as required to provide the deployment service (e.g., transmitting assets to Cloudflare Workers for Platforms).
+
+### Sub-Processors
+
+Creek uses the following sub-processors to provide the Services:
+
+| Sub-processor | Purpose | Location |
+|---------------|---------|----------|
+| Cloudflare, Inc. | Infrastructure (Workers, D1, R2, KV, DNS) | Global (US primary) |
+| Google LLC | Cloudflare Developer Platform infrastructure | US, EEA |
+| Oracle America, Inc. | Cloudflare Developer Platform infrastructure | US, EEA |
+
+Cloudflare's sub-processor list is available at [cloudflare.com/gdpr/subprocessors](https://www.cloudflare.com/gdpr/subprocessors/). We will notify users at least 30 days before adding new sub-processors. For a Data Processing Agreement (DPA), contact privacy@creek.dev.
+
+## 4. Data Retention
+
+| Data Type | Retention Period |
+|-----------|-----------------|
+| Account information | Until account deletion + 30 days |
+| Your Content (deployments) | Until you delete them or your account |
+| Sandbox deployments | 60 minutes (automatically cleaned up) |
+| Audit log (user identity, actions, IP hash) | 3 years |
+| Raw IP addresses | 30 days |
+| Usage Data | Indefinite (anonymized) |
+| Payment records | As required by law (typically 7 years) |
+
+## 5. Data Security
+
+We implement appropriate technical and organizational measures to protect your data, including:
+- Encryption in transit (TLS 1.2+)
+- Environment variable encryption at rest (AES-256-GCM)
+- IP address hashing with environment-specific salts
+- Infrastructure isolation between sandbox and production environments
+- Automated content scanning for malicious deployments
+- Role-based access control
+
+## 6. Your Rights
+
+### 6.1 All Users
+
+You may:
+- Access your account information through the dashboard
+- Update or correct your account information
+- Delete your account and associated data
+- Export your deployment data
+
+To exercise these rights, visit your dashboard at app.creek.dev or contact privacy@creek.dev.
+
+### 6.2 EEA/UK Users (GDPR)
+
+If you are in the European Economic Area or United Kingdom, you have additional rights under the General Data Protection Regulation:
+- **Right of access** -- request a copy of your personal data
+- **Right to rectification** -- correct inaccurate data
+- **Right to erasure** -- request deletion of your data
+- **Right to portability** -- receive your data in a portable format
+- **Right to restrict processing** -- limit how we use your data
+- **Right to object** -- object to processing based on legitimate interests
+
+Our legal basis for processing is: (a) performance of our contract with you (providing the Services), (b) our legitimate interests (security, fraud prevention, service improvement), and (c) your consent (where applicable).
+
+To exercise these rights, contact privacy@creek.dev. We will respond within 30 days.
+
+### 6.3 California Users (CCPA)
+
+If you are a California resident, you have the right to:
+- Know what personal information we collect and how it is used
+- Request deletion of your personal information
+- Opt out of the sale or sharing of personal information
+
+Creek does not sell personal information. We do not use advertising cookies or share data for cross-context behavioral advertising.
+
+To exercise your rights, contact privacy@creek.dev.
+
+## 7. International Data Transfers
+
+Creek processes data primarily in the United States via Cloudflare's global network. If you are located outside the United States, your data may be transferred to and processed in the United States. We rely on the EU-U.S. Data Privacy Framework (Cloudflare is DPF-certified), standard contractual clauses, and other appropriate safeguards for international transfers.
+
+**Data location note:** Creek uses Cloudflare D1 for database storage, which does not currently support regional data residency restrictions. Database contents may be stored in any Cloudflare data center. If your compliance requirements mandate EU-only data residency, please contact us at privacy@creek.dev before using the Services.
+
+## 8. Children's Privacy
+
+The Services are not intended for children under 16. We do not knowingly collect personal information from children under 16. If we learn that we have collected personal information from a child under 16, we will take steps to delete it promptly.
+
+## 9. Cookies
+
+Creek uses only essential cookies for session management and authentication. We do not use advertising, analytics, or tracking cookies. We honor Global Privacy Control (GPC) signals.
+
+## 10. Changes to This Policy
+
+We may update this Privacy Policy from time to time. We will notify you of material changes by email or in-product notification at least 30 days before they take effect.
+
+## 11. Contact
+
+For privacy-related questions or requests:
+
+- **Email:** privacy@creek.dev
+- **Address:** SolCreek, Inc.

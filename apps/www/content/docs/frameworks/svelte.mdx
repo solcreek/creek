@@ -1,0 +1,23 @@
+---
+title: Svelte (Vite)
+description: Deploy a Vite + Svelte app to Creek.
+---
+
+## Quick Start
+
+```bash
+npm create vite@latest my-app -- --template svelte-ts
+cd my-app
+npm install
+npx creek deploy
+```
+
+## Configuration
+
+No configuration needed. Creek auto-detects Svelte + Vite.
+
+| Setting | Default |
+|---------|---------|
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Render mode | SPA |

@@ -1,0 +1,12 @@
+[project]
+name = "www"
+framework = "nextjs"
+
+[build]
+command = "npm run build"
+output = ".open-next"
+
+[resources]
+d1 = false
+kv = false
+r2 = false

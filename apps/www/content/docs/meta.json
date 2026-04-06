@@ -1,0 +1,14 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "getting-started",
+    "realtime",
+    "cli",
+    "custom-domains",
+    "api",
+    "mcp",
+    "---Frameworks---",
+    "...frameworks"
+  ]
+}

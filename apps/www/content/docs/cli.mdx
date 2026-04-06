@@ -1,0 +1,224 @@
+---
+title: CLI Reference
+description: Complete reference for all Creek CLI commands and flags.
+---
+
+## Global Flags
+
+Every command supports these flags:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output structured JSON (auto-enabled in non-TTY) |
+| `--yes` / `-y` | Skip confirmation prompts (auto-enabled in non-TTY) |
+| `--help` | Show help |
+| `--version` | Show version |
+
+## Commands
+
+### `creek dev`
+
+Start a local development server with full Creek runtime (D1, KV, R2, realtime sync).
+
+```bash
+creek dev                       # Start on port 3000
+creek dev --port 8080           # Custom port
+creek dev --reset               # Clear local data before starting
+```
+
+**What it runs:**
+
+- **Worker** — Your Hono/Worker code via Miniflare (Cloudflare's local runtime)
+- **Database** — Local D1 (SQLite) with data persisted in `.creek/dev/`
+- **Realtime** — Local WebSocket server for `useLiveQuery` and `usePresence`
+- **Vite HMR** — Client-side hot reload (auto-detected)
+
+All behind a single port. Matches production behavior.
+
+```
+creek dev
+
+App:       http://localhost:3000
+Worker:    worker/index.ts (D1)
+Realtime:  ws://localhost:3000
+Data:      .creek/dev/
+
+Ready in 340ms
+```
+
+**Supported project types:**
+
+| Type | Worker | Vite | Realtime |
+|------|--------|------|----------|
+| Worker + SPA | Yes | Yes | Yes |
+| Worker only | Yes | No | Yes |
+| SPA only | No | Yes | No |
+
+SSR frameworks (Next.js, TanStack Start) use their own dev servers. Coming soon: `creek dev` proxy mode to unify SSR dev with Creek bindings.
+
+### `creek deploy [dir]`
+
+Deploy a project or directory.
+
+```bash
+creek deploy                    # Auto-detect framework, build, deploy
+creek deploy ./dist             # Deploy a pre-built directory
+creek deploy --demo             # Deploy a sample site instantly
+creek deploy --skip-build       # Skip the build step
+creek deploy --json             # Structured JSON output
+```
+
+**Deploy from GitHub URL:**
+
+```bash
+creek deploy https://github.com/user/repo          # Clone + detect + deploy
+creek deploy https://github.com/user/repo#branch   # Specific branch
+creek deploy github.com/user/repo --path apps/web   # Monorepo subdirectory
+```
+
+**Behavior:**
+
+1. Has `creek.toml` + token → authenticated production deploy
+2. Has `package.json` → auto-detect framework, build, sandbox deploy
+3. Has `dist/`, `build/`, or `out/` → deploy directory as sandbox
+4. Nothing found → show guidance
+
+### Deploy to Creek Button
+
+Add a one-click deploy button to any GitHub repo README:
+
+```markdown
+[![Deploy to Creek](https://creek.dev/button.svg)](https://creek.dev/new?repo=https://github.com/YOUR/REPO)
+```
+
+[![Deploy to Creek](https://creek.dev/button.svg)](https://creek.dev/new?repo=https://github.com/solcreek/creek)
+
+Clicking the button takes visitors to a landing page with a ready-to-run deploy command. No account needed — deploys to a 60-minute sandbox preview.
+
+### `creek status [id]`
+
+Check project or sandbox status.
+
+```bash
+creek status                    # Current project (from creek.toml)
+creek status a1b2c3d4           # Sandbox status (no auth needed)
+creek status --json
+```
+
+### `creek projects`
+
+List all projects.
+
+```bash
+creek projects
+creek projects --json
+```
+
+### `creek deployments`
+
+List recent deployments for the current project.
+
+```bash
+creek deployments
+creek deployments --project my-app
+creek deployments --json
+```
+
+### `creek login`
+
+Authenticate with Creek.
+
+```bash
+creek login                     # Browser-based (default)
+creek login --headless          # Paste API key manually
+creek login --token <key>       # Non-interactive (CI/CD)
+creek login --json
+```
+
+### `creek init`
+
+Create a `creek.toml` configuration file.
+
+```bash
+creek init
+creek init --name my-app
+creek init --json --yes
+```
+
+### `creek claim <sandboxId>`
+
+Convert a sandbox preview into a permanent project.
+
+```bash
+creek claim a1b2c3d4
+creek claim a1b2c3d4 --json
+```
+
+### `creek env`
+
+Manage environment variables.
+
+```bash
+creek env set DATABASE_URL "postgres://..."
+creek env ls                    # Values redacted by default
+creek env ls --show             # Show plaintext values
+creek env rm DATABASE_URL
+creek env ls --json
+```
+
+### `creek domains`
+
+Manage custom domains. See [Custom Domains](/docs/custom-domains) for full guide.
+
+```bash
+creek domains add app.example.com   # Add a custom domain
+creek domains ls                    # List all domains
+creek domains activate app.example.com  # Manually activate
+creek domains rm app.example.com    # Remove a domain
+creek domains ls --json             # JSON output
+creek domains add app.example.com --project my-app  # Specify project
+```
+
+### `creek whoami`
+
+Show the currently authenticated user.
+
+```bash
+creek whoami
+creek whoami --json
+```
+
+## Configuration
+
+### `creek.toml`
+
+```toml
+[project]
+name = "my-app"
+framework = "vite-react"     # Optional — auto-detected
+
+[build]
+command = "npm run build"
+output = "dist"
+worker = "worker/index.ts"   # Optional — enables creek dev + Worker deploy
+
+[resources]
+d1 = true
+kv = false
+r2 = false
+```
+
+## For AI Agents
+
+Creek is designed for programmatic use:
+
+- **Non-TTY auto-detection** — pipes, CI, and agents automatically get JSON output
+- **`--json --yes`** — explicit structured output, skip all prompts
+- **Exit codes** — `0` success, `1` failure
+- **Error format** — `{"ok": false, "error": "...", "message": "..."}`
+
+```bash
+# These are equivalent in CI/agent:
+creek deploy ./dist --json --yes
+creek deploy ./dist              # auto-detects non-TTY
+```

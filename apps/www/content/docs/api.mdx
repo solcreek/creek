@@ -1,0 +1,147 @@
+---
+title: HTTP API
+description: Deploy websites programmatically via the Sandbox API. No API key required.
+---
+
+## Overview
+
+The Sandbox API lets you deploy websites with a single HTTP request. No account, no API key, no CLI installation needed.
+
+```bash
+curl -X POST https://sandbox-api.creek.dev/api/sandbox/deploy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "assets": {
+      "index.html": "<base64-encoded-content>"
+    },
+    "source": "my-agent"
+  }'
+```
+
+## Endpoints
+
+### `POST /api/sandbox/deploy`
+
+Deploy files to a sandbox preview (60 min TTL).
+
+**Request body:**
+
+```json
+{
+  "assets": {
+    "index.html": "PGh0bWw+Li4u",
+    "style.css": "Ym9keSB7fQ==",
+    "app.js": "Y29uc29sZS5sb2coKQ=="
+  },
+  "source": "my-agent"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|:--------:|-------------|
+| `assets` | `Record<string, string>` | Yes | File path → base64-encoded content |
+| `source` | `string` | No | Source identifier for tracking |
+| `manifest` | `object` | No | Optional — derived from assets keys |
+| `framework` | `string` | No | Framework hint |
+
+**Response (202):**
+
+```json
+{
+  "sandboxId": "a1b2c3d4",
+  "status": "queued",
+  "statusUrl": "https://sandbox-api.creek.dev/api/sandbox/a1b2c3d4/status",
+  "previewUrl": "https://a1b2c3d4.creeksandbox.com",
+  "expiresAt": "2026-03-27T16:00:00.000Z"
+}
+```
+
+**Rate limit:** 10 deploys per hour per IP. Demo deploys (`source: "cli-demo"`) are exempt.
+
+**Rate limit headers:**
+
+```
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 7
+X-RateLimit-Reset: 1774624000
+Retry-After: 3200  (only on 429)
+```
+
+### `GET /api/sandbox/:id/status`
+
+Poll deployment status.
+
+```json
+{
+  "sandboxId": "a1b2c3d4",
+  "status": "active",
+  "source": "my-agent",
+  "renderMode": "spa",
+  "assetCount": 3,
+  "previewUrl": "https://a1b2c3d4.creeksandbox.com",
+  "deployDurationMs": 9234,
+  "createdAt": "2026-03-27T15:00:00.000Z",
+  "expiresAt": "2026-03-27T16:00:00.000Z",
+  "expiresInSeconds": 3200,
+  "claimable": true,
+  "failedStep": null,
+  "errorMessage": null
+}
+```
+
+Status values: `queued` → `deploying` → `active` (or `failed`, `expired`).
+
+### `DELETE /api/sandbox/:id`
+
+Delete a sandbox before expiry. Only the creator (same IP) can delete.
+
+### `POST /api/sandbox/:id/claim`
+
+Mark a sandbox as claimed (after `creek login` + `creek claim`).
+
+### `POST /api/sandbox/:id/report`
+
+Report abuse on a sandbox deployment.
+
+## Error Format
+
+All errors return structured JSON:
+
+```json
+{
+  "error": "rate_limited",
+  "message": "Sandbox deploy limit reached (10/hr).",
+  "hint": "Create a free account for unlimited deploys: npx creek login"
+}
+```
+
+| Error code | HTTP | Description |
+|------------|:----:|-------------|
+| `validation` | 400 | Invalid input (empty assets, bad JSON, too large) |
+| `content_policy` | 400 | Content scanning blocked the deploy |
+| `rate_limited` | 429 | Deploy limit reached |
+| `not_found` | 404 | Sandbox not found |
+| `forbidden` | 403 | Not authorized (e.g., delete by different IP) |
+
+## GitHub Actions Example
+
+```yaml
+- name: Deploy Preview
+  run: |
+    ASSETS=$(node -e "
+      const fs = require('fs'), path = require('path');
+      const a = {}; (function w(d,p=''){
+        for(const f of fs.readdirSync(d)){
+          const fp=path.join(d,f), k=p?p+'/'+f:f;
+          fs.statSync(fp).isDirectory()?w(fp,k):a[k]=fs.readFileSync(fp).toString('base64');
+        }
+      })('dist');
+      console.log(JSON.stringify(a));
+    ")
+
+    curl -sf -X POST https://sandbox-api.creek.dev/api/sandbox/deploy \
+      -H "Content-Type: application/json" \
+      -d "{\"assets\": $ASSETS, \"source\": \"github-actions\"}"
+```
+
+Or use the [GitHub Action](/docs/github-action) for a simpler setup.
