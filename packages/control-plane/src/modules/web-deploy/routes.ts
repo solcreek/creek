@@ -87,19 +87,47 @@ webDeploy.post("/", async (c) => {
   return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
 });
 
-// GET /web-deploy/list — list recent builds (authenticated, for dashboard)
+// GET /web-deploy/list — aggregated deployments (KV in-flight + sandbox-db history)
 webDeploy.get("/list", async (c) => {
+  // 1. KV: in-flight builds
   const keys = await c.env.BUILD_STATUS.list({ prefix: "build:" });
-  const builds = await Promise.all(
+  const kvBuilds = await Promise.all(
     keys.keys.map(async (key) => {
       const data = await c.env.BUILD_STATUS.get(key.name);
-      return data ? JSON.parse(data) : null;
+      if (!data) return null;
+      const parsed = JSON.parse(data);
+      return { ...parsed, source: "kv", environment: "sandbox", trigger: "web" };
     }),
   );
-  const sorted = builds
-    .filter(Boolean)
-    .sort((a, b) => (b.createdAt || b.updatedAt || "").localeCompare(a.createdAt || a.updatedAt || ""));
-  return c.json(sorted);
+
+  // 2. Sandbox-db: recent deployments (via sandbox-api internal endpoint)
+  let sandboxDeploys: any[] = [];
+  try {
+    const res = await fetch(`${c.env.SANDBOX_API_URL}/api/deployments/recent`, {
+      headers: { "X-Internal-Secret": c.env.INTERNAL_SECRET },
+    });
+    if (res.ok) {
+      sandboxDeploys = (await res.json() as any[]).map((d) => ({ ...d, source: "db" }));
+    }
+  } catch {
+    // sandbox-api unreachable — return KV data only
+  }
+
+  // 3. Merge + deduplicate (KV buildId may match sandbox deploymentId)
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const item of [...kvBuilds.filter(Boolean), ...sandboxDeploys]) {
+    const id = item.buildId || item.deploymentId;
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      merged.push(item);
+    }
+  }
+
+  // 4. Sort by time descending
+  merged.sort((a, b) => (b.createdAt || b.updatedAt || "").localeCompare(a.createdAt || a.updatedAt || ""));
+
+  return c.json(merged);
 });
 
 // GET /web-deploy/:buildId — poll status
