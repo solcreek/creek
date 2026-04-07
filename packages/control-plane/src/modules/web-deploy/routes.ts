@@ -87,6 +87,21 @@ webDeploy.post("/", async (c) => {
   return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
 });
 
+// GET /web-deploy/list — list recent builds (authenticated, for dashboard)
+webDeploy.get("/list", async (c) => {
+  const keys = await c.env.BUILD_STATUS.list({ prefix: "build:" });
+  const builds = await Promise.all(
+    keys.keys.map(async (key) => {
+      const data = await c.env.BUILD_STATUS.get(key.name);
+      return data ? JSON.parse(data) : null;
+    }),
+  );
+  const sorted = builds
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt || b.updatedAt || "").localeCompare(a.createdAt || a.updatedAt || ""));
+  return c.json(sorted);
+});
+
 // GET /web-deploy/:buildId — poll status
 webDeploy.get("/:buildId", async (c) => {
   const buildId = c.req.param("buildId");
