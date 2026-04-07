@@ -340,7 +340,7 @@ function DeployProgress({
 
       {/* Build phase */}
       <div className="rounded-xl border border-[#222] bg-[#111] p-5 text-left">
-        <div className="flex items-center justify-between mb-3">
+        <div className={`flex items-center justify-between ${isBuilding ? "mb-3" : ""}`}>
           <div className="flex items-center gap-2">
             <StepIcon state={isBuilding ? "active" : status === "failed" && error?.includes("build") ? "failed" : isBuilding ? "active" : "done"} />
             <span className="text-sm font-medium text-[#e5e5e5]">Building project</span>
@@ -363,7 +363,7 @@ function DeployProgress({
       <div className={`rounded-xl border p-5 text-left transition-colors ${
         isDeploying || status === "active" ? "border-[#222] bg-[#111]" : "border-[#1a1a1a] bg-[#0d0d0d]"
       }`}>
-        <div className="flex items-center justify-between mb-3">
+        <div className={`flex items-center justify-between ${isDeploying ? "mb-3" : ""}`}>
           <div className="flex items-center gap-2">
             <StepIcon state={
               isBuilding ? "pending"
