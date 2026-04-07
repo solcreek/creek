@@ -145,6 +145,7 @@ export const deployment = sqliteTable("deployment", {
   commitSha: text("commitSha"),
   commitMessage: text("commitMessage"),
   triggerType: text("triggerType").notNull().default("cli"),
+  environment: text("environment").notNull().default("production"),
   failedStep: text("failedStep"),
   errorMessage: text("errorMessage"),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
