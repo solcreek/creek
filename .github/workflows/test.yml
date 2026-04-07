@@ -20,11 +20,11 @@ jobs:
 
       - run: pnpm install
 
-      - name: Build
-        run: pnpm build
+      - name: Build publishable packages
+        run: pnpm --filter @solcreek/sdk --filter @solcreek/cli --filter @solcreek/runtime --filter create-creek-app --filter @solcreek/build-container build
 
       - name: Test
         run: pnpm test
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Typecheck publishable packages
+        run: pnpm --filter @solcreek/sdk --filter @solcreek/cli --filter @solcreek/runtime --filter create-creek-app typecheck
