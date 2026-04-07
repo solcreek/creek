@@ -1,10 +1,12 @@
-CREATE TABLE IF NOT EXISTS sandbox (
+CREATE TABLE IF NOT EXISTS deployments (
   id TEXT PRIMARY KEY,
   templateId TEXT,
   framework TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
   previewHost TEXT NOT NULL UNIQUE,
   source TEXT NOT NULL DEFAULT 'cli',
+  environment TEXT NOT NULL DEFAULT 'sandbox',
+  trigger_type TEXT NOT NULL DEFAULT 'web',
   ipHash TEXT,
   failedStep TEXT,
   errorMessage TEXT,
@@ -26,7 +28,6 @@ CREATE TABLE IF NOT EXISTS sandbox (
 );
 
 -- Stores raw IPs temporarily for legal compliance (30-day retention).
--- Separate table so cleanup is simple: DELETE WHERE createdAt < now - 30 days.
 CREATE TABLE IF NOT EXISTS sandbox_ip_log (
   sandboxId TEXT NOT NULL,
   rawIp TEXT NOT NULL,
@@ -35,9 +36,10 @@ CREATE TABLE IF NOT EXISTS sandbox_ip_log (
 
 CREATE INDEX IF NOT EXISTS idx_ip_log_created ON sandbox_ip_log(createdAt);
 
-CREATE INDEX IF NOT EXISTS idx_sandbox_status ON sandbox(status);
-CREATE INDEX IF NOT EXISTS idx_sandbox_expires ON sandbox(expiresAt);
-CREATE INDEX IF NOT EXISTS idx_sandbox_ip ON sandbox(ipHash);
+CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+CREATE INDEX IF NOT EXISTS idx_deployments_expires ON deployments(expiresAt);
+CREATE INDEX IF NOT EXISTS idx_deployments_ip ON deployments(ipHash);
+CREATE INDEX IF NOT EXISTS idx_deployments_env ON deployments(environment);
 
 CREATE TABLE IF NOT EXISTS sandbox_abuse_report (
   id TEXT PRIMARY KEY,
