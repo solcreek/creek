@@ -153,6 +153,7 @@ export function createTestEnv(db?: MockD1): Env {
     CLOUDFLARE_ZONE_ID: "test-zone-id",
     BUILD_STATUS: { get: async () => null, put: async () => {}, delete: async () => {} } as unknown as KVNamespace,
     REMOTE_BUILDER: { fetch: async () => new Response("{}") } as unknown as Fetcher,
+    WEB_BUILDS: { send: async () => {} } as unknown as Queue,
     SANDBOX_API_URL: "https://sandbox-api.creek.dev",
     INTERNAL_SECRET: "test-internal-secret",
   };
