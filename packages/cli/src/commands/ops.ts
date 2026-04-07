@@ -13,6 +13,10 @@ export const opsCommand = defineCommand({
       description: "Subcommand: deployments | health",
       required: false,
     },
+    env: {
+      type: "string",
+      description: "Filter by environment: sandbox | production",
+    },
     ...globalArgs,
   },
   async run({ args }) {
@@ -20,7 +24,7 @@ export const opsCommand = defineCommand({
     const sub = args.sub || "deployments";
 
     if (sub === "deployments") {
-      return await listDeployments(jsonMode);
+      return await listDeployments(jsonMode, args.env as string | undefined);
     }
 
     if (sub === "health") {
@@ -31,7 +35,7 @@ export const opsCommand = defineCommand({
   },
 });
 
-async function listDeployments(jsonMode: boolean) {
+async function listDeployments(jsonMode: boolean, envFilter?: string) {
   const apiUrl = getApiUrl();
   const token = getToken();
   if (!token) {
@@ -46,7 +50,11 @@ async function listDeployments(jsonMode: boolean) {
     jsonOutput({ error: `Failed to fetch deployments: ${res.status}` }, 1);
   }
 
-  const deploys = await res.json() as any[];
+  let deploys = await res.json() as any[];
+
+  if (envFilter) {
+    deploys = deploys.filter((d: any) => d.environment === envFilter);
+  }
 
   if (jsonMode) {
     jsonOutput({
@@ -65,7 +73,8 @@ async function listDeployments(jsonMode: boolean) {
     return;
   }
 
-  console.log(`\n  Web Deploys (${deploys.length} in last hour)\n`);
+  const label = envFilter ? `Deployments — ${envFilter}` : "Deployments";
+  console.log(`\n  ${label} (${deploys.length})\n`);
 
   const statusColors: Record<string, string> = {
     active: "\x1b[32m",   // green
