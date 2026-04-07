@@ -44,6 +44,12 @@
     "react-dom": "^19.2.4",
     "typescript": "^5.8.2"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solcreek/creek.git",
+    "directory": "packages/runtime"
+  },
+  "license": "Apache-2.0",
   "dependencies": {
     "d1-schema": "^0.3.0"
   }
