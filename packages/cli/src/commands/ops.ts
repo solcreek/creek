@@ -5,33 +5,33 @@ import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 export const opsCommand = defineCommand({
   meta: {
     name: "ops",
-    description: "Platform operations — web deploys, sandbox usage",
+    description: "Platform operations — deployments, sandbox usage",
   },
   args: {
     sub: {
       type: "positional",
-      description: "Subcommand: web-deploys | health",
+      description: "Subcommand: deployments | health",
       required: false,
     },
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const sub = args.sub || "web-deploys";
+    const sub = args.sub || "deployments";
 
-    if (sub === "web-deploys") {
-      return await webDeploys(jsonMode);
+    if (sub === "deployments") {
+      return await listDeployments(jsonMode);
     }
 
     if (sub === "health") {
       return await health(jsonMode);
     }
 
-    jsonOutput({ error: `Unknown subcommand: ${sub}`, usage: "creek ops [web-deploys|health]" }, 1);
+    jsonOutput({ error: `Unknown subcommand: ${sub}`, usage: "creek ops [deployments|health]" }, 1);
   },
 });
 
-async function webDeploys(jsonMode: boolean) {
+async function listDeployments(jsonMode: boolean) {
   const apiUrl = getApiUrl();
   const token = getToken();
   if (!token) {
@@ -43,7 +43,7 @@ async function webDeploys(jsonMode: boolean) {
   });
 
   if (!res.ok) {
-    jsonOutput({ error: `Failed to fetch web deploys: ${res.status}` }, 1);
+    jsonOutput({ error: `Failed to fetch deployments: ${res.status}` }, 1);
   }
 
   const deploys = await res.json() as any[];
@@ -61,7 +61,7 @@ async function webDeploys(jsonMode: boolean) {
 
   // Human-readable output
   if (deploys.length === 0) {
-    console.log("\n  No recent web deploys (last 1 hour)\n");
+    console.log("\n  No recent deployments (last 1 hour)\n");
     return;
   }
 
