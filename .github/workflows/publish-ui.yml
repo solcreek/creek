@@ -1,0 +1,27 @@
+name: Publish @solcreek/ui
+
+on:
+  push:
+    tags:
+      - 'ui@*'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ui
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm install
+      - run: npm publish --access public
