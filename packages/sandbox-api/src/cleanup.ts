@@ -12,7 +12,7 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
 
   // Find expired active sandboxes (batch of 20)
   const expired = await env.DB.prepare(
-    `SELECT id, previewHost FROM sandbox
+    `SELECT id, previewHost FROM deployments
      WHERE status = 'active' AND expiresAt < ? AND cleanedUpAt IS NULL
      LIMIT 20`,
   )
@@ -51,7 +51,7 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
 
       // Mark as cleaned up
       await env.DB.prepare(
-        "UPDATE sandbox SET status = 'expired', cleanedUpAt = ? WHERE id = ?",
+        "UPDATE deployments SET status = 'expired', cleanedUpAt = ? WHERE id = ?",
       )
         .bind(now, sandbox.id)
         .run();
@@ -64,7 +64,7 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
 
   // Also mark stale deploying sandboxes as failed (stuck for > 5 min)
   await env.DB.prepare(
-    `UPDATE sandbox SET status = 'failed', failedStep = 'deploying', errorMessage = 'Deploy timed out'
+    `UPDATE deployments SET status = 'failed', failedStep = 'deploying', errorMessage = 'Deploy timed out'
      WHERE status IN ('queued', 'deploying') AND createdAt < ?`,
   )
     .bind(now - 5 * 60 * 1000)
@@ -73,7 +73,7 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
   // Purge raw IP logs older than 30 days (legal data retention)
   const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
   await env.DB.prepare(
-    "DELETE FROM sandbox_ip_log WHERE createdAt < ?",
+    "DELETE FROM deployments_ip_log WHERE createdAt < ?",
   )
     .bind(thirtyDaysAgo)
     .run();

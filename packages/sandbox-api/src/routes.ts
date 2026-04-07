@@ -111,7 +111,7 @@ routes.post("/deploy", async (c) => {
 
   if (!isDemo) {
     const rateInfo = await env.DB.prepare(
-      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM sandbox WHERE ipHash = ? AND source != 'cli-demo' AND createdAt > ?",
+      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != 'cli-demo' AND createdAt > ?",
     )
       .bind(ipHash, windowStart)
       .first<{ count: number; oldest: number | null }>();
@@ -177,7 +177,7 @@ routes.post("/deploy", async (c) => {
   // Insert sandbox record
   const assetCount = assetPaths.length;
   await env.DB.prepare(
-    `INSERT INTO sandbox (id, templateId, framework, status, previewHost, source, renderMode, assetCount, ipHash, createdAt, expiresAt, country, userAgent, tosVersion, tosAcceptedAt, contentHash)
+    `INSERT INTO deployments (id, templateId, framework, status, previewHost, source, renderMode, assetCount, ipHash, createdAt, expiresAt, country, userAgent, tosVersion, tosAcceptedAt, contentHash)
      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
@@ -240,7 +240,7 @@ routes.get("/:id/status", async (c) => {
   const sandboxId = c.req.param("id");
 
   const sandbox = await c.env.DB.prepare(
-    "SELECT * FROM sandbox WHERE id = ?",
+    "SELECT * FROM deployments WHERE id = ?",
   )
     .bind(sandboxId)
     .first<{
@@ -294,7 +294,7 @@ routes.post("/:id/report", async (c) => {
   const body = await c.req.json<{ reason?: string }>().catch(() => ({}));
 
   const sandbox = await c.env.DB.prepare(
-    "SELECT id, status FROM sandbox WHERE id = ?",
+    "SELECT id, status FROM deployments WHERE id = ?",
   )
     .bind(sandboxId)
     .first<{ id: string; status: string }>();
@@ -323,7 +323,7 @@ routes.post("/:id/report", async (c) => {
 
     if (reportCount && reportCount.count >= 2) {
       await c.env.DB.prepare(
-        "UPDATE sandbox SET status = 'blocked' WHERE id = ? AND status = 'active'",
+        "UPDATE deployments SET status = 'blocked' WHERE id = ? AND status = 'active'",
       )
         .bind(sandboxId)
         .run();
@@ -341,7 +341,7 @@ routes.delete("/:id", async (c) => {
   const ipHash = await hashIp(ip, c.env);
 
   const sandbox = await c.env.DB.prepare(
-    "SELECT id, ipHash, status FROM sandbox WHERE id = ?",
+    "SELECT id, ipHash, status FROM deployments WHERE id = ?",
   )
     .bind(sandboxId)
     .first<{ id: string; ipHash: string | null; status: string }>();
@@ -361,7 +361,7 @@ routes.delete("/:id", async (c) => {
 
   // Mark as expired so cleanup cron will handle WfP script deletion
   await c.env.DB.prepare(
-    "UPDATE sandbox SET status = 'expired', expiresAt = ? WHERE id = ?",
+    "UPDATE deployments SET status = 'expired', expiresAt = ? WHERE id = ?",
   )
     .bind(Date.now(), sandboxId)
     .run();
@@ -379,7 +379,7 @@ routes.post("/:id/claim", async (c) => {
   const body = await c.req.json<{ projectId?: string }>().catch(() => ({}));
 
   const sandbox = await c.env.DB.prepare(
-    "SELECT id, claimStatus FROM sandbox WHERE id = ?",
+    "SELECT id, claimStatus FROM deployments WHERE id = ?",
   )
     .bind(sandboxId)
     .first<{ id: string; claimStatus: string }>();
@@ -393,7 +393,7 @@ routes.post("/:id/claim", async (c) => {
   }
 
   await c.env.DB.prepare(
-    "UPDATE sandbox SET claimStatus = 'claimed', claimedProjectId = ? WHERE id = ?",
+    "UPDATE deployments SET claimStatus = 'claimed', claimedProjectId = ? WHERE id = ?",
   )
     .bind((body as any).projectId ?? null, sandboxId)
     .run();
@@ -416,7 +416,7 @@ async function runSandboxDeploy(
 ) {
   try {
     await env.DB.prepare(
-      "UPDATE sandbox SET status = 'deploying', activatedAt = ? WHERE id = ?",
+      "UPDATE deployments SET status = 'deploying', activatedAt = ? WHERE id = ?",
     )
       .bind(Date.now(), sandboxId)
       .run();
@@ -462,11 +462,11 @@ async function runSandboxDeploy(
     );
 
     const deployDuration = Date.now() - (await env.DB.prepare(
-      "SELECT createdAt FROM sandbox WHERE id = ?",
+      "SELECT createdAt FROM deployments WHERE id = ?",
     ).bind(sandboxId).first<{ createdAt: number }>())!.createdAt;
 
     await env.DB.prepare(
-      "UPDATE sandbox SET status = 'active', deployDurationMs = ? WHERE id = ?",
+      "UPDATE deployments SET status = 'active', deployDurationMs = ? WHERE id = ?",
     )
       .bind(deployDuration, sandboxId)
       .run();
@@ -475,7 +475,7 @@ async function runSandboxDeploy(
     await env.ASSETS.delete(`bundles/${sandboxId}.json`);
   } catch (err) {
     await env.DB.prepare(
-      "UPDATE sandbox SET status = 'failed', failedStep = 'deploying', errorMessage = ? WHERE id = ?",
+      "UPDATE deployments SET status = 'failed', failedStep = 'deploying', errorMessage = ? WHERE id = ?",
     )
       .bind(err instanceof Error ? err.message : String(err), sandboxId)
       .run();
