@@ -33,6 +33,7 @@ import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
 
 const NAV_ITEMS = [
   { to: "/projects" as const, label: "Projects", icon: Folder },
+  { to: "/web-deploys" as const, label: "Web Deploys", icon: Rocket },
   { to: "/settings" as const, label: "Settings", icon: Settings },
   { to: "/api-keys" as const, label: "API Keys", icon: Key },
 ];
