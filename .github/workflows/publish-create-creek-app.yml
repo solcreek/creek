@@ -27,5 +27,14 @@ jobs:
       - run: npm run build
       - run: npm test
 
+      - name: Debug auth
+        run: |
+          echo "=== .npmrc ==="
+          cat $NPM_CONFIG_USERCONFIG
+          echo "=== npm whoami ==="
+          npm whoami 2>&1 || true
+          echo "=== npm config ==="
+          npm config list
+
       - name: Publish
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --loglevel verbose
