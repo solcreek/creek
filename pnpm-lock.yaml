@@ -167,25 +167,6 @@ importers:
         specifier: ^5
         version: 5.9.3
 
-  packages/adapter-nextjs:
-    dependencies:
-      '@next/routing':
-        specifier: 16.2.1
-        version: 16.2.1
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.12
-    devDependencies:
-      '@types/node':
-        specifier: ^22.13.10
-        version: 22.19.15
-      next:
-        specifier: 16.2.1
-        version: 16.2.1(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      typescript:
-        specifier: ^5.8.2
-        version: 5.9.3
-
   packages/build-container:
     dependencies:
       '@solcreek/sdk':
@@ -2170,9 +2151,6 @@ packages:
 
   '@next/eslint-plugin-next@16.2.1':
     resolution: {integrity: sha512-r0epZGo24eT4g08jJlg2OEryBphXqO8aL18oajoTKLzHJ6jVr6P6FI58DLMug04MwD3j8Fj0YK0slyzneKVyzA==}
-
-  '@next/routing@16.2.1':
-    resolution: {integrity: sha512-ZhbT1WTaNIFR8B6CV4dOYbXEcH7REIcvpMf4rfy5jkdS6UJ6GRC67EGH+i9lugfkMX2fa50JRb/OSdYV6QZGRQ==}
 
   '@next/swc-darwin-arm64@16.2.1':
     resolution: {integrity: sha512-BwZ8w8YTaSEr2HIuXLMLxIdElNMPvY9fLqb20LX9A9OMGtJilhHLbCL3ggyd0TwjmMcTxi0XXt+ur1vWUoxj2Q==}
@@ -9267,8 +9245,6 @@ snapshots:
   '@next/eslint-plugin-next@16.2.1':
     dependencies:
       fast-glob: 3.3.1
-
-  '@next/routing@16.2.1': {}
 
   '@next/swc-darwin-arm64@16.2.1':
     optional: true
