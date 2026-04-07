@@ -5,7 +5,7 @@ import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 export const opsCommand = defineCommand({
   meta: {
     name: "ops",
-    description: "Platform operations — deployments, sandbox usage",
+    description: "Platform admin (self-hosted) — deployments, health",
   },
   args: {
     sub: {
