@@ -519,4 +519,125 @@ deployments.get("/:projectId/cron-logs", async (c) => {
   }
 });
 
+/**
+ * GET /projects/:id/analytics?period=24h|7d|30d
+ * Per-tenant analytics: requests, errors, latency time-series.
+ */
+deployments.get("/:projectId/analytics", async (c) => {
+  const teamId = c.get("teamId");
+  const teamSlug = c.get("teamSlug");
+  const projectId = c.req.param("projectId");
+  const period = c.req.query("period") ?? "24h";
+
+  const project = await c.env.DB.prepare(
+    "SELECT slug FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ slug: string }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const scriptName = `${project.slug}-${teamSlug}`;
+
+  // Period → hours + grouping
+  const periodHours = period === "30d" ? 720 : period === "7d" ? 168 : 24;
+  const since = new Date(Date.now() - periodHours * 60 * 60 * 1000).toISOString();
+
+  // Use datetimeHour for 7d/30d, datetimeFiveMinutes for 24h
+  const timeDimension = periodHours <= 24 ? "datetimeFifteenMinutes" : "datetimeHour";
+
+  const query = `
+    query {
+      viewer {
+        accounts(filter: { accountTag: "${c.env.CLOUDFLARE_ACCOUNT_ID}" }) {
+          series: workersInvocationsAdaptive(
+            filter: {
+              scriptName: "${scriptName}"
+              datetime_gt: "${since}"
+            }
+            limit: 1000
+            orderBy: [${timeDimension}_ASC]
+          ) {
+            dimensions {
+              ${timeDimension}
+              status
+            }
+            sum {
+              requests
+              errors
+              subrequests
+            }
+            quantiles {
+              cpuTimeP50
+              cpuTimeP99
+            }
+          }
+          totals: workersInvocationsAdaptive(
+            filter: {
+              scriptName: "${scriptName}"
+              datetime_gt: "${since}"
+            }
+            limit: 1
+          ) {
+            sum {
+              requests
+              errors
+              subrequests
+            }
+            quantiles {
+              cpuTimeP50
+              cpuTimeP99
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${c.env.CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const data = await res.json() as any;
+    const account = data?.data?.viewer?.accounts?.[0];
+    const series = account?.series ?? [];
+    const totals = account?.totals?.[0] ?? null;
+
+    return c.json({
+      scriptName,
+      period,
+      totals: totals ? {
+        requests: totals.sum.requests,
+        errors: totals.sum.errors,
+        subrequests: totals.sum.subrequests,
+        cpuTimeP50: totals.quantiles.cpuTimeP50,
+        cpuTimeP99: totals.quantiles.cpuTimeP99,
+      } : { requests: 0, errors: 0, subrequests: 0, cpuTimeP50: 0, cpuTimeP99: 0 },
+      series: series.map((s: any) => ({
+        timestamp: s.dimensions[timeDimension],
+        status: s.dimensions.status,
+        requests: s.sum.requests,
+        errors: s.sum.errors,
+        cpuTimeP50: s.quantiles.cpuTimeP50,
+        cpuTimeP99: s.quantiles.cpuTimeP99,
+      })),
+    });
+  } catch {
+    return c.json({
+      scriptName,
+      period,
+      totals: { requests: 0, errors: 0, subrequests: 0, cpuTimeP50: 0, cpuTimeP99: 0 },
+      series: [],
+    });
+  }
+});
+
 export { deployments };
