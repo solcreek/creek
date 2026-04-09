@@ -1,3 +1,4 @@
+import { describe, test, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { webDeploy } from "./routes.js";
 import { buildAndDeploy, updateStatus, hashIp, type WebDeployEnv } from "./build-and-deploy.js";
@@ -86,7 +87,7 @@ describe("POST /web-deploy — input validation", () => {
     const { req } = createApp();
     const res = await req("POST", "/web-deploy", { type: "template", template: "landing" });
     expect(res.status).toBe(202);
-    const json = await res.json();
+    const json = await res.json() as { buildId: string; statusUrl: string };
     expect(json.buildId).toBeTruthy();
     expect(json.statusUrl).toMatch(/^\/web-deploy\/.+/);
   });
@@ -172,7 +173,7 @@ describe("POST /web-deploy — rate limiting", () => {
     }
     const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "1.2.3.4" });
     expect(res.status).toBe(429);
-    const json = await res.json();
+    const json = await res.json() as { retryAfter: number };
     expect(json.retryAfter).toBe(3600);
   });
 
@@ -212,7 +213,7 @@ describe("GET /web-deploy/:buildId — polling", () => {
       previewUrl: "https://abc.creeksandbox.com", expiresAt: "2026-04-06T22:00:00Z",
     }));
     const res = await req("GET", "/web-deploy/test-456");
-    const json = await res.json();
+    const json = await res.json() as { status: string; previewUrl: string };
     expect(json.status).toBe("active");
     expect(json.previewUrl).toBe("https://abc.creeksandbox.com");
   });
@@ -283,7 +284,7 @@ describe("POST /web-deploy → queue integration", () => {
     const res = await req("POST", "/web-deploy", { type: "template", template: "landing" });
     expect(res.status).toBe(202);
 
-    const { buildId } = await res.json();
+    const { buildId } = await res.json() as { buildId: string };
 
     // KV has "building" status
     const status = getKVStatus(env, buildId);
