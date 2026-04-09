@@ -21,15 +21,17 @@ function ProjectsPage() {
   // Check if we're on a child route (e.g., /projects/$projectId)
   const childMatch = useMatch({ from: "/_authenticated/projects/$projectId", shouldThrow: false });
 
+  // All hooks must be called before any conditional return
+  const { data: projects, isLoading } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Project[]>("/projects"),
+    enabled: !childMatch,
+  });
+
   // If on a child route, render the child via Outlet
   if (childMatch) {
     return <Outlet />;
   }
-
-  const { data: projects, isLoading } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => api<Project[]>("/projects"),
-  });
 
   return (
     <div className="p-6">
