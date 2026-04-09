@@ -92,6 +92,8 @@ export default {
       return new Response("Not Found", { status: 404 });
     });
   },
+  ${generateScheduledHandler()}
+  ${generateQueueHandler()}
 };
 `;
   }
@@ -121,8 +123,26 @@ export default {
       throw new Error("[creek] Worker must export default a fetch handler, Hono app, or { fetch() } object.");
     });
   },
+  ${generateScheduledHandler()}
+  ${generateQueueHandler()}
 };
 `;
+}
+
+function generateScheduledHandler(): string {
+  return `async scheduled(event, env, ctx) {
+    if (typeof handler.scheduled === "function") {
+      return _runRequest(env, ctx, () => handler.scheduled(event, env, ctx));
+    }
+  },`;
+}
+
+function generateQueueHandler(): string {
+  return `async queue(batch, env, ctx) {
+    if (typeof handler.queue === "function") {
+      return _runRequest(env, ctx, () => handler.queue(batch, env, ctx));
+    }
+  },`;
 }
 
 /**

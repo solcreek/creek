@@ -96,4 +96,37 @@ describe("generateWorkerWrapper", () => {
     );
     expect(wrapper).toContain("userModule.default ?? userModule");
   });
+
+  test("includes scheduled handler with _runRequest context", () => {
+    const wrapper = generateWorkerWrapper(
+      "/project/worker/index.ts",
+      "/project/.creek",
+    );
+    expect(wrapper).toContain("async scheduled(event, env, ctx)");
+    expect(wrapper).toContain('typeof handler.scheduled === "function"');
+    // scheduled handler is wrapped in _runRequest
+    const lines = wrapper.split("\n");
+    const scheduledLine = lines.findIndex(l => l.includes("async scheduled("));
+    const runRequestLine = lines.findIndex((l, i) => i > scheduledLine && l.includes("_runRequest(env, ctx"));
+    expect(runRequestLine).toBeGreaterThan(scheduledLine);
+  });
+
+  test("includes queue handler with _runRequest context", () => {
+    const wrapper = generateWorkerWrapper(
+      "/project/worker/index.ts",
+      "/project/.creek",
+    );
+    expect(wrapper).toContain("async queue(batch, env, ctx)");
+    expect(wrapper).toContain('typeof handler.queue === "function"');
+  });
+
+  test("hasClientAssets variant also includes scheduled and queue handlers", () => {
+    const wrapper = generateWorkerWrapper(
+      "/project/worker/index.ts",
+      "/project/.creek",
+      { hasClientAssets: true },
+    );
+    expect(wrapper).toContain("async scheduled(event, env, ctx)");
+    expect(wrapper).toContain("async queue(batch, env, ctx)");
+  });
 });
