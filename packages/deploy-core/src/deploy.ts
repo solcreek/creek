@@ -45,6 +45,7 @@ export async function deployScriptWithAssets(
   tags: string[],
   bindings: WfPBinding[],
   assetsConfig?: Record<string, unknown>,
+  cronSchedules?: string[],
 ): Promise<void> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
 
@@ -59,6 +60,10 @@ export async function deployScriptWithAssets(
       config: assetsConfig ?? {},
     },
   };
+
+  if (cronSchedules && cronSchedules.length > 0) {
+    metadata.triggers = { crons: cronSchedules };
+  }
 
   const form = new FormData();
   form.append(
@@ -106,6 +111,7 @@ export async function deployWithAssets(
   input: DeployAssetsInput,
   branch?: string | null,
   productionBranch?: string,
+  cronSchedules?: string[],
 ): Promise<void> {
   if (!env.CLOUDFLARE_API_TOKEN) {
     return; // Local dev mode
@@ -198,6 +204,8 @@ export async function deployWithAssets(
       );
     }
 
+    // Only attach cron triggers to the production script (not preview/branch)
+    const isProduction = script.name === `${projectSlug}-${teamSlug}`;
     await deployScriptWithAssets(
       env,
       script.name,
@@ -207,6 +215,7 @@ export async function deployWithAssets(
       tags,
       input.bindings,
       assetsConfig,
+      isProduction ? cronSchedules : undefined,
     );
   }
 }
