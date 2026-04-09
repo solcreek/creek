@@ -4,7 +4,7 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseConfig } from "@solcreek/sdk";
+import { resolveConfig, formatDetectionSummary, type ResolvedConfig, ConfigNotFoundError, parseConfig } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS } from "../utils/output.js";
 
 export const statusCommand = defineCommand({
@@ -87,26 +87,30 @@ async function projectStatus(jsonMode: boolean) {
     process.exit(1);
   }
 
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    if (jsonMode) jsonOutput({ ok: false, error: "no_project", message: "No creek.toml found" }, 1, NO_PROJECT_BREADCRUMBS);
-    consola.error("No creek.toml found.");
-    consola.info("To check a sandbox: creek status <sandboxId>");
-    process.exit(1);
+  let resolved: ResolvedConfig;
+  try {
+    resolved = resolveConfig(process.cwd());
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) {
+      if (jsonMode) jsonOutput({ ok: false, error: "no_project", message: "No project config found" }, 1, NO_PROJECT_BREADCRUMBS);
+      consola.error("No project config found.");
+      consola.info("To check a sandbox: creek status <sandboxId>");
+      process.exit(1);
+    }
+    throw err;
   }
 
-  const config = parseConfig(readFileSync(configPath, "utf-8"));
   const client = new CreekClient(getApiUrl(), token);
 
   let project;
   try {
-    project = await client.getProject(config.project.name);
+    project = await client.getProject(resolved.projectName);
   } catch {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `Project "${config.project.name}" not found` }, 1, [
+    if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `Project "${resolved.projectName}" not found` }, 1, [
       { command: "creek deploy", description: "Deploy to create the project" },
       { command: "creek projects", description: "List existing projects" },
     ]);
-    consola.error(`Project "${config.project.name}" not found.`);
+    consola.error(`Project "${resolved.projectName}" not found.`);
     process.exit(1);
   }
 
@@ -115,8 +119,12 @@ async function projectStatus(jsonMode: boolean) {
       ok: true,
       type: "project",
       project: project.slug,
+      config: resolved.source,
       framework: project.framework,
       productionDeploymentId: project.production_deployment_id,
+      bindings: resolved.bindings.map((b) => b.type),
+      cron: resolved.cron,
+      queue: resolved.queue,
       createdAt: project.created_at,
     }, 0, [
       { command: `creek deployments --project ${project.slug}`, description: "List deployment history" },
@@ -125,12 +133,18 @@ async function projectStatus(jsonMode: boolean) {
   }
 
   const deployed = project.production_deployment_id ? "deployed" : "not deployed";
-  const framework = project.framework ? ` (${project.framework})` : "";
 
-  consola.log(`\n  Project ${project.slug}${framework}`);
+  consola.log(`\n  Project ${project.slug}`);
+  consola.log(`  Config:  ${formatDetectionSummary(resolved)}`);
   consola.log(`  Status:  ${deployed}`);
   if (project.production_deployment_id) {
     consola.log(`  Deploy:  ${project.production_deployment_id.slice(0, 8)}`);
+  }
+  if (resolved.cron.length > 0) {
+    consola.log(`  Cron:    ${resolved.cron.join(", ")}`);
+  }
+  if (resolved.queue) {
+    consola.log("  Queue:   enabled");
   }
   consola.log("");
 }
