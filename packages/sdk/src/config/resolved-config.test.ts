@@ -202,7 +202,7 @@ id = "yyy"
     expect(config.framework).toBe("vite-react");
   });
 
-  test("marks durable objects and queues as unsupported", () => {
+  test("marks durable objects as unsupported, detects queue", () => {
     writeFileSync(
       join(cwd, "wrangler.toml"),
       `
@@ -220,7 +220,7 @@ binding = "QUEUE"
 
     const config = resolveConfig(cwd);
     expect(config.bindings.find((b) => b.type === "durable_object")).toBeDefined();
-    expect(config.unsupportedBindings).toContainEqual({ type: "queues", name: "queues" });
+    expect(config.queue).toBe(true);
   });
 
   test("extracts vars", () => {

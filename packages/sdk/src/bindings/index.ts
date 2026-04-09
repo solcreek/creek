@@ -12,6 +12,7 @@ export const BINDING_NAMES = {
   r2: "STORAGE",
   kv: "KV",
   ai: "AI",
+  queue: "QUEUE",
 } as const;
 
 /** Internal env vars injected into every user worker */

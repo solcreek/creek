@@ -76,6 +76,18 @@ cron = ["*/5 * * * *", "0 0 * * *"]
 name = "no-triggers"
 `);
     expect(config.triggers.cron).toEqual([]);
+    expect(config.triggers.queue).toBe(false);
+  });
+
+  test("parses queue trigger", () => {
+    const config = parseConfig(`
+[project]
+name = "queue-app"
+
+[triggers]
+queue = true
+`);
+    expect(config.triggers.queue).toBe(true);
   });
 
   test("defaults build section when omitted", () => {

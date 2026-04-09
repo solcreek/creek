@@ -25,6 +25,7 @@ export const CreekConfigSchema = z.object({
   }).default({}),
   triggers: z.object({
     cron: z.array(z.string()).default([]),
+    queue: z.boolean().default(false),
   }).default({}),
 });
 

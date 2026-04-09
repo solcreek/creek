@@ -37,6 +37,8 @@ export interface ResolvedConfig {
   compatibilityFlags: string[];
   /** Cron trigger schedules (e.g., ["0 0 * * *"]) */
   cron: string[];
+  /** Whether this project uses a Queue (consumer + producer) */
+  queue: boolean;
 }
 
 /** Binding requirements sent to the control plane (new API path) */
@@ -122,6 +124,7 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
     compatibilityDate: null,
     compatibilityFlags: [],
     cron: config.triggers.cron,
+    queue: config.triggers.queue,
   };
 }
 
@@ -173,7 +176,6 @@ function fromWranglerConfig(
   }
 
   // Unsupported
-  if (wrangler.queues) unsupportedBindings.push({ type: "queues", name: "queues" });
   if (wrangler.vectorize) unsupportedBindings.push({ type: "vectorize", name: "vectorize" });
   if (wrangler.hyperdrive) unsupportedBindings.push({ type: "hyperdrive", name: "hyperdrive" });
 
@@ -205,6 +207,7 @@ function fromWranglerConfig(
     compatibilityDate: wrangler.compatibility_date ?? null,
     compatibilityFlags: wrangler.compatibility_flags ?? [],
     cron: wrangler.triggers?.crons ?? [],
+    queue: !!wrangler.queues,
   };
 }
 
@@ -233,6 +236,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     compatibilityDate: null,
     compatibilityFlags: [],
     cron: [],
+    queue: false,
   };
 }
 
@@ -253,6 +257,7 @@ function fromStaticSite(cwd: string): ResolvedConfig {
     compatibilityDate: null,
     compatibilityFlags: [],
     cron: [],
+    queue: false,
   };
 }
 
@@ -289,6 +294,10 @@ export function formatDetectionSummary(config: ResolvedConfig): string {
 
   if (config.cron.length > 0) {
     parts.push(`${config.cron.length} cron`);
+  }
+
+  if (config.queue) {
+    parts.push("queue");
   }
 
   if (config.source === "index.html") {
