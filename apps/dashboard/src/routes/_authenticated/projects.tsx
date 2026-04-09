@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { NewProjectDialog } from "@/components/new-project-dialog";
@@ -18,6 +18,14 @@ interface Project {
 }
 
 function ProjectsPage() {
+  // Check if we're on a child route (e.g., /projects/$projectId)
+  const childMatch = useMatch({ from: "/_authenticated/projects/$projectId", shouldThrow: false });
+
+  // If on a child route, render the child via Outlet
+  if (childMatch) {
+    return <Outlet />;
+  }
+
   const { data: projects, isLoading } = useQuery({
     queryKey: ["projects"],
     queryFn: () => api<Project[]>("/projects"),
