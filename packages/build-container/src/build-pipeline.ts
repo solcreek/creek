@@ -57,6 +57,7 @@ export interface BuildResult {
     vars: Record<string, string>;
     compatibilityDate: string | undefined;
     compatibilityFlags: string[] | undefined;
+    cron: string[] | undefined;
   };
 }
 
@@ -239,6 +240,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         vars: Object.keys(resolved.vars).length > 0 ? resolved.vars : {},
         compatibilityDate: resolved.compatibilityDate ?? undefined,
         compatibilityFlags: resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
+        cron: resolved.cron.length > 0 ? resolved.cron : undefined,
       },
     };
 

@@ -192,8 +192,8 @@ importers:
   packages/cli:
     dependencies:
       '@solcreek/sdk':
-        specifier: '>=0.1.0-alpha.5'
-        version: 0.1.0-alpha.5
+        specifier: workspace:*
+        version: link:../sdk
       ajv:
         specifier: ^8.17.1
         version: 8.18.0
@@ -3164,9 +3164,6 @@ packages:
 
   '@solcreek/sdk@0.1.0-alpha.4':
     resolution: {integrity: sha512-GM7cAZ5TguYifeogjPrZyi31R0gJrtd+/IuDxwdIB5Nwwv8AEGQlc8qLhcA97M0wQtQEOjG7LW3Yuf835m970g==}
-
-  '@solcreek/sdk@0.1.0-alpha.5':
-    resolution: {integrity: sha512-dJsbEhIsN1J1GWhrQYcP3ewgyZmro9jqAf/MSz3MFmn3QSMCC79JOS/ZcSBtocl/8HSrt8mGZJiM7X1wCPpKMw==}
 
   '@speed-highlight/core@1.2.15':
     resolution: {integrity: sha512-BMq1K3DsElxDWawkX6eLg9+CKJrTVGCBAWVuHXVUV2u0s2711qiChLSId6ikYPfxhdYocLNt3wWwSvDiTvFabw==}
@@ -10287,11 +10284,6 @@ snapshots:
       react: 19.2.4
 
   '@solcreek/sdk@0.1.0-alpha.4':
-    dependencies:
-      smol-toml: 1.6.0
-      zod: 3.25.76
-
-  '@solcreek/sdk@0.1.0-alpha.5':
     dependencies:
       smol-toml: 1.6.0
       zod: 3.25.76

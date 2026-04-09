@@ -151,6 +151,7 @@ async function deployScriptWithAssets(
   compatibilityDate?: string,
   compatibilityFlags?: string[],
   framework?: string | null,
+  cronSchedules?: string[],
 ): Promise<void> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
 
@@ -188,6 +189,10 @@ async function deployScriptWithAssets(
       new_tag: NEXTJS_DO_MIGRATION_TAG,
       new_sqlite_classes: ["DOQueueHandler", "DOShardedTagCache", "BucketCachePurge"],
     };
+  }
+
+  if (cronSchedules && cronSchedules.length > 0) {
+    metadata.triggers = { crons: cronSchedules };
   }
 
   async function attemptDeploy(meta: Record<string, unknown>): Promise<void> {
@@ -241,6 +246,7 @@ export interface DeployAssetsInput {
   compatibilityFlags?: string[];
   /** Framework name — used to auto-inject DO bindings (e.g., "nextjs" → ISR cache DOs) */
   framework?: string | null;
+  cronSchedules?: string[];
 }
 
 /**
@@ -378,6 +384,8 @@ export default {
     }
 
     // Step 3: Deploy worker with assets, tags, and per-tenant bindings
+    // Only attach cron triggers to the production script (not preview/branch)
+    const isProduction = script.name === `${projectSlug}-${teamSlug}`;
     await deployScriptWithAssets(
       env,
       script.name,
@@ -390,6 +398,7 @@ export default {
       input.compatibilityDate,
       input.compatibilityFlags,
       input.framework,
+      isProduction ? input.cronSchedules : undefined,
     );
   }
 }

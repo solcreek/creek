@@ -32,6 +32,8 @@ export interface StagedBundle {
   // Wrangler compatibility settings passthrough
   compatibilityDate?: string;
   compatibilityFlags?: string[];
+  // Cron trigger schedules
+  cron?: string[];
 }
 
 interface DeployJobInput {
@@ -181,6 +183,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
           compatibilityDate: bundle.compatibilityDate,
           compatibilityFlags: bundle.compatibilityFlags,
           framework: input.framework ?? null,
+          cronSchedules: bundle.cron,
         },
         branch,
         productionBranch,

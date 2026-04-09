@@ -32,7 +32,7 @@
     "directory": "packages/cli"
   },
   "dependencies": {
-    "@solcreek/sdk": ">=0.1.0-alpha.5",
+    "@solcreek/sdk": "workspace:*",
     "ajv": "^8.17.1",
     "citty": "^0.1.6",
     "consola": "^3.4.2",

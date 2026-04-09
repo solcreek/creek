@@ -15,6 +15,7 @@ export interface WranglerConfig {
   durable_objects?: { bindings?: Array<{ name: string; class_name: string }> };
   analytics_engine_datasets?: Array<{ binding: string; dataset?: string }>;
   vars?: Record<string, string>;
+  triggers?: { crons?: string[] };
   // Detected but unsupported
   queues?: unknown;
   vectorize?: unknown;
@@ -49,6 +50,7 @@ export function parseWranglerConfig(content: string, format: WranglerFormat): Wr
     durable_objects: raw.durable_objects as WranglerConfig["durable_objects"],
     analytics_engine_datasets: asBindingArray(raw.analytics_engine_datasets, "binding"),
     vars: raw.vars as Record<string, string> | undefined,
+    triggers: raw.triggers as WranglerConfig["triggers"],
     queues: raw.queues,
     vectorize: raw.vectorize,
     hyperdrive: raw.hyperdrive,

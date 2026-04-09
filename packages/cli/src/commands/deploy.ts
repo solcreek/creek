@@ -821,6 +821,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             "nodejs_compat",
             ...resolved.compatibilityFlags.filter((f) => f !== "nodejs_compat"),
           ] }),
+      ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
     };
 
     await client.uploadDeploymentBundle(project.id, deployment.id, bundle);

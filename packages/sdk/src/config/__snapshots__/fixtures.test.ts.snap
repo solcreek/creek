@@ -44,7 +44,9 @@ exports[`real-world wrangler config fixtures > counterscale (Self-hosted web ana
   "compatibilityFlags": [
     "nodejs_compat_v2",
   ],
-  "cron": [],
+  "cron": [
+    "0 2 * * *",
+  ],
   "framework": null,
   "projectName": "counterscale",
   "source": "wrangler.json",
@@ -147,7 +149,9 @@ exports[`real-world wrangler config fixtures > pastebin-worker (Open-source past
   "buildOutput": ".",
   "compatibilityDate": "2025-04-24",
   "compatibilityFlags": [],
-  "cron": [],
+  "cron": [
+    "0 0 * * *",
+  ],
   "framework": null,
   "projectName": "pb",
   "source": "wrangler.toml",
@@ -189,7 +193,9 @@ exports[`real-world wrangler config fixtures > sink (URL shortener with AI + Ana
   "compatibilityFlags": [
     "nodejs_compat",
   ],
-  "cron": [],
+  "cron": [
+    "0 0 * * *",
+  ],
   "framework": null,
   "projectName": "sink",
   "source": "wrangler.jsonc",
@@ -206,7 +212,9 @@ exports[`real-world wrangler config fixtures > status-page (Status page with cro
   "buildOutput": "dist",
   "compatibilityDate": "2021-07-23",
   "compatibilityFlags": [],
-  "cron": [],
+  "cron": [
+    "* * * * *",
+  ],
   "framework": null,
   "projectName": "cf-workers-status-page",
   "source": "wrangler.toml",
