@@ -14,6 +14,7 @@ exports[`real-world wrangler config fixtures > chatgpt-telegram (Telegram ChatGP
   "compatibilityFlags": [
     "nodejs_compat_v2",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "chatgpt-telegram-workers",
   "source": "wrangler.toml",
@@ -43,6 +44,7 @@ exports[`real-world wrangler config fixtures > counterscale (Self-hosted web ana
   "compatibilityFlags": [
     "nodejs_compat_v2",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "counterscale",
   "source": "wrangler.json",
@@ -59,6 +61,7 @@ exports[`real-world wrangler config fixtures > docker-proxy (Docker registry pro
   "buildOutput": "dist",
   "compatibilityDate": "2023-12-01",
   "compatibilityFlags": [],
+  "cron": [],
   "framework": null,
   "projectName": "cloudflare-docker-proxy",
   "source": "wrangler.toml",
@@ -86,6 +89,7 @@ exports[`real-world wrangler config fixtures > jsonc-basic (Synthetic: JSONC for
   "compatibilityFlags": [
     "nodejs_compat",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "jsonc-app",
   "source": "wrangler.jsonc",
@@ -117,6 +121,7 @@ exports[`real-world wrangler config fixtures > multi-d1 (Synthetic: multiple D1 
   "buildOutput": ".",
   "compatibilityDate": "2025-01-15",
   "compatibilityFlags": [],
+  "cron": [],
   "framework": null,
   "projectName": "multi-db-app",
   "source": "wrangler.toml",
@@ -142,6 +147,7 @@ exports[`real-world wrangler config fixtures > pastebin-worker (Open-source past
   "buildOutput": ".",
   "compatibilityDate": "2025-04-24",
   "compatibilityFlags": [],
+  "cron": [],
   "framework": null,
   "projectName": "pb",
   "source": "wrangler.toml",
@@ -183,6 +189,7 @@ exports[`real-world wrangler config fixtures > sink (URL shortener with AI + Ana
   "compatibilityFlags": [
     "nodejs_compat",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "sink",
   "source": "wrangler.jsonc",
@@ -199,6 +206,7 @@ exports[`real-world wrangler config fixtures > status-page (Status page with cro
   "buildOutput": "dist",
   "compatibilityDate": "2021-07-23",
   "compatibilityFlags": [],
+  "cron": [],
   "framework": null,
   "projectName": "cf-workers-status-page",
   "source": "wrangler.toml",
@@ -222,6 +230,7 @@ exports[`real-world wrangler config fixtures > temp-email (Temp email service on
   "compatibilityFlags": [
     "nodejs_compat",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "cloudflare_temp_email",
   "source": "wrangler.toml",
@@ -260,6 +269,7 @@ exports[`real-world wrangler config fixtures > uptimeflare (Serverless uptime mo
   "compatibilityFlags": [
     "nodejs_compat",
   ],
+  "cron": [],
   "framework": null,
   "projectName": "uptimeflare",
   "source": "wrangler.toml",
@@ -281,6 +291,7 @@ exports[`real-world wrangler config fixtures > worker-image (Image processing wi
   "buildOutput": ".",
   "compatibilityDate": "2025-06-24",
   "compatibilityFlags": [],
+  "cron": [],
   "framework": null,
   "projectName": "image",
   "source": "wrangler.jsonc",

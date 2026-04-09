@@ -35,6 +35,8 @@ export interface ResolvedConfig {
   vars: Record<string, string>;
   compatibilityDate: string | null;
   compatibilityFlags: string[];
+  /** Cron trigger schedules (e.g., ["0 0 * * *"]) */
+  cron: string[];
 }
 
 /** Binding requirements sent to the control plane (new API path) */
@@ -119,6 +121,7 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
     vars: {},
     compatibilityDate: null,
     compatibilityFlags: [],
+    cron: config.triggers.cron,
   };
 }
 
@@ -201,6 +204,7 @@ function fromWranglerConfig(
     vars: wrangler.vars ?? {},
     compatibilityDate: wrangler.compatibility_date ?? null,
     compatibilityFlags: wrangler.compatibility_flags ?? [],
+    cron: wrangler.triggers?.crons ?? [],
   };
 }
 
@@ -228,6 +232,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     vars: {},
     compatibilityDate: null,
     compatibilityFlags: [],
+    cron: [],
   };
 }
 
@@ -247,6 +252,7 @@ function fromStaticSite(cwd: string): ResolvedConfig {
     vars: {},
     compatibilityDate: null,
     compatibilityFlags: [],
+    cron: [],
   };
 }
 
@@ -280,6 +286,10 @@ export function formatDetectionSummary(config: ResolvedConfig): string {
     .map((b) => b.type.toUpperCase());
 
   parts.push(...resourceTypes);
+
+  if (config.cron.length > 0) {
+    parts.push(`${config.cron.length} cron`);
+  }
 
   if (config.source === "index.html") {
     parts.push("static site");

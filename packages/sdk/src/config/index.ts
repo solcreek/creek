@@ -23,6 +23,9 @@ export const CreekConfigSchema = z.object({
     storage: z.boolean().default(false),
     ai: z.boolean().default(false),
   }).default({}),
+  triggers: z.object({
+    cron: z.array(z.string()).default([]),
+  }).default({}),
 });
 
 export type CreekConfig = z.infer<typeof CreekConfigSchema>;

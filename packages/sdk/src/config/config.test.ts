@@ -59,6 +59,25 @@ name = "simple"
     expect(config.resources).toEqual({ database: false, storage: false, cache: false, ai: false });
   });
 
+  test("parses cron triggers", () => {
+    const config = parseConfig(`
+[project]
+name = "cron-app"
+
+[triggers]
+cron = ["*/5 * * * *", "0 0 * * *"]
+`);
+    expect(config.triggers.cron).toEqual(["*/5 * * * *", "0 0 * * *"]);
+  });
+
+  test("defaults triggers to empty when omitted", () => {
+    const config = parseConfig(`
+[project]
+name = "no-triggers"
+`);
+    expect(config.triggers.cron).toEqual([]);
+  });
+
   test("defaults build section when omitted", () => {
     const config = parseConfig(`
 [project]
