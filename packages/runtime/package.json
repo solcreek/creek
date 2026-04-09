@@ -1,6 +1,6 @@
 {
   "name": "@solcreek/runtime",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
