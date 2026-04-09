@@ -226,10 +226,15 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     ];
 
     if (isProduction) {
+      // Store triggers metadata on the project for dashboard display
+      const triggers = JSON.stringify({
+        cron: bundle.cron ?? [],
+        queue: bundle.queue ?? false,
+      });
       batchOps.push(
         env.DB.prepare(
-          "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
-        ).bind(deploymentId, Date.now(), projectId),
+          "UPDATE project SET productionDeploymentId = ?, triggers = ?, updatedAt = ? WHERE id = ?",
+        ).bind(deploymentId, triggers, Date.now(), projectId),
       );
     }
 
