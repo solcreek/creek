@@ -1,6 +1,7 @@
 import type { Env } from "../../types.js";
 import type { ResourceRequirements } from "@solcreek/sdk";
-import { ensureResources, buildBindings } from "../resources/service.js";
+import { ensureResources, ensureQueue, buildBindings } from "../resources/service.js";
+import { setQueueConsumer } from "../resources/cloudflare.js";
 import { deployWithAssets } from "./deploy.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
@@ -34,6 +35,8 @@ export interface StagedBundle {
   compatibilityFlags?: string[];
   // Cron trigger schedules
   cron?: string[];
+  // Queue trigger
+  queue?: boolean;
 }
 
 interface DeployJobInput {
@@ -123,6 +126,16 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
     }
 
+    // Provision queue if needed
+    let queueResource;
+    if (bundle.queue) {
+      try {
+        queueResource = await ensureQueue(env, projectId);
+      } catch (err) {
+        throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
+      }
+    }
+
     // Load user-defined environment variables
     const envVarRows = await env.DB.prepare(
       "SELECT key, encryptedValue FROM environment_variable WHERE projectId = ?",
@@ -159,6 +172,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       realtimeUrl: env.CREEK_REALTIME_URL ?? `https://realtime.${env.CREEK_DOMAIN}`,
       realtimeSecret,
       needsAi: requirements.ai,
+      queueName: queueResource?.cfResourceName,
       bindingNameOverrides,
     });
 
@@ -190,6 +204,16 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       );
     } catch (err) {
       throw new StepError("deploying", err instanceof Error ? err.message : String(err));
+    }
+
+    // Register production script as queue consumer (after deploy succeeds)
+    if (queueResource && (!branch || branch === productionBranch)) {
+      const prodScriptName = `${projectSlug}-${teamSlug}`;
+      try {
+        await setQueueConsumer(env, queueResource.cfResourceId, prodScriptName);
+      } catch {
+        // Non-fatal: queue consumer registration can be retried on next deploy
+      }
     }
 
     // --- Step 4: Mark active + promote if production ---

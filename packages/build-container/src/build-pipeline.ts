@@ -58,6 +58,7 @@ export interface BuildResult {
     compatibilityDate: string | undefined;
     compatibilityFlags: string[] | undefined;
     cron: string[] | undefined;
+    queue: boolean | undefined;
   };
 }
 
@@ -241,6 +242,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         compatibilityDate: resolved.compatibilityDate ?? undefined,
         compatibilityFlags: resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
         cron: resolved.cron.length > 0 ? resolved.cron : undefined,
+        queue: resolved.queue || undefined,
       },
     };
 

@@ -822,6 +822,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             ...resolved.compatibilityFlags.filter((f) => f !== "nodejs_compat"),
           ] }),
       ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
+      ...(resolved.queue ? { queue: true } : {}),
     };
 
     await client.uploadDeploymentBundle(project.id, deployment.id, bundle);
@@ -876,6 +877,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         }
         if (resolved.cron.length > 0) {
           consola.info(`  Cron: ${resolved.cron.join(", ")}`);
+        }
+        if (resolved.queue) {
+          consola.info("  Queue: enabled");
         }
 
         // Contextual next-step hints (non-JSON only)

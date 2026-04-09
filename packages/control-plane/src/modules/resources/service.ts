@@ -10,9 +10,12 @@ import {
   createD1Database,
   createR2Bucket,
   createKVNamespace,
+  createQueue,
   getD1Database,
   getR2Bucket,
   getKVNamespace,
+  getQueue,
+  setQueueConsumer,
 } from "./cloudflare.js";
 
 // --- Types ---
@@ -81,6 +84,57 @@ export async function ensureResources(
   }
 
   return results;
+}
+
+/**
+ * Ensure a queue exists for a project. Returns the queue ID.
+ * Idempotent: adopts existing queue or creates a new one.
+ */
+export async function ensureQueue(
+  env: Env,
+  projectId: string,
+): Promise<ProjectResource> {
+  const type = "queue";
+  const existing = await env.DB.prepare(
+    "SELECT projectId, resourceType, cfResourceId, cfResourceName, status FROM project_resource WHERE projectId = ? AND resourceType = ?",
+  )
+    .bind(projectId, type)
+    .first<ProjectResource>();
+
+  if (existing?.status === "active") return existing;
+
+  const name = `creek-q-${projectId.slice(0, 8)}`;
+
+  if (!existing) {
+    await env.DB.prepare(
+      `INSERT INTO project_resource (projectId, resourceType, cfResourceId, cfResourceName, status, createdAt)
+       VALUES (?, ?, '', ?, 'provisioning', ?)`,
+    )
+      .bind(projectId, type, name, Date.now())
+      .run();
+  }
+
+  try {
+    let queueId = await getQueue(env, name);
+    if (!queueId) {
+      queueId = await createQueue(env, name);
+    }
+
+    await env.DB.prepare(
+      `UPDATE project_resource SET cfResourceId = ?, status = 'active' WHERE projectId = ? AND resourceType = ?`,
+    )
+      .bind(queueId, projectId, type)
+      .run();
+
+    return { projectId, resourceType: type as any, cfResourceId: queueId, cfResourceName: name, status: "active" };
+  } catch (err) {
+    await env.DB.prepare(
+      `UPDATE project_resource SET status = 'failed' WHERE projectId = ? AND resourceType = ?`,
+    )
+      .bind(projectId, type)
+      .run();
+    throw new Error(`Failed to provision queue for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function provisionResource(
@@ -186,6 +240,8 @@ export function buildBindings(
     realtimeUrl: string;
     realtimeSecret?: string;
     needsAi: boolean;
+    /** Queue name for producer binding (if project uses queue) */
+    queueName?: string;
     /** Override canonical binding names (e.g., wrangler declares binding = "MY_DB" instead of "DB") */
     bindingNameOverrides?: Map<string, string>;
   },
@@ -231,6 +287,15 @@ export function buildBindings(
         });
         break;
     }
+  }
+
+  // Queue producer binding
+  if (options.queueName) {
+    bindings.push({
+      type: "queue",
+      name: nameFor("queue"),
+      queue_name: options.queueName,
+    });
   }
 
   // AI binding (account-level, no per-tenant resource)

@@ -184,3 +184,62 @@ export async function deleteKVNamespace(env: Env, namespaceId: string): Promise<
     `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${namespaceId}`,
   );
 }
+
+// --- Queues ---
+
+export async function createQueue(env: Env, name: string): Promise<string> {
+  const result = await cfApi(
+    env,
+    "POST",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues`,
+    { queue_name: name },
+  );
+  return result.queue_id;
+}
+
+export async function getQueue(env: Env, name: string): Promise<string | null> {
+  try {
+    const result = await cfApi(
+      env,
+      "GET",
+      `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues?name=${encodeURIComponent(name)}`,
+    );
+    const queues = Array.isArray(result) ? result : [];
+    const match = queues.find((q: any) => q.queue_name === name);
+    return match?.queue_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteQueue(env: Env, queueId: string): Promise<void> {
+  await cfApi(
+    env,
+    "DELETE",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}`,
+  );
+}
+
+/**
+ * Register a WfP dispatch namespace script as a queue consumer.
+ */
+export async function setQueueConsumer(
+  env: Env,
+  queueId: string,
+  scriptName: string,
+): Promise<void> {
+  await cfApi(
+    env,
+    "POST",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/consumers`,
+    {
+      type: "worker",
+      script_name: scriptName,
+      settings: {
+        batch_size: 10,
+        max_retries: 3,
+        max_wait_time_ms: 5000,
+      },
+    },
+  );
+}
