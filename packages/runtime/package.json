@@ -46,7 +46,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/solcreek/creek.git",
+    "url": "git+https://github.com/solcreek/creek.git",
     "directory": "packages/runtime"
   },
   "license": "Apache-2.0",
