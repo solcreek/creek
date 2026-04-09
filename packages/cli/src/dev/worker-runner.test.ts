@@ -170,7 +170,8 @@ describe("WorkerRunner integration", () => {
         async fetch(request, env) {
           const url = new URL(request.url);
           if (url.pathname === "/api/d1-test") {
-            await env.DB.prepare("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, name TEXT)").run();
+            await env.DB.prepare("DROP TABLE IF EXISTS test").run();
+            await env.DB.prepare("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)").run();
             await env.DB.prepare("INSERT INTO test (name) VALUES (?)").bind("hello").run();
             const result = await env.DB.prepare("SELECT * FROM test").all();
             return new Response(JSON.stringify(result.results), {
