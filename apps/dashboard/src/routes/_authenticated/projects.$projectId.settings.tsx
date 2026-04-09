@@ -95,6 +95,7 @@ function TriggersSection({ projectId }: { projectId: string }) {
                 <p className="text-xs text-muted-foreground">
                   Edit cron schedules in your creek.toml and redeploy.
                 </p>
+                <CronLogs projectId={projectId} />
               </div>
             )}
             {triggers.queue && (
@@ -110,6 +111,51 @@ function TriggersSection({ projectId }: { projectId: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+interface CronInvocation {
+  datetime: string;
+  status: string;
+  requests: number;
+  errors: number;
+  durationMs: number;
+}
+
+function CronLogs({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["cron-logs", projectId],
+    queryFn: () =>
+      api<{ invocations: CronInvocation[] }>(`/projects/${projectId}/cron-logs`),
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading) return <p className="mt-2 text-xs text-muted-foreground">Loading logs...</p>;
+  if (!data?.invocations?.length) {
+    return <p className="mt-2 text-xs text-muted-foreground">No invocations in the last 24 hours.</p>;
+  }
+
+  return (
+    <div className="mt-3 space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">Recent Invocations (24h)</p>
+      <div className="max-h-48 space-y-1 overflow-y-auto">
+        {data.invocations.map((inv, i) => (
+          <div key={i} className="flex items-center justify-between rounded bg-code-bg px-2 py-1 text-xs">
+            <span className="text-muted-foreground">
+              {new Date(inv.datetime).toLocaleString()}
+            </span>
+            <span className="flex items-center gap-2">
+              {inv.errors > 0 ? (
+                <span className="text-red-400">{inv.errors} errors</span>
+              ) : (
+                <span className="text-green-400">ok</span>
+              )}
+              <span className="text-muted-foreground">{inv.durationMs}ms</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

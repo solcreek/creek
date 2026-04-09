@@ -438,4 +438,85 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
   });
 });
 
+/**
+ * GET /projects/:id/cron-logs
+ * Query CF Workers analytics for cron invocation history.
+ */
+deployments.get("/:projectId/cron-logs", async (c) => {
+  const teamId = c.get("teamId");
+  const teamSlug = c.get("teamSlug");
+  const projectId = c.req.param("projectId");
+
+  const project = await c.env.DB.prepare(
+    "SELECT slug FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ slug: string }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  // Production script name follows the convention: {slug}-{teamSlug}
+  const scriptName = `${project.slug}-${teamSlug}`;
+
+  // Query CF GraphQL Analytics API for cron invocations (last 24h)
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const query = `
+    query {
+      viewer {
+        accounts(filter: { accountTag: "${c.env.CLOUDFLARE_ACCOUNT_ID}" }) {
+          workersInvocationsAdaptive(
+            filter: {
+              scriptName: "${scriptName}"
+              datetime_gt: "${since}"
+            }
+            limit: 50
+            orderBy: [datetime_DESC]
+          ) {
+            dimensions {
+              datetime
+              status
+              scriptName
+            }
+            sum {
+              requests
+              errors
+              duration
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${c.env.CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const data = await res.json() as any;
+    const invocations = data?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? [];
+
+    return c.json({
+      scriptName,
+      period: "24h",
+      invocations: invocations.map((inv: any) => ({
+        datetime: inv.dimensions.datetime,
+        status: inv.dimensions.status,
+        requests: inv.sum.requests,
+        errors: inv.sum.errors,
+        durationMs: inv.sum.duration,
+      })),
+    });
+  } catch {
+    return c.json({ scriptName, period: "24h", invocations: [] });
+  }
+});
+
 export { deployments };
