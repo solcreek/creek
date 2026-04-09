@@ -4,6 +4,7 @@ import {
   _setEnv,
   _setCtx,
   db,
+  queue,
   notifyRealtime,
   generateWsToken,
 } from "./index.js";
@@ -249,6 +250,52 @@ describe("concurrent request isolation", () => {
     expect(dbB.mockDb.prepare).not.toHaveBeenCalledWith(
       "SELECT * FROM table_a",
     );
+  });
+});
+
+// ── Queue binding inside _runRequest ──
+
+describe("queue inside _runRequest", () => {
+  test("queue.send() works inside _runRequest context", async () => {
+    const mockSend = vi.fn().mockResolvedValue(undefined);
+
+    await _runRequest(
+      { QUEUE: { send: mockSend, sendBatch: vi.fn() } },
+      null,
+      async () => {
+        await queue.send({ type: "job", payload: "data" });
+      },
+    );
+
+    expect(mockSend).toHaveBeenCalledWith({ type: "job", payload: "data" });
+  });
+
+  test("queue binding is isolated between concurrent requests", async () => {
+    const sendA = vi.fn().mockResolvedValue(undefined);
+    const sendB = vi.fn().mockResolvedValue(undefined);
+
+    const reqA = _runRequest(
+      { QUEUE: { send: sendA, sendBatch: vi.fn() } },
+      null,
+      async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        await queue.send("from-A");
+      },
+    );
+
+    const reqB = _runRequest(
+      { QUEUE: { send: sendB, sendBatch: vi.fn() } },
+      null,
+      async () => {
+        await queue.send("from-B");
+      },
+    );
+
+    await Promise.all([reqA, reqB]);
+
+    expect(sendA).toHaveBeenCalledWith("from-A");
+    expect(sendB).toHaveBeenCalledWith("from-B");
+    expect(sendA).not.toHaveBeenCalledWith("from-B");
   });
 });
 
