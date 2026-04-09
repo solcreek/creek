@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { db, _setEnv, _setRoom, notifyRealtime } from "./index.js";
+import { db, queue, _setEnv, _setRoom, notifyRealtime } from "./index.js";
 import type { CreekDatabase } from "./index.js";
 
 // ── Mock D1 binding ──
@@ -316,5 +316,28 @@ describe("db.define()", () => {
     _setEnv({ DB: mockDb });
 
     expect(typeof db.define).toBe("function");
+  });
+});
+
+describe("queue binding", () => {
+  test("proxies send() to the QUEUE binding", async () => {
+    const mockSend = vi.fn().mockResolvedValue(undefined);
+    _setEnv({ QUEUE: { send: mockSend, sendBatch: vi.fn() } });
+
+    await queue.send({ type: "process", data: "hello" });
+    expect(mockSend).toHaveBeenCalledWith({ type: "process", data: "hello" });
+  });
+
+  test("proxies sendBatch() to the QUEUE binding", async () => {
+    const mockSendBatch = vi.fn().mockResolvedValue(undefined);
+    _setEnv({ QUEUE: { send: vi.fn(), sendBatch: mockSendBatch } });
+
+    await queue.sendBatch([{ body: "msg1" }, { body: "msg2" }]);
+    expect(mockSendBatch).toHaveBeenCalledWith([{ body: "msg1" }, { body: "msg2" }]);
+  });
+
+  test("throws when QUEUE is not configured", () => {
+    _setEnv({});
+    expect(() => queue.send("test")).toThrow("Queue is not enabled");
   });
 });

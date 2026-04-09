@@ -334,6 +334,11 @@ export async function generateWsToken(): Promise<string | null> {
   return `${timestamp}.${hmac}`;
 }
 
+// ─── Queue binding proxy ──────────────────────────────────────────────────
+
+/** Queue producer — send messages to the project's queue */
+export const queue: Queue = createBinding("QUEUE", "Queue");
+
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 /** D1 Database with auto-realtime on writes */
