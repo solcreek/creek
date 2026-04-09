@@ -23,6 +23,7 @@ import { Route as AuthenticatedGithubSetupRouteImport } from './routes/_authenti
 import { Route as AuthenticatedProjectsProjectIdIndexRouteImport } from './routes/_authenticated/projects.$projectId.index'
 import { Route as AuthenticatedProjectsProjectIdSettingsRouteImport } from './routes/_authenticated/projects.$projectId.settings'
 import { Route as AuthenticatedProjectsProjectIdEnvRouteImport } from './routes/_authenticated/projects.$projectId.env'
+import { Route as AuthenticatedProjectsProjectIdAnalyticsRouteImport } from './routes/_authenticated/projects.$projectId.analytics'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -99,6 +100,12 @@ const AuthenticatedProjectsProjectIdEnvRoute =
     path: '/env',
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
   } as any)
+const AuthenticatedProjectsProjectIdAnalyticsRoute =
+  AuthenticatedProjectsProjectIdAnalyticsRouteImport.update({
+    id: '/analytics',
+    path: '/analytics',
+    getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -111,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
   '/projects/$projectId/': typeof AuthenticatedProjectsProjectIdIndexRoute
@@ -125,6 +133,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
+  '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdIndexRoute
@@ -142,6 +151,7 @@ export interface FileRoutesById {
   '/_authenticated/github/setup': typeof AuthenticatedGithubSetupRoute
   '/_authenticated/new/configure': typeof AuthenticatedNewConfigureRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/_authenticated/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/_authenticated/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/_authenticated/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
   '/_authenticated/projects/$projectId/': typeof AuthenticatedProjectsProjectIdIndexRoute
@@ -159,6 +169,7 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/new/configure'
     | '/projects/$projectId'
+    | '/projects/$projectId/analytics'
     | '/projects/$projectId/env'
     | '/projects/$projectId/settings'
     | '/projects/$projectId/'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/github/setup'
     | '/new/configure'
+    | '/projects/$projectId/analytics'
     | '/projects/$projectId/env'
     | '/projects/$projectId/settings'
     | '/projects/$projectId'
@@ -189,6 +201,7 @@ export interface FileRouteTypes {
     | '/_authenticated/github/setup'
     | '/_authenticated/new/configure'
     | '/_authenticated/projects/$projectId'
+    | '/_authenticated/projects/$projectId/analytics'
     | '/_authenticated/projects/$projectId/env'
     | '/_authenticated/projects/$projectId/settings'
     | '/_authenticated/projects/$projectId/'
@@ -301,6 +314,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdEnvRouteImport
       parentRoute: typeof AuthenticatedProjectsProjectIdRoute
     }
+    '/_authenticated/projects/$projectId/analytics': {
+      id: '/_authenticated/projects/$projectId/analytics'
+      path: '/analytics'
+      fullPath: '/projects/$projectId/analytics'
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
+    }
   }
 }
 
@@ -316,6 +336,7 @@ const AuthenticatedNewRouteWithChildren =
   AuthenticatedNewRoute._addFileChildren(AuthenticatedNewRouteChildren)
 
 interface AuthenticatedProjectsProjectIdRouteChildren {
+  AuthenticatedProjectsProjectIdAnalyticsRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   AuthenticatedProjectsProjectIdEnvRoute: typeof AuthenticatedProjectsProjectIdEnvRoute
   AuthenticatedProjectsProjectIdSettingsRoute: typeof AuthenticatedProjectsProjectIdSettingsRoute
   AuthenticatedProjectsProjectIdIndexRoute: typeof AuthenticatedProjectsProjectIdIndexRoute
@@ -323,6 +344,8 @@ interface AuthenticatedProjectsProjectIdRouteChildren {
 
 const AuthenticatedProjectsProjectIdRouteChildren: AuthenticatedProjectsProjectIdRouteChildren =
   {
+    AuthenticatedProjectsProjectIdAnalyticsRoute:
+      AuthenticatedProjectsProjectIdAnalyticsRoute,
     AuthenticatedProjectsProjectIdEnvRoute:
       AuthenticatedProjectsProjectIdEnvRoute,
     AuthenticatedProjectsProjectIdSettingsRoute:
