@@ -863,6 +863,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             deploymentId: deployment.id,
             project: project.slug,
             mode: "production",
+            ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },
             { command: `creek deployments --project ${project.slug}`, description: "View deployment history" },
@@ -872,6 +873,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         consola.success(`  ⬡ Deployed! ${res.url ?? res.previewUrl}`);
         if (res.url && res.previewUrl) {
           consola.info(`  Preview: ${res.previewUrl}`);
+        }
+        if (resolved.cron.length > 0) {
+          consola.info(`  Cron: ${resolved.cron.join(", ")}`);
         }
 
         // Contextual next-step hints (non-JSON only)
