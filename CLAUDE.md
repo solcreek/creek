@@ -30,11 +30,16 @@ Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d
 | Package | npm name | Purpose |
 |---------|----------|---------|
 | `packages/sdk` | `@solcreek/sdk` | Config detection, framework detection, wrangler parsing, bindings extraction |
-| `packages/cli` | `creek` | CLI: deploy, dev, init, login, claim, domains, env, status |
+| `packages/cli` | `@solcreek/cli` | CLI implementation: deploy, dev, init, login, claim, domains, env, status, deployments, ops, projects, rollback, whoami |
+| `packages/creek` | `creek` | User-facing umbrella package — re-exports `@solcreek/cli` (binaries: `creek`, `ck`, `crk`) and `@solcreek/runtime` (subpaths: `/react`, `/hono`) |
 | `packages/runtime` | `@solcreek/runtime` | Runtime bindings (db, kv, storage, ai). Subpath exports: `/react`, `/hono` |
-| `packages/adapter-nextjs` | `@solcreek/adapter-nextjs` | Next.js 16.2+ adapter for CF Workers |
 | `packages/ui` | `@solcreek/ui` | Shared UI components (shadcn + Tailwind 4) |
 | `packages/create-creek-app` | `create-creek-app` | Template scaffolder CLI |
+
+> **Next.js adapter lives in a sibling repo, not in this monorepo.**
+> Source: [`solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek), package `@solcreek/adapter-creek`.
+> The CLI's `buildNextjs()` (`packages/cli/src/utils/nextjs.ts`) resolves it via `require.resolve("@solcreek/adapter-creek")` and invokes `next build --webpack` with `NEXT_ADAPTER_PATH` for Next.js >= 16.2.
+> An older `packages/adapter-nextjs` directory was removed — do not re-add it.
 
 ### Cloudflare Workers (deployed, not published)
 | Package | Service | Domain |
@@ -49,7 +54,8 @@ Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d
 | `packages/mcp-server` | creek-mcp-server | mcp.creek.dev |
 
 ### Apps
-- `apps/www` — creek.dev marketing site (Next.js 16.2 on CF Workers via OpenNextJS)
+- `apps/www` — creek.dev marketing site (Next.js 16.2 on CF Workers).
+  Currently deployed via OpenNextJS (`apps/www/scripts/deploy.sh`) **as an interim workaround** — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1). The end state is `creek deploy --yes` driven by `@solcreek/adapter-creek`. OpenNextJS dependency, the standalone symlink, and the middleware-manifest patch are all temporary; do not invest in OpenNextJS-side fixes here, fix them in adapter-creek instead.
 - `apps/dashboard` — app.creek.dev admin dashboard (Vite + React 19 + TanStack Router)
 
 ### Internal Packages
@@ -75,7 +81,7 @@ Output is `ResolvedConfig` — the canonical representation used by CLI, build-c
 - **L5 Intelligence** — repo profiling, auto-instance selection (private)
 
 ### Control-Plane Modules
-`packages/control-plane/src/modules/` contains 13 domain modules: tenant, audit, deployments, projects, domains, env, github, templates, web-deploy, realtime, resources, db. Each module has routes, services, and types. Framework: Hono + Better Auth + Drizzle ORM + D1.
+`packages/control-plane/src/modules/` contains 11 domain modules: audit, deployments, domains, env, github, projects, realtime, resources, templates, tenant, web-deploy. Each module has routes, services, and types. Framework: Hono + Better Auth + Drizzle ORM + D1.
 
 ### Tenant Routing
 - Production: `{project}-{team}.bycreek.com` — handled by dispatch-worker
@@ -97,6 +103,8 @@ Output is `ResolvedConfig` — the canonical representation used by CLI, build-c
 ## Important Caveats
 
 - `apps/www` uses **Next.js 16.2** which has breaking changes from training data. Always read `node_modules/next/dist/docs/` before modifying Next.js code.
+- **Next.js >= 16.2.3** is required by `@solcreek/adapter-creek` (CVE-2026-23869). When `apps/www` switches off OpenNextJS, bump its `next` dep to `^16.2.3`.
+- `packages/cli/src/utils/nextjs.ts` has stale comments referring to `@solcreek/adapter-nextjs`; the resolved package is `@solcreek/adapter-creek`. Code is correct, comments are not — update when touched.
 - `packages/deploy-core` exports raw TypeScript (no build step) — consumers bundle it themselves.
 - `packages/build-container` bundles to a single `dist/server.mjs` via esbuild. The `@solcreek/sdk` dependency is inlined; `ajv` is also inlined. Only `node:*` builtins are external.
 - `turbo build` runs dependency builds first (`^build`). Tests also depend on `^build`. Dev and test tasks are not cached.
