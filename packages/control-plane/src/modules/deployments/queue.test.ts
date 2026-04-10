@@ -56,6 +56,20 @@ describe("PATCH /projects/:id/triggers", () => {
     expect(res.status).toBe(404);
   });
 
+  test("rejects empty body", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: null,
+    });
+
+    const res = await patchTriggers("my-app", {});
+    expect(res.status).toBe(400);
+    const json = await res.json() as any;
+    expect(json.error).toBe("validation");
+    expect(json.message).toContain("at least one of");
+  });
+
   test("rejects non-array cron field", async () => {
     db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
       id: "p-1",
@@ -64,6 +78,19 @@ describe("PATCH /projects/:id/triggers", () => {
     });
 
     const res = await patchTriggers("my-app", { cron: "not-an-array" });
+    expect(res.status).toBe(400);
+    const json = await res.json() as any;
+    expect(json.error).toBe("validation");
+  });
+
+  test("rejects non-boolean queue field", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: null,
+    });
+
+    const res = await patchTriggers("my-app", { queue: "yes" });
     expect(res.status).toBe(400);
     const json = await res.json() as any;
     expect(json.error).toBe("validation");
@@ -85,6 +112,8 @@ describe("PATCH /projects/:id/triggers", () => {
     const json = await res.json() as any;
     expect(json.ok).toBe(true);
     expect(json.cron).toEqual(["*/15 * * * *", "0 0 * * *"]);
+    expect(json.queue).toBe(false);
+    expect(json.queueRequiresRedeploy).toBe(false);
 
     // Verify CF API call
     const fetchCall = (globalThis.fetch as any).mock.calls[0];
@@ -93,12 +122,73 @@ describe("PATCH /projects/:id/triggers", () => {
     const body = JSON.parse(fetchCall[1].body);
     expect(body.schedules).toEqual([{ cron: "*/15 * * * *" }, { cron: "0 0 * * *" }]);
 
-    // Verify DB update was issued (check executed queries)
+    // Verify DB update
     const writes = db.getExecuted().filter((q) => q.sql.includes("UPDATE project"));
     expect(writes.length).toBeGreaterThan(0);
     expect(writes[0].args[0]).toContain('"cron":["*/15 * * * *","0 0 * * *"]');
-    // Queue field preserved
     expect(writes[0].args[0]).toContain('"queue":false');
+
+    // Verify audit log was written
+    const auditWrites = db.getExecuted().filter((q) => q.sql.includes("audit_log"));
+    expect(auditWrites.length).toBeGreaterThan(0);
+  });
+
+  test("toggling queue does NOT call CF API and signals queueRequiresRedeploy", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: '{"cron":[],"queue":false}',
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true, result: {} })),
+    );
+    globalThis.fetch = fetchSpy;
+
+    const res = await patchTriggers("my-app", { queue: true });
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json.queue).toBe(true);
+    expect(json.queueRequiresRedeploy).toBe(true);
+
+    // Should NOT have called CF schedules API for queue-only update
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // DB should have the new queue value
+    const writes = db.getExecuted().filter((q) => q.sql.includes("UPDATE project"));
+    expect(writes[0].args[0]).toContain('"queue":true');
+  });
+
+  test("toggling queue to same value does not flag queueRequiresRedeploy", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: '{"cron":[],"queue":true}',
+    });
+
+    const res = await patchTriggers("my-app", { queue: true });
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json.queueRequiresRedeploy).toBe(false);
+  });
+
+  test("can update both cron and queue in one request", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: '{"cron":[],"queue":false}',
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true, result: {} })),
+    );
+
+    const res = await patchTriggers("my-app", { cron: ["0 * * * *"], queue: true });
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json.cron).toEqual(["0 * * * *"]);
+    expect(json.queue).toBe(true);
+    expect(json.queueRequiresRedeploy).toBe(true);
   });
 
   test("returns 500 when CF API fails", async () => {

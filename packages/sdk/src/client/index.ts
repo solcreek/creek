@@ -138,8 +138,15 @@ export class CreekClient {
   async updateCronTriggers(
     projectId: string,
     cron: string[],
-  ): Promise<{ ok: boolean; cron: string[] }> {
+  ): Promise<{ ok: boolean; cron: string[]; queue: boolean; queueRequiresRedeploy: boolean }> {
     return this.request("PATCH", `/projects/${projectId}/triggers`, { cron });
+  }
+
+  async updateTriggers(
+    projectId: string,
+    patch: { cron?: string[]; queue?: boolean },
+  ): Promise<{ ok: boolean; cron: string[]; queue: boolean; queueRequiresRedeploy: boolean }> {
+    return this.request("PATCH", `/projects/${projectId}/triggers`, patch);
   }
 
   async getDeploymentStatus(

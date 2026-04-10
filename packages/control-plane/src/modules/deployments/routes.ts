@@ -642,8 +642,15 @@ deployments.get("/:projectId/analytics", async (c) => {
 
 /**
  * PATCH /projects/:id/triggers
- * Update cron schedules without re-deploying. Updates project.triggers
- * and pushes the new schedules to the production WfP script via CF API.
+ *
+ * Update project triggers (cron schedules, queue toggle).
+ *
+ * - cron: applied immediately via CF schedules API. Takes effect within seconds.
+ * - queue: stored in project.triggers, but the actual binding lives in the
+ *   worker bundle metadata. Toggling queue here only updates the recorded
+ *   intent — the change takes effect on next `creek deploy`.
+ *
+ * Both fields are optional; you can update either or both.
  */
 deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), async (c) => {
   const teamId = c.get("teamId");
@@ -660,39 +667,82 @@ deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), as
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  const body = await c.req.json<{ cron?: unknown }>().catch(() => ({} as { cron?: unknown }));
-  const cron = (body as { cron?: unknown }).cron;
+  const body = await c.req.json<{ cron?: unknown; queue?: unknown }>().catch(
+    () => ({} as { cron?: unknown; queue?: unknown }),
+  );
+  const cronInput = (body as { cron?: unknown }).cron;
+  const queueInput = (body as { queue?: unknown }).queue;
 
-  if (!Array.isArray(cron) || !cron.every((s) => typeof s === "string")) {
+  const updateCron = cronInput !== undefined;
+  const updateQueue = queueInput !== undefined;
+
+  if (!updateCron && !updateQueue) {
+    return c.json({ error: "validation", message: "Provide at least one of: cron, queue" }, 400);
+  }
+
+  if (updateCron && (!Array.isArray(cronInput) || !cronInput.every((s) => typeof s === "string"))) {
     return c.json({ error: "validation", message: "Field 'cron' must be a string array" }, 400);
   }
 
-  const scriptName = `${project.slug}-${teamSlug}`;
-
-  try {
-    const { updateScriptSchedules } = await import("../resources/cloudflare.js");
-    await updateScriptSchedules(c.env, scriptName, cron as string[]);
-  } catch (err) {
-    return c.json({
-      error: "update_failed",
-      message: err instanceof Error ? err.message : String(err),
-    }, 500);
+  if (updateQueue && typeof queueInput !== "boolean") {
+    return c.json({ error: "validation", message: "Field 'queue' must be a boolean" }, 400);
   }
 
-  // Update DB triggers JSON (preserve queue field)
+  // Read existing triggers (preserve fields not being updated)
   let existing: { cron: string[]; queue: boolean } = { cron: [], queue: false };
   try {
     if (project.triggers) existing = JSON.parse(project.triggers);
   } catch {}
 
-  const newTriggers = JSON.stringify({ ...existing, cron });
+  const newCron = updateCron ? (cronInput as string[]) : existing.cron;
+  const newQueue = updateQueue ? (queueInput as boolean) : existing.queue;
+  const scriptName = `${project.slug}-${teamSlug}`;
+
+  // Cron applies immediately via CF schedules API
+  if (updateCron) {
+    try {
+      const { updateScriptSchedules } = await import("../resources/cloudflare.js");
+      await updateScriptSchedules(c.env, scriptName, newCron);
+    } catch (err) {
+      return c.json({
+        error: "update_failed",
+        message: err instanceof Error ? err.message : String(err),
+      }, 500);
+    }
+  }
+
+  // Persist to DB
+  const newTriggers = JSON.stringify({ cron: newCron, queue: newQueue });
   await c.env.DB.prepare(
     "UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?",
   )
     .bind(newTriggers, Date.now(), project.id)
     .run();
 
-  return c.json({ ok: true, cron });
+  // Audit log
+  if (updateCron) {
+    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
+      action: "trigger.cron.update",
+      resourceType: "trigger",
+      resourceId: project.id,
+      metadata: { projectSlug: project.slug, cron: newCron },
+    }, c.get("auditCtx"));
+  }
+  if (updateQueue && existing.queue !== newQueue) {
+    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
+      action: "trigger.queue.update",
+      resourceType: "trigger",
+      resourceId: project.id,
+      metadata: { projectSlug: project.slug, queue: newQueue },
+    }, c.get("auditCtx"));
+  }
+
+  return c.json({
+    ok: true,
+    cron: newCron,
+    queue: newQueue,
+    queueRequiresRedeploy: updateQueue && existing.queue !== newQueue,
+  });
 });
 
 /**

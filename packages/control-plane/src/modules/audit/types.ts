@@ -11,14 +11,17 @@ export type AuditAction =
   | "envvar.set"
   | "envvar.delete"
   | "instant_deploy.create"
-  | "instant_deploy.update";
+  | "instant_deploy.update"
+  | "trigger.cron.update"
+  | "trigger.queue.update";
 
 export type AuditResourceType =
   | "project"
   | "deployment"
   | "domain"
   | "envvar"
-  | "instant_deploy";
+  | "instant_deploy"
+  | "trigger";
 
 export interface AuditEntry {
   action: AuditAction;
