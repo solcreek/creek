@@ -148,7 +148,7 @@ npx creek deploy --json
 }
 ```
 
-- **No CAPTCHAs** — [Agent Challenge](https://creek.dev/docs/api#agent-challenge) for verified agent tokens
+- **No CAPTCHAs** — Agent Challenge protocol issues verified agent tokens (docs coming soon)
 - **Breadcrumb hints** in error responses guide agents to next steps
 - **MCP server** at `mcp.creek.dev` (in development) — any AI agent can deploy with a single tool call
 
