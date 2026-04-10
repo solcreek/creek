@@ -2,9 +2,10 @@
  * Next.js-specific build utilities for Creek CLI.
  *
  * Two build paths:
- * - **Adapter path** (Next.js >= 16.2): Uses @solcreek/adapter-nextjs via
+ * - **Adapter path** (Next.js >= 16.2.3): Uses @solcreek/adapter-creek via
  *   NEXT_ADAPTER_PATH. Zero workarounds, typed outputs, direct esbuild bundle.
- * - **Legacy path** (Next.js < 16.2): Uses @opennextjs/cloudflare with
+ *   Min version reflects the adapter's peerDependency (CVE-2026-23869).
+ * - **Legacy path** (Next.js < 16.2.3): Uses @opennextjs/cloudflare with
  *   workarounds (standalone patch, middleware manifest inline, etc.)
  *
  * The CLI auto-detects the Next.js version and picks the right path.
@@ -41,7 +42,7 @@ function semverGte(version: string, target: string): boolean {
 }
 
 /**
- * Build a Next.js app using the Creek adapter (>= 16.2).
+ * Build a Next.js app using the Creek adapter (>= 16.2.3).
  *
  * Sets NEXT_ADAPTER_PATH to the adapter bundled with the CLI.
  * No opennext, no wrangler, no config patching — the adapter handles
@@ -59,7 +60,7 @@ function resolveAdapterPath(): string | null {
 function buildWithAdapter(cwd: string): void {
   const adapterPath = resolveAdapterPath();
   if (!adapterPath) {
-    consola.warn("  @solcreek/adapter-nextjs not found — install it for optimal Next.js builds");
+    consola.warn("  @solcreek/adapter-creek not found — install it for optimal Next.js builds");
     return; // caller falls back to legacy
   }
 
@@ -76,12 +77,15 @@ function buildWithAdapter(cwd: string): void {
 /**
  * Unified Next.js build entry point.
  *
- * - Next.js >= 16.2: Creek adapter path (recommended)
- * - Next.js < 16.2: legacy opennext path (best effort)
+ * - Next.js >= 16.2.3: Creek adapter path (recommended)
+ * - Next.js < 16.2.3: legacy opennext path (best effort)
+ *
+ * Min version for the adapter path matches @solcreek/adapter-creek's
+ * peerDependency, which pins Next.js >= 16.2.3 to fix CVE-2026-23869.
  */
 export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: string): void {
   const version = getNextVersion(cwd);
-  const useAdapter = version && semverGte(version, "16.2.0") && resolveAdapterPath();
+  const useAdapter = version && semverGte(version, "16.2.3") && resolveAdapterPath();
 
   if (useAdapter) {
     buildWithAdapter(cwd);
