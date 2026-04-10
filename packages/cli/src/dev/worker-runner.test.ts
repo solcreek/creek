@@ -201,6 +201,81 @@ describe("WorkerRunner integration", () => {
     expect(body[0].name).toBe("hello");
   }, 15000);
 
+  it("triggers scheduled() handler without error", async () => {
+    const cwd = createTempProject();
+    const persistDir = join(cwd, ".creek", "dev");
+
+    // Worker has a scheduled() handler — verify trigger doesn't throw
+    writeFileSync(
+      join(cwd, "worker", "index.ts"),
+      `export default {
+        async fetch(request, env) {
+          return new Response("ok");
+        },
+        async scheduled(event, env, ctx) {
+          // No-op
+        },
+      };`,
+    );
+
+    runner = new WorkerRunner({
+      entryPoint: "worker/index.ts",
+      cwd,
+      bindings: [],
+      persistDir,
+      realtimeUrl: "http://127.0.0.1:9999",
+      projectSlug: "test-project",
+      cron: ["* * * * *"],
+    });
+
+    await runner.start();
+    // triggerScheduled should not throw
+    const res = await runner.triggerScheduled();
+    expect(res.ok).toBe(true);
+  }, 15000);
+
+  it("sends queue messages via queue producer binding", async () => {
+    const cwd = createTempProject();
+    const persistDir = join(cwd, ".creek", "dev");
+
+    writeFileSync(
+      join(cwd, "worker", "index.ts"),
+      `export default {
+        async fetch(request, env) {
+          const url = new URL(request.url);
+          if (url.pathname === "/produce") {
+            await env.QUEUE.send({ ping: "from-fetch" });
+            return new Response("queued");
+          }
+          return new Response("ok");
+        },
+        async queue(batch, env, ctx) {
+          // Consumer just acks
+        },
+      };`,
+    );
+
+    runner = new WorkerRunner({
+      entryPoint: "worker/index.ts",
+      cwd,
+      bindings: [],
+      persistDir,
+      realtimeUrl: "http://127.0.0.1:9999",
+      projectSlug: "test-project",
+      queue: true,
+    });
+
+    await runner.start();
+
+    // Verify worker can call env.QUEUE.send() without error
+    const res = await fetchWithRetry(runner, "http://localhost/produce");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("queued");
+
+    // Verify the runner's sendQueueMessage helper works
+    await runner.sendQueueMessage({ test: "direct-send" });
+  }, 15000);
+
   it("stops cleanly", async () => {
     const cwd = createTempProject();
     const persistDir = join(cwd, ".creek", "dev");

@@ -51,6 +51,10 @@ export interface WorkerRunnerOptions {
   vars?: Record<string, string>;
   /** Whether the project has client assets (Worker + SPA hybrid). */
   hasClientAssets?: boolean;
+  /** Cron schedules from creek.toml [triggers].cron */
+  cron?: string[];
+  /** Whether project uses a queue (auto-provisions a local queue) */
+  queue?: boolean;
   /** Callback when worker is rebuilt. */
   onRebuild?: (durationMs: number) => void;
   /**
@@ -185,7 +189,37 @@ export class WorkerRunner {
       opts.r2Persist = persistDir ? join(persistDir, "r2") : false;
     }
 
+    // Queue (producer + consumer wired to the same worker)
+    if (this.options.queue) {
+      opts.queueProducers = { QUEUE: "creek-dev-queue" };
+      opts.queueConsumers = {
+        "creek-dev-queue": {
+          maxBatchSize: 10,
+          maxBatchTimeout: 1,
+          maxRetries: 3,
+        },
+      };
+    }
+
     return opts;
+  }
+
+  /** Trigger the scheduled() handler manually (for local cron simulation). */
+  async triggerScheduled(scheduledTime: number = Date.now(), cron: string = "* * * * *"): Promise<Response> {
+    if (!this.mf) throw new Error("WorkerRunner not started");
+    const worker = await this.mf.getWorker();
+    const url = `http://placeholder/cdn-cgi/handler/scheduled?time=${scheduledTime}&cron=${encodeURIComponent(cron)}`;
+    return worker.fetch(url) as unknown as Response;
+  }
+
+  /** Send a message to the local queue (consumed by the worker's queue() handler). */
+  async sendQueueMessage(message: unknown): Promise<void> {
+    if (!this.mf) throw new Error("WorkerRunner not started");
+    if (!this.options.queue) {
+      throw new Error("Queue is not enabled. Add `queue = true` to [triggers] in creek.toml.");
+    }
+    const queue = await this.mf.getQueueProducer("QUEUE");
+    await queue.send(message);
   }
 
   private get esbuildOptions() {

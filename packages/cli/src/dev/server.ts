@@ -63,6 +63,8 @@ export class DevServer {
         realtimeUrl: `http://127.0.0.1:${this.realtimeServer.getPort()}`,
         projectSlug: config.projectName,
         vars: config.vars,
+        cron: config.cron,
+        queue: config.queue,
         onRebuild: (ms) => {
           consola.info(`Worker rebuilt in ${ms}ms`);
         },
@@ -140,8 +142,37 @@ export class DevServer {
     }
     consola.info(`Realtime:  ws://localhost:${actualPort}`);
     consola.info(`Data:      .creek/dev/`);
+    if (config.cron.length > 0 || config.queue) {
+      const triggers: string[] = [];
+      if (config.cron.length > 0) triggers.push(`${config.cron.length} cron`);
+      if (config.queue) triggers.push("queue");
+      consola.info(`Triggers:  ${triggers.join(", ")}`);
+    }
     console.log("");
     consola.success(`Ready in ${elapsed}ms`);
+
+    if (config.cron.length > 0 || config.queue) {
+      console.log("");
+      consola.info("Trigger commands (type and press Enter):");
+      if (config.cron.length > 0) {
+        consola.info("  cron                      Trigger scheduled() handler");
+      }
+      if (config.queue) {
+        consola.info('  queue <message>           Send a message to queue() handler');
+      }
+    }
+  }
+
+  /** Trigger the worker's scheduled() handler. */
+  async triggerScheduled(): Promise<void> {
+    if (!this.workerRunner) throw new Error("Worker not running");
+    await this.workerRunner.triggerScheduled();
+  }
+
+  /** Send a message to the worker's queue() handler. */
+  async sendQueueMessage(message: unknown): Promise<void> {
+    if (!this.workerRunner) throw new Error("Worker not running");
+    await this.workerRunner.sendQueueMessage(message);
   }
 
   async stop(): Promise<void> {

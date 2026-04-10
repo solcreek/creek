@@ -63,5 +63,44 @@ export const devCommand = defineCommand({
       await server.stop();
       process.exit(1);
     }
+
+    // Interactive trigger commands (only if cron/queue configured)
+    if (config.cron.length > 0 || config.queue) {
+      const { createInterface } = await import("node:readline");
+      const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+      rl.on("line", async (line) => {
+        const input = line.trim();
+        if (!input) return;
+
+        if (input === "cron" && config.cron.length > 0) {
+          try {
+            await server.triggerScheduled();
+            consola.success("Triggered scheduled()");
+          } catch (e: any) {
+            consola.error(`scheduled() error: ${e.message}`);
+          }
+          return;
+        }
+
+        if (input.startsWith("queue ") && config.queue) {
+          const payload = input.slice(6).trim();
+          let parsed: unknown = payload;
+          try {
+            parsed = JSON.parse(payload);
+          } catch {
+            // Not JSON, send as string
+          }
+          try {
+            await server.sendQueueMessage(parsed);
+            consola.success(`Sent message to queue()`);
+          } catch (e: any) {
+            consola.error(`queue() error: ${e.message}`);
+          }
+          return;
+        }
+
+        consola.warn(`Unknown command: ${input}`);
+      });
+    }
   },
 });
