@@ -1,0 +1,231 @@
+---
+title: Self-Hosting
+description: Run Creek on your own Cloudflare account. Apache 2.0, no vendor lock-in.
+---
+
+Creek is open source (Apache 2.0). You can run the entire platform on your own Cloudflare account — every Worker, every binding, every byte of data stays under your control.
+
+This guide walks through standing up a complete Creek installation: control plane, dispatch routing, sandbox API, realtime, and the dashboard.
+
+## What you're deploying
+
+| Component | Purpose | Domain |
+|-----------|---------|--------|
+| `control-plane` | Hono API + Better Auth + D1 | `api.<your-domain>` |
+| `dispatch-worker` | Routes `*.<tenant-domain>` to tenant scripts | `*.<tenant-domain>` |
+| `sandbox-api` | Anonymous deploy API (60 min TTL) | `sandbox-api.<your-domain>` |
+| `sandbox-dispatch` | Sandbox routing | `*.<sandbox-domain>` |
+| `realtime-worker` | WebSocket pub/sub via Durable Objects | `rt.<your-domain>` |
+| `remote-builder` | Container build orchestrator | (internal service) |
+| `dashboard` | Web UI | `app.<your-domain>` |
+
+You'll also create:
+- 1 D1 database (`creek-db`)
+- 1 R2 bucket (`creek-assets`)
+- 1 KV namespace (`BUILD_STATUS`)
+- 1 Workers for Platforms dispatch namespace (`creek-user-workers`)
+- 1 Cloudflare zone for tenant URLs (e.g. `bycreek.com`)
+- 1 Cloudflare zone for the platform itself (e.g. `creek.dev`)
+
+## Prerequisites
+
+- Cloudflare account with **Workers Paid** plan (Workers for Platforms requires it)
+- Node.js >= 18, pnpm >= 9
+- Docker (for building the remote-builder container image)
+- Two Cloudflare zones — one for the platform, one for tenant URLs
+- A few hours
+
+## 1. Clone the repo
+
+```bash
+git clone https://github.com/solcreek/creek.git
+cd creek
+pnpm install
+```
+
+## 2. Provision Cloudflare resources
+
+### Create the dispatch namespace
+
+```bash
+npx wrangler dispatch-namespace create creek-user-workers
+```
+
+### Create D1, R2, KV
+
+```bash
+# D1 database
+npx wrangler d1 create creek-db
+# Note the database_id — you'll need it below
+
+# R2 bucket
+npx wrangler r2 bucket create creek-assets
+
+# KV namespace
+npx wrangler kv namespace create BUILD_STATUS
+# Note the id
+```
+
+### Run the D1 schema
+
+```bash
+cd packages/control-plane
+npx wrangler d1 execute creek-db --remote --file=src/db/schema.sql
+```
+
+## 3. Configure each Worker
+
+Every Worker package has a `wrangler.*.example` file. Copy it to `wrangler.toml` (or `.jsonc`) and fill in your account-specific values:
+
+```bash
+cd packages/control-plane && cp wrangler.toml.example wrangler.toml
+cd ../dispatch-worker && cp wrangler.toml.example wrangler.toml
+cd ../sandbox-api && cp wrangler.toml.example wrangler.toml
+cd ../sandbox-dispatch && cp wrangler.toml.example wrangler.toml
+cd ../realtime-worker && cp wrangler.toml.example wrangler.toml
+cd ../remote-builder && cp wrangler.jsonc.example wrangler.jsonc
+cd ../mcp-server && cp wrangler.jsonc.example wrangler.jsonc
+cd ../deploy-api && cp wrangler.toml.example wrangler.toml
+```
+
+For each file, fill in:
+- `CLOUDFLARE_ACCOUNT_ID` — `wrangler whoami`
+- `CLOUDFLARE_ZONE_ID` — `wrangler zones list`
+- `database_id` — from `wrangler d1 list`
+- KV namespace `id` — from `wrangler kv namespace list`
+- Domain references (`bycreek.com` → your tenant domain)
+- Route `pattern` (e.g. `api.yourdomain.dev`)
+
+## 4. Set secrets
+
+Each Worker that needs secrets uses `wrangler secret put`. The control-plane needs the most:
+
+```bash
+cd packages/control-plane
+
+wrangler secret put CLOUDFLARE_API_TOKEN     # Full Workers + D1 + R2 + KV permissions
+wrangler secret put BETTER_AUTH_SECRET       # openssl rand -hex 32
+wrangler secret put BETTER_AUTH_URL          # https://api.yourdomain.dev
+wrangler secret put GITHUB_CLIENT_ID         # OAuth app
+wrangler secret put GITHUB_CLIENT_SECRET
+wrangler secret put GOOGLE_CLIENT_ID         # Optional
+wrangler secret put GOOGLE_CLIENT_SECRET     # Optional
+wrangler secret put ENCRYPTION_KEY           # openssl rand -hex 32 — for env var encryption
+wrangler secret put IP_HASH_SALT             # openssl rand -hex 16 — for audit log IP hashing
+wrangler secret put INTERNAL_SECRET          # openssl rand -hex 32 — for inter-worker auth
+```
+
+The sandbox-api and dispatch workers need fewer secrets — see each `wrangler.toml.example` for the list.
+
+## 5. Build and deploy the workers
+
+Order matters — deploy in this sequence so service bindings resolve:
+
+```bash
+# 1. Realtime (no dependencies)
+pnpm --filter @solcreek/realtime-worker deploy
+
+# 2. Sandbox dispatch + API
+pnpm --filter @solcreek/sandbox-dispatch deploy
+pnpm --filter @solcreek/sandbox-api deploy
+
+# 3. Remote builder (requires Docker for container build)
+cd packages/remote-builder
+DOCKER_HOST=unix:///var/run/docker.sock npx wrangler deploy
+cd ../..
+
+# 4. Control plane (depends on remote-builder service binding)
+pnpm --filter @solcreek/control-plane deploy
+
+# 5. Dispatch worker (production tenant routing)
+pnpm --filter @solcreek/dispatch-worker deploy
+
+# 6. (optional) Deploy API for one-click web deploys
+pnpm --filter @solcreek/deploy-api deploy
+
+# 7. (optional) MCP server
+pnpm --filter @solcreek/mcp-server deploy
+```
+
+## 6. Set up DNS
+
+In your Cloudflare dashboard, for each zone:
+
+**Platform zone** (`yourdomain.dev`):
+- `api.yourdomain.dev` → AAAA `100::` (proxied) — control-plane will claim it
+- `app.yourdomain.dev` → AAAA `100::` (proxied) — for the dashboard
+- `rt.yourdomain.dev` → AAAA `100::` (proxied) — for realtime
+- `sandbox-api.yourdomain.dev` → AAAA `100::` (proxied)
+
+**Tenant zone** (`bycreek.com` or your equivalent):
+- Wildcard `*.yourtenant.dev` → AAAA `100::` (proxied) — dispatch-worker catches everything
+
+After deploy, verify:
+
+```bash
+curl https://api.yourdomain.dev/health
+# Should return {"status":"ok"}
+```
+
+## 7. Build and deploy the dashboard
+
+```bash
+cd apps/dashboard
+cp .env.production.example .env.production
+# Set VITE_API_URL=https://api.yourdomain.dev
+
+npx vite build --mode production
+# Then deploy to your tenant domain via the running Creek install:
+node ../../packages/cli/dist/index.js deploy --skip-build
+```
+
+The dashboard self-deploys via Creek itself once the platform is up.
+
+## 8. Test the install
+
+```bash
+mkdir hello-creek && cd hello-creek
+echo '<h1>Hello from Creek!</h1>' > index.html
+
+# Point CLI at your install
+export CREEK_API_URL=https://api.yourdomain.dev
+export CREEK_SANDBOX_API_URL=https://sandbox-api.yourdomain.dev
+
+npx creek deploy --demo
+# Should print a sandbox URL on your tenant domain
+```
+
+## What you don't get
+
+This is the open-source distribution. The following are **not** included:
+- Multi-tenant billing / usage metering
+- Abuse detection / content scanning
+- Automated backups
+- SLA monitoring / paging
+
+Creek Cloud (the managed offering at `creek.dev`) adds these on top. If you'd rather not run the platform yourself, [creek.dev](https://creek.dev) is the same code with the operations layer.
+
+## Troubleshooting
+
+**Workers for Platforms not enabled** — go to the Workers Paid plan and request access. WfP is gated.
+
+**Custom domain stuck pending** — ensure the DNS record is `Proxied` (orange cloud), not DNS-only.
+
+**Dispatch namespace error** — verify `wrangler dispatch-namespace list` shows `creek-user-workers`. The name in your `wrangler.toml` files must match.
+
+**D1 schema errors on deploy** — re-run `wrangler d1 execute creek-db --remote --file=src/db/schema.sql`. Schema is idempotent.
+
+**Container build fails** — `remote-builder` requires Docker running locally for the first deploy. After that, the image is in Cloudflare's registry.
+
+## Updates
+
+Pull new commits and re-run the deploy commands. The D1 schema is idempotent — re-running `schema.sql` is safe.
+
+```bash
+git pull
+pnpm install
+pnpm --filter @solcreek/control-plane deploy
+# ... repeat for each worker that changed
+```
+
+Watch [github.com/solcreek/creek/releases](https://github.com/solcreek/creek/releases) for breaking changes.
