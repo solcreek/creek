@@ -77,7 +77,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/control-plane"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/control-plane
       - name: Deploy
         run: pnpm --filter @solcreek/control-plane exec wrangler deploy
@@ -95,7 +95,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/sandbox-api"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/sandbox-api
       - name: Deploy
         run: pnpm --filter @solcreek/sandbox-api exec wrangler deploy
@@ -113,7 +113,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/sandbox-dispatch"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/sandbox-dispatch
       - name: Deploy
         run: pnpm --filter @solcreek/sandbox-dispatch exec wrangler deploy
@@ -131,7 +131,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/dispatch-worker"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/dispatch-worker
       - name: Deploy
         run: pnpm --filter @solcreek/dispatch-worker exec wrangler deploy
@@ -149,7 +149,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/realtime-worker"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/realtime-worker
       - name: Deploy
         run: pnpm --filter @solcreek/realtime-worker exec wrangler deploy
@@ -167,7 +167,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/deploy-api"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/deploy-api
       - name: Deploy
         run: pnpm --filter @solcreek/deploy-api exec wrangler deploy
@@ -185,7 +185,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/mcp-server"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/mcp-server
       - name: Deploy
         run: pnpm --filter @solcreek/mcp-server exec wrangler deploy
@@ -207,7 +207,7 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install --filter "...@solcreek/remote-builder" --filter "...@solcreek/build-container"
+      - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/build-container --filter=@solcreek/remote-builder
       - name: Deploy
         run: pnpm --filter @solcreek/remote-builder exec wrangler deploy
