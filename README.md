@@ -243,7 +243,6 @@ creek/
     ui/                     Shared UI (shadcn v4 + Base UI)
     create-creek-app/       Template scaffolder — npm: create-creek-app
     mcp-server/             MCP server (mcp.creek.dev)
-  infra/                    OpenTofu (Cloudflare resources)
 ```
 
 ---
@@ -257,7 +256,6 @@ creek/
 - **Queue:** Cloudflare Queues
 - **Auth:** Better Auth (GitHub, Google, email/password, API keys)
 - **Multi-tenancy:** Workers for Platforms (dispatch namespaces)
-- **IaC:** OpenTofu (Cloudflare provider)
 - **Monorepo:** pnpm workspaces + Turborepo
 - **Testing:** Vitest (790+ tests)
 
@@ -270,15 +268,14 @@ Creek is designed to run entirely on a single Cloudflare account.
 **Prerequisites**
 - Cloudflare account with Workers for Platforms enabled
 - Node.js >= 18, pnpm >= 9
-- OpenTofu (for infrastructure management)
 
 ```bash
 git clone https://github.com/solcreek/creek.git
 cd creek
 pnpm install
 
-# Deploy infrastructure
-cd infra && tofu init && tofu apply
+# Configure: copy each wrangler.*.example to wrangler.* and fill in
+# your Cloudflare account ID, dispatch namespace, and resource bindings
 
 # Deploy workers
 pnpm --filter @solcreek/control-plane deploy
