@@ -58,7 +58,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              One command. Full-stack with database, WebSocket sync, and optimistic updates.
+              One command. Database, cron, queues, realtime sync, analytics — all built in.
               Live on 300+ edge locations.
             </motion.p>
             <motion.div
@@ -111,7 +111,7 @@ export default function Home() {
         <SectionHeader
           label="02"
           title="Zero config"
-          description="Creek detects your framework, builds your project, and deploys it. No creek.toml, no wrangler.toml, no vercel.json."
+          description="Creek detects your framework, builds your project, and deploys it. Add a creek.toml only when you want database, cron, queue, or custom build steps."
         />
         <ZeroConfigDemo />
       </section>
@@ -231,9 +231,9 @@ function ZeroConfigDemo() {
 
   const frameworks = [
     { name: "React (Vite)", detect: "vite-react", output: "dist/", time: "8.3s" },
-    { name: "Next.js", detect: "nextjs (SSR)", output: ".open-next/", time: "12.1s" },
+    { name: "Vue (Vite)", detect: "vite-vue", output: "dist/", time: "7.9s" },
+    { name: "Svelte (Vite)", detect: "vite-svelte", output: "dist/", time: "6.4s" },
     { name: "Astro", detect: "astro", output: "dist/", time: "6.7s" },
-    { name: "Vue", detect: "vite-vue", output: "dist/", time: "7.9s" },
   ];
 
   return (
@@ -289,7 +289,11 @@ function AgentFirstDemo() {
   }
 }`}</pre>
           <p className="mt-4 text-xs text-muted-foreground/70">
-            Add one line. Any AI agent can deploy.
+            Add one line. Any AI agent can deploy. No CAPTCHAs — verified via{" "}
+            <a href="/docs/api#agent-challenge" className="underline hover:text-accent transition-colors">
+              Agent Challenge
+            </a>
+            .
           </p>
         </div>
       </div>
@@ -434,9 +438,12 @@ function FeatureGrid() {
   const features = [
     { title: "10-second deploys", description: "From CLI to live URL on Cloudflare's global edge." },
     { title: "Realtime sync", description: "db.mutate() auto-broadcasts. useLiveQuery() auto-refetches." },
-    { title: "Framework detection", description: "React, Next.js, Vue, Svelte, Astro — auto-detected." },
+    { title: "Cron triggers", description: "Schedule background jobs in creek.toml. No extra services." },
+    { title: "Queues", description: "Per-project queue, auto-provisioned. Producer + consumer wired up." },
+    { title: "Per-tenant analytics", description: "Requests, errors, p50/p99 latency. Cron execution log." },
     { title: "Custom domains", description: "Automatic SSL. One CLI command to set up." },
     { title: "Environment variables", description: "Encrypted at rest, injected at runtime." },
+    { title: "Framework detection", description: "React, Vue, Svelte, Astro, Solid — auto-detected." },
     { title: "CLI-first", description: "Scriptable, composable, CI/CD-friendly. Works in pipes." },
   ];
 
