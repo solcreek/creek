@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "creek-www",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "find_additional_modules": true,
+  "workers_dev": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    { "binding": "BUILD_STATUS", "id": "5f22449ab2094383a3c95fb80aa10fa2" }
+  ],
+  "services": [
+    { "binding": "REMOTE_BUILDER", "service": "creek-remote-builder" }
+  ],
+  "vars": {
+    "SANDBOX_API_URL": "https://sandbox-api.creek.dev"
+  }
+}

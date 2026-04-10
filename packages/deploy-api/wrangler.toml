@@ -1,0 +1,18 @@
+name = "creek-deploy-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "BUILD_STATUS"
+id = "5f22449ab2094383a3c95fb80aa10fa2"
+
+[[services]]
+binding = "REMOTE_BUILDER"
+service = "creek-remote-builder"
+
+[vars]
+SANDBOX_API_URL = "https://sandbox-api.creek.dev"
+ALLOWED_ORIGINS = "https://creek.dev,https://www.creek.dev,http://localhost:3000"
+
+# Secrets: INTERNAL_SECRET (set via wrangler secret put or CF API)
