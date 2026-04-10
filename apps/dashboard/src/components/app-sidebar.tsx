@@ -1,5 +1,4 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -146,17 +145,11 @@ export function AppSidebar() {
 function TeamSwitcher() {
   const { data: activeOrg } = useActiveOrganization();
   const { data: orgs } = authClient.useListOrganizations();
-  const autoSelected = useRef(false);
 
   const orgList = (orgs as any[]) ?? [];
 
-  // Auto-select first org if none active (runs once)
-  useEffect(() => {
-    if (!activeOrg && orgList.length > 0 && !autoSelected.current) {
-      autoSelected.current = true;
-      authClient.organization.setActive({ organizationId: orgList[0].id });
-    }
-  }, [activeOrg, orgList]);
+  // Show first org as display name if none explicitly active
+  const displayOrg = activeOrg ?? orgList[0];
 
   return (
     <DropdownMenu>
@@ -167,10 +160,10 @@ function TeamSwitcher() {
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate font-semibold">
-              {activeOrg?.name ?? "Select team"}
+              {displayOrg?.name ?? "Select team"}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              {activeOrg?.slug ?? ""}
+              {displayOrg?.slug ?? ""}
             </span>
           </div>
           <ChevronsUpDown className="ml-auto size-4" />
