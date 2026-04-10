@@ -1,0 +1,25 @@
+name = "creek-sandbox-dispatch"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+workers_dev = true
+
+[[routes]]
+pattern = "*/*"
+zone_name = "creeksandbox.com"
+
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "creek-sandbox-workers"
+remote = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-sandbox-db"
+database_id = "be9f7649-0aaf-4902-a719-5e936ca20a5d"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "8179581b1bc340d2b4fb593297146a99"
+
+[vars]
+SANDBOX_DOMAIN = "creeksandbox.com"

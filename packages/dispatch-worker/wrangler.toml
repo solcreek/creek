@@ -1,0 +1,24 @@
+name = "creek-dispatch"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+workers_dev = true
+
+# Catch-all route on tenant domain zone (NOT product domain)
+[[routes]]
+pattern = "*/*"
+zone_name = "bycreek.com"
+
+# Workers for Platforms dispatch namespace
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "creek-user-workers"
+remote = true
+
+# D1 for custom domain lookups
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-db"
+database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
+
+[vars]
+CREEK_DOMAIN = "bycreek.com"
