@@ -193,13 +193,18 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
-  # remote-builder requires Docker to build the build-container image.
-  # GitHub Actions runners have Docker pre-installed, so this works in CI.
-  # build-container must be built first — its dist/server.mjs is COPYed
-  # by the Dockerfile.
+  # remote-builder uses Cloudflare Containers (Docker image push to CF
+  # registry). The API token used by CI gets "Authentication error" on
+  # the container push step, even though it has Workers Scripts: Edit.
+  # CF docs don't document the required permission. Until that's
+  # resolved, deploy remote-builder manually via local wrangler:
+  #
+  #   cd packages/remote-builder && npx wrangler deploy
+  #
+  # Only triggered explicitly via workflow_dispatch — never on push.
   deploy-remote-builder:
     needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.remote-builder == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'remote-builder' || inputs.target == 'all')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'remote-builder' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
