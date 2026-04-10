@@ -168,9 +168,9 @@ export default {
       return Response.json({ error: "not_found", message: "Invalid sandbox hostname" }, { status: 404 });
     }
 
-    // Look up sandbox record
+    // Look up sandbox record (sandbox table renamed to deployments in migration 0002)
     const sandbox = await env.DB.prepare(
-      "SELECT id, status, expiresAt, previewHost, deployDurationMs FROM sandbox WHERE id = ?",
+      "SELECT id, status, expiresAt, previewHost, deployDurationMs FROM deployments WHERE id = ?",
     )
       .bind(sandboxId)
       .first<{ id: string; status: string; expiresAt: number; previewHost: string; deployDurationMs: number | null }>();
