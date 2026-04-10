@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { authClient } from "@/lib/auth";
+import { useEffect } from "react";
+import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -8,22 +9,27 @@ export const Route = createFileRoute("/_authenticated")({
     if (!session.data) {
       throw redirect({ to: "/login", search: { redirect: undefined } });
     }
-
-    // Auto-select first organization if none is active
-    if (!session.data.session.activeOrganizationId) {
-      const orgs = await authClient.organization.list();
-      const orgList = (orgs.data as any[]) ?? [];
-      if (orgList.length > 0) {
-        await authClient.organization.setActive({ organizationId: orgList[0].id });
-      }
-    }
-
     return { user: session.data.user };
   },
   component: AuthenticatedLayout,
 });
 
 function AuthenticatedLayout() {
+  const { data: session } = useSession();
+  const { data: activeOrg } = useActiveOrganization();
+
+  // Auto-select first organization (non-blocking)
+  useEffect(() => {
+    if (session && !activeOrg) {
+      authClient.organization.list().then((res) => {
+        const orgs = (res.data as any[]) ?? [];
+        if (orgs.length > 0) {
+          authClient.organization.setActive({ organizationId: orgs[0].id });
+        }
+      });
+    }
+  }, [session, activeOrg]);
+
   return (
     <AppShell>
       <Outlet />
