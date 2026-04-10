@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 
@@ -17,10 +17,12 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   const { data: session } = useSession();
   const { data: activeOrg } = useActiveOrganization();
+  const autoSelectAttempted = useRef(false);
 
-  // Auto-select first organization (non-blocking)
+  // Auto-select first organization (non-blocking, runs once)
   useEffect(() => {
-    if (session && !activeOrg) {
+    if (session && !activeOrg && !autoSelectAttempted.current) {
+      autoSelectAttempted.current = true;
       authClient.organization.list().then((res) => {
         const orgs = (res.data as any[]) ?? [];
         if (orgs.length > 0) {
