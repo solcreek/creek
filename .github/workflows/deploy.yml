@@ -69,7 +69,7 @@ jobs:
 
   deploy-control-plane:
     needs: changes
-    if: needs.changes.outputs.control-plane == 'true' || inputs.target == 'control-plane' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.control-plane == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'control-plane' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -86,7 +86,7 @@ jobs:
 
   deploy-sandbox-api:
     needs: changes
-    if: needs.changes.outputs.sandbox-api == 'true' || inputs.target == 'sandbox-api' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.sandbox-api == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'sandbox-api' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -103,7 +103,7 @@ jobs:
 
   deploy-sandbox-dispatch:
     needs: changes
-    if: needs.changes.outputs.sandbox-dispatch == 'true' || inputs.target == 'sandbox-dispatch' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.sandbox-dispatch == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'sandbox-dispatch' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -120,7 +120,7 @@ jobs:
 
   deploy-dispatch-worker:
     needs: changes
-    if: needs.changes.outputs.dispatch-worker == 'true' || inputs.target == 'dispatch-worker' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.dispatch-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'dispatch-worker' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -137,7 +137,7 @@ jobs:
 
   deploy-realtime-worker:
     needs: changes
-    if: needs.changes.outputs.realtime-worker == 'true' || inputs.target == 'realtime-worker' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.realtime-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'realtime-worker' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -154,7 +154,7 @@ jobs:
 
   deploy-deploy-api:
     needs: changes
-    if: needs.changes.outputs.deploy-api == 'true' || inputs.target == 'deploy-api' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.deploy-api == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'deploy-api' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -171,7 +171,7 @@ jobs:
 
   deploy-mcp-server:
     needs: changes
-    if: needs.changes.outputs.mcp-server == 'true' || inputs.target == 'mcp-server' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.mcp-server == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'mcp-server' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -190,7 +190,7 @@ jobs:
   # GitHub Actions runners have Docker pre-installed, so this works in CI.
   deploy-remote-builder:
     needs: changes
-    if: needs.changes.outputs.remote-builder == 'true' || inputs.target == 'remote-builder' || inputs.target == 'all'
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.remote-builder == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'remote-builder' || inputs.target == 'all')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
