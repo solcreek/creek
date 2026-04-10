@@ -54,10 +54,16 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 
 // GitHub webhook endpoint (UNAUTHENTICATED — GitHub sends these, verified via HMAC)
 app.post("/webhooks/github", async (c) => {
+  const secret = c.env.GITHUB_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error("GITHUB_WEBHOOK_SECRET not configured");
+    return c.json({ error: "not_configured", message: "GitHub webhook secret not configured" }, 503);
+  }
+
   const body = await c.req.text();
   const { event, signature } = parseWebhookHeaders(c.req.raw.headers);
 
-  const valid = await verifyWebhookSignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET);
+  const valid = await verifyWebhookSignature(body, signature, secret);
   if (!valid) {
     return c.json({ error: "unauthorized", message: "Invalid webhook signature" }, 401);
   }
