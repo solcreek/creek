@@ -641,6 +641,61 @@ deployments.get("/:projectId/analytics", async (c) => {
 });
 
 /**
+ * PATCH /projects/:id/triggers
+ * Update cron schedules without re-deploying. Updates project.triggers
+ * and pushes the new schedules to the production WfP script via CF API.
+ */
+deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), async (c) => {
+  const teamId = c.get("teamId");
+  const teamSlug = c.get("teamSlug");
+  const projectId = c.req.param("projectId");
+
+  const project = await c.env.DB.prepare(
+    "SELECT id, slug, triggers FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ id: string; slug: string; triggers: string | null }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const body = await c.req.json<{ cron?: unknown }>().catch(() => ({} as { cron?: unknown }));
+  const cron = (body as { cron?: unknown }).cron;
+
+  if (!Array.isArray(cron) || !cron.every((s) => typeof s === "string")) {
+    return c.json({ error: "validation", message: "Field 'cron' must be a string array" }, 400);
+  }
+
+  const scriptName = `${project.slug}-${teamSlug}`;
+
+  try {
+    const { updateScriptSchedules } = await import("../resources/cloudflare.js");
+    await updateScriptSchedules(c.env, scriptName, cron as string[]);
+  } catch (err) {
+    return c.json({
+      error: "update_failed",
+      message: err instanceof Error ? err.message : String(err),
+    }, 500);
+  }
+
+  // Update DB triggers JSON (preserve queue field)
+  let existing: { cron: string[]; queue: boolean } = { cron: [], queue: false };
+  try {
+    if (project.triggers) existing = JSON.parse(project.triggers);
+  } catch {}
+
+  const newTriggers = JSON.stringify({ ...existing, cron });
+  await c.env.DB.prepare(
+    "UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?",
+  )
+    .bind(newTriggers, Date.now(), project.id)
+    .run();
+
+  return c.json({ ok: true, cron });
+});
+
+/**
  * POST /projects/:id/queue/send
  * Send a message to the project's auto-provisioned queue.
  */

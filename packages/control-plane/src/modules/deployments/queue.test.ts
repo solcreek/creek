@@ -38,6 +38,87 @@ function send(projectId: string, body: unknown) {
   );
 }
 
+function patchTriggers(projectId: string, body: unknown) {
+  return app.request(
+    `/projects/${projectId}/triggers`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+describe("PATCH /projects/:id/triggers", () => {
+  test("returns 404 for unknown project", async () => {
+    const res = await patchTriggers("unknown", { cron: ["0 0 * * *"] });
+    expect(res.status).toBe(404);
+  });
+
+  test("rejects non-array cron field", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: null,
+    });
+
+    const res = await patchTriggers("my-app", { cron: "not-an-array" });
+    expect(res.status).toBe(400);
+    const json = await res.json() as any;
+    expect(json.error).toBe("validation");
+  });
+
+  test("updates cron schedules and persists to DB", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: '{"cron":["0 0 * * *"],"queue":false}',
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true, result: {} })),
+    );
+
+    const res = await patchTriggers("my-app", { cron: ["*/15 * * * *", "0 0 * * *"] });
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json.ok).toBe(true);
+    expect(json.cron).toEqual(["*/15 * * * *", "0 0 * * *"]);
+
+    // Verify CF API call
+    const fetchCall = (globalThis.fetch as any).mock.calls[0];
+    expect(fetchCall[0]).toContain(`/scripts/my-app-${TEST_TEAM.slug}/schedules`);
+    expect(fetchCall[1].method).toBe("PUT");
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.schedules).toEqual([{ cron: "*/15 * * * *" }, { cron: "0 0 * * *" }]);
+
+    // Verify DB update was issued (check executed queries)
+    const writes = db.getExecuted().filter((q) => q.sql.includes("UPDATE project"));
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes[0].args[0]).toContain('"cron":["*/15 * * * *","0 0 * * *"]');
+    // Queue field preserved
+    expect(writes[0].args[0]).toContain('"queue":false');
+  });
+
+  test("returns 500 when CF API fails", async () => {
+    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "p-1",
+      slug: "my-app",
+      triggers: null,
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: false, errors: [{ message: "script not found" }] })),
+    );
+
+    const res = await patchTriggers("my-app", { cron: ["* * * * *"] });
+    expect(res.status).toBe(500);
+    const json = await res.json() as any;
+    expect(json.error).toBe("update_failed");
+  });
+});
+
 describe("POST /projects/:id/queue/send", () => {
   test("returns 404 for unknown project", async () => {
     const res = await send("unknown", { message: "hi" });

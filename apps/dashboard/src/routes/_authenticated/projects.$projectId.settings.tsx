@@ -24,19 +24,46 @@ function ProjectSettingsTab() {
 }
 
 function TriggersSection({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api<{ triggers: string | null }>(`/projects/${projectId}`),
   });
 
-  let triggers: { cron: string[]; queue: boolean } | null = null;
+  let triggers: { cron: string[]; queue: boolean } = { cron: [], queue: false };
   try {
     if (project?.triggers && typeof project.triggers === "string") {
       triggers = JSON.parse(project.triggers);
     }
   } catch {}
 
-  const hasTriggers = triggers && (triggers.cron.length > 0 || triggers.queue);
+  const [editing, setEditing] = useState(false);
+  const [draftCron, setDraftCron] = useState<string[]>([]);
+  const [newSchedule, setNewSchedule] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraftCron([...triggers.cron]);
+    setEditing(true);
+    setError(null);
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: (cron: string[]) =>
+      api<{ ok: boolean; cron: string[] }>(`/projects/${projectId}/triggers`, {
+        method: "PATCH",
+        body: JSON.stringify({ cron }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      setEditing(false);
+      setNewSchedule("");
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+    },
+  });
 
   return (
     <section>
@@ -44,29 +71,100 @@ function TriggersSection({ projectId }: { projectId: string }) {
         Triggers
       </h2>
       <div className="space-y-3 rounded-lg border border-border p-4">
-        {!hasTriggers ? (
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Cron Schedules</p>
+          {!editing && (
+            <Button variant="ghost" size="sm" onClick={startEdit}>
+              Edit
+            </Button>
+          )}
+        </div>
+
+        {editing ? (
+          <div className="space-y-2">
+            {draftCron.map((schedule, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={schedule}
+                  onChange={(e) => {
+                    const next = [...draftCron];
+                    next[i] = e.target.value;
+                    setDraftCron(next);
+                  }}
+                  className="font-mono text-xs"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDraftCron(draftCron.filter((_, j) => j !== i))}
+                >
+                  ×
+                </Button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <Input
+                value={newSchedule}
+                onChange={(e) => setNewSchedule(e.target.value)}
+                placeholder="0 */6 * * *"
+                className="font-mono text-xs"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (newSchedule.trim()) {
+                    setDraftCron([...draftCron, newSchedule.trim()]);
+                    setNewSchedule("");
+                  }
+                }}
+              >
+                Add
+              </Button>
+            </div>
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                size="sm"
+                onClick={() => updateMutation.mutate(draftCron)}
+                disabled={updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditing(false);
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            <p className="pt-2 text-xs text-muted-foreground">
+              Changes apply immediately. Note: next <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with values from creek.toml.
+            </p>
+          </div>
+        ) : triggers.cron.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No triggers configured. Add <code className="rounded bg-code-bg px-1">[triggers]</code> to your creek.toml and redeploy.
+            No cron schedules. Add <code className="rounded bg-code-bg px-1">[triggers].cron</code> to creek.toml or click Edit.
           </p>
         ) : (
-          <>
-            {triggers!.cron.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Cron Schedules</p>
-                {triggers!.cron.map((schedule: string, i: number) => (
-                  <div key={i} className="rounded bg-code-bg px-2 py-1 font-mono text-xs">
-                    {schedule}
-                  </div>
-                ))}
+          <div className="space-y-1">
+            {triggers.cron.map((schedule, i) => (
+              <div key={i} className="rounded bg-code-bg px-2 py-1 font-mono text-xs">
+                {schedule}
               </div>
-            )}
-            {triggers!.queue && (
-              <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-green-500" />
-                <span className="text-sm">Queue enabled</span>
-              </div>
-            )}
-          </>
+            ))}
+          </div>
+        )}
+
+        {triggers.queue && (
+          <div className="flex items-center gap-2 border-t border-border pt-3">
+            <span className="size-2 rounded-full bg-green-500" />
+            <span className="text-sm">Queue enabled</span>
+          </div>
         )}
       </div>
     </section>

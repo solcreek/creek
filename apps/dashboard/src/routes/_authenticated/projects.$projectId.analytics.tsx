@@ -47,6 +47,20 @@ function AnalyticsTab() {
     refetchInterval: 60_000,
   });
 
+  // Check if project has cron triggers configured
+  const { data: project } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api<{ triggers: string | null }>(`/projects/${projectId}`),
+  });
+
+  let hasCron = false;
+  try {
+    if (project?.triggers && typeof project.triggers === "string") {
+      const parsed = JSON.parse(project.triggers) as { cron: string[] };
+      hasCron = Array.isArray(parsed.cron) && parsed.cron.length > 0;
+    }
+  } catch {}
+
   return (
     <div className="space-y-6">
       {/* Period selector */}
@@ -96,6 +110,14 @@ function AnalyticsTab() {
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-muted-foreground">Error timeline</h3>
               <ErrorTimeline series={data.series} />
+            </div>
+          )}
+
+          {/* Cron execution log */}
+          {hasCron && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Cron execution log (24h)</h3>
+              <CronLogsPanel projectId={projectId} />
             </div>
           )}
         </>
@@ -192,6 +214,58 @@ function ErrorTimeline({ series }: { series: AnalyticsSeries[] }) {
             {new Date(e.timestamp).toLocaleString()}
           </span>
           <span className="text-red-400">{e.errors} errors</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface CronInvocation {
+  datetime: string;
+  status: string;
+  requests: number;
+  errors: number;
+  durationMs: number;
+}
+
+function CronLogsPanel({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["cron-logs", projectId],
+    queryFn: () =>
+      api<{ invocations: CronInvocation[] }>(`/projects/${projectId}/cron-logs`),
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading) {
+    return <p className="text-xs text-muted-foreground">Loading invocations...</p>;
+  }
+
+  if (!data?.invocations?.length) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-4 text-center">
+        <p className="text-xs text-muted-foreground">No invocations in the last 24 hours.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-64 space-y-1 overflow-y-auto">
+      {data.invocations.map((inv, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between rounded bg-code-bg px-2 py-1.5 text-xs"
+        >
+          <span className="text-muted-foreground">
+            {new Date(inv.datetime).toLocaleString()}
+          </span>
+          <span className="flex items-center gap-3">
+            {inv.errors > 0 ? (
+              <span className="text-red-400">{inv.errors} errors</span>
+            ) : (
+              <span className="text-green-400">ok</span>
+            )}
+            <span className="text-muted-foreground">{inv.durationMs.toFixed(0)}ms</span>
+          </span>
         </div>
       ))}
     </div>

@@ -133,6 +133,15 @@ export class CreekClient {
     return this.request("POST", `/projects/${projectId}/queue/send`, { message });
   }
 
+  // --- Triggers ---
+
+  async updateCronTriggers(
+    projectId: string,
+    cron: string[],
+  ): Promise<{ ok: boolean; cron: string[] }> {
+    return this.request("PATCH", `/projects/${projectId}/triggers`, { cron });
+  }
+
   async getDeploymentStatus(
     projectId: string,
     deploymentId: string,

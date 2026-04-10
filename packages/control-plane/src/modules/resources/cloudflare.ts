@@ -221,6 +221,23 @@ export async function deleteQueue(env: Env, queueId: string): Promise<void> {
 }
 
 /**
+ * Update cron schedules on a WfP dispatch namespace script.
+ * Does not re-upload the script bundle.
+ */
+export async function updateScriptSchedules(
+  env: Env,
+  scriptName: string,
+  schedules: string[],
+): Promise<void> {
+  await cfApi(
+    env,
+    "PUT",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}/schedules`,
+    { schedules: schedules.map((cron) => ({ cron })) },
+  );
+}
+
+/**
  * Send a message to a queue.
  */
 export async function sendQueueMessage(
