@@ -14,7 +14,7 @@ npx creek deploy --demo
 Or install globally:
 
 ```bash
-npm install -g creek@alpha
+npm install -g creek
 ```
 
 After installing, you can use `creek`, `ck`, or `crk` interchangeably.
@@ -83,11 +83,12 @@ Creek auto-detects and configures:
 
 - Vite (React, Vue, Svelte, Solid)
 - Astro
-- Next.js (static export)
-- SvelteKit
-- Nuxt
 - TanStack Start
+- React Router
+- Hono
 - Any static site
+
+**Work in progress:** Next.js, Nuxt, SvelteKit, Remix.
 
 ## Local Development
 
@@ -104,7 +105,32 @@ creek dev --reset    # Clear local data
 creek dev --port 8080
 ```
 
+If your `creek.toml` has cron or queue triggers, `creek dev` accepts stdin commands while running:
+
+```
+cron                  Trigger scheduled() handler
+queue <message>       Send a message to queue() handler
+```
+
 See [CLI Reference](/docs/cli#creek-dev) for details.
+
+## Triggers
+
+Add cron schedules and a queue to your `creek.toml`:
+
+```toml
+[project]
+name = "my-app"
+
+[resources]
+database = true
+
+[triggers]
+cron = ["0 */6 * * *"]   # Every 6 hours
+queue = true              # Auto-provisions a CF Queue
+```
+
+In your worker, export `scheduled()` and `queue()` handlers alongside `fetch()`. Creek wires the bindings automatically. See [CLI Reference](/docs/cli) and [Realtime](/docs/realtime).
 
 ## Next Steps
 
