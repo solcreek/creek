@@ -12,14 +12,51 @@ const GITHUB_API = "https://api.github.com";
 // --- JWT Creation (RS256) ---
 
 /**
- * Create a GitHub App JWT for authenticating as the App.
- * Signed with RS256 using the App's private key (PKCS#8 PEM format).
+ * Wrap a PKCS#1 RSAPrivateKey DER in a PKCS#8 PrivateKeyInfo envelope.
  *
- * Note: GitHub App private keys are often PKCS#1 format. Convert with:
- *   openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in key.pem -out key-pkcs8.pem
+ * PKCS#8 = SEQUENCE { INTEGER 0, AlgorithmIdentifier(rsaEncryption), OCTET STRING(pkcs1) }
+ * Web Crypto's importKey("pkcs8", ...) only accepts PKCS#8, so GitHub's default
+ * PKCS#1 download must be wrapped in-memory.
+ */
+function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array<ArrayBuffer> {
+  // AlgorithmIdentifier for rsaEncryption (OID 1.2.840.113549.1.1.1) + NULL params
+  const algId = new Uint8Array([
+    0x30, 0x0d, // SEQUENCE, length 13
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, // OID
+    0x05, 0x00, // NULL
+  ]);
+  const version = new Uint8Array([0x02, 0x01, 0x00]); // INTEGER 0
+
+  const encodeDerLen = (tag: number, len: number): Uint8Array => {
+    if (len < 0x80) return new Uint8Array([tag, len]);
+    if (len < 0x100) return new Uint8Array([tag, 0x81, len]);
+    return new Uint8Array([tag, 0x82, (len >> 8) & 0xff, len & 0xff]);
+  };
+
+  const octetStringHeader = encodeDerLen(0x04, pkcs1.length);
+  const innerLen = version.length + algId.length + octetStringHeader.length + pkcs1.length;
+  const outerHeader = encodeDerLen(0x30, innerLen);
+
+  const out = new Uint8Array(outerHeader.length + innerLen);
+  let off = 0;
+  out.set(outerHeader, off); off += outerHeader.length;
+  out.set(version, off); off += version.length;
+  out.set(algId, off); off += algId.length;
+  out.set(octetStringHeader, off); off += octetStringHeader.length;
+  out.set(pkcs1, off);
+  return out;
+}
+
+/**
+ * Create a GitHub App JWT for authenticating as the App.
+ * Signed with RS256 using the App's RSA private key.
+ *
+ * Accepts both PKCS#1 (`BEGIN RSA PRIVATE KEY` — GitHub's default download)
+ * and PKCS#8 (`BEGIN PRIVATE KEY`) PEM formats. PKCS#1 is wrapped in-memory.
  */
 export async function createAppJWT(appId: string, privateKeyPem: string): Promise<string> {
-  // Strip PEM headers/footers and whitespace
+  const isPkcs1 = privateKeyPem.includes("BEGIN RSA PRIVATE KEY");
+
   const pemBody = privateKeyPem
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
@@ -27,7 +64,12 @@ export async function createAppJWT(appId: string, privateKeyPem: string): Promis
     .replace(/-----END RSA PRIVATE KEY-----/, "")
     .replace(/\s/g, "");
 
-  const keyData = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
+  // Copy into a fresh ArrayBuffer-backed Uint8Array so Web Crypto's stricter
+  // `Uint8Array<ArrayBuffer>` type (as of TS 5.8 / workers-types 2026) accepts it.
+  const raw = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
+  const keyData: Uint8Array<ArrayBuffer> = isPkcs1
+    ? pkcs1ToPkcs8(raw)
+    : new Uint8Array(raw);
 
   const key = await crypto.subtle.importKey(
     "pkcs8",
