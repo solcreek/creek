@@ -123,6 +123,102 @@ All errors return structured JSON:
 | `not_found` | 404 | Sandbox not found |
 | `forbidden` | 403 | Not authorized (e.g., delete by different IP) |
 
+## Agent Challenge
+
+Creek does not use CAPTCHAs. Instead, AI agents can prove they are capable callers via a "reverse CAPTCHA" — a small task that requires fetching a URL, extracting structured data, and computing a hash. Passing the challenge yields a signed agent token that grants elevated rate limits.
+
+| Tier | Rate limit (per hour) |
+|------|----------------------:|
+| Unverified caller | 3 |
+| Human (UI / browser) | 10 |
+| **Verified agent** (via challenge) | **60** |
+
+### Protocol
+
+1. **Start a challenge**
+
+```bash
+curl -X POST https://sandbox-api.creek.dev/api/sandbox/agent-verify/start
+```
+
+Response:
+
+```json
+{
+  "challengeId": "a1b2c3d4e5f6",
+  "nonce": "8f3e8a90-...",
+  "task": {
+    "url": "https://creek.dev/docs/cli",
+    "instruction": "Fetch the Creek CLI documentation page. Extract all CLI command names...",
+    "format": "Comma-separated, sorted alphabetically"
+  },
+  "expiresIn": 300,
+  "tos": {
+    "url": "https://creek.dev/legal/terms",
+    "aupUrl": "https://creek.dev/legal/acceptable-use",
+    "note": "Include tosAccepted: true and tosVersion in your submit request."
+  }
+}
+```
+
+2. **Solve the task**
+
+The agent fetches the URL, extracts data per the instruction, and computes:
+
+```
+digest = SHA-256(nonce + "|" + canonicalAnswer)
+```
+
+The canonical answer must be exactly the format requested (e.g. comma-separated, sorted alphabetically — no extra whitespace).
+
+3. **Submit the digest**
+
+```bash
+curl -X POST https://sandbox-api.creek.dev/api/sandbox/agent-verify/a1b2c3d4e5f6/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "digest": "<hex-encoded SHA-256>",
+    "tosAccepted": true,
+    "tosVersion": "v3"
+  }'
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "token": "crk_agent_<payload>.<signature>",
+  "expiresAt": "2026-04-10T12:00:00.000Z",
+  "expiresIn": 3600,
+  "tier": "verified_agent",
+  "rateLimit": 60
+}
+```
+
+4. **Use the token**
+
+Pass the token in the `X-Creek-Agent-Token` header on subsequent sandbox API calls. Verified agents get `60/hr` instead of the default `10/hr`.
+
+```bash
+curl -X POST https://sandbox-api.creek.dev/api/sandbox/deploy \
+  -H "Content-Type: application/json" \
+  -H "X-Creek-Agent-Token: crk_agent_..." \
+  -d '{"assets": {...}}'
+```
+
+### Properties
+
+- **Tokens are bound to your IP hash** — they cannot be shared.
+- **One challenge = one token.** Replays are rejected.
+- **Token TTL: 1 hour.** Re-challenge for a fresh token.
+- **Questions rotate** — solutions cannot be cached or hardcoded. The nonce changes every challenge.
+- **TLS-grade fairness** — humans pass via the dashboard sign-in flow; agents pass via this protocol. Neither needs the other.
+
+### Why a reverse CAPTCHA?
+
+CAPTCHAs are designed to block bots. But AI agents are legitimate callers — they should not be locked out of deployment APIs just because they aren't human. The Agent Challenge inverts the problem: instead of proving you're human, you prove you can read documentation and follow instructions — exactly what an agent should be able to do.
+
 ## GitHub Actions Example
 
 ```yaml
