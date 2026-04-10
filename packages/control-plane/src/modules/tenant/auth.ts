@@ -19,8 +19,15 @@ function generateUniqueSlug(name: string, email: string): string {
 /**
  * Create a Better Auth instance per-request.
  * D1 is only available from env bindings at request time on Workers.
+ *
+ * Return type is `any` because Better Auth 1.6+ infers a return type that
+ * references zod's internal v4 types (`.pnpm/zod@4.x.x/zod/v4/core`), which
+ * TS considers non-portable. Annotating with `ReturnType<typeof betterAuth>`
+ * has the same issue. We use `any` here since the auth instance is only
+ * consumed via its runtime `handler`/`api` methods, not its type surface.
  */
-export function createAuth(env: Env) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAuth(env: Env): any {
   const db = drizzle(env.DB, { schema });
 
   return betterAuth({
