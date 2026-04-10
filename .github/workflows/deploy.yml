@@ -1,0 +1,206 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Force-deploy a specific worker (or 'all')"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - all
+          - control-plane
+          - sandbox-api
+          - sandbox-dispatch
+          - dispatch-worker
+          - realtime-worker
+          - deploy-api
+          - mcp-server
+          - remote-builder
+
+# Run deploys serially for safety — no concurrent prod pushes.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      control-plane: ${{ steps.filter.outputs.control-plane }}
+      sandbox-api: ${{ steps.filter.outputs.sandbox-api }}
+      sandbox-dispatch: ${{ steps.filter.outputs.sandbox-dispatch }}
+      dispatch-worker: ${{ steps.filter.outputs.dispatch-worker }}
+      realtime-worker: ${{ steps.filter.outputs.realtime-worker }}
+      deploy-api: ${{ steps.filter.outputs.deploy-api }}
+      mcp-server: ${{ steps.filter.outputs.mcp-server }}
+      remote-builder: ${{ steps.filter.outputs.remote-builder }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            control-plane:
+              - 'packages/control-plane/**'
+              - 'packages/sdk/**'
+              - 'packages/deploy-core/**'
+            sandbox-api:
+              - 'packages/sandbox-api/**'
+              - 'packages/sdk/**'
+              - 'packages/deploy-core/**'
+            sandbox-dispatch:
+              - 'packages/sandbox-dispatch/**'
+            dispatch-worker:
+              - 'packages/dispatch-worker/**'
+            realtime-worker:
+              - 'packages/realtime-worker/**'
+            deploy-api:
+              - 'packages/deploy-api/**'
+            mcp-server:
+              - 'packages/mcp-server/**'
+            remote-builder:
+              - 'packages/remote-builder/**'
+              - 'packages/build-container/**'
+
+  deploy-control-plane:
+    needs: changes
+    if: needs.changes.outputs.control-plane == 'true' || inputs.target == 'control-plane' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/control-plane exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-sandbox-api:
+    needs: changes
+    if: needs.changes.outputs.sandbox-api == 'true' || inputs.target == 'sandbox-api' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/sandbox-api exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-sandbox-dispatch:
+    needs: changes
+    if: needs.changes.outputs.sandbox-dispatch == 'true' || inputs.target == 'sandbox-dispatch' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/sandbox-dispatch exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-dispatch-worker:
+    needs: changes
+    if: needs.changes.outputs.dispatch-worker == 'true' || inputs.target == 'dispatch-worker' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/dispatch-worker exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-realtime-worker:
+    needs: changes
+    if: needs.changes.outputs.realtime-worker == 'true' || inputs.target == 'realtime-worker' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/realtime-worker exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-deploy-api:
+    needs: changes
+    if: needs.changes.outputs.deploy-api == 'true' || inputs.target == 'deploy-api' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/deploy-api exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-mcp-server:
+    needs: changes
+    if: needs.changes.outputs.mcp-server == 'true' || inputs.target == 'mcp-server' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/mcp-server exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # remote-builder requires Docker to build the build-container image.
+  # GitHub Actions runners have Docker pre-installed, so this works in CI.
+  deploy-remote-builder:
+    needs: changes
+    if: needs.changes.outputs.remote-builder == 'true' || inputs.target == 'remote-builder' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install
+      - name: Deploy
+        run: pnpm --filter @solcreek/remote-builder exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

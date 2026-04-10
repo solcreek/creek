@@ -11,7 +11,6 @@ import { deployments } from "./modules/deployments/routes.js";
 import { domains } from "./modules/domains/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
-import { templates } from "./modules/templates/routes.js";
 import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest } from "./modules/github/index.js";
 import { webDeploy } from "./modules/web-deploy/routes.js";
 
@@ -103,7 +102,6 @@ app.route("/projects", domains);
 app.route("/projects", envVars);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
-app.route("/templates", templates);
 
 // Local dev: simulate dispatch worker for testing (GET /preview/:slug/*)
 app.get("/preview/:slug/*", async (c) => {
