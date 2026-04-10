@@ -124,6 +124,15 @@ export class CreekClient {
     return this.request("DELETE", `/projects/${projectId}/env/${key}`);
   }
 
+  // --- Queue ---
+
+  async sendQueueMessage(
+    projectId: string,
+    message: unknown,
+  ): Promise<{ ok: boolean; queueId: string }> {
+    return this.request("POST", `/projects/${projectId}/queue/send`, { message });
+  }
+
   async getDeploymentStatus(
     projectId: string,
     deploymentId: string,

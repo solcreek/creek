@@ -221,6 +221,25 @@ export async function deleteQueue(env: Env, queueId: string): Promise<void> {
 }
 
 /**
+ * Send a message to a queue.
+ */
+export async function sendQueueMessage(
+  env: Env,
+  queueId: string,
+  body: unknown,
+): Promise<void> {
+  await cfApi(
+    env,
+    "POST",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/messages`,
+    {
+      body: typeof body === "string" ? body : JSON.stringify(body),
+      content_type: typeof body === "string" ? "text" : "json",
+    },
+  );
+}
+
+/**
  * Register a WfP dispatch namespace script as a queue consumer.
  */
 export async function setQueueConsumer(

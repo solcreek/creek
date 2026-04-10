@@ -640,4 +640,54 @@ deployments.get("/:projectId/analytics", async (c) => {
   }
 });
 
+/**
+ * POST /projects/:id/queue/send
+ * Send a message to the project's auto-provisioned queue.
+ */
+deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), async (c) => {
+  const teamId = c.get("teamId");
+  const projectId = c.req.param("projectId");
+
+  const project = await c.env.DB.prepare(
+    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ id: string }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  // Look up the project's queue
+  const queueRow = await c.env.DB.prepare(
+    "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status = 'active'",
+  )
+    .bind(project.id, "queue")
+    .first<{ cfResourceId: string }>();
+
+  if (!queueRow) {
+    return c.json({
+      error: "queue_not_provisioned",
+      message: "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
+    }, 400);
+  }
+
+  const body = await c.req.json<{ message?: unknown }>().catch(() => ({} as { message?: unknown }));
+  const messageBody = (body as { message?: unknown }).message;
+  if (messageBody === undefined) {
+    return c.json({ error: "validation", message: "Missing 'message' field" }, 400);
+  }
+
+  try {
+    const { sendQueueMessage } = await import("../resources/cloudflare.js");
+    await sendQueueMessage(c.env, queueRow.cfResourceId, messageBody);
+    return c.json({ ok: true, queueId: queueRow.cfResourceId });
+  } catch (err) {
+    return c.json({
+      error: "send_failed",
+      message: err instanceof Error ? err.message : String(err),
+    }, 500);
+  }
+});
+
 export { deployments };
