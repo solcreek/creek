@@ -1,4 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -145,8 +146,17 @@ export function AppSidebar() {
 function TeamSwitcher() {
   const { data: activeOrg } = useActiveOrganization();
   const { data: orgs } = authClient.useListOrganizations();
+  const autoSelected = useRef(false);
 
   const orgList = (orgs as any[]) ?? [];
+
+  // Auto-select first org if none active (runs once)
+  useEffect(() => {
+    if (!activeOrg && orgList.length > 0 && !autoSelected.current) {
+      autoSelected.current = true;
+      authClient.organization.setActive({ organizationId: orgList[0].id });
+    }
+  }, [activeOrg, orgList]);
 
   return (
     <DropdownMenu>
