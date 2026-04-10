@@ -77,7 +77,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/control-plane"
+      - run: pnpm --filter "...@solcreek/control-plane" build
       - name: Deploy
         run: pnpm --filter @solcreek/control-plane exec wrangler deploy
         env:
@@ -94,7 +95,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/sandbox-api"
+      - run: pnpm --filter "...@solcreek/sandbox-api" build
       - name: Deploy
         run: pnpm --filter @solcreek/sandbox-api exec wrangler deploy
         env:
@@ -111,7 +113,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/sandbox-dispatch"
+      - run: pnpm --filter "...@solcreek/sandbox-dispatch" build
       - name: Deploy
         run: pnpm --filter @solcreek/sandbox-dispatch exec wrangler deploy
         env:
@@ -128,7 +131,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/dispatch-worker"
+      - run: pnpm --filter "...@solcreek/dispatch-worker" build
       - name: Deploy
         run: pnpm --filter @solcreek/dispatch-worker exec wrangler deploy
         env:
@@ -145,7 +149,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/realtime-worker"
+      - run: pnpm --filter "...@solcreek/realtime-worker" build
       - name: Deploy
         run: pnpm --filter @solcreek/realtime-worker exec wrangler deploy
         env:
@@ -162,7 +167,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/deploy-api"
+      - run: pnpm --filter "...@solcreek/deploy-api" build
       - name: Deploy
         run: pnpm --filter @solcreek/deploy-api exec wrangler deploy
         env:
@@ -179,7 +185,8 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/mcp-server"
+      - run: pnpm --filter "...@solcreek/mcp-server" build
       - name: Deploy
         run: pnpm --filter @solcreek/mcp-server exec wrangler deploy
         env:
@@ -188,6 +195,8 @@ jobs:
 
   # remote-builder requires Docker to build the build-container image.
   # GitHub Actions runners have Docker pre-installed, so this works in CI.
+  # build-container must be built first — its dist/server.mjs is COPYed
+  # by the Dockerfile.
   deploy-remote-builder:
     needs: changes
     if: ${{ (github.event_name == 'push' && needs.changes.outputs.remote-builder == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'remote-builder' || inputs.target == 'all')) }}
@@ -198,7 +207,9 @@ jobs:
         with:
           node-version: '22'
       - uses: pnpm/action-setup@v4
-      - run: pnpm install
+      - run: pnpm install --filter "...@solcreek/remote-builder" --filter "...@solcreek/build-container"
+      - run: pnpm --filter "...@solcreek/build-container" build
+      - run: pnpm --filter "...@solcreek/remote-builder" build
       - name: Deploy
         run: pnpm --filter @solcreek/remote-builder exec wrangler deploy
         env:
