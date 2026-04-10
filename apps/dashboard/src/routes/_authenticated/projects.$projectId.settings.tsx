@@ -39,26 +39,33 @@ function TriggersSection({ projectId }: { projectId: string }) {
 
   const [editing, setEditing] = useState(false);
   const [draftCron, setDraftCron] = useState<string[]>([]);
+  const [draftQueue, setDraftQueue] = useState(false);
   const [newSchedule, setNewSchedule] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [requiresRedeploy, setRequiresRedeploy] = useState(false);
 
   const startEdit = () => {
     setDraftCron([...triggers.cron]);
+    setDraftQueue(triggers.queue);
     setEditing(true);
     setError(null);
   };
 
   const updateMutation = useMutation({
-    mutationFn: (cron: string[]) =>
-      api<{ ok: boolean; cron: string[] }>(`/projects/${projectId}/triggers`, {
-        method: "PATCH",
-        body: JSON.stringify({ cron }),
-      }),
-    onSuccess: () => {
+    mutationFn: (patch: { cron: string[]; queue: boolean }) =>
+      api<{ ok: boolean; cron: string[]; queue: boolean; queueRequiresRedeploy: boolean }>(
+        `/projects/${projectId}/triggers`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        },
+      ),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       setEditing(false);
       setNewSchedule("");
       setError(null);
+      setRequiresRedeploy(data.queueRequiresRedeploy);
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -70,6 +77,27 @@ function TriggersSection({ projectId }: { projectId: string }) {
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Triggers
       </h2>
+
+      {/* Persistent warning when queue change requires redeploy */}
+      {requiresRedeploy && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+          <span className="text-yellow-400">⚠</span>
+          <div className="flex-1">
+            <p className="font-medium text-yellow-200">Redeploy required</p>
+            <p className="mt-1 text-xs text-yellow-200/80">
+              Queue binding changes only take effect after the next deployment. Run{" "}
+              <code className="rounded bg-yellow-500/20 px-1">creek deploy</code> from your project directory.
+            </p>
+          </div>
+          <button
+            onClick={() => setRequiresRedeploy(false)}
+            className="text-xs text-yellow-200/60 hover:text-yellow-200"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="space-y-3 rounded-lg border border-border p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Cron Schedules</p>
@@ -122,29 +150,6 @@ function TriggersSection({ projectId }: { projectId: string }) {
                 Add
               </Button>
             </div>
-            {error && <p className="text-xs text-red-400">{error}</p>}
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                size="sm"
-                onClick={() => updateMutation.mutate(draftCron)}
-                disabled={updateMutation.isPending}
-              >
-                {updateMutation.isPending ? "Saving..." : "Save"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditing(false);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-            <p className="pt-2 text-xs text-muted-foreground">
-              Changes apply immediately. Note: next <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with values from creek.toml.
-            </p>
           </div>
         ) : triggers.cron.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -160,11 +165,73 @@ function TriggersSection({ projectId }: { projectId: string }) {
           </div>
         )}
 
-        {triggers.queue && (
-          <div className="flex items-center gap-2 border-t border-border pt-3">
-            <span className="size-2 rounded-full bg-green-500" />
-            <span className="text-sm">Queue enabled</span>
-          </div>
+        {/* Queue section — toggle when editing */}
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          <p className="text-sm font-medium">Queue</p>
+          {editing ? (
+            <button
+              onClick={() => setDraftQueue(!draftQueue)}
+              className={`relative h-5 w-9 rounded-full transition-colors ${
+                draftQueue ? "bg-green-500" : "bg-muted-foreground/30"
+              }`}
+              type="button"
+            >
+              <span
+                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
+                  draftQueue ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          ) : (
+            <span className="flex items-center gap-2 text-sm">
+              <span
+                className={`size-2 rounded-full ${
+                  triggers.queue ? "bg-green-500" : "bg-muted-foreground/30"
+                }`}
+              />
+              {triggers.queue ? "Enabled" : "Disabled"}
+            </span>
+          )}
+        </div>
+
+        {editing && (
+          <>
+            {error && (
+              <div className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{error}</div>
+            )}
+
+            {/* Show redeploy warning inline when queue value changes */}
+            {draftQueue !== triggers.queue && (
+              <div className="flex items-start gap-2 rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-200/90">
+                <span>⚠</span>
+                <span>Queue toggle requires redeploy. Cron changes apply immediately.</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                size="sm"
+                onClick={() => updateMutation.mutate({ cron: draftCron, queue: draftQueue })}
+                disabled={updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditing(false);
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            <p className="pt-1 text-xs text-muted-foreground">
+              Cron changes apply immediately. Next{" "}
+              <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with values from creek.toml.
+            </p>
+          </>
         )}
       </div>
     </section>
