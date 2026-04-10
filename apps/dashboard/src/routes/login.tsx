@@ -53,9 +53,15 @@ function LoginPage() {
   };
 
   const handleSocialLogin = async (provider: "github" | "google") => {
+    // Better Auth is hosted at api.creek.dev; a relative path would resolve
+    // against that host and send users to api.creek.dev/projects instead of
+    // app.creek.dev/projects. Always pass an absolute URL on the dashboard
+    // origin. Only accept relative paths from `redirect` to prevent open
+    // redirects.
+    const safePath = redirectTo?.startsWith("/") ? redirectTo : "/projects";
     await authClient.signIn.social({
       provider,
-      callbackURL: redirectTo ?? "/projects",
+      callbackURL: `${window.location.origin}${safePath}`,
     });
   };
 
