@@ -17,70 +17,8 @@ function ProjectSettingsTab() {
   return (
     <div className="max-w-lg space-y-8">
       <GeneralSettings projectId={projectId} />
-      <TriggersSection projectId={projectId} />
       <DangerZone projectId={projectId} />
     </div>
-  );
-}
-
-function TriggersSection({ projectId }: { projectId: string }) {
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () =>
-      api<{ triggers: string | null }>(`/projects/${projectId}`),
-  });
-
-  let triggers: { cron: string[]; queue: boolean } | null = null;
-  try {
-    if (project?.triggers && typeof project.triggers === "string") {
-      triggers = JSON.parse(project.triggers);
-    }
-  } catch {
-    // Invalid JSON — treat as no triggers
-  }
-
-  const hasTriggers = triggers && (triggers.cron.length > 0 || triggers.queue);
-
-  return (
-    <section>
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        Triggers
-      </h2>
-      <div className="space-y-3 rounded-lg border border-border p-4">
-        {!hasTriggers ? (
-          <p className="text-sm text-muted-foreground">
-            No triggers configured. Add <code className="rounded bg-code-bg px-1">[triggers]</code> to your creek.toml and redeploy.
-          </p>
-        ) : (
-          <>
-            {triggers!.cron.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Cron Schedules</p>
-                <div className="space-y-1">
-                  {triggers!.cron.map((schedule: string, i: number) => (
-                    <div key={i} className="rounded bg-code-bg px-2 py-1 font-mono text-xs">
-                      {schedule}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Edit cron schedules in your creek.toml and redeploy.
-                </p>
-              </div>
-            )}
-            {triggers!.queue && (
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Queue</p>
-                <div className="flex items-center gap-2">
-                  <span className="size-2 rounded-full bg-green-500" />
-                  <span className="text-sm">Enabled</span>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </section>
   );
 }
 
