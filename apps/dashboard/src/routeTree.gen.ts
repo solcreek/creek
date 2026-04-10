@@ -17,6 +17,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
 import { Route as AuthenticatedNewRouteImport } from './routes/_authenticated/new'
 import { Route as AuthenticatedApiKeysRouteImport } from './routes/_authenticated/api-keys'
+import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
 import { Route as AuthenticatedNewConfigureRouteImport } from './routes/_authenticated/new/configure'
 import { Route as AuthenticatedGithubSetupRouteImport } from './routes/_authenticated/github.setup'
@@ -64,6 +65,12 @@ const AuthenticatedApiKeysRoute = AuthenticatedApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedProjectsIndexRoute =
+  AuthenticatedProjectsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedProjectsRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdRoute =
   AuthenticatedProjectsProjectIdRouteImport.update({
     id: '/$projectId',
@@ -118,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -129,10 +137,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/api-keys': typeof AuthenticatedApiKeysRoute
   '/new': typeof AuthenticatedNewRouteWithChildren
-  '/projects': typeof AuthenticatedProjectsRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
+  '/projects': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_authenticated/github/setup': typeof AuthenticatedGithubSetupRoute
   '/_authenticated/new/configure': typeof AuthenticatedNewConfigureRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
   '/_authenticated/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/_authenticated/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -169,6 +178,7 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/new/configure'
     | '/projects/$projectId'
+    | '/projects/'
     | '/projects/$projectId/analytics'
     | '/projects/$projectId/env'
     | '/projects/$projectId/settings'
@@ -180,10 +190,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/api-keys'
     | '/new'
-    | '/projects'
     | '/settings'
     | '/github/setup'
     | '/new/configure'
+    | '/projects'
     | '/projects/$projectId/analytics'
     | '/projects/$projectId/env'
     | '/projects/$projectId/settings'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/_authenticated/github/setup'
     | '/_authenticated/new/configure'
     | '/_authenticated/projects/$projectId'
+    | '/_authenticated/projects/'
     | '/_authenticated/projects/$projectId/analytics'
     | '/_authenticated/projects/$projectId/env'
     | '/_authenticated/projects/$projectId/settings'
@@ -271,6 +282,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api-keys'
       preLoaderRoute: typeof AuthenticatedApiKeysRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/projects/': {
+      id: '/_authenticated/projects/'
+      path: '/'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof AuthenticatedProjectsIndexRouteImport
+      parentRoute: typeof AuthenticatedProjectsRoute
     }
     '/_authenticated/projects/$projectId': {
       id: '/_authenticated/projects/$projectId'
@@ -361,11 +379,13 @@ const AuthenticatedProjectsProjectIdRouteWithChildren =
 
 interface AuthenticatedProjectsRouteChildren {
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
 }
 
 const AuthenticatedProjectsRouteChildren: AuthenticatedProjectsRouteChildren = {
   AuthenticatedProjectsProjectIdRoute:
     AuthenticatedProjectsProjectIdRouteWithChildren,
+  AuthenticatedProjectsIndexRoute: AuthenticatedProjectsIndexRoute,
 }
 
 const AuthenticatedProjectsRouteWithChildren =
