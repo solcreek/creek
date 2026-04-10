@@ -41,7 +41,7 @@ jobs:
       remote-builder: ${{ steps.filter.outputs.remote-builder }}
     steps:
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/control-plane
       - name: Deploy
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/sandbox-api
       - name: Deploy
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/sandbox-dispatch
       - name: Deploy
@@ -130,7 +130,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/dispatch-worker
       - name: Deploy
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/realtime-worker
       - name: Deploy
@@ -166,7 +166,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/deploy-api
       - name: Deploy
@@ -184,7 +184,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/mcp-server
       - name: Deploy
@@ -205,7 +205,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - run: pnpm install
       - run: pnpm turbo build --filter=@solcreek/build-container --filter=@solcreek/remote-builder
       - name: Deploy
