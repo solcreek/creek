@@ -206,6 +206,20 @@ github.post("/deploy-latest", async (c) => {
     return c.json({ error: "validation", message: "projectId is required" }, 400);
   }
 
+  // Accept either the project UUID or slug — the dashboard's project detail
+  // route (/projects/$projectId) allows both forms in the URL, and the
+  // existing GET /projects/:idOrSlug endpoint mirrors this. Resolve to the
+  // canonical UUID before looking up the GitHub connection so either works.
+  const project = await c.env.DB.prepare(
+    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(body.projectId, body.projectId, teamId)
+    .first<{ id: string }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
   // Load connection + verify team ownership
   const connection = await c.env.DB.prepare(
     `SELECT gc.installationId, gc.repoOwner, gc.repoName, gc.productionBranch
@@ -213,7 +227,7 @@ github.post("/deploy-latest", async (c) => {
      JOIN project p ON gc.projectId = p.id
      WHERE gc.projectId = ? AND p.organizationId = ?`,
   )
-    .bind(body.projectId, teamId)
+    .bind(project.id, teamId)
     .first<{
       installationId: number;
       repoOwner: string;
