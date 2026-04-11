@@ -325,3 +325,49 @@ describe("GET /github/connections/by-project/:projectId", () => {
     expect(body.connection?.id).toBe("conn-slug");
   });
 });
+
+describe("DELETE /github/connections/:id", () => {
+  test("returns 404 when the connection does not belong to the caller's team", async () => {
+    // No seeded row → team ownership join returns null
+    const res = await app.request(
+      "/github/connections/conn-nope",
+      { method: "DELETE" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("not_found");
+  });
+
+  test("deletes the connection and clears project.githubRepo when owned", async () => {
+    // The DELETE handler does a join lookup first:
+    //   SELECT gc.id, gc.projectId FROM github_connection gc
+    //   JOIN project p ON gc.projectId = p.id
+    //   WHERE gc.id = ? AND p.organizationId = ?
+    db.seedFirst("FROM github_connection gc", ["conn-1", TEST_TEAM.id], {
+      id: "conn-1",
+      projectId: "proj-1",
+    });
+    db.seedRun("DELETE FROM github_connection", ["conn-1"]);
+    db.seedRun("UPDATE project SET githubRepo = NULL", []);
+
+    const res = await app.request(
+      "/github/connections/conn-1",
+      { method: "DELETE" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+
+    const executed = db.getExecuted();
+    expect(executed.some((q) => q.sql.includes("DELETE FROM github_connection"))).toBe(true);
+    expect(
+      executed.some((q) => q.sql.includes("UPDATE project SET githubRepo = NULL")),
+    ).toBe(true);
+  });
+});
