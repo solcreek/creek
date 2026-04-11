@@ -58,7 +58,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              One command. Database, cron, queues, realtime sync, analytics — all built in.
+              One command or one GitHub push. Database, cron, queues, realtime sync, analytics — all built in.
               Live on 300+ edge locations.
             </motion.p>
             <motion.div
@@ -69,10 +69,16 @@ export default function Home() {
             >
               <CopyCommand command="npx creek deploy" />
               <a
-                href="/docs/getting-started"
+                href="https://app.creek.dev/new"
                 className="rounded-lg bg-foreground text-background px-5 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity"
               >
-                Get started
+                Import from GitHub
+              </a>
+              <a
+                href="/docs/getting-started"
+                className="rounded-lg border border-border px-5 py-2.5 text-sm font-medium hover:bg-accent/10 transition-colors"
+              >
+                Docs
               </a>
             </motion.div>
             <motion.div
@@ -437,6 +443,7 @@ function FeatureGrid() {
 
   const features = [
     { title: "10-second deploys", description: "From CLI to live URL on Cloudflare's global edge." },
+    { title: "GitHub auto-deploy", description: "Push to main. Preview URLs on every pull request. Commit status in the diff." },
     { title: "Realtime sync", description: "db.mutate() auto-broadcasts. useLiveQuery() auto-refetches." },
     { title: "Cron triggers", description: "Schedule background jobs in creek.toml. No extra services." },
     { title: "Queues", description: "Per-project queue, auto-provisioned. Producer + consumer wired up." },
@@ -444,7 +451,6 @@ function FeatureGrid() {
     { title: "Custom domains", description: "Automatic SSL. One CLI command to set up." },
     { title: "Environment variables", description: "Encrypted at rest, injected at runtime." },
     { title: "Framework detection", description: "React, Vue, Svelte, Astro, Solid — auto-detected." },
-    { title: "CLI-first", description: "Scriptable, composable, CI/CD-friendly. Works in pipes." },
   ];
 
   return (
