@@ -22,6 +22,8 @@ interface Deployment {
   version: number;
   status: string;
   branch: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
   triggerType: string;
   failedStep: string | null;
   errorMessage: string | null;
@@ -183,11 +185,27 @@ function DeploymentsTab() {
               <span
                 className={`size-2.5 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
               />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">
                   v{d.version}
                   {d.branch && (
                     <span className="ml-2 text-muted-foreground">{d.branch}</span>
+                  )}
+                  {d.commitSha && (
+                    project?.githubRepo ? (
+                      <a
+                        href={`https://github.com/${project.githubRepo}/commit/${d.commitSha}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        {d.commitSha.slice(0, 7)}
+                      </a>
+                    ) : (
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {d.commitSha.slice(0, 7)}
+                      </span>
+                    )
                   )}
                   {isProduction && (
                     <span className="ml-2 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-400">
@@ -195,7 +213,15 @@ function DeploymentsTab() {
                     </span>
                   )}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                {d.commitMessage && (
+                  <p
+                    className="mt-0.5 max-w-md truncate text-xs text-foreground/80"
+                    title={d.commitMessage}
+                  >
+                    {d.commitMessage.split("\n")[0]}
+                  </p>
+                )}
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {d.triggerType} &middot; {d.status}
                   {d.failedStep && ` at ${d.failedStep}`}
                 </p>
