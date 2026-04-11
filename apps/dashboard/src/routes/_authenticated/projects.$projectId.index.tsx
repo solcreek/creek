@@ -179,8 +179,13 @@ function DeploymentsTab() {
         return (
           <div
             key={d.id}
-            className="flex items-center justify-between rounded-lg border border-border p-3"
+            className={`rounded-lg border p-3 ${
+              d.status === "failed"
+                ? "border-destructive/30 bg-destructive/5"
+                : "border-border"
+            }`}
           >
+            <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span
                 className={`size-2.5 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
@@ -264,6 +269,28 @@ function DeploymentsTab() {
                 </DropdownMenu>
               )}
             </div>
+            </div>
+
+            {/* Failed state: inline error details so the user can see what
+                actually broke without having to dig through wrangler tail.
+                failedStep indicates the pipeline phase (building / uploading /
+                provisioning / deploying), errorMessage carries the upstream
+                error text. We keep the same border-styling + red background
+                so it's visually distinct from successful rows above. */}
+            {d.status === "failed" && (d.errorMessage || d.failedStep) && (
+              <div className="mt-3 space-y-1 rounded border border-destructive/20 bg-background/40 p-2.5">
+                {d.failedStep && (
+                  <p className="text-xs font-medium text-destructive">
+                    Failed at <span className="font-mono">{d.failedStep}</span>
+                  </p>
+                )}
+                {d.errorMessage && (
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-foreground/80">
+                    {d.errorMessage}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
