@@ -76,7 +76,8 @@ export type Framework =
   | "vite-solid"
   | "sveltekit"
   | "solidstart"
-  | "nuxt";
+  | "nuxt"
+  | "astro";
 
 export type RenderMode = "spa" | "ssr" | "worker";
 

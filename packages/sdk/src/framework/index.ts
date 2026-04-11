@@ -13,7 +13,7 @@ export function detectFramework(packageJson: PackageJson): Framework | null {
     ...packageJson.devDependencies,
   };
 
-  // SSR frameworks (order matters — check specific before generic)
+  // SSR / meta frameworks (order matters — check specific before generic)
   if (allDeps["next"]) return "nextjs";
   if (allDeps["@tanstack/react-start"]) return "tanstack-start";
   if (allDeps["react-router"]) return "react-router";
@@ -21,7 +21,12 @@ export function detectFramework(packageJson: PackageJson): Framework | null {
   if (allDeps["@solidjs/start"]) return "solidstart";
   if (allDeps["nuxt"]) return "nuxt";
 
-  // SPA frameworks
+  // Astro — its own build tool (not Vite-wrapped from our detection POV),
+  // outputs static HTML to dist/ by default. SSR mode also supported via
+  // astro adapters but we treat the common SSG case first.
+  if (allDeps["astro"]) return "astro";
+
+  // SPA frameworks (Vite-wrapped)
   if (allDeps["vite"]) {
     if (allDeps["react"] || allDeps["react-dom"]) return "vite-react";
     if (allDeps["vue"]) return "vite-vue";
@@ -43,6 +48,7 @@ export function getDefaultBuildOutput(framework: Framework | null): string {
     case "solidstart":
     case "nuxt":
       return ".output/public";
+    case "astro":
     case "tanstack-start":
     case "vite-react":
     case "vite-vue":

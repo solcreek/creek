@@ -770,12 +770,46 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
 // ============================================================================
 
 async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, resolved?: ResolvedConfig, tos?: TosAcceptance) {
-  const framework = resolved?.framework ?? detectFramework(
-    JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")),
-  );
+  // Static-site fast path: when resolveConfig fell back to index.html, the cwd
+  // has no build step and may have no package.json. Delegate to deployDirectory
+  // which just uploads the cwd as-is. This handles the simplest possible
+  // onboarding:
+  //     mkdir test && cd test
+  //     echo '<h1>Hi</h1>' > index.html
+  //     npx creek deploy
+  if (resolved?.source === "index.html") {
+    return deployDirectory(cwd, jsonMode, tos);
+  }
+
+  // Framework path: package.json should exist because resolveConfig picked a
+  // framework from package.json, wrangler files, or creek.toml. Guard anyway
+  // so we fail with a helpful message instead of an ENOENT stack trace.
+  const pkgJsonPath = join(cwd, "package.json");
+  if (!existsSync(pkgJsonPath)) {
+    const message = `Expected package.json in ${cwd} but none found.`;
+    if (jsonMode) {
+      jsonOutput(
+        {
+          ok: false,
+          error: "no_package_json",
+          message,
+          hint: "Run `npx creek deploy ./dist` to deploy a prebuilt directory, or `npx creek deploy --template landing` to start from a template.",
+        },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
+      return;
+    }
+    consola.error(message);
+    consola.info("  Run `npx creek deploy ./dist` to deploy a prebuilt directory instead,");
+    consola.info("  or `npx creek deploy --template landing` to start from a template.");
+    process.exit(1);
+  }
+
+  const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+  const framework = resolved?.framework ?? detectFramework(pkg);
 
   // Detect Next.js mode (static vs opennext SSR)
-  const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
   const nextjsMode = framework === "nextjs" ? detectNextjsMode(pkg, cwd) : null;
   const monorepo = detectMonorepo(cwd);
 
