@@ -1,15 +1,17 @@
 ---
 name: creek
 description: |
-  Deploy and manage applications on Creek via the Creek CLI. Covers init, deploy,
-  status, projects, deployments, rollback, env vars, custom domains, and dev server.
-  Use when the user mentions creek, creek deploy, creek init, or wants to deploy,
-  configure, or troubleshoot a Creek project.
+  Deploy and manage applications on Creek — the Cloudflare Workers deployment
+  platform. Covers init, deploy (local + GitHub + remote trigger), status,
+  projects, deployments, rollback, env vars, custom domains, cron + queue
+  triggers, queue send, and the dev server. Use when the user mentions creek,
+  creek deploy, creek init, deploying to Cloudflare, or wants to configure,
+  inspect, or troubleshoot a Creek project.
 license: Apache-2.0
 compatibility: Requires Creek CLI (npm install -g creek)
 metadata:
   author: solcreek
-  version: "2.1"
+  version: "2.2"
   required-binaries: creek
   required-env: CREEK_TOKEN
 ---
@@ -35,8 +37,10 @@ Creek deploys web apps to Cloudflare Workers with a single command. Auto-detects
 | Init project | `creek init --json` |
 | Deploy | `creek deploy --json` |
 | Deploy directory | `creek deploy ./dist --json` |
-| Deploy from GitHub | `creek deploy https://github.com/user/repo --json` |
+| Deploy from GitHub URL | `creek deploy https://github.com/user/repo --json` |
 | Deploy monorepo subdir | `creek deploy https://github.com/user/repo --path packages/app --json` |
+| Deploy latest commit via GitHub connection | `creek deploy --from-github --json` |
+| Deploy latest (target specific project) | `creek deploy --from-github --project <SLUG> --json` |
 | Deploy demo | `creek deploy --demo --json` |
 | Deploy template | `creek deploy --template vite-react` |
 | Skip build | `creek deploy --skip-build --json` |
@@ -56,12 +60,15 @@ Creek deploys web apps to Cloudflare Workers with a single command. Auto-detects
 | List domains | `creek domains ls --json` |
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
-| Dev server | `creek dev` |
+| Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
+| Dev server (local) | `creek dev` |
+| Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
 
 ## Deployment Modes
 
 ### Authenticated (permanent)
 Requires `creek login`. Deploys persist under the user's account.
+Builds locally, uploads the bundle, deploys to Workers for Platforms.
 ```bash
 creek deploy --json
 ```
@@ -77,6 +84,35 @@ creek claim <SANDBOX_ID>     # convert to permanent project
 ```bash
 CREEK_TOKEN=ck_... creek deploy --yes --json
 ```
+
+### Remote build via GitHub connection
+When the project has a GitHub connection (set up via the dashboard's
+`/new` import flow or `/projects/:id/settings`), Creek can deploy the
+latest commit on the project's production branch **without** running
+the build locally. The control-plane fetches the commit, invokes the
+same remote-builder container used by `git push` webhooks, and runs
+the full deploy pipeline server-side.
+
+Use this when:
+- you want to redeploy a project from a machine that doesn't have
+  the source checked out (fresh CI runner, different laptop, an
+  agent with a narrow workspace)
+- you want to trigger a deploy without actually pushing a commit
+- you want CI capability parity with the dashboard "Deploy latest"
+  button
+
+```bash
+# Infer the project from creek.toml in cwd
+creek deploy --from-github --json
+
+# Or target an explicit project by slug (or UUID)
+creek deploy --from-github --project my-app --json
+```
+
+The command polls the deployments list until the new row settles on
+`active`, `failed`, or `cancelled`, and prints each status transition.
+Fails fast if the project has no github_connection or the connection's
+production branch has no accessible commit.
 
 ## JSON Output Format
 
@@ -145,16 +181,78 @@ output = "dist"              # Build output directory
 worker = "worker/index.ts"   # Optional: custom Worker entry point
 
 [resources]
-d1 = true                   # Cloudflare D1 database   → env.DB
-kv = true                   # Cloudflare KV namespace   → env.KV
-r2 = true                   # Cloudflare R2 storage     → env.BUCKET
-ai = true                   # Cloudflare Workers AI     → env.AI
+database = true              # D1 database   → env.DB    + `import { db } from 'creek'`
+storage  = true              # R2 bucket     → env.BUCKET + `import { storage } from 'creek'`
+cache    = true              # KV namespace  → env.KV    + `import { cache } from 'creek'`
+ai       = true              # Workers AI    → env.AI    + `import { ai } from 'creek'`
+
+[triggers]
+cron  = ["0 */6 * * *"]      # One or more cron expressions. Standard 5-field format.
+queue = true                 # Creates a per-project queue + consumer binding.
+                             # Producer: `import { queue } from 'creek'` inside the Worker.
+                             # Consumer: export a `queue(batch, env, ctx)` handler.
+```
+
+**Semantic names** (`database` / `storage` / `cache`) are the stable
+Creek names and what you should write in new projects. The legacy
+Cloudflare names (`d1` / `r2` / `kv`) are still accepted for
+backward compatibility but deprecated.
+
+### Cron triggers
+
+Creek reads the `cron` array and registers each expression with
+Cloudflare's scheduled event system. The Worker must export a
+`scheduled(event, env, ctx)` handler. Creek generates this handler
+automatically when using a framework; for hand-written Workers, see
+the SSR/Worker examples in the docs.
+
+Verify cron is active:
+```bash
+creek status --json          # Shows registered cron schedules
+```
+
+Simulate a firing locally during dev:
+```bash
+creek dev --trigger-cron "0 */6 * * *"
+```
+
+### Queue triggers
+
+Setting `queue = true` auto-provisions a Cloudflare Queue and binds
+it to the project. Inside the Worker:
+
+```ts
+// Producer — in any request handler
+import { queue } from 'creek';
+await queue.send({ userId: 'abc', action: 'welcome-email' });
+```
+
+```ts
+// Consumer — export from the Worker entry
+export default {
+  async queue(batch, env, ctx) {
+    for (const msg of batch.messages) {
+      console.log(msg.body);
+      msg.ack();
+    }
+  },
+};
+```
+
+Send a message from the CLI (useful for testing):
+```bash
+creek queue send '{"userId":"abc"}' --json
 ```
 
 ## Supported Frameworks
 
-**SPA**: vite-react, vite-vue, vite-svelte, vite-solid, static HTML
+**SPA**: vite-react, vite-vue, vite-svelte, vite-solid, static HTML, astro
 **SSR**: nextjs, react-router, sveltekit, nuxt, solidstart, tanstack-start
+
+Not every SSR framework has equal support yet — check
+[creek.dev/docs/getting-started](https://creek.dev/docs/getting-started)
+for the current compatibility matrix. Next.js in particular requires
+`@solcreek/adapter-creek` or Creek's OpenNextJS workaround.
 
 ## Config Detection Order
 
@@ -162,6 +260,25 @@ ai = true                   # Cloudflare Workers AI     → env.AI
 2. `wrangler.jsonc` / `wrangler.json` / `wrangler.toml` — existing CF config
 3. `package.json` — framework auto-detection
 4. `index.html` — static site
+
+## GitHub Auto-Deploy Setup
+
+For push-to-deploy + PR previews, the user installs the **Creek
+Deploy** GitHub App and connects a repository to a Creek project:
+
+1. Visit `https://github.com/apps/creek-deploy` and install on the
+   account or organization that owns the repo.
+2. GitHub redirects to `https://app.creek.dev/github/setup?installation_id=...`
+   which claims the installation for the current team and lists the
+   installation's repositories.
+3. Either import a new project from the dashboard's New Project →
+   Import Git Repository flow, or connect an existing project from
+   its Settings → GitHub Connection section.
+4. Pushes to the project's production branch trigger a full build +
+   deploy; pull requests trigger a preview deployment and post a
+   commit status with the preview URL.
+5. `creek deploy --from-github [--project <slug>]` can trigger the
+   same flow for the latest commit on demand (no push required).
 
 ## Troubleshooting
 
@@ -172,6 +289,9 @@ ai = true                   # Cloudflare Workers AI     → env.AI
 | "No creek.toml found" | `creek init` or cd to project root |
 | "No project found" | Deploy from a dir with package.json or index.html |
 | "No supported project found in repo" | Use `--path` for monorepos |
+| "Project has no GitHub connection" (on `--from-github`) | Connect the repo first via the dashboard Settings → GitHub Connection |
+| "Could not determine target project" (on `--from-github`) | Pass `--project <slug>` or run the command from a directory with a `creek.toml` |
 | Sandbox expired | Redeploy — sandboxes last 60 minutes |
 | Domain stuck "pending" | Set CNAME to `cname.creek.dev`, then `creek domains activate` |
 | Build fails | Check `[build] command` in creek.toml |
+| Webhook not firing on push | Verify the repo is connected under project Settings; GitHub App must be installed on the repo's account |
