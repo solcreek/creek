@@ -174,10 +174,11 @@ Enterprise governance features (SSO, approval workflows, policy engine) will be 
 ## CLI Reference
 
 ```
-creek deploy [dir]          Deploy project or directory
-creek deploy --demo         Deploy a sample site instantly (no auth)
-creek deploy --json         Output structured JSON (auto in CI)
-creek deploy --skip-build   Deploy without running build step
+creek deploy [dir]                  Deploy project or directory
+creek deploy --template landing     Start from a ready-made Vite + React template
+creek deploy --dry-run              Show the deploy plan without executing
+creek deploy --json                 Output structured JSON (auto in CI)
+creek deploy --skip-build           Deploy without running build step
 creek dev                   Local dev server with D1/KV/R2 simulation
 creek status                Project status, triggers, deployment info
 creek deployments           List deployment history
@@ -216,7 +217,7 @@ creek claim <sandboxId>     Convert sandbox preview to permanent project
                (300+ locations)
 ```
 
-**Sandbox path:** `creek deploy --demo` → Sandbox API → live URL (60 min, no auth)
+**Sandbox path:** `creek deploy` / `creek deploy --template <name>` → Sandbox API → live URL (60 min, no auth)
 **Production path:** `creek deploy` → Control Plane → permanent URL + custom domain
 
 ---

@@ -63,5 +63,5 @@ export const AUTH_BREADCRUMBS: Breadcrumb[] = [
 
 export const NO_PROJECT_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek init", description: "Initialize creek.toml in current directory" },
-  { command: "creek deploy --demo", description: "Deploy a sample site to try Creek" },
+  { command: "creek deploy --template landing", description: "Start from a ready-made Vite + React landing page" },
 ];

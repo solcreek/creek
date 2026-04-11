@@ -6,7 +6,7 @@ Deploy to the edge in seconds. No account required.
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/solcreek/creek/blob/main/LICENSE)
 
 ```bash
-npx creek deploy --demo
+npx creek deploy --template landing
 # Live in 8.3s -> https://a1b2c3d4.creeksandbox.com
 ```
 
@@ -28,11 +28,13 @@ npx creek deploy
 
 ## Quick Start
 
-### Deploy a demo (no account needed)
+### Start from a template (no account needed)
 
 ```bash
-creek deploy --demo
+creek deploy --template landing
 ```
+
+Clones a ready-made Vite + React landing page, builds it, and deploys it to a 60-minute sandbox URL — all in one command. The code is yours to edit.
 
 ### Deploy your project
 
@@ -61,7 +63,8 @@ creek deploy https://github.com/user/repo/tree/main/packages/app
 | Command | Description |
 |---------|-------------|
 | `creek deploy [dir]` | Deploy project, directory, or repo URL |
-| `creek deploy --demo` | Deploy a sample site instantly |
+| `creek deploy --template <name>` | Clone + build + deploy a named template |
+| `creek deploy --dry-run` | Show the deploy plan without executing (agent-safe) |
 | `creek projects` | List your projects |
 | `creek deployments` | List deployments for a project |
 | `creek status` | Show current project status |
@@ -154,7 +157,7 @@ Creek auto-detects and configures the build for:
 
 | Mode | Trigger | Auth Required | TTL |
 |------|---------|:-------------:|-----|
-| **Demo** | `--demo` flag | No | 60 min |
+| **Template** | `--template <name>` | No | 60 min |
 | **Sandbox** | No `creek.toml` | No | 60 min |
 | **Production** | Has `creek.toml` + token | Yes | Permanent |
 

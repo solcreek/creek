@@ -61,11 +61,12 @@ SSR frameworks (Next.js, TanStack Start) use their own dev servers. Coming soon:
 Deploy a project or directory.
 
 ```bash
-creek deploy                    # Auto-detect framework, build, deploy
-creek deploy ./dist             # Deploy a pre-built directory
-creek deploy --demo             # Deploy a sample site instantly
-creek deploy --skip-build       # Skip the build step
-creek deploy --json             # Structured JSON output
+creek deploy                           # Auto-detect framework, build, deploy
+creek deploy ./dist                    # Deploy a pre-built directory
+creek deploy --template landing        # Deploy a ready-made starter
+creek deploy --dry-run                 # Show the plan without executing
+creek deploy --skip-build              # Skip the build step
+creek deploy --json                    # Structured JSON output (agent-friendly)
 ```
 
 **Deploy from GitHub URL:**
