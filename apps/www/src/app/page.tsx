@@ -88,8 +88,7 @@ export default function Home() {
               <span className="text-foreground font-medium">
                 Ship full-stack Vite apps in one command.
               </span>{" "}
-              Creek provisions the database, cron, queues, and WebSockets on
-              Cloudflare.{" "}
+              Creek provisions the database, cron, queues, and WebSockets.{" "}
               <span className="text-accent font-medium">$0 to start.</span>
             </motion.p>
 
@@ -192,7 +191,7 @@ export default function Home() {
         <SectionHeader
           label="06"
           title="Edge-native performance"
-          description="Your app runs on 300+ Cloudflare edge locations. Millisecond cold starts, global TTFB."
+          description="Your app runs on 300+ edge locations. Millisecond cold starts, global TTFB."
         />
         <PerformanceComparison />
       </section>
@@ -543,7 +542,7 @@ function MigrationSection() {
     {
       label: "Different bill",
       lines: [
-        "Runs on Cloudflare Workers — $0 idle.",
+        "$0 when idle. Pay per request.",
         "No per-seat fees.",
         "No surprise invoices when traffic spikes.",
         "Apache 2.0: self-host on your own account anytime.",
@@ -709,7 +708,7 @@ function FeatureGrid() {
   const isInView = useInView(ref, { once: true, margin: "-60px" });
 
   const features = [
-    { title: "10-second deploys", description: "From CLI to live URL on Cloudflare's global edge." },
+    { title: "10-second deploys", description: "From CLI to live URL on the global edge." },
     { title: "GitHub auto-deploy", description: "Push to main. Preview URLs on every pull request. Commit status in the diff." },
     { title: "Realtime sync", description: "db.mutate() auto-broadcasts. useLiveQuery() auto-refetches." },
     { title: "Cron triggers", description: "Schedule background jobs in creek.toml. No extra services." },

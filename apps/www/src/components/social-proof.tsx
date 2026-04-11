@@ -5,7 +5,7 @@ import { motion, useInView } from "framer-motion";
 
 const testimonials = [
   {
-    quote: "Went from zero to production on Cloudflare Workers in under 5 minutes. Creek just works.",
+    quote: "Went from `git init` to a live URL in 4 minutes. No dashboard. No signup wall. Creek just works.",
     author: "Early beta user",
     role: "Full-stack developer",
   },
