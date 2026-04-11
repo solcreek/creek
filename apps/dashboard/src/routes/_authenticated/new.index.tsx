@@ -12,7 +12,7 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
-export const Route = createFileRoute("/_authenticated/new")({
+export const Route = createFileRoute("/_authenticated/new/")({
   component: NewProjectPage,
 });
 
