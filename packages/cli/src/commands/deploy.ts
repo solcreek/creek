@@ -55,51 +55,244 @@ function assetSummary(fileList: string[]): string {
   return parts.join(", ");
 }
 
+/**
+ * Dry-run handler: describes what `creek deploy` would do without
+ * executing. No network calls, no file uploads, no builds, no ToS
+ * prompts. Safe to call from an AI agent that wants to understand
+ * the deploy plan before running it.
+ *
+ * Always exits 0 — a dry-run is "successful" even when no project is
+ * found, because the goal is to report state, not enforce it.
+ */
+async function dryRunPlan(
+  cwd: string,
+  args: Record<string, unknown>,
+  jsonMode: boolean,
+): Promise<void> {
+  // Unsupported modes — report and return cleanly
+  const unsupportedMode =
+    args.template ? "template"
+    : args["from-github"] ? "from-github"
+    : (typeof args.dir === "string" && isRepoUrl(args.dir)) ? "repo-url"
+    : null;
+
+  if (unsupportedMode) {
+    if (jsonMode) {
+      jsonOutput(
+        {
+          mode: "dry-run",
+          supported: false,
+          unsupportedMode,
+          message: `Dry-run is not yet supported for --${unsupportedMode} deploys`,
+          hint: `Run without --dry-run to execute, or inspect the command docs with --help`,
+        },
+        0,
+        [],
+      );
+      return;
+    }
+    consola.log(
+      `\n  \x1b[2m[dry-run]\x1b[0m Dry-run is not yet supported for --${unsupportedMode} deploys.\n`,
+    );
+    consola.log(
+      `  Run without --dry-run to execute, or inspect the command docs with --help.\n`,
+    );
+    return;
+  }
+
+  // Main case: resolve config in cwd
+  let resolved: ResolvedConfig | null = null;
+  try {
+    resolved = resolveConfig(cwd);
+  } catch (err) {
+    if (!(err instanceof ConfigNotFoundError)) throw err;
+  }
+
+  const token = getToken();
+  const authenticated = !!token;
+
+  // If no config, check build-output fallback
+  let buildOutputFallback: string | null = null;
+  if (!resolved) {
+    for (const dir of ["dist", "build", "out", ".output/public"]) {
+      if (existsSync(resolve(cwd, dir))) {
+        buildOutputFallback = dir;
+        break;
+      }
+    }
+  }
+
+  const wouldDeploy = !!(resolved || buildOutputFallback);
+  const targetType = authenticated ? "production" : "sandbox";
+  const bindings = resolved
+    ? resolvedConfigToBindingRequirements(resolved).map((b) => ({
+        name: b.bindingName,
+        type: b.type,
+      }))
+    : [];
+
+  const plan = {
+    mode: "dry-run" as const,
+    supported: true,
+    cwd,
+    authenticated,
+    target: {
+      type: targetType,
+      description:
+        targetType === "production"
+          ? "Your team's production slot (permanent URL via creek.toml)"
+          : "Free 60-minute sandbox (no signup required)",
+    },
+    config: resolved
+      ? {
+          source: resolved.source,
+          projectName: resolved.projectName,
+          framework: resolved.framework,
+          buildCommand: resolved.buildCommand,
+          buildOutput: resolved.buildOutput,
+          cron: resolved.cron,
+          queue: resolved.queue,
+        }
+      : null,
+    buildOutputFallback,
+    bindings,
+    wouldDeploy,
+    sideEffects: {
+      networkCalls: false,
+      fileUploads: false,
+      buildExecuted: false,
+      tosPromptShown: false,
+    },
+    nextStep: wouldDeploy
+      ? "Run without --dry-run to execute: npx creek deploy"
+      : "No project config or build output found. Run `creek init` or `npm create vite@latest` first.",
+  };
+
+  if (jsonMode) {
+    jsonOutput(plan, 0, []);
+    return;
+  }
+
+  // Human-readable plan
+  consola.log(
+    "\n  \x1b[2m[dry-run]\x1b[0m No deploy will execute. No network calls. No uploads.\n",
+  );
+  consola.log(`  cwd:              ${cwd}`);
+  consola.log(
+    `  Auth status:      ${authenticated ? "✓ signed in" : "✗ not signed in"}`,
+  );
+  consola.log(
+    `  Deploy target:    ${targetType} — ${plan.target.description}`,
+  );
+  if (resolved) {
+    consola.log(`  Detected:         ${formatDetectionSummary(resolved)}`);
+    consola.log(`  Project name:     ${resolved.projectName}`);
+    if (resolved.framework) {
+      consola.log(`  Framework:        ${resolved.framework}`);
+    }
+    consola.log(`  Build command:    ${resolved.buildCommand}`);
+    consola.log(`  Build output:     ${resolved.buildOutput}`);
+    if (bindings.length > 0) {
+      consola.log(
+        `  Bindings:         ${bindings.map((b) => `${b.name} (${b.type})`).join(", ")}`,
+      );
+    }
+    if (resolved.cron.length > 0) {
+      consola.log(`  Cron triggers:    ${resolved.cron.join(", ")}`);
+    }
+    if (resolved.queue) {
+      consola.log(`  Queue trigger:    enabled`);
+    }
+    if (resolved.unsupportedBindings.length > 0) {
+      consola.log(
+        `  Unsupported:      ${resolved.unsupportedBindings
+          .map((b) => `${b.name} (${b.type})`)
+          .join(", ")} — would be skipped`,
+      );
+    }
+  } else if (buildOutputFallback) {
+    consola.log(
+      `  Detected:         prebuilt assets in ${buildOutputFallback}/ (no creek.toml, no wrangler config)`,
+    );
+  } else {
+    consola.log(
+      `  Detected:         nothing — no creek.toml, no wrangler config, no dist/build/out/.output/public/`,
+    );
+  }
+  consola.log(`\n  Next step:        ${plan.nextStep}\n`);
+}
+
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
-    description: "Deploy the current project to Creek",
+    description:
+      "Deploy the current project to Creek. Signed-in: deploys to your team's production slot. Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing.",
   },
   args: {
     dir: {
       type: "positional",
-      description: "Directory to deploy (default: current directory)",
+      description:
+        "Directory to deploy (default: current directory). Also accepts a GitHub repo URL to clone-and-deploy.",
       required: false,
     },
     "skip-build": {
       type: "boolean",
-      description: "Skip the build step",
+      description:
+        "Skip the build step — upload existing build output as-is. Useful when CI already built the artifact.",
+      default: false,
+    },
+    "dry-run": {
+      type: "boolean",
+      description:
+        "Show what would be deployed without doing it: resolved config, detected framework, bindings, target URL, auth status. No network calls, no file uploads. Pair with --json for machine-readable plan output. Safe for agents.",
       default: false,
     },
     ...globalArgs,
     template: {
       type: "string",
-      description: "Deploy a template (e.g., landing, blog, todo)",
+      description:
+        "Deploy a named template (e.g., landing, blog, todo). Combine with --data to pass template params.",
       required: false,
     },
     data: {
       type: "string",
-      description: "JSON data for template params (used with --template)",
+      description:
+        "JSON string of template parameters (used with --template). Example: --data '{\"title\":\"Hello\"}'",
       required: false,
     },
     path: {
       type: "string",
-      description: "Subdirectory within repo to deploy (for monorepos)",
+      description:
+        "Subdirectory within the repo to deploy, for monorepos. Example: --path apps/web",
       required: false,
     },
     "from-github": {
       type: "boolean",
-      description: "Skip local build; trigger a deploy of the latest commit on the project's production branch via its GitHub connection",
+      description:
+        "Skip local build; trigger a remote deploy of the latest commit on the project's production branch via its GitHub connection.",
       default: false,
     },
     project: {
       type: "string",
-      description: "Target project slug or UUID (required with --from-github when not run inside a project directory)",
+      description:
+        "Target project slug or UUID. Required with --from-github when not run inside a project directory.",
       required: false,
     },
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+
+    // --- Dry-run short-circuit ---
+    // No ToS prompt, no network, no file uploads, no builds. Pure config
+    // resolution + plan output. Safe to call from an AI agent that wants
+    // to understand what `creek deploy` would do before running it.
+    if (args["dry-run"]) {
+      const dryCwd =
+        args.dir && typeof args.dir === "string" && !isRepoUrl(args.dir)
+          ? resolve(args.dir)
+          : process.cwd();
+      return await dryRunPlan(dryCwd, args, jsonMode);
+    }
 
     // --- Ensure ToS accepted ---
     const autoConfirm = shouldAutoConfirm(args);

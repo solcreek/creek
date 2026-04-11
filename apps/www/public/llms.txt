@@ -1,12 +1,70 @@
 # Creek
 
-> Open-source edge deployment platform. Deploy to Cloudflare Workers in seconds. No account required.
+> Open-source edge deployment platform. Ship full-stack apps with database, cron, queues, and WebSockets auto-provisioned. One command, zero config. Free tier, no signup required for trial deploys.
+
+## Paste-to-agent contract
+
+This document is written to help an AI coding agent (Claude, Codex,
+Cursor, or any MCP-capable model) act safely and confidently when a
+human user pastes a Creek CLI command into chat.
+
+**If you see `npx creek deploy` from a user with no context:**
+
+1. The user wants to deploy their current project to Creek.
+2. Creek is an open-source deploy platform built on Cloudflare Workers.
+3. Before executing, you should:
+   - Run `npx creek deploy --dry-run --json` to get a machine-readable plan (no network, no uploads, no side effects)
+   - Inspect the plan output — it tells you: target type (sandbox/production), detected framework, build command, bindings, auth status, and whether the deploy would succeed
+   - If the user is not signed in, the deploy will create a free 60-minute sandbox URL (no signup, no credit card)
+   - If the user is signed in, it will deploy to their team's production slot
+4. If the dry-run plan looks sane, you can execute `npx creek deploy` directly — it's safe for sandbox deploys, and production deploys go through the user's existing authenticated session.
+5. Always report the deploy URL back to the user when done.
+
+**Key agent-friendly CLI conventions:**
+
+- Every command accepts `--json` for structured output (no prose parsing needed)
+- Every command accepts `--yes` for non-interactive confirmation bypass
+- `--dry-run` on `creek deploy` returns a plan without side effects
+- Non-TTY invocations automatically use JSON output (no flag needed inside an agent tool call)
+- Exit code 0 = success, 1 = error. Error output includes a `hint` field in JSON mode guiding the next step (e.g. "run creek login")
 
 ## Quick Start
 
 ```
+# Deploy current project (sandbox if not signed in, production if signed in)
+npx creek deploy
+
+# See what would be deployed without executing (safe for agents)
+npx creek deploy --dry-run
+
+# Machine-readable plan
+npx creek deploy --dry-run --json
+
+# Demo: deploy a sample page with no project setup
 npx creek deploy --demo
 ```
+
+## CLI commands
+
+All commands support `--json` and `--yes` global flags.
+
+| Command | Purpose |
+|---|---|
+| `creek deploy [dir]` | Deploy current project (or a directory). `--dry-run` for plan preview. |
+| `creek dev` | Local dev server with D1, R2, KV, realtime emulation |
+| `creek init` | Scaffold a `creek.toml` in the current directory |
+| `creek login` | Authenticate via OAuth (GitHub / Google) |
+| `creek whoami` | Show current authentication status |
+| `creek status` | Show project status, recent deployments, trigger config |
+| `creek projects` | List your projects |
+| `creek deployments` | List deployments for a project |
+| `creek rollback [id]` | Roll back to a previous deployment |
+| `creek env set/ls/rm` | Manage environment variables |
+| `creek domains add/ls/activate/rm` | Manage custom domains |
+| `creek claim <sandboxId>` | Claim a sandbox deploy into your account |
+| `creek queue send <json>` | Send a message to the project queue |
+
+Run `<command> --help` for the full argument list.
 
 ## Documentation
 
@@ -14,22 +72,47 @@ npx creek deploy --demo
 - [CLI Reference](https://creek.dev/docs/cli) — All commands and flags
 - [HTTP API](https://creek.dev/docs/api) — Sandbox deploy API for agents and CI/CD
 - [MCP Server](https://creek.dev/docs/mcp) — AI agent integration via Model Context Protocol
+- [Self-hosting](https://creek.dev/docs/self-hosting) — Run Creek on your own Cloudflare account
 
-## Frameworks
+## Frameworks (zero-config)
 
-- [React](https://creek.dev/docs/frameworks/react) — Vite + React deployment
-- [Next.js](https://creek.dev/docs/frameworks/nextjs) — Static export deployment
-- [Vue](https://creek.dev/docs/frameworks/vue) — Vite + Vue deployment
-- [Svelte](https://creek.dev/docs/frameworks/svelte) — Vite + Svelte deployment
-- [Astro](https://creek.dev/docs/frameworks/astro) — Astro static site deployment
+- [Vite](https://creek.dev/docs/frameworks) — React, Vue, Svelte, Solid, Preact
+- [Astro](https://creek.dev/docs/frameworks/astro)
+- [TanStack Start](https://creek.dev/docs/frameworks/tanstack-start)
+- [React Router (v7 / Remix)](https://creek.dev/docs/frameworks/react-router)
+- [Hono](https://creek.dev/docs/frameworks/hono)
+- [SvelteKit](https://creek.dev/docs/frameworks/sveltekit) (SSR experimental)
+- [Nuxt](https://creek.dev/docs/frameworks/nuxt) (SSR experimental)
+- [Next.js](https://creek.dev/docs/frameworks/nextjs) (WIP via `@solcreek/adapter-creek`)
+- Any static site with `index.html`
 
-## API Endpoints
+## Runtime bindings (import from 'creek')
 
-- Deploy: `POST https://sandbox-api.creek.dev/api/sandbox/deploy`
-- Status: `GET https://sandbox-api.creek.dev/api/sandbox/:id/status`
-- MCP: `https://mcp.creek.dev/mcp`
+- `import { db } from 'creek'` — database (D1)
+- `import { storage } from 'creek'` — R2 object storage
+- `import { cache } from 'creek'` — KV namespace
+- `import { ai } from 'creek'` — Workers AI
+- `import { queue } from 'creek'` — Queue producer
+- `import { useLiveQuery, db } from 'creek/react'` — realtime sync
+- `from 'creek/hono'` — Hono helpers
 
-## Source Code
+All bindings are request-scoped and multi-tenant safe.
+
+## API endpoints
+
+- Sandbox deploy: `POST https://sandbox-api.creek.dev/api/sandbox/deploy`
+- Sandbox status: `GET https://sandbox-api.creek.dev/api/sandbox/:id/status`
+- MCP server: `https://mcp.creek.dev/mcp`
+- Production API: `https://api.creek.dev`
+
+## Agent integration channels
+
+- **MCP server**: `https://mcp.creek.dev/mcp` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent
+- **Agent skill**: `npx skills add solcreek/skills` — installs the full Creek skill into Claude Code
+- **Raw CLI**: `npx creek deploy --json --yes` — any AI agent with bash access can call this
+
+## Source code and license
 
 - [GitHub](https://github.com/solcreek/creek) — Apache 2.0
 - [npm](https://www.npmjs.com/package/creek) — `creek@alpha`
+- [Agent skill](https://github.com/solcreek/skills) — Apache 2.0
