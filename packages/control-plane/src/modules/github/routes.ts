@@ -298,6 +298,38 @@ github.delete("/connections/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// --- Get the connection for a single project (team-scoped) ---
+
+github.get("/connections/by-project/:projectId", async (c) => {
+  const teamId = c.get("teamId");
+  const projectIdOrSlug = c.req.param("projectId");
+
+  // Accept either the UUID or the slug — the dashboard's project detail
+  // route renders under both forms.
+  const project = await c.env.DB.prepare(
+    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectIdOrSlug, projectIdOrSlug, teamId)
+    .first<{ id: string }>();
+
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const connection = await c.env.DB.prepare(
+    `SELECT id, projectId, installationId, repoOwner, repoName,
+            productionBranch, autoDeployEnabled, previewEnabled, createdAt
+     FROM github_connection
+     WHERE projectId = ?`,
+  )
+    .bind(project.id)
+    .first();
+
+  // Null (not an error) when the project has no connection — the UI uses
+  // this to decide between showing the connection card and the picker.
+  return c.json({ connection: connection ?? null });
+});
+
 // --- List connections for team ---
 
 github.get("/connections", async (c) => {
