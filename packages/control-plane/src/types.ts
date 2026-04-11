@@ -24,9 +24,8 @@ export interface Env {
 
   // GitHub App (separate from OAuth login)
   GITHUB_APP_ID: string;
-  GITHUB_APP_PRIVATE_KEY: string;   // PKCS#8 PEM
+  GITHUB_APP_PRIVATE_KEY: string;   // PEM (PKCS#1 or PKCS#8 — auto-detected)
   GITHUB_WEBHOOK_SECRET: string;
-  REMOTE_BUILDER_URL: string;
 
   // Web deploy (public, no auth required)
   BUILD_STATUS: KVNamespace;

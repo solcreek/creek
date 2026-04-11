@@ -156,13 +156,16 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
     )
     .run();
 
-  // Call remote builder
+  // Call remote builder via service binding (matches deploy-api/src/index.ts:131)
   try {
     const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 
-    const buildRes = await fetch(`${env.REMOTE_BUILDER_URL}/build`, {
+    const buildRes = await env.REMOTE_BUILDER.fetch("http://remote-builder/build", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Secret": env.INTERNAL_SECRET,
+      },
       body: JSON.stringify({ repoUrl: cloneUrl, branch }),
     });
 

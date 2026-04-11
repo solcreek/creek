@@ -124,9 +124,6 @@ describe("handlePush", () => {
 
     db.seedFirst("SELECT MAX(version)", ["proj-1"], { v: 3 });
 
-    // Mock fetch for remote builder — will fail but we check deployment was created
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("mock network error")) as any;
-
     await handlePush(env, basePushPayload).catch(() => {});
 
     const queries = db.getExecuted();
@@ -136,6 +133,40 @@ describe("handlePush", () => {
     expect(deployInsert!.args).toContain("abc123def456"); // commitSha
     // triggerType "github" is hardcoded in SQL, not a bind param
     expect(deployInsert!.sql).toContain("'github'");
+  });
+
+  test("calls remote-builder via service binding with internal secret", async () => {
+    db.seedFirst("SELECT * FROM github_connection WHERE", ["myorg", "my-app"], {
+      id: "conn-1",
+      projectId: "proj-1",
+      installationId: 12345,
+      productionBranch: "main",
+      autoDeployEnabled: 1,
+      previewEnabled: 1,
+    });
+    db.seedFirst("SELECT p.slug", ["proj-1"], {
+      slug: "my-app",
+      teamSlug: "myorg",
+      teamId: "team-1",
+      plan: "free",
+    });
+    db.seedFirst("SELECT MAX(version)", ["proj-1"], { v: 0 });
+
+    const builderFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: "stop here" })),
+    );
+    env.REMOTE_BUILDER = { fetch: builderFetch } as unknown as Fetcher;
+
+    await handlePush(env, basePushPayload).catch(() => {});
+
+    expect(builderFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = builderFetch.mock.calls[0];
+    expect(url).toBe("http://remote-builder/build");
+    expect(init.method).toBe("POST");
+    expect(init.headers["X-Internal-Secret"]).toBe(env.INTERNAL_SECRET);
+    const body = JSON.parse(init.body);
+    expect(body.branch).toBe("main");
+    expect(body.repoUrl).toContain("x-access-token:mock-token@github.com/myorg/my-app.git");
   });
 
   test("skips non-production branch when previewEnabled is false", async () => {
