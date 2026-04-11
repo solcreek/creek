@@ -6,22 +6,31 @@ on:
       - 'creek@*'
 
 permissions:
-  id-token: write
+  id-token: write # npm trusted publisher via OIDC
   contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/creek
     steps:
       - uses: actions/checkout@v6
+
+      # Reads pnpm version from package.json#packageManager — specifying
+      # `version:` here would conflict per pnpm/action-setup@v5 behavior.
+      - uses: pnpm/action-setup@v5
 
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm install
-      - run: npm publish --access public
+      # `pnpm install` (not filtered) so workspace deps resolve. The
+      # `creek` umbrella depends on @solcreek/cli + @solcreek/runtime via
+      # `workspace:^`, which pnpm rewrites to ^X.Y.Z at publish time.
+      - run: pnpm install
+
+      # No build step — packages/creek is shipped as-is (bin.js + static
+      # re-export files in /files list). pnpm publish will rewrite
+      # workspace:^ to ^X.Y.Z automatically.
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/creek

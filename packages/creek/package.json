@@ -1,6 +1,6 @@
 {
   "name": "creek",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The Creek deployment platform \u2014 CLI and runtime",
   "type": "module",
   "bin": {
@@ -30,6 +30,7 @@
     "react.d.ts",
     "hono.js",
     "hono.d.ts",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
