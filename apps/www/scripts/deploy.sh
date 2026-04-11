@@ -5,10 +5,15 @@ set -euo pipefail
 #
 # Usage: ./scripts/deploy.sh
 #
-# This script builds and deploys creek.dev via Creek platform (dogfooding).
+# This script builds and deploys creek.dev.
 #
-# Current: Legacy path (OpenNextJS + middleware-manifest patch)
-# TODO: When adapter-creek is complete:
+# CURRENT PATH (production): OpenNextJS + middleware-manifest patch +
+# direct `wrangler deploy` to the `creek-www` Worker (see wrangler.jsonc).
+# creek.dev's custom domain is bound to this Worker outside of the Creek
+# platform — because adapter-creek (the Next.js adapter that will let us
+# dogfood `creek deploy`) is still work-in-progress, tracked in issue #1.
+#
+# TODO: When adapter-creek is complete, the whole pipeline collapses to:
 #   1. Remove OpenNextJS dependency entirely
 #   2. Remove middleware-manifest patch
 #   3. Remove standalone symlink hack
@@ -65,9 +70,12 @@ else:
     print('  ⚠ Pattern not found (already patched or Next.js version changed)')
 "
 
-# Step 6: Deploy via Creek CLI (dogfooding)
-echo "→ Deploying via Creek..."
-node "$MONOREPO_ROOT/packages/cli/dist/index.js" deploy --yes
+# Step 6: Deploy via wrangler
+# Direct `wrangler deploy` to the `creek-www` Worker (see wrangler.jsonc).
+# This is where creek.dev's custom domain currently points. Once
+# adapter-creek is ready this step becomes `creek deploy --yes` instead.
+echo "→ Deploying via wrangler..."
+npx wrangler deploy
 
 echo ""
 echo "⬡ Deploy complete. Verify: https://creek.dev"
