@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -8,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@solcreek/ui/components/dropdown-menu";
 import { Button } from "@solcreek/ui/components/button";
-import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2 } from "lucide-react";
+import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink } from "lucide-react";
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/",
@@ -26,6 +27,7 @@ interface Deployment {
   errorMessage: string | null;
   createdAt: number;
   productionDeploymentId?: string;
+  url: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -46,13 +48,25 @@ function DeploymentsTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
 
+  // After clicking "Deploy latest" we have to poll for a brief window even
+  // when the list looks idle — handlePush runs in waitUntil, so the new
+  // deployment row may not be visible to the first refetch after the
+  // mutation 200s. This flag forces the refetchInterval for a short window.
+  const [forcePoll, setForcePoll] = useState(false);
+  const forcePollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (forcePollTimeout.current) clearTimeout(forcePollTimeout.current);
+  }, []);
+
   const { data: deployments, isLoading } = useQuery({
     queryKey: ["deployments", projectId],
     queryFn: () => api<Deployment[]>(`/projects/${projectId}/deployments`),
-    // Poll every 2s while any deployment is in flight, stop otherwise.
+    // Poll every 2s while any deployment is in flight OR while we're in the
+    // post-deploy grace window. Stop otherwise so idle tabs don't burn CPU.
     refetchInterval: (query) => {
       const data = query.state.data as Deployment[] | undefined;
-      return data?.some((d) => IN_FLIGHT_STATUSES.has(d.status)) ? 2000 : false;
+      const hasInFlight = data?.some((d) => IN_FLIGHT_STATUSES.has(d.status));
+      return hasInFlight || forcePoll ? 2000 : false;
     },
   });
 
@@ -79,7 +93,13 @@ function DeploymentsTab() {
         body: JSON.stringify({ projectId }),
       }),
     onSuccess: () => {
-      // Kick the deployments query immediately so polling starts.
+      // Force polling for 15s so we catch the new deployment row as soon as
+      // handlePush inserts it (it runs in waitUntil and may land after this
+      // response). Once the row shows up with an in-flight status, normal
+      // polling takes over.
+      if (forcePollTimeout.current) clearTimeout(forcePollTimeout.current);
+      setForcePoll(true);
+      forcePollTimeout.current = setTimeout(() => setForcePoll(false), 15_000);
       queryClient.invalidateQueries({ queryKey: ["deployments", projectId] });
     },
   });
@@ -183,6 +203,21 @@ function DeploymentsTab() {
             </div>
 
             <div className="flex items-center gap-2">
+              {d.url && (
+                <a
+                  href={d.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={d.url}
+                >
+                  {/* show the hostname compactly, trimmed */}
+                  <span className="max-w-[240px] truncate font-mono">
+                    {d.url.replace(/^https?:\/\//, "")}
+                  </span>
+                  <ExternalLink className="size-3" />
+                </a>
+              )}
               <span className="text-xs text-muted-foreground">{d.id.slice(0, 8)}</span>
               {canPromote && (
                 <DropdownMenu>

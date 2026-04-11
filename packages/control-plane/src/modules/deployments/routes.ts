@@ -273,13 +273,14 @@ deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
 // List deployments for a project
 deployments.get("/:projectId/deployments", async (c) => {
   const teamId = c.get("teamId");
+  const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
 
   const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+    "SELECT id, slug, productionDeploymentId FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
   )
     .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+    .first<{ id: string; slug: string; productionDeploymentId: string | null }>();
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -289,9 +290,23 @@ deployments.get("/:projectId/deployments", async (c) => {
     "SELECT * FROM deployment WHERE projectId = ? ORDER BY version DESC LIMIT 20",
   )
     .bind(project.id)
-    .all();
+    .all<{ id: string; status: string }>();
 
-  return c.json(rows.results);
+  // Attach the live URL to each active deployment. Production deployments use
+  // the bare `{slug}-{team}.{domain}` host (matches dispatch-worker routing);
+  // non-production active deployments use a `{slug}-{shortId}-{team}` host so
+  // each historical deployment stays reachable as an immutable preview.
+  const domain = c.env.CREEK_DOMAIN;
+  const enriched = (rows.results ?? []).map((row) => {
+    if (row.status !== "active") return { ...row, url: null };
+    const isProduction = row.id === project.productionDeploymentId;
+    const url = isProduction
+      ? `https://${project.slug}-${teamSlug}.${domain}`
+      : `https://${project.slug}-${row.id.slice(0, 8)}-${teamSlug}.${domain}`;
+    return { ...row, url };
+  });
+
+  return c.json(enriched);
 });
 
 // Promote a deployment to production

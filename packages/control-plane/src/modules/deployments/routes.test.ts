@@ -270,20 +270,37 @@ describe("GET /deployments/:id", () => {
 // --- GET /projects/:id/deployments ---
 
 describe("GET /deployments list", () => {
-  test("lists deployments for project", async () => {
-    db.seedFirst("SELECT * FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
+  test("lists deployments for project and attaches a live URL on active rows", async () => {
+    db.seedFirst("FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
       id: PROJECT_ID,
+      slug: "my-app",
+      productionDeploymentId: "d1abcdef12345",
     });
     db.seedAll("SELECT * FROM deployment WHERE projectId", [PROJECT_ID], {
       results: [
-        { id: "d1", version: 2, status: "active" },
-        { id: "d2", version: 1, status: "failed" },
+        { id: "d1abcdef12345", version: 2, status: "active" },
+        { id: "d2xyz9876", version: 1, status: "failed" },
+        { id: "d3preview000", version: 0, status: "active" },
       ],
     });
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
-    expect(json).toHaveLength(2);
+    const json = await res.json() as Array<{ id: string; status: string; url: string | null }>;
+    expect(json).toHaveLength(3);
+
+    // Active production deployment → bare slug URL
+    const prod = json.find((d) => d.id === "d1abcdef12345")!;
+    expect(prod.url).toBe(`https://my-app-${TEST_TEAM.slug}.${"bycreek.com"}`);
+
+    // Failed deployment → no URL
+    const failed = json.find((d) => d.id === "d2xyz9876")!;
+    expect(failed.url).toBeNull();
+
+    // Active non-production → preview URL with 8-char short id
+    const preview = json.find((d) => d.id === "d3preview000")!;
+    expect(preview.url).toBe(
+      `https://my-app-d3previe-${TEST_TEAM.slug}.${"bycreek.com"}`,
+    );
   });
 });
