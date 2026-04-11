@@ -82,16 +82,24 @@ export default function Home() {
             </motion.p>
 
             {/* Framework badges — answers "does this support my stack" in a
-                single glance. Scanned pre-CTA, intentionally understated. */}
+                single glance. Vite gets visual priority because (a) our
+                Vite-based detection is our strongest zero-config tier and
+                (b) we're intentionally planting a flag on the "vite deploy
+                platform" search slot while void.cloud is still in early
+                access. */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.28 }}
               className="mt-5 flex items-center gap-3 flex-wrap text-xs text-muted-foreground"
             >
-              <span className="font-mono tracking-wide">frameworks</span>
-              <span className="text-muted-foreground/40">·</span>
+              <span className="font-mono tracking-wide text-foreground">
+                Vite-first
+              </span>
+              <span className="text-muted-foreground/40">—</span>
               <FrameworkBadges />
+              <span className="text-muted-foreground/40">·</span>
+              <span>zero config</span>
             </motion.div>
 
             <motion.div
@@ -462,16 +470,20 @@ function OpenSourceSection() {
 }
 
 function FrameworkBadges() {
-  // Only frameworks that are currently claimed in the FeatureGrid detection
-  // line. If we add Next.js / Remix here, we're making a compatibility
-  // claim that the landing page should be able to back up on the docs page.
+  // Only frameworks the landing page can actually back up on the docs
+  // page. Vite leads because vite-based SPA detection is our most mature,
+  // zero-config tier (vite-react, vite-vue, vite-svelte, vite-solid all
+  // work out of the box). The meta-frameworks list is intentionally
+  // honest — Next.js is omitted because that support is still going
+  // through adapter-creek; we'll add it here when the adapter ships.
   const frameworks = [
+    { name: "Vite", href: "/docs/getting-started", emphasized: true },
     { name: "React", href: "/docs/getting-started" },
     { name: "Vue", href: "/docs/getting-started" },
     { name: "Svelte", href: "/docs/getting-started" },
+    { name: "Solid", href: "/docs/getting-started" },
     { name: "Astro", href: "/docs/getting-started" },
     { name: "Nuxt", href: "/docs/getting-started" },
-    { name: "Solid", href: "/docs/getting-started" },
   ];
 
   return (
@@ -480,7 +492,11 @@ function FrameworkBadges() {
         <span key={fw.name} className="inline-flex items-center gap-2">
           <a
             href={fw.href}
-            className="font-mono hover:text-foreground transition-colors"
+            className={
+              fw.emphasized
+                ? "font-mono font-semibold text-foreground hover:text-accent transition-colors"
+                : "font-mono hover:text-foreground transition-colors"
+            }
           >
             {fw.name}
           </a>
