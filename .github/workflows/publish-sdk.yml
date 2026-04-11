@@ -6,24 +6,38 @@ on:
       - 'sdk@*'
 
 permissions:
-  id-token: write
+  id-token: write # npm trusted publisher via OIDC
   contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/sdk
     steps:
       - uses: actions/checkout@v6
+
+      # Reads pnpm version from package.json#packageManager — specifying
+      # `version:` here would conflict per pnpm/action-setup@v5 behavior.
+      - uses: pnpm/action-setup@v5
 
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm install
-      - run: npm run build --if-present
-      - run: npm test --if-present
-      - run: npm publish --access public
+      # `pnpm install` (not filtered) so workspace dev deps like vitest
+      # resolve. Filtered installs miss transitive dev deps — mirror the
+      # publish-cli.yml pattern that got this right.
+      - run: pnpm install
+
+      # Topological build via turbo.
+      - run: pnpm turbo build --filter=@solcreek/sdk
+
+      # Tests run from the workspace root so vitest (a root dev dep) is
+      # on PATH. Scoped to the sdk test file so we don't run unrelated
+      # package tests on every sdk release.
+      - run: pnpm vitest run packages/sdk
+
+      # pnpm publish rewrites workspace:^ to ^X.Y.Z automatically.
+      # --no-git-checks: CI works on a detached HEAD at the tag.
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/sdk
