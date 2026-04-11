@@ -71,13 +71,16 @@ function ConfigurePage() {
       setDeploying(true);
       setError("");
 
-      // 1. Create project
+      // 1. Create project. On GitHub imports pass autoResolveSlug so the
+      // server appends `-2`, `-3`, ... when two repos in different orgs
+      // share the same name instead of blocking the import with a 409.
       const projectRes = await api<{ project: { id: string; slug: string } }>("/projects", {
         method: "POST",
         body: JSON.stringify({
           slug,
           framework: framework || undefined,
           githubRepo: owner && repo ? `${owner}/${repo}` : undefined,
+          autoResolveSlug: !!(installation_id && owner && repo),
         }),
       });
 

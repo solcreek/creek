@@ -55,12 +55,80 @@ describe("POST /projects", () => {
     expect(json.message).toContain("-git-");
   });
 
-  test("rejects duplicate slug in same team", async () => {
+  test("rejects duplicate slug in same team (strict mode, default)", async () => {
     db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], {
       id: "existing-id",
     });
     const res = await req("POST", "/projects", { slug: "my-app" });
     expect(res.status).toBe(409);
+  });
+
+  test("autoResolveSlug falls back to slug-2 when base is taken", async () => {
+    // Seed: "my-app" is taken, "my-app-2" is free.
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], {
+      id: "existing-id",
+    });
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-2", teamId], null);
+
+    const res = await req("POST", "/projects", {
+      slug: "my-app",
+      autoResolveSlug: true,
+    });
+    expect(res.status).toBe(201);
+
+    const executed = db.getExecuted();
+    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
+    expect(insert).toBeDefined();
+    // The INSERT should use the resolved slug, not the original request
+    expect(insert!.args).toContain("my-app-2");
+    expect(insert!.args).not.toContain("my-app");
+  });
+
+  test("autoResolveSlug walks past multiple collisions to find a free suffix", async () => {
+    // Seed: my-app, my-app-2, my-app-3 taken; my-app-4 free.
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], { id: "p1" });
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-2", teamId], { id: "p2" });
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-3", teamId], { id: "p3" });
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-4", teamId], null);
+
+    const res = await req("POST", "/projects", {
+      slug: "my-app",
+      autoResolveSlug: true,
+    });
+    expect(res.status).toBe(201);
+
+    const executed = db.getExecuted();
+    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
+    expect(insert!.args).toContain("my-app-4");
+  });
+
+  test("autoResolveSlug does not append suffix when base is already free", async () => {
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], null);
+
+    const res = await req("POST", "/projects", {
+      slug: "my-app",
+      autoResolveSlug: true,
+    });
+    expect(res.status).toBe(201);
+
+    const executed = db.getExecuted();
+    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
+    expect(insert!.args).toContain("my-app");
+    expect(insert!.args).not.toContain("my-app-2");
+  });
+
+  test("persists githubRepo field when provided", async () => {
+    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], null);
+
+    const res = await req("POST", "/projects", {
+      slug: "my-app",
+      githubRepo: "linyiru/my-app",
+    });
+    expect(res.status).toBe(201);
+
+    const executed = db.getExecuted();
+    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
+    expect(insert!.args).toContain("linyiru/my-app");
   });
 });
 
