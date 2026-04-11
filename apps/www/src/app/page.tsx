@@ -70,7 +70,7 @@ export default function Home() {
               <div>
                 <CopyCommand command="npx creek deploy" />
                 <p className="mt-1.5 font-mono text-xs text-muted-foreground/70 tracking-wide">
-                  no signup · live in seconds
+                  no signup · live in seconds · Claude + Codex + Cursor ready
                 </p>
               </div>
               <p className="text-sm text-muted-foreground">
