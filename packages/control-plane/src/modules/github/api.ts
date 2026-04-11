@@ -178,6 +178,22 @@ export async function listInstallationRepos(token: string): Promise<GitHubRepo[]
 }
 
 /**
+ * Get basic repo info: GitHub's internal repo ID + default branch. Used at
+ * connect time so we can store the stable `repoId` alongside the mutable
+ * owner/name strings. Returns null when the repo can't be fetched.
+ */
+export async function getRepoInfo(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<{ id: number; defaultBranch: string } | null> {
+  const res = await githubFetch(token, `/repos/${owner}/${repo}`);
+  if (!res.ok) return null;
+  const data = await res.json() as { id: number; default_branch: string };
+  return { id: data.id, defaultBranch: data.default_branch };
+}
+
+/**
  * Get the latest commit on a branch. Returns {sha, message} or null if not found.
  */
 export async function getLatestCommit(

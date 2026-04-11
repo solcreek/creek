@@ -16,6 +16,7 @@ import {
 vi.mock("./api.js", () => ({
   exchangeInstallationToken: vi.fn().mockResolvedValue("mock-installation-token"),
   getLatestCommit: vi.fn(),
+  getRepoInfo: vi.fn().mockResolvedValue({ id: 987654321, defaultBranch: "main" }),
   listInstallationRepos: vi.fn().mockResolvedValue([]),
   createCommitStatus: vi.fn().mockResolvedValue(undefined),
   createOrUpdatePRComment: vi.fn().mockResolvedValue(undefined),
@@ -430,7 +431,7 @@ describe("POST /github/connect", () => {
     expect(body.message).toContain("already connected");
   });
 
-  test("happy path: inserts connection row and updates project.githubRepo", async () => {
+  test("happy path: inserts connection row with repoId and updates project.githubRepo", async () => {
     db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
       id: "proj-1",
     });
@@ -453,15 +454,18 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(201);
-    const body = await res.json() as { ok: boolean; connectionId: string };
+    const body = await res.json() as { ok: boolean; connectionId: string; repoId: number | null };
     expect(body.ok).toBe(true);
     expect(body.connectionId).toBeTruthy();
+    // repoId comes from the mocked getRepoInfo
+    expect(body.repoId).toBe(987654321);
 
     const executed = db.getExecuted();
     const insertQ = executed.find((q) => q.sql.includes("INSERT INTO github_connection"));
     expect(insertQ).toBeDefined();
     expect(insertQ!.args).toContain("proj-1");
     expect(insertQ!.args).toContain(123);
+    expect(insertQ!.args).toContain(987654321); // repoId
     expect(insertQ!.args).toContain("linyiru");
     expect(insertQ!.args).toContain("my-app");
     expect(insertQ!.args).toContain("dev");
@@ -470,6 +474,40 @@ describe("POST /github/connect", () => {
     expect(updateQ).toBeDefined();
     expect(updateQ!.args).toContain("linyiru/my-app");
     expect(updateQ!.args).toContain("proj-1");
+  });
+
+  test("still creates connection when getRepoInfo fails (repoId = null)", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+
+    const { getRepoInfo } = await import("./api.js");
+    (getRepoInfo as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "proj-1",
+          installationId: 123,
+          repoOwner: "linyiru",
+          repoName: "my-app",
+        }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as { repoId: number | null };
+    expect(body.repoId).toBeNull();
+
+    const executed = db.getExecuted();
+    const insertQ = executed.find((q) => q.sql.includes("INSERT INTO github_connection"));
+    expect(insertQ).toBeDefined();
+    expect(insertQ!.args).toContain(null);
   });
 });
 

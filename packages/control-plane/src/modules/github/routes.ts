@@ -6,7 +6,12 @@
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
-import { exchangeInstallationToken, getLatestCommit, listInstallationRepos } from "./api.js";
+import {
+  exchangeInstallationToken,
+  getLatestCommit,
+  getRepoInfo,
+  listInstallationRepos,
+} from "./api.js";
 import { handlePush } from "./handlers.js";
 import { scanRepo } from "./scan.js";
 
@@ -178,12 +183,36 @@ github.post("/connect", async (c) => {
     return c.json({ error: "conflict", message: `This repo is already connected to another project` }, 409);
   }
 
+  // Fetch GitHub's internal repo ID so we can survive a repo rename/transfer
+  // (repoOwner/repoName become stale, repoId stays). If this fails we still
+  // create the row — the ID can be backfilled later — but we warn in the log.
+  let repoId: number | null = null;
+  try {
+    const token = await exchangeInstallationToken(c.env, body.installationId);
+    const info = await getRepoInfo(token, body.repoOwner, body.repoName);
+    repoId = info?.id ?? null;
+  } catch (err) {
+    console.warn(
+      `[github/connect] failed to fetch repo info for ${body.repoOwner}/${body.repoName}:`,
+      err,
+    );
+  }
+
   const id = crypto.randomUUID();
   await c.env.DB.prepare(
-    `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+    `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
   )
-    .bind(id, body.projectId, body.installationId, body.repoOwner, body.repoName, body.productionBranch ?? "main", Date.now())
+    .bind(
+      id,
+      body.projectId,
+      body.installationId,
+      repoId,
+      body.repoOwner,
+      body.repoName,
+      body.productionBranch ?? "main",
+      Date.now(),
+    )
     .run();
 
   // Also update project.githubRepo
@@ -193,7 +222,7 @@ github.post("/connect", async (c) => {
     .bind(`${body.repoOwner}/${body.repoName}`, Date.now(), body.projectId)
     .run();
 
-  return c.json({ ok: true, connectionId: id }, 201);
+  return c.json({ ok: true, connectionId: id, repoId }, 201);
 });
 
 // --- Trigger initial deploy from latest commit on production branch ---
