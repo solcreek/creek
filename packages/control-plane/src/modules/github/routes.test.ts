@@ -92,20 +92,42 @@ describe("POST /github/deploy-latest", () => {
     expect(body.error).toBe("validation");
   });
 
-  test("returns 404 when project has no github_connection", async () => {
-    // No seeded row → first() returns null
+  test("returns 404 when project does not exist", async () => {
+    // No seeded project → first() returns null
     const res = await app.request("/github/deploy-latest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "proj-nope" }),
+      body: JSON.stringify({ projectId: "nope" }),
     }, env, mockExecutionCtx);
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
+    const body = await res.json() as { error: string; message: string };
     expect(body.error).toBe("not_found");
+    expect(body.message).toBe("Project not found");
+  });
+
+  test("returns 404 when project has no github_connection", async () => {
+    // Project exists but no github_connection
+    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+
+    const res = await app.request("/github/deploy-latest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: "proj-1" }),
+    }, env, mockExecutionCtx);
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string; message: string };
+    expect(body.error).toBe("not_found");
+    expect(body.message).toContain("no GitHub connection");
   });
 
   test("returns 404 when GitHub has no commit on production branch", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
     db.seedFirst("SELECT gc.installationId", ["proj-1", TEST_TEAM.id], {
       installationId: 12345,
       repoOwner: "myorg",
@@ -129,6 +151,9 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("happy path: dispatches handlePush with synthesized payload", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
     db.seedFirst("SELECT gc.installationId", ["proj-1", TEST_TEAM.id], {
       installationId: 12345,
       repoOwner: "myorg",
@@ -167,5 +192,36 @@ describe("POST /github/deploy-latest", () => {
       },
       installation: { id: 12345 },
     });
+  });
+
+  test("accepts project slug and resolves it to the UUID before connection lookup", async () => {
+    // Client sends the slug (dashboard's /projects/:slug route); the endpoint
+    // should resolve it to the UUID via (id = ? OR slug = ?) first, then use
+    // that UUID to look up github_connection.
+    db.seedFirst("SELECT id FROM project", ["my-app", "my-app", TEST_TEAM.id], {
+      id: "proj-uuid-xyz",
+    });
+    db.seedFirst("SELECT gc.installationId", ["proj-uuid-xyz", TEST_TEAM.id], {
+      installationId: 999,
+      repoOwner: "linyiru",
+      repoName: "my-app",
+      productionBranch: "main",
+    });
+
+    const { getLatestCommit } = await import("./api.js");
+    (getLatestCommit as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      sha: "sha123",
+      message: "chore: bump",
+    });
+
+    const res = await app.request("/github/deploy-latest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: "my-app" }),
+    }, env, mockExecutionCtx);
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
   });
 });
