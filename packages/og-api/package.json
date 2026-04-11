@@ -1,0 +1,22 @@
+{
+  "name": "@solcreek/og-api",
+  "version": "0.1.0",
+  "description": "Dynamic OpenGraph image generation service for Creek — deploy button cards, repo cards, brand cards",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.4",
+    "workers-og": "^0.0.27"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260405.1",
+    "@types/react": "^19.2.14",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.80.0"
+  }
+}

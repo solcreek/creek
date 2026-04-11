@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "creek-og-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "vars": {
+    "CREEK_ORIGIN": "https://creek.dev"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // Note: og.creek.dev custom domain is managed by Terraform
+  // (infra/workers.tf → cloudflare_workers_custom_domain.og_api).
+  // `wrangler deploy` only uploads the script; Terraform owns the hostname binding.
+}
