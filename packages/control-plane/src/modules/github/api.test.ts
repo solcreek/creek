@@ -2,12 +2,13 @@
 // vitest (Node), not workerd. The control-plane tsconfig targets workers, so
 // disable type checking for this single file rather than maintaining a
 // separate tsconfig.
-import { describe, test, expect, beforeEach, beforeAll } from "vitest";
+import { describe, test, expect, beforeEach, beforeAll, vi, afterEach } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import {
   createAppJWT,
   clearTokenCache,
   formatPreviewComment,
+  getLatestCommit,
 } from "./api.js";
 
 describe("createAppJWT", () => {
@@ -104,5 +105,60 @@ describe("token cache", () => {
   test("clearTokenCache resets cache", () => {
     // Just verify it doesn't throw
     clearTokenCache();
+  });
+});
+
+describe("getLatestCommit", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("returns sha and message on success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sha: "abc123def456",
+          commit: { message: "feat: add login" },
+        }),
+        { status: 200 },
+      ),
+    );
+    globalThis.fetch = fetchMock;
+
+    const result = await getLatestCommit("token", "myorg", "my-app", "main");
+
+    expect(result).toEqual({ sha: "abc123def456", message: "feat: add login" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calledUrl = fetchMock.mock.calls[0][0];
+    expect(calledUrl).toBe("https://api.github.com/repos/myorg/my-app/commits/main");
+  });
+
+  test("url-encodes branches with slashes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ sha: "x", commit: { message: "m" } }), { status: 200 }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await getLatestCommit("token", "org", "repo", "feature/auth");
+
+    const calledUrl = fetchMock.mock.calls[0][0];
+    expect(calledUrl).toBe("https://api.github.com/repos/org/repo/commits/feature%2Fauth");
+  });
+
+  test("returns null on 404", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 }));
+
+    const result = await getLatestCommit("token", "org", "repo", "nope");
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null on other error", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+
+    const result = await getLatestCommit("token", "org", "repo", "main");
+
+    expect(result).toBeNull();
   });
 });

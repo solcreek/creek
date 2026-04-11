@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@solcreek/ui/components/dropdown-menu";
 import { Button } from "@solcreek/ui/components/button";
-import { MoreHorizontal, ArrowUpCircle } from "lucide-react";
+import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/",
@@ -38,6 +38,10 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-500",
 };
 
+// Statuses that indicate a deployment is still in flight and should trigger
+// polling so the dashboard reflects progress without a manual refresh.
+const IN_FLIGHT_STATUSES = new Set(["queued", "uploading", "provisioning", "deploying"]);
+
 function DeploymentsTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
@@ -45,11 +49,16 @@ function DeploymentsTab() {
   const { data: deployments, isLoading } = useQuery({
     queryKey: ["deployments", projectId],
     queryFn: () => api<Deployment[]>(`/projects/${projectId}/deployments`),
+    // Poll every 2s while any deployment is in flight, stop otherwise.
+    refetchInterval: (query) => {
+      const data = query.state.data as Deployment[] | undefined;
+      return data?.some((d) => IN_FLIGHT_STATUSES.has(d.status)) ? 2000 : false;
+    },
   });
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
-    queryFn: () => api<{ productionDeploymentId: string | null }>(`/projects/${projectId}`),
+    queryFn: () => api<{ productionDeploymentId: string | null; githubRepo: string | null }>(`/projects/${projectId}`),
   });
 
   const promote = useMutation({
@@ -63,19 +72,68 @@ function DeploymentsTab() {
     },
   });
 
+  const deployLatest = useMutation({
+    mutationFn: () =>
+      api("/github/deploy-latest", {
+        method: "POST",
+        body: JSON.stringify({ projectId }),
+      }),
+    onSuccess: () => {
+      // Kick the deployments query immediately so polling starts.
+      queryClient.invalidateQueries({ queryKey: ["deployments", projectId] });
+    },
+  });
+
+  const hasGithub = !!project?.githubRepo;
+  const deployError = (deployLatest.error as Error | null)?.message;
+
+  const DeployButton = () => (
+    <Button
+      size="sm"
+      onClick={() => deployLatest.mutate()}
+      disabled={!hasGithub || deployLatest.isPending}
+      title={hasGithub ? undefined : "Connect a GitHub repository in Settings to enable deploys"}
+    >
+      {deployLatest.isPending ? (
+        <>
+          <Loader2 className="mr-2 size-4 animate-spin" />
+          Triggering...
+        </>
+      ) : (
+        <>
+          <Rocket className="mr-2 size-4" />
+          Deploy latest
+        </>
+      )}
+    </Button>
+  );
+
   if (isLoading) {
     return <p className="text-muted-foreground">Loading...</p>;
   }
 
   if (!deployments?.length) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center">
-        <h3 className="font-semibold">No deployments yet</h3>
-        <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-          Deploy your project from the CLI:
-        </p>
-        <div className="mx-auto mt-3 max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
-          <span className="text-muted-foreground">$</span> npx creek deploy
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
+          <DeployButton />
+        </div>
+        {deployError && (
+          <p className="text-sm text-destructive">Deploy failed: {deployError}</p>
+        )}
+        <div className="rounded-lg border border-dashed border-border p-8 text-center">
+          <h3 className="font-semibold">No deployments yet</h3>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+            {hasGithub
+              ? "Click Deploy latest above to build the current HEAD of your production branch."
+              : "Connect a GitHub repository in Settings or run from the CLI:"}
+          </p>
+          {!hasGithub && (
+            <div className="mx-auto mt-3 max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
+              <span className="text-muted-foreground">$</span> npx creek deploy
+            </div>
+          )}
         </div>
       </div>
     );
@@ -85,6 +143,13 @@ function DeploymentsTab() {
 
   return (
     <div className="space-y-2">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
+        <DeployButton />
+      </div>
+      {deployError && (
+        <p className="text-sm text-destructive">Deploy failed: {deployError}</p>
+      )}
       {deployments.map((d) => {
         const isProduction = d.id === productionId;
         const canPromote = d.status === "active" && !isProduction;

@@ -6,7 +6,8 @@
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
-import { exchangeInstallationToken, listInstallationRepos } from "./api.js";
+import { exchangeInstallationToken, getLatestCommit, listInstallationRepos } from "./api.js";
+import { handlePush } from "./handlers.js";
 import { scanRepo } from "./scan.js";
 
 type GitHubEnv = {
@@ -193,6 +194,67 @@ github.post("/connect", async (c) => {
     .run();
 
   return c.json({ ok: true, connectionId: id }, 201);
+});
+
+// --- Trigger initial deploy from latest commit on production branch ---
+
+github.post("/deploy-latest", async (c) => {
+  const teamId = c.get("teamId");
+  const body = await c.req.json<{ projectId: string }>();
+
+  if (!body.projectId) {
+    return c.json({ error: "validation", message: "projectId is required" }, 400);
+  }
+
+  // Load connection + verify team ownership
+  const connection = await c.env.DB.prepare(
+    `SELECT gc.installationId, gc.repoOwner, gc.repoName, gc.productionBranch
+     FROM github_connection gc
+     JOIN project p ON gc.projectId = p.id
+     WHERE gc.projectId = ? AND p.organizationId = ?`,
+  )
+    .bind(body.projectId, teamId)
+    .first<{
+      installationId: number;
+      repoOwner: string;
+      repoName: string;
+      productionBranch: string;
+    }>();
+
+  if (!connection) {
+    return c.json({ error: "not_found", message: "Project has no GitHub connection" }, 404);
+  }
+
+  // Exchange token and fetch latest commit on production branch
+  const token = await exchangeInstallationToken(c.env, connection.installationId);
+  const commit = await getLatestCommit(token, connection.repoOwner, connection.repoName, connection.productionBranch);
+  if (!commit) {
+    return c.json(
+      { error: "not_found", message: `Branch '${connection.productionBranch}' not found on ${connection.repoOwner}/${connection.repoName}` },
+      404,
+    );
+  }
+
+  // Synthesize a push payload and dispatch handlePush in background
+  const payload = {
+    ref: `refs/heads/${connection.productionBranch}`,
+    after: commit.sha,
+    head_commit: { message: commit.message },
+    repository: {
+      owner: { login: connection.repoOwner },
+      name: connection.repoName,
+      clone_url: `https://github.com/${connection.repoOwner}/${connection.repoName}.git`,
+    },
+    installation: { id: connection.installationId },
+  };
+
+  c.executionCtx.waitUntil(
+    handlePush(c.env, payload).catch((err) => {
+      console.error("[deploy-latest] handlePush failed:", err);
+    }),
+  );
+
+  return c.json({ ok: true, commitSha: commit.sha, branch: connection.productionBranch });
 });
 
 // --- Disconnect ---
