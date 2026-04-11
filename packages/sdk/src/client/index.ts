@@ -83,6 +83,18 @@ export class CreekClient {
     return this.request("GET", `/projects/${projectSlug}/deployments`);
   }
 
+  /**
+   * Trigger a deploy of the latest commit on the project's production branch
+   * using its github_connection. The server runs handlePush in waitUntil, so
+   * this returns as soon as the row has been dispatched — callers should poll
+   * `listDeployments` to follow the status.
+   */
+  async deployFromGithub(
+    projectIdOrSlug: string,
+  ): Promise<{ ok: boolean; commitSha: string; branch: string }> {
+    return this.request("POST", "/github/deploy-latest", { projectId: projectIdOrSlug });
+  }
+
   async createDeployment(
     projectId: string,
   ): Promise<CreateDeploymentResponse> {
