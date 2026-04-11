@@ -33,6 +33,93 @@ export interface InstallationPayload {
   repositories?: Array<{ name: string; full_name: string }>;
 }
 
+export interface RepositoryEventPayload {
+  action: string;
+  // GitHub sends the full post-change repository object, which always has
+  // `id` (stable) plus `name` + `owner.login`. For `renamed` events the
+  // `changes.repository.name.from` field carries the old name.
+  repository: {
+    id: number;
+    name: string;
+    owner: { login: string };
+  };
+  changes?: {
+    repository?: {
+      name?: { from: string };
+    };
+  };
+  installation?: { id: number };
+}
+
+// --- Handler: Repository Events ---
+
+/**
+ * Handle the `repository` webhook event. GitHub sends these for renamed,
+ * transferred, edited (description/topics/etc), publicized/privatized,
+ * archived/unarchived, and deleted repositories.
+ *
+ * We only care about the first two — both change (owner, name) while
+ * leaving the internal `repository.id` stable — so we look the connection
+ * up by that ID and sync the row.
+ *
+ * If the connection row has `repoId = NULL` (pre-C2 row or one where the
+ * getRepoInfo call failed at connect time), we fall back to matching on
+ * (repoOwner, repoName) from the payload's `changes.repository.name.from`
+ * for renames, and opportunistically backfill repoId while we're at it.
+ */
+export async function handleRepository(
+  env: Env,
+  payload: RepositoryEventPayload,
+): Promise<void> {
+  const { action, repository, changes } = payload;
+
+  // Only act on shape-changing events
+  if (action !== "renamed" && action !== "transferred") return;
+
+  const newOwner = repository.owner.login;
+  const newName = repository.name;
+  const repoId = repository.id;
+
+  // Try to find the connection by repoId first (stable across renames)
+  let connection = await env.DB.prepare(
+    "SELECT id, projectId, repoId, repoOwner, repoName FROM github_connection WHERE repoId = ?",
+  )
+    .bind(repoId)
+    .first<{ id: string; projectId: string; repoId: number | null; repoOwner: string; repoName: string }>();
+
+  // Fallback: legacy row with null repoId. Match on (old owner, old name).
+  // For renames that's `changes.repository.name.from` + unchanged owner.
+  // For transfers GitHub doesn't provide the old owner in changes, so we
+  // can't safely match legacy rows on a transfer — skip and log.
+  if (!connection && action === "renamed" && changes?.repository?.name?.from) {
+    connection = await env.DB.prepare(
+      "SELECT id, projectId, repoId, repoOwner, repoName FROM github_connection WHERE repoOwner = ? AND repoName = ?",
+    )
+      .bind(newOwner, changes.repository.name.from)
+      .first<{ id: string; projectId: string; repoId: number | null; repoOwner: string; repoName: string }>();
+  }
+
+  if (!connection) {
+    console.log(
+      `[github/repository] no connection found for repoId=${repoId} (${newOwner}/${newName}) action=${action}`,
+    );
+    return;
+  }
+
+  // Update the connection to point at the new owner/name, and backfill
+  // repoId if it was null.
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE github_connection
+       SET repoOwner = ?, repoName = ?, repoId = ?
+       WHERE id = ?`,
+    ).bind(newOwner, newName, repoId, connection.id),
+    env.DB.prepare(
+      "UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?",
+    ).bind(`${newOwner}/${newName}`, Date.now(), connection.projectId),
+  ]);
+}
+
 // --- Handler: Installation Events ---
 
 export async function handleInstallation(env: Env, payload: InstallationPayload): Promise<void> {
