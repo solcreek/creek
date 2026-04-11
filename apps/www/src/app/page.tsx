@@ -69,14 +69,19 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="text-4xl font-semibold leading-[1.15] tracking-tight sm:text-5xl"
             >
-              Deploy to the edge.
+              {/* Line 1 is deliberately broken after "hand" so the wedge
+                  clause ("or by agent") lands on its own line. Without the
+                  forced break, the 30-char line wraps mid-phrase in the
+                  narrow two-column hero and kills the beat. */}
+              Ship apps by hand
               <br />
-              {/* Line 2 deliberately one size smaller than line 1 so the
-                  longer "Open-source, full-stack." doesn't wrap on the
-                  hyphen break-point in the narrow two-column hero layout.
-                  Creates a headline + qualifier rhythm. */}
+              or by agent.
+              <br />
+              {/* Line 2 stays one tier smaller than line 1 to preserve
+                  the headline + qualifier rhythm — Line 1 is the action,
+                  Line 2 is the positioning backup. */}
               <span className="block text-3xl sm:text-4xl bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
-                Open-source, full-stack.
+                Open source. Full-stack.
               </span>
             </motion.h1>
             <motion.p
