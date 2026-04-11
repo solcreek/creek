@@ -90,7 +90,7 @@ export default function Home() {
               </span>{" "}
               Creek provisions the database, cron, queues, and WebSockets —
               use any ORM, or bring your own DB.{" "}
-              <span className="text-accent font-medium">Free tier. No surprises.</span>
+              <span className="text-accent font-medium">100k requests/day free. No egress fees.</span>
             </motion.p>
 
             <motion.div
