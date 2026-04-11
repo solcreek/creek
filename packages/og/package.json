@@ -1,0 +1,27 @@
+{
+  "name": "@solcreek/og",
+  "version": "0.0.0",
+  "description": "Dynamic OpenGraph image primitives for Creek — brand tokens, card templates, and ImageResponse re-export for Cloudflare Workers",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./brand": "./src/brand.ts",
+    "./templates/deploy-button": "./src/templates/deploy-button.tsx",
+    "./templates/creek-brand": "./src/templates/creek-brand.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "workers-og": "^0.0.27"
+  },
+  "peerDependencies": {
+    "hono": "^4.7.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260405.1",
+    "hono": "^4.7.4",
+    "typescript": "^5.8.2"
+  }
+}

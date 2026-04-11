@@ -1,3 +1,5 @@
+/** @jsxImportSource hono/jsx */
+
 /**
  * Generic Creek brand card — 1200x630 PNG.
  *
@@ -9,7 +11,7 @@
  *   own card yet
  */
 
-/** @jsxImportSource hono/jsx */
+import { creekBrand } from "../brand.js";
 
 export function brandCard() {
   return (
@@ -21,16 +23,15 @@ export function brandCard() {
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
-        background:
-          "linear-gradient(135deg, #0a0a0a 0%, #0f1419 50%, #080a0d 100%)",
-        color: "#fafafa",
-        fontFamily: "sans-serif",
+        background: creekBrand.gradients.background,
+        color: creekBrand.colors.fg,
+        fontFamily: creekBrand.fonts.sans,
       }}
     >
       <div
         style={{
           fontSize: 28,
-          color: "#a1a1aa",
+          color: creekBrand.colors.mutedFg,
           marginBottom: 24,
           letterSpacing: 3,
           textTransform: "uppercase",
@@ -43,7 +44,7 @@ export function brandCard() {
         style={{
           fontSize: 112,
           fontWeight: 700,
-          background: "linear-gradient(135deg, #5eead4, #60a5fa)",
+          background: creekBrand.gradients.heroText,
           backgroundClip: "text",
           color: "transparent",
           letterSpacing: -3,
@@ -55,7 +56,7 @@ export function brandCard() {
       <div
         style={{
           fontSize: 36,
-          color: "#71717a",
+          color: creekBrand.colors.dimFg,
           marginTop: 24,
           display: "flex",
         }}
@@ -66,12 +67,12 @@ export function brandCard() {
         style={{
           marginTop: 48,
           fontSize: 28,
-          fontFamily: "monospace",
-          color: "#5eead4",
+          fontFamily: creekBrand.fonts.mono,
+          color: creekBrand.colors.accent,
           padding: "14px 28px",
-          border: "1px solid #1f2937",
+          border: `1px solid ${creekBrand.colors.border}`,
           borderRadius: 12,
-          background: "rgba(15, 20, 25, 0.8)",
+          background: creekBrand.colors.surface,
           display: "flex",
         }}
       >
