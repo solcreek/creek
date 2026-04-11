@@ -202,6 +202,11 @@ export const githubConnection = sqliteTable("github_connection", {
   id: text("id").primaryKey(),
   projectId: text("projectId").notNull().references(() => project.id),
   installationId: integer("installationId").notNull(),
+  // GitHub's internal repository ID — stable across renames and ownership
+  // transfers. Populated at connect time from the installation repos API.
+  // Nullable because rows created before this column existed won't have it
+  // backfilled yet.
+  repoId: integer("repoId"),
   repoOwner: text("repoOwner").notNull(),
   repoName: text("repoName").notNull(),
   productionBranch: text("productionBranch").notNull().default("main"),
@@ -211,6 +216,9 @@ export const githubConnection = sqliteTable("github_connection", {
 }, (table) => [
   uniqueIndex("idx_github_connection_project").on(table.projectId),
   index("idx_github_connection_repo").on(table.repoOwner, table.repoName),
+  // Lookup by repo ID for the repository.renamed webhook — the new name
+  // won't match, but the ID does.
+  index("idx_github_connection_repo_id").on(table.repoId),
 ]);
 
 export const repoScan = sqliteTable("repo_scan", {

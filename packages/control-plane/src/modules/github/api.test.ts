@@ -9,6 +9,7 @@ import {
   clearTokenCache,
   formatPreviewComment,
   getLatestCommit,
+  getRepoInfo,
 } from "./api.js";
 
 describe("createAppJWT", () => {
@@ -105,6 +106,41 @@ describe("token cache", () => {
   test("clearTokenCache resets cache", () => {
     // Just verify it doesn't throw
     clearTokenCache();
+  });
+});
+
+describe("getRepoInfo", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("returns id + defaultBranch on success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 123456789,
+          default_branch: "main",
+          name: "subs-landing-page",
+        }),
+        { status: 200 },
+      ),
+    );
+    globalThis.fetch = fetchMock;
+
+    const info = await getRepoInfo("token", "linyiru", "subs-landing-page");
+
+    expect(info).toEqual({ id: 123456789, defaultBranch: "main" });
+    const url = fetchMock.mock.calls[0][0];
+    expect(url).toBe("https://api.github.com/repos/linyiru/subs-landing-page");
+  });
+
+  test("returns null when repo not found", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("not found", { status: 404 }));
+
+    const info = await getRepoInfo("token", "linyiru", "nope");
+
+    expect(info).toBeNull();
   });
 });
 
