@@ -5,10 +5,21 @@ import { useWebDeploy, type DeployStatus } from "../../lib/deploy";
 
 function parseRepoFromUrl(searchParams: string): { owner: string; repo: string; full: string } | null {
   const params = new URLSearchParams(searchParams);
-  const raw = params.get("repo");
+  // Accept both `?repo=` (Creek native) and `?url=` (CF / Vercel / Netlify
+  // convention) so "Deploy to Creek" buttons can use the same URL shape as
+  // every other deploy button badge template authors are already embedding.
+  const raw = params.get("repo") || params.get("url");
   if (!raw) return null;
 
   const cleaned = raw
+    // Short-form prefixes — match the CLI's gh:/gl:/bb: shorthand so the
+    // same short URL works in both CLI args and deploy-button URLs.
+    .replace(/^gh:/, "")
+    .replace(/^github:/, "")
+    .replace(/^gl:/, "gitlab.com/")
+    .replace(/^gitlab:/, "gitlab.com/")
+    .replace(/^bb:/, "bitbucket.org/")
+    .replace(/^bitbucket:/, "bitbucket.org/")
     .replace(/^https?:\/\//, "")
     .replace(/^github\.com\//, "")
     .replace(/\.git$/, "");
@@ -16,8 +27,15 @@ function parseRepoFromUrl(searchParams: string): { owner: string; repo: string; 
   const parts = cleaned.split("/").filter(Boolean);
   if (parts.length < 2) return null;
 
-  const owner = parts[0];
-  const repo = parts[1];
+  // If the first segment is a provider host (from gl:/bb: expansion above),
+  // strip it and keep owner/repo.
+  let owner = parts[0];
+  let repo = parts[1];
+  if (owner === "gitlab.com" || owner === "bitbucket.org") {
+    if (parts.length < 3) return null;
+    owner = parts[1];
+    repo = parts[2];
+  }
   return { owner, repo, full: `https://github.com/${owner}/${repo}` };
 }
 
