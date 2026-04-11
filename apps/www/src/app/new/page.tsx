@@ -446,7 +446,7 @@ function DeployProgress({
       {/* Footer */}
       {(isBuilding || isDeploying) && (
         <p className="text-center text-[10px] font-mono text-[#333]">
-          ☁ creek deploy · Cloudflare Workers
+          ☁ creek deploy
         </p>
       )}
 

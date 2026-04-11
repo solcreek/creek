@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Creek — Deploy to the edge",
-  description: "Open-source edge deployment platform. Ship full-stack apps to Cloudflare Workers in seconds.",
+  description: "Open-source edge deployment platform. Ship full-stack apps to the edge in seconds.",
 };
 
 export default function RootLayout({
