@@ -83,8 +83,7 @@ export default function Home() {
               </span>{" "}
               Creek provisions the database, cron, queues, and WebSockets on
               Cloudflare.{" "}
-              <span className="text-accent font-medium">$0 to start.</span>{" "}
-              Open source, self-hostable.
+              <span className="text-accent font-medium">$0 to start.</span>
             </motion.p>
 
             <motion.div
@@ -100,9 +99,9 @@ export default function Home() {
                   href="https://app.creek.dev/new"
                   className="text-foreground underline underline-offset-4 hover:text-accent transition-colors"
                 >
-                  import a repository directly from GitHub
+                  import from GitHub
                 </a>{" "}
-                — push to main, auto-deploy, preview URLs on every PR.
+                →
               </p>
             </motion.div>
             <motion.div
