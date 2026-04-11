@@ -1,5 +1,52 @@
 # @solcreek/cli
 
+## 0.4.5
+
+### Features
+
+- **`creek deploy --dry-run`** — new flag that reports a plan without
+  executing: resolved config source, detected framework, build command,
+  build output, bindings, cron/queue triggers, auth status, and the
+  target type (sandbox vs production). No network calls, no file
+  uploads, no ToS prompt, no build. Pair with `--json` for a
+  machine-readable plan. Safe to call from an AI coding agent that
+  wants to understand `creek deploy` behavior before running it.
+  Unsupported modes (`--template`, `--from-github`, repo-url) short-
+  circuit with a clear "not yet supported" message.
+
+- **Static-site sandbox fast path** — `creek deploy` in a directory
+  that contains only `index.html` (no `package.json`) now works. The
+  SDK falls back to the `index.html` source and `deploySandbox`
+  recognizes that case and delegates straight to `deployDirectory`,
+  which uploads the cwd as-is. Previously crashed with an ENOENT on
+  package.json. The simplest possible onboarding now works end-to-end:
+
+      mkdir hello && cd hello
+      echo '<h1>Hi</h1>' > index.html
+      npx creek deploy
+
+- **Astro framework support** — any Astro 3+ project (SPA, SSG, MDX,
+  content collections) auto-detects and builds via `astro build`.
+  Tested end-to-end against Astro 6 + Tailwind 4 + sharp image
+  optimization (`jiseeeh/serene-ink` blog theme). Via the existing
+  repo-URL flow, `npx creek deploy https://github.com/user/astro-theme`
+  now works with zero Creek-side configuration.
+
+- **Richer `creek deploy --help`** — `meta.description` and every arg
+  description rewritten to spell out sandbox-vs-production behavior,
+  auto-detection chain, safety notes around `--dry-run`, and example
+  invocations. Primary audience is AI agents reading `--help` output
+  on a cold paste, which shows up concretely as better self-description
+  in the first tool call.
+
+### Fixes
+
+- `NO_PROJECT_BREADCRUMBS`, the sandbox-status not-found hint, and
+  deploy.ts error paths now point to
+  `creek deploy --template landing` instead of the non-existent
+  `--demo` flag. Matching doc scrub across README, docs, llms.txt,
+  and the pricing page.
+
 ## 0.4.4
 
 ### Features

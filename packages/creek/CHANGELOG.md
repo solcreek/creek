@@ -4,6 +4,19 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.2
+
+### Changes
+
+- Bundles `@solcreek/cli@^0.4.5` and `@solcreek/sdk@^0.4.2`. The CLI
+  bump brings: `creek deploy --dry-run` for agent-safe plan preview,
+  first-class Astro framework detection so `npx creek deploy <astro-repo-url>`
+  just works, a static-site fast path so `echo '<h1>Hi</h1>' > index.html
+  && npx creek deploy` finally doesn't crash on the missing package.json,
+  and a full doc scrub replacing the dead `--demo` flag with
+  `creek deploy --template landing`. See
+  [`@solcreek/cli@0.4.5`](../cli/CHANGELOG.md) for the full list.
+
 ## 0.4.1
 
 ### Changes

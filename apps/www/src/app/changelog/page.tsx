@@ -6,6 +6,21 @@ import { Footer } from "@/components/footer";
 const entries = [
   {
     date: "2026-04-11",
+    version: "cli@0.4.5 · creek@0.4.2 · sdk@0.4.2",
+    title: "Astro support, --dry-run, static-site fast path, iframe allowlist",
+    items: [
+      "`creek deploy --dry-run` — new flag that reports a plan (resolved config, framework, build command, bindings, cron/queue, auth status, target type) without executing. No network calls, no file uploads, no ToS prompt. Pair with `--json` for agent-safe machine-readable output. Unsupported modes short-circuit cleanly.",
+      "Astro framework detection — SDK now recognizes `astro` as a first-class framework. Any Astro 3+ project (SPA, SSG, MDX, content collections, sharp image optimization) auto-detects and builds via `astro build`. End-to-end tested against Astro 6 + Tailwind 4 + MDX + sharp (`jiseeeh/serene-ink` theme) — clone, install, build, 25 assets uploaded, live URL in ~15 seconds.",
+      "Static-site sandbox fast path — a directory with only `index.html` (no `package.json`) now deploys cleanly. Previously crashed with ENOENT. The simplest possible onboarding works: `echo '<h1>Hi</h1>' > index.html && npx creek deploy`.",
+      "Sandbox content scan allowlists common embed providers — YouTube, Vimeo, Wistia, Loom, Twitter/X, GitHub Gist, CodePen, CodeSandbox, StackBlitz, JSFiddle, Spotify, SoundCloud, Figma, Google Docs/Calendar/Maps, Typeform, Airtable, Notion. The previous regex-only check blocked every dev blog or portfolio that embedded a YouTube video; now the scan parses iframe `src` as a URL and allows known content-embed hosts (subdomain-aware) while still blocking unknown domains and phishing surfaces.",
+      "Richer `creek deploy --help` output — `meta.description` and every flag description rewritten to spell out sandbox-vs-production behavior, auto-detection chain, and example invocations. Targets AI coding agents reading help on a cold paste so they can act confidently with fewer turns.",
+      "`/llms.txt` rewritten with an explicit \"Paste-to-agent contract\" section describing what to do when a human pastes `npx creek deploy` with no surrounding context — what `--dry-run` returns, how to read exit codes, CLI conventions (`--json`, `--yes`, non-TTY auto-JSON), and the MCP server + agent-skill distribution channels.",
+      "Agent discoverability caption: the hero under `npx creek deploy` now reads \"no signup · live in seconds · Claude + Codex + Cursor ready\". Empirical testing confirmed a cold Claude pasted with just `npx creek deploy` investigates safely (checks `--help`, scans config, asks for go/no-go) and completes the deploy in a few tool calls.",
+      "Docs and breadcrumb scrub — every `--demo` reference across README, docs, pricing page, llms.txt, and internal error-path hints replaced with `creek deploy --template landing`, which actually works and gives users a real editable Vite + React starter (not a throwaway demo page).",
+    ],
+  },
+  {
+    date: "2026-04-11",
     version: "cli@0.4.4 · creek@0.4.1",
     title: "GitHub auto-deploy, remote build via connection",
     items: [
