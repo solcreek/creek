@@ -79,16 +79,28 @@ creek deploy
 
 ## Supported Frameworks
 
-Creek auto-detects and configures:
+Creek is **Vite-first**. Anything that's a Vite app — or a meta-framework built on top of Vite — deploys with zero config:
 
-- Vite (React, Vue, Svelte, Solid)
-- Astro
+**Vite apps (SPA)** — auto-detected, zero config
+- Vite + React
+- Vite + Vue
+- Vite + Svelte
+- Vite + Solid
+
+**Vite meta-frameworks** — auto-detected, zero config
+- Astro (Vite under the hood)
+- SvelteKit (Vite under the hood, server build experimental)
+- Nuxt (Vite under the hood, server build experimental)
+
+**Other frameworks** — supported with varying maturity
 - TanStack Start
-- React Router
+- React Router (v7 / Remix)
 - Hono
-- Any static site
+- Any static site (`index.html` fallback)
 
-**Work in progress:** Next.js, Nuxt, SvelteKit, Remix.
+**Work in progress:** Next.js (via [`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek), currently routed through an OpenNextJS workaround — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1)).
+
+> **Why "Vite-first"?** Creek's zero-config detection chain reads your framework config, `package.json`, and `vite.config.*` to infer the build command, output directory, and bindings. Vite apps are the most mature tier because the detection chain was designed against them first. SSR meta-frameworks are catching up as the respective adapters stabilize.
 
 ## Local Development
 

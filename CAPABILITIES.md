@@ -9,6 +9,33 @@ tutorials, or browse each row's docs link below.
 
 ---
 
+## Frameworks
+
+Creek is **Vite-first**. The zero-config detection chain is designed
+for Vite apps and meta-frameworks built on top of Vite.
+
+| Framework | Tier | Notes |
+|---|---|---|
+| Vite + React | ✓ zero-config | `vite.config.*` auto-detected |
+| Vite + Vue | ✓ zero-config | |
+| Vite + Svelte | ✓ zero-config | |
+| Vite + Solid | ✓ zero-config | |
+| Astro | ✓ zero-config | Vite underneath |
+| SvelteKit | 🧪 experimental SSR | Vite underneath |
+| Nuxt | 🧪 experimental SSR | Vite underneath |
+| TanStack Start | ✓ zero-config | |
+| React Router (v7 / Remix) | ✓ | |
+| Hono | ✓ | |
+| Static site (`index.html`) | ✓ | fallback detection |
+| Next.js | 🚧 WIP | via [`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek), currently routed through an OpenNextJS workaround — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1) |
+
+The two "experimental SSR" entries (SvelteKit, Nuxt) work for SPA /
+islands mode today; full server build is WIP. Vite SPA detection is
+the most mature tier because the `resolveConfig` chain was designed
+against it first.
+
+---
+
 ## Runtime — `import from 'creek'`
 
 Code-level APIs exposed by [`@solcreek/runtime`](packages/runtime). These
