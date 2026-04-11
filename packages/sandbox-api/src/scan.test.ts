@@ -122,13 +122,62 @@ describe("scanBundle", () => {
 
   // --- External iframes ---
 
-  test("blocks external iframe embedding", () => {
+  test("blocks external iframe to disallowed host", () => {
     const result = scanBundle({
       "index.html": b64('<html><body><iframe src="https://bank-login.fake.com/signin"></iframe></body></html>'),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
-    expect(result.detail).toContain("External iframe");
+    expect(result.detail).toContain("disallowed host");
+  });
+
+  test("allows YouTube embed iframe", () => {
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>'),
+      "style.css": b64("body { color: red }"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("allows Vimeo player iframe", () => {
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://player.vimeo.com/video/76979871"></iframe></body></html>'),
+      "style.css": b64("body {}"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("allows CodePen embed", () => {
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://codepen.io/team/codepen/embed/PNaGbb"></iframe></body></html>'),
+      "style.css": b64("body {}"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("allows twitter/x embed", () => {
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://platform.twitter.com/embed/tweet.html?id=1234"></iframe></body></html>'),
+      "style.css": b64("body {}"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("allows github gist embed", () => {
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://gist.github.com/user/abc123.pibb"></iframe></body></html>'),
+      "style.css": b64("body {}"),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("blocks subdomain spoofing attempts", () => {
+    // Attacker tries `youtube.com.evil.com` — must NOT match allowlist
+    const result = scanBundle({
+      "index.html": b64('<html><body><iframe src="https://youtube.com.evil.com/signin"></iframe></body></html>'),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("disallowed host");
   });
 
   // --- Data exfiltration in JS ---
