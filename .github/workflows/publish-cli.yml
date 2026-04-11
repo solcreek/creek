@@ -15,9 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Reads pnpm version from package.json#packageManager — specifying
+      # `version:` here would conflict per pnpm/action-setup@v5 behavior.
       - uses: pnpm/action-setup@v5
-        with:
-          version: 9
 
       - uses: actions/setup-node@v6
         with:
