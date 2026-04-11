@@ -93,7 +93,8 @@ export default function Home() {
               <span className="text-foreground font-medium">
                 Ship full-stack Vite apps in one command.
               </span>{" "}
-              Creek provisions the database, cron, queues, and WebSockets.{" "}
+              Creek provisions the database, cron, queues, and WebSockets —
+              use any ORM, or bring your own DB.{" "}
               <span className="text-accent font-medium">$0 to start.</span>
             </motion.p>
 
@@ -495,10 +496,11 @@ function OpenSourceSection() {
     { title: "Apache 2.0", desc: "Use it, modify it, self-host it. Full source on GitHub." },
     { title: "Self-hostable", desc: "Run Creek on your own Cloudflare account with a single command." },
     { title: "Eject anytime", desc: "Creek deploys standard Cloudflare primitives. Your code runs on raw wrangler too." },
+    { title: "BYO stack", desc: "Three modes: use Creek's built-in db, layer Drizzle or Prisma on Creek's auto-provisioned D1, or connect Neon / Supabase / any external database. Your data, your ORM, your choice." },
   ];
 
   return (
-    <div ref={ref} className="grid gap-3 sm:grid-cols-3">
+    <div ref={ref} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item, i) => (
         <motion.div
           key={item.title}
