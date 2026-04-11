@@ -78,9 +78,13 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              Git push, zero config. Database, cron, queues, WebSockets,
-              analytics — all auto-provisioned across 300+ edge POPs. Runs on
-              Cloudflare. Self-host any time.
+              <span className="text-foreground font-medium">
+                Ship full-stack Vite apps in one command.
+              </span>{" "}
+              Creek provisions the database, cron, queues, and WebSockets on
+              Cloudflare.{" "}
+              <span className="text-accent font-medium">$0 to start.</span>{" "}
+              Open source, self-hostable.
             </motion.p>
 
             <motion.div
