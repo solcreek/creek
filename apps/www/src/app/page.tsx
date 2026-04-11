@@ -76,7 +76,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              One command or one GitHub push. SQLite, cron, queues, websockets,
+              One command or one GitHub push. D1 (SQLite), cron, queues, WebSockets,
               analytics — all built in. Powered by Cloudflare's network across
               300+ edge POPs.
             </motion.p>
