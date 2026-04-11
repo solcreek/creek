@@ -79,10 +79,173 @@ function GitHubConnectionSection({ projectId }: { projectId: string }) {
             disconnectError={(disconnect.error as Error | null)?.message}
           />
         ) : (
-          <EmptyConnection />
+          <ConnectPicker projectId={projectId} />
         )}
       </div>
     </section>
+  );
+}
+
+interface InstallationRow {
+  id: number;
+  accountLogin: string;
+}
+
+interface InstallationRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+}
+
+function ConnectPicker({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+  const [selectedInstallId, setSelectedInstallId] = useState<number | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  const { data: installations } = useQuery({
+    queryKey: ["github-installations"],
+    queryFn: () => api<InstallationRow[]>("/github/installations"),
+    enabled: expanded,
+  });
+
+  // Auto-select the only installation so users with one don't need an extra click
+  if (expanded && installations && installations.length === 1 && selectedInstallId === null) {
+    setSelectedInstallId(installations[0].id);
+  }
+
+  const { data: repoRows } = useQuery({
+    queryKey: ["github-installation-repos", selectedInstallId],
+    queryFn: () =>
+      api<InstallationRepo[]>(`/github/installations/${selectedInstallId}/repos`),
+    enabled: selectedInstallId !== null,
+  });
+
+  const connect = useMutation({
+    mutationFn: (repo: InstallationRepo) =>
+      api("/github/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId,
+          installationId: selectedInstallId,
+          repoOwner: repo.full_name.split("/")[0],
+          repoName: repo.name,
+          productionBranch: repo.default_branch,
+        }),
+      }),
+    onSuccess: () => {
+      setConnectError(null);
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "github-connection"] });
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (err: Error) => {
+      setConnectError(err.message);
+    },
+  });
+
+  if (!expanded) {
+    return (
+      <div className="space-y-3">
+        <EmptyConnection />
+        <Button size="sm" variant="outline" onClick={() => setExpanded(true)}>
+          Connect a GitHub repository
+        </Button>
+      </div>
+    );
+  }
+
+  if (!installations) {
+    return <p className="text-sm text-muted-foreground">Loading installations…</p>;
+  }
+
+  if (installations.length === 0) {
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          No GitHub App installations claimed by this team yet.
+        </p>
+        <a
+          href="https://github.com/apps/creek-deploy/installations/new"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs hover:bg-accent"
+        >
+          <GithubIcon className="size-4" />
+          Install Creek Deploy on GitHub
+          <ExternalLink className="size-3" />
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {installations.length > 1 && (
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Installation</label>
+          <select
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={selectedInstallId ?? ""}
+            onChange={(e) => setSelectedInstallId(Number(e.target.value))}
+          >
+            <option value="">Select…</option>
+            {installations.map((inst) => (
+              <option key={inst.id} value={inst.id}>
+                {inst.accountLogin}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {selectedInstallId !== null && (
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Repository</label>
+          {repoRows ? (
+            <div className="max-h-64 overflow-auto rounded-md border">
+              {repoRows.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">
+                  This installation has no repositories selected.
+                </p>
+              ) : (
+                repoRows.map((repo) => (
+                  <button
+                    key={repo.id}
+                    type="button"
+                    disabled={connect.isPending}
+                    onClick={() => connect.mutate(repo)}
+                    className="flex w-full items-center justify-between border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent disabled:opacity-50"
+                  >
+                    <span className="font-mono text-xs">{repo.full_name}</span>
+                    <span className="text-xs text-muted-foreground">{repo.default_branch}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Loading repositories…</p>
+          )}
+        </div>
+      )}
+
+      {connectError && (
+        <p className="text-xs text-destructive">{connectError}</p>
+      )}
+
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => {
+          setExpanded(false);
+          setSelectedInstallId(null);
+          setConnectError(null);
+        }}
+      >
+        Cancel
+      </Button>
+    </div>
   );
 }
 

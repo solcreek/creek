@@ -326,6 +326,153 @@ describe("GET /github/connections/by-project/:projectId", () => {
   });
 });
 
+describe("POST /github/connect", () => {
+  test("returns 400 when required fields are missing", async () => {
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "proj-1" }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("validation");
+  });
+
+  test("returns 404 when project is not owned by caller's team", async () => {
+    // No seeded project → first() returns null
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "proj-nope",
+          installationId: 123,
+          repoOwner: "linyiru",
+          repoName: "test-repo",
+        }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("not_found");
+  });
+
+  test("returns 409 when project already has a github_connection", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+    // First lookup: existing connection for this project — must return a row
+    db.seedFirst("SELECT id FROM github_connection WHERE projectId", ["proj-1"], {
+      id: "existing-conn",
+    });
+
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "proj-1",
+          installationId: 123,
+          repoOwner: "linyiru",
+          repoName: "test-repo",
+        }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json() as { error: string; message: string };
+    expect(body.error).toBe("conflict");
+    expect(body.message).toContain("already has a GitHub connection");
+  });
+
+  test("returns 409 when the target repo is already connected to another project", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+    // No existing connection for this project
+    // But the target repo is taken by a different project
+    db.seedFirst("SELECT projectId FROM github_connection WHERE repoOwner", ["linyiru", "shared-repo"], {
+      projectId: "other-proj",
+    });
+
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "proj-1",
+          installationId: 123,
+          repoOwner: "linyiru",
+          repoName: "shared-repo",
+        }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json() as { error: string; message: string };
+    expect(body.error).toBe("conflict");
+    expect(body.message).toContain("already connected");
+  });
+
+  test("happy path: inserts connection row and updates project.githubRepo", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+
+    const res = await app.request(
+      "/github/connect",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "proj-1",
+          installationId: 123,
+          repoOwner: "linyiru",
+          repoName: "my-app",
+          productionBranch: "dev",
+        }),
+      },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as { ok: boolean; connectionId: string };
+    expect(body.ok).toBe(true);
+    expect(body.connectionId).toBeTruthy();
+
+    const executed = db.getExecuted();
+    const insertQ = executed.find((q) => q.sql.includes("INSERT INTO github_connection"));
+    expect(insertQ).toBeDefined();
+    expect(insertQ!.args).toContain("proj-1");
+    expect(insertQ!.args).toContain(123);
+    expect(insertQ!.args).toContain("linyiru");
+    expect(insertQ!.args).toContain("my-app");
+    expect(insertQ!.args).toContain("dev");
+
+    const updateQ = executed.find((q) => q.sql.includes("UPDATE project SET githubRepo"));
+    expect(updateQ).toBeDefined();
+    expect(updateQ!.args).toContain("linyiru/my-app");
+    expect(updateQ!.args).toContain("proj-1");
+  });
+});
+
 describe("DELETE /github/connections/:id", () => {
   test("returns 404 when the connection does not belong to the caller's team", async () => {
     // No seeded row → team ownership join returns null
