@@ -4,6 +4,23 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.3
+
+### Changes
+
+- Bundles `@solcreek/cli@^0.4.6`. The CLI bump removes `miniflare`
+  from runtime dependencies entirely, taking ~146MB out of every
+  first install (workerd + sharp transitive deps were the bulk).
+  `npx creek deploy` now installs in ~3–5 seconds instead of ~20s,
+  and the sharp postinstall warnings are gone. `creek dev` users
+  install miniflare once per project (or globally) on demand.
+
+- Also in 0.4.6: the `gh:owner/repo` shorthand for GitHub repos,
+  matching the `gh` CLI convention. `npx creek deploy gh:user/repo`
+  works alongside the full-URL form.
+
+See [`@solcreek/cli@0.4.6`](../cli/CHANGELOG.md) for details.
+
 ## 0.4.2
 
 ### Changes

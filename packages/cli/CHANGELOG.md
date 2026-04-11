@@ -1,5 +1,35 @@
 # @solcreek/cli
 
+## 0.4.6
+
+### Features
+
+- **`creek deploy gh:owner/repo` shorthand** — a shorter alias for
+  `https://github.com/owner/repo`. Matches the GitHub CLI convention.
+  `gh:`, `gl:` (GitLab), and `bb:` (Bitbucket) are now all registered
+  alongside the longer `github:` / `gitlab:` / `bitbucket:` forms.
+  Example: `npx creek deploy gh:jiseeeh/serene-ink`.
+
+### Fixes / DX
+
+- **Install size cut from ~170MB to ~25MB** by moving `miniflare` out of
+  runtime dependencies entirely. Miniflare plus its transitive deps
+  (workerd, sharp) was adding ~146MB to every `npm install creek` — a
+  pure penalty on the `creek deploy` flow, which never touches
+  miniflare. `miniflare` is now listed in `devDependencies` only, so
+  the published package is free of it. First-time `npx creek deploy`
+  goes from ~20s install to ~3–5s, and the postinstall warnings that
+  used to appear on systems without build tools (sharp's node-gyp
+  fallback) are gone entirely.
+
+- **`creek dev` loads miniflare from multiple locations** via
+  `createRequire` — the user's current project (`npm install --save-dev
+  miniflare`), a creek-managed cache directory at `~/.creek/deps`, or
+  the global npm root (`npm install -g miniflare`). If none of those
+  have it, a jargon-free error explains what to install and where.
+  Users who only want to deploy never see this error because
+  `creek deploy` doesn't load the local runtime at all.
+
 ## 0.4.5
 
 ### Features
