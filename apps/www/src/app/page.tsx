@@ -169,12 +169,12 @@ export default function Home() {
         <CodeComparison />
       </section>
 
-      {/* Section: Zero Config */}
+      {/* Section: Your repo is the config */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
           label="02"
-          title="Zero config"
-          description="Creek detects your framework, builds your project, and deploys it. Add a creek.toml only when you want database, cron, queue, or custom build steps."
+          title="Your repo is the config"
+          description="creek.toml is optional. Creek reads your framework config, package.json, wrangler files — or just an index.html — and works it out. Framework, bindings, build command, output dir: inferred from what's already in your repo. Add a creek.toml only when you need triggers or explicit overrides."
         />
         <ZeroConfigDemo />
       </section>
