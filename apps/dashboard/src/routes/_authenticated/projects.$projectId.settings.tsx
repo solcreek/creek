@@ -45,12 +45,22 @@ interface GitHubConnection {
 }
 
 function GitHubConnectionSection({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["project", projectId, "github-connection"],
     queryFn: () =>
       api<{ connection: GitHubConnection | null }>(
         `/github/connections/by-project/${projectId}`,
       ),
+  });
+
+  const disconnect = useMutation({
+    mutationFn: (connectionId: string) =>
+      api(`/github/connections/${connectionId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "github-connection"] });
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
   });
 
   return (
@@ -62,7 +72,12 @@ function GitHubConnectionSection({ projectId }: { projectId: string }) {
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : data?.connection ? (
-          <ConnectionDetails connection={data.connection} />
+          <ConnectionDetails
+            connection={data.connection}
+            onDisconnect={() => disconnect.mutate(data.connection!.id)}
+            disconnectPending={disconnect.isPending}
+            disconnectError={(disconnect.error as Error | null)?.message}
+          />
         ) : (
           <EmptyConnection />
         )}
@@ -71,9 +86,20 @@ function GitHubConnectionSection({ projectId }: { projectId: string }) {
   );
 }
 
-function ConnectionDetails({ connection }: { connection: GitHubConnection }) {
+function ConnectionDetails({
+  connection,
+  onDisconnect,
+  disconnectPending,
+  disconnectError,
+}: {
+  connection: GitHubConnection;
+  onDisconnect: () => void;
+  disconnectPending: boolean;
+  disconnectError?: string;
+}) {
   const repoFull = `${connection.repoOwner}/${connection.repoName}`;
   const repoUrl = `https://github.com/${repoFull}`;
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -98,6 +124,44 @@ function ConnectionDetails({ connection }: { connection: GitHubConnection }) {
       <div className="flex flex-wrap gap-2">
         <Pill enabled={!!connection.autoDeployEnabled} label="Auto-deploy on push" />
         <Pill enabled={!!connection.previewEnabled} label="Preview on pull requests" />
+      </div>
+
+      {/* Two-step disconnect — click once to reveal confirm, click again to
+          actually run the DELETE. Cheap guard against fat-fingered clicks. */}
+      <div className="border-t border-border pt-3">
+        {confirming ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Disconnect <span className="font-mono">{repoFull}</span>? Pushes to this repo
+              will stop triggering deploys. This does not uninstall the Creek Deploy GitHub
+              App.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={onDisconnect}
+                disabled={disconnectPending}
+              >
+                {disconnectPending ? "Disconnecting…" : "Yes, disconnect"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirming(true)}
+          >
+            Disconnect repository
+          </Button>
+        )}
+        {disconnectError && (
+          <p className="mt-2 text-xs text-destructive">{disconnectError}</p>
+        )}
       </div>
     </div>
   );
