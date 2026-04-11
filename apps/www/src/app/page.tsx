@@ -64,7 +64,11 @@ export default function Home() {
             >
               Deploy to the edge.
               <br />
-              <span className="bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
+              {/* Line 2 deliberately one size smaller than line 1 so the
+                  longer "Open-source, full-stack." doesn't wrap on the
+                  hyphen break-point in the narrow two-column hero layout.
+                  Creates a headline + qualifier rhythm. */}
+              <span className="block text-3xl sm:text-4xl bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
                 Open-source, full-stack.
               </span>
             </motion.h1>
