@@ -65,21 +65,19 @@ export default function Home() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.35 }}
-              className="mt-8 flex flex-col sm:flex-row items-start gap-3"
+              className="mt-8 space-y-3"
             >
               <CopyCommand command="npx creek deploy" />
-              <a
-                href="https://app.creek.dev/new"
-                className="rounded-lg bg-foreground text-background px-5 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                Import from GitHub
-              </a>
-              <a
-                href="/docs/getting-started"
-                className="rounded-lg border border-border px-5 py-2.5 text-sm font-medium hover:bg-accent/10 transition-colors"
-              >
-                Docs
-              </a>
+              <p className="text-sm text-muted-foreground">
+                or{" "}
+                <a
+                  href="https://app.creek.dev/new"
+                  className="text-foreground underline underline-offset-4 hover:text-accent transition-colors"
+                >
+                  import a repository directly from GitHub
+                </a>{" "}
+                — push to main, auto-deploy, preview URLs on every PR.
+              </p>
             </motion.div>
             <motion.div
               initial={{ opacity: 0 }}
