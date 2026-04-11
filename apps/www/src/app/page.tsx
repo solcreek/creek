@@ -46,10 +46,8 @@ export default function Home() {
                 title="View source on GitHub"
               >
                 <span className="size-1.5 rounded-full bg-accent" />
-                Open-source
+                Apache 2.0
               </a>
-              <span className="text-muted-foreground/40">·</span>
-              <span>Apache 2.0</span>
               <span className="text-muted-foreground/40">·</span>
               <a
                 href="/docs/self-hosting"
@@ -64,10 +62,10 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="text-4xl font-semibold leading-[1.15] tracking-tight sm:text-5xl"
             >
-              Ship side projects for $0 idle.
+              Deploy to the edge.
               <br />
               <span className="bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
-                No bill surprises, ever.
+                Open-source, full-stack.
               </span>
             </motion.h1>
             <motion.p
