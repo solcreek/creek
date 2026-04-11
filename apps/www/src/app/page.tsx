@@ -32,14 +32,32 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
           {/* Left: Text */}
           <div>
-            <motion.p
+            <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="font-mono text-xs text-muted-foreground mb-5 tracking-wide"
+              className="font-mono text-xs text-muted-foreground mb-5 tracking-wide flex items-center gap-2 flex-wrap"
             >
-              Open-source deployment platform
-            </motion.p>
+              <a
+                href="https://github.com/solcreek/creek"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
+                title="View source on GitHub"
+              >
+                <span className="size-1.5 rounded-full bg-accent" />
+                Open-source
+              </a>
+              <span className="text-muted-foreground/40">·</span>
+              <span>Apache 2.0</span>
+              <span className="text-muted-foreground/40">·</span>
+              <a
+                href="/docs/self-hosting"
+                className="hover:text-foreground transition-colors"
+              >
+                Self-hostable
+              </a>
+            </motion.div>
             <motion.h1
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -58,9 +76,24 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              One command or one GitHub push. Database, cron, queues, realtime sync, analytics — all built in.
-              Live on 300+ edge locations.
+              One command or one GitHub push. SQLite, cron, queues, websockets,
+              analytics — all built in. Powered by Cloudflare's network across
+              300+ edge POPs.
             </motion.p>
+
+            {/* Framework badges — answers "does this support my stack" in a
+                single glance. Scanned pre-CTA, intentionally understated. */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.28 }}
+              className="mt-5 flex items-center gap-3 flex-wrap text-xs text-muted-foreground"
+            >
+              <span className="font-mono tracking-wide">frameworks</span>
+              <span className="text-muted-foreground/40">·</span>
+              <FrameworkBadges />
+            </motion.div>
+
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -77,6 +110,24 @@ export default function Home() {
                   import a repository directly from GitHub
                 </a>{" "}
                 — push to main, auto-deploy, preview URLs on every PR.
+              </p>
+              <p className="text-xs text-muted-foreground/80">
+                Free to start.{" "}
+                <a
+                  href="/pricing"
+                  className="underline underline-offset-4 hover:text-foreground transition-colors"
+                >
+                  See pricing
+                </a>{" "}
+                ·{" "}
+                <a
+                  href="https://github.com/solcreek/creek"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-4 hover:text-foreground transition-colors"
+                >
+                  Star on GitHub
+                </a>
               </p>
             </motion.div>
             <motion.div
@@ -407,6 +458,38 @@ function OpenSourceSection() {
         </motion.div>
       ))}
     </div>
+  );
+}
+
+function FrameworkBadges() {
+  // Only frameworks that are currently claimed in the FeatureGrid detection
+  // line. If we add Next.js / Remix here, we're making a compatibility
+  // claim that the landing page should be able to back up on the docs page.
+  const frameworks = [
+    { name: "React", href: "/docs/getting-started" },
+    { name: "Vue", href: "/docs/getting-started" },
+    { name: "Svelte", href: "/docs/getting-started" },
+    { name: "Astro", href: "/docs/getting-started" },
+    { name: "Nuxt", href: "/docs/getting-started" },
+    { name: "Solid", href: "/docs/getting-started" },
+  ];
+
+  return (
+    <span className="inline-flex items-center gap-2 flex-wrap">
+      {frameworks.map((fw, i) => (
+        <span key={fw.name} className="inline-flex items-center gap-2">
+          <a
+            href={fw.href}
+            className="font-mono hover:text-foreground transition-colors"
+          >
+            {fw.name}
+          </a>
+          {i < frameworks.length - 1 && (
+            <span className="text-muted-foreground/30">·</span>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }
 
