@@ -241,19 +241,20 @@ function FallbackShell({
       </main>
 
       {redirectScriptTarget && (
-        <>
-          {/* Real users in browsers get redirected immediately. Crawlers
-              (Twitterbot, facebookexternalhit, Slackbot, Discordbot) don't
-              execute JS, so they only see the metadata above. */}
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `window.location.replace(${JSON.stringify(redirectScriptTarget)});`,
-            }}
-          />
-          <noscript>
-            <meta httpEquiv="refresh" content={`1; url=${redirectScriptTarget}`} />
-          </noscript>
-        </>
+        /* Real users in browsers get redirected immediately via JS.
+           Crawlers (Twitterbot, facebookexternalhit, Slackbot, Discordbot,
+           LinkedInBot) don't execute JS, so they stay on this page and
+           read the openGraph metadata.
+           IMPORTANT: do NOT add a <noscript><meta http-equiv="refresh"> —
+           crawlers DO honour meta refresh, which would send them to /new
+           (a client-rendered page with no per-repo metadata), breaking
+           every social preview. The visible CTA link above is the
+           accessibility fallback for any real no-JS user. */
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.location.replace(${JSON.stringify(redirectScriptTarget)});`,
+          }}
+        />
       )}
     </div>
   );
