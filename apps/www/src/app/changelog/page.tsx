@@ -6,9 +6,11 @@ import { Footer } from "@/components/footer";
 const entries = [
   {
     date: "2026-04-11",
-    version: "cli@0.4.5 · creek@0.4.2 · sdk@0.4.2",
-    title: "Astro support, --dry-run, static-site fast path, iframe allowlist",
+    version: "cli@0.4.6 · creek@0.4.3 · sdk@0.4.2",
+    title: "Install size −85%, Astro support, --dry-run, static-site fast path",
     items: [
+      "**Install size cut from ~170MB to ~25MB** — `miniflare` (and its transitive deps `workerd` and `sharp`, which were ~146MB combined) is no longer a runtime dependency of `@solcreek/cli`. `creek deploy` never touched them anyway. First-time `npx creek deploy` now installs in ~3–5 seconds instead of ~20s, and the postinstall warnings that used to appear when `sharp`'s native build failed are gone. `creek dev` still uses miniflare but loads it on demand from the user's project / global npm / a creek-managed cache dir, with a zero-jargon error message if it's not installed.",
+      "`creek deploy gh:owner/repo` shorthand — matches the `gh` CLI convention. `gh:`, `gl:` (GitLab), and `bb:` (Bitbucket) all work as short prefixes alongside the longer `github:` / `gitlab:` / `bitbucket:` forms.",
       "`creek deploy --dry-run` — new flag that reports a plan (resolved config, framework, build command, bindings, cron/queue, auth status, target type) without executing. No network calls, no file uploads, no ToS prompt. Pair with `--json` for agent-safe machine-readable output. Unsupported modes short-circuit cleanly.",
       "Astro framework detection — SDK now recognizes `astro` as a first-class framework. Any Astro 3+ project (SPA, SSG, MDX, content collections, sharp image optimization) auto-detects and builds via `astro build`. End-to-end tested against Astro 6 + Tailwind 4 + MDX + sharp (`jiseeeh/serene-ink` theme) — clone, install, build, 25 assets uploaded, live URL in ~15 seconds.",
       "Static-site sandbox fast path — a directory with only `index.html` (no `package.json`) now deploys cleanly. Previously crashed with ENOENT. The simplest possible onboarding works: `echo '<h1>Hi</h1>' > index.html && npx creek deploy`.",
