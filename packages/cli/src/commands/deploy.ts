@@ -87,6 +87,16 @@ export const deployCommand = defineCommand({
       description: "Subdirectory within repo to deploy (for monorepos)",
       required: false,
     },
+    "from-github": {
+      type: "boolean",
+      description: "Skip local build; trigger a deploy of the latest commit on the project's production branch via its GitHub connection",
+      default: false,
+    },
+    project: {
+      type: "string",
+      description: "Target project slug or UUID (required with --from-github when not run inside a project directory)",
+      required: false,
+    },
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
@@ -107,6 +117,15 @@ export const deployCommand = defineCommand({
         }
       }
       return await deployTemplate(args.template, templateData);
+    }
+
+    // --- Trigger a deploy from the project's GitHub connection (no local build) ---
+    if (args["from-github"]) {
+      return await deployFromGithub({
+        project: args.project,
+        cwd: args.dir ? resolve(args.dir) : process.cwd(),
+        jsonMode,
+      });
     }
 
     // --- Repo URL deploy (creek deploy https://github.com/user/repo) ---
@@ -174,6 +193,248 @@ export const deployCommand = defineCommand({
     process.exit(1);
   },
 });
+
+// ============================================================================
+// Deploy from GitHub connection — no local build, server fetches latest commit
+// ============================================================================
+
+interface DeployFromGithubOptions {
+  project: string | undefined;
+  cwd: string;
+  jsonMode: boolean;
+}
+
+export interface CliDeployment {
+  id: string;
+  version: number;
+  status: string;
+  branch: string | null;
+  failedStep: string | null;
+  errorMessage: string | null;
+  createdAt: number;
+  url: string | null;
+}
+
+export const CLI_TERMINAL_STATUSES = new Set(["active", "failed", "cancelled"]);
+export const CLI_IN_FLIGHT_STATUSES = new Set([
+  "queued",
+  "uploading",
+  "provisioning",
+  "deploying",
+]);
+
+/**
+ * Given a deployment list and a "previous latest createdAt" snapshot,
+ * return the most recently-created deployment that arrived after the
+ * snapshot, or null if none have appeared yet. Used by `--from-github`
+ * to find the row that handlePush just inserted in the background.
+ */
+export function findNewDeployment(
+  deployments: CliDeployment[],
+  previousLatestCreatedAt: number,
+): CliDeployment | null {
+  const newer = deployments.filter((d) => d.createdAt > previousLatestCreatedAt);
+  if (newer.length === 0) return null;
+  return newer.reduce((latest, d) => (d.createdAt > latest.createdAt ? d : latest), newer[0]);
+}
+
+/**
+ * Trigger a deploy that uses the project's github_connection instead of a
+ * local build. Polls the deployments list until the new row settles and
+ * streams status transitions to the terminal.
+ *
+ * The server endpoint (POST /github/deploy-latest) returns 200 immediately
+ * while handlePush runs in waitUntil, so we fingerprint the deployments list
+ * before the POST and look for a new row afterward.
+ */
+async function deployFromGithub(options: DeployFromGithubOptions): Promise<void> {
+  const { project: projectArg, cwd, jsonMode } = options;
+
+  const token = getToken();
+  if (!token) {
+    if (jsonMode) jsonOutput({ error: "not_authenticated", message: "Run `creek login` first." }, 1, AUTH_BREADCRUMBS);
+    consola.error("Not logged in. Run `creek login` first.");
+    process.exit(1);
+  }
+
+  // Resolve the target project: explicit --project flag wins, otherwise
+  // fall back to the current directory's resolved config (creek.toml
+  // [project] name or inferred project name).
+  let projectSlug = projectArg;
+  if (!projectSlug) {
+    try {
+      const resolved = resolveConfig(cwd);
+      projectSlug = resolved.projectName;
+    } catch (err) {
+      if (!(err instanceof ConfigNotFoundError)) throw err;
+    }
+  }
+
+  if (!projectSlug) {
+    if (jsonMode) jsonOutput({ error: "validation", message: "Could not determine target project. Pass --project <slug>." }, 1, NO_PROJECT_BREADCRUMBS);
+    consola.error("Could not determine target project. Pass --project <slug> or run inside a directory with a creek.toml.");
+    process.exit(1);
+  }
+
+  const client = new CreekClient(getApiUrl(), token);
+
+  // Snapshot the current newest deployment so we can detect the one this
+  // command creates. createdAt is the cleanest marker — the version number
+  // also works but we don't need to parse it.
+  let previousLatestCreatedAt = 0;
+  try {
+    const existing = (await client.listDeployments(projectSlug)) as unknown as CliDeployment[];
+    previousLatestCreatedAt = existing.reduce((max, d) => Math.max(max, d.createdAt), 0);
+  } catch (err) {
+    if (err instanceof CreekAuthError) throw err;
+    if (jsonMode) jsonOutput({ error: "not_found", message: (err as Error).message }, 1, NO_PROJECT_BREADCRUMBS);
+    consola.error(`Could not load deployments for project '${projectSlug}': ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  // Kick off the build
+  if (!jsonMode) {
+    section("Trigger");
+    consola.start(`  Triggering deploy of '${projectSlug}' from its GitHub connection...`);
+  }
+
+  let triggerResult: { ok: boolean; commitSha: string; branch: string };
+  try {
+    triggerResult = await client.deployFromGithub(projectSlug);
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (jsonMode) jsonOutput({ error: "trigger_failed", message: msg }, 1, NO_PROJECT_BREADCRUMBS);
+    consola.error(`Trigger failed: ${msg}`);
+    process.exit(1);
+  }
+
+  if (!jsonMode) {
+    consola.success(`  Triggered (${triggerResult.branch} @ ${triggerResult.commitSha.slice(0, 7)})`);
+    section("Watch");
+  }
+
+  // Poll for the new deployment row, then follow its status until it settles.
+  // First phase: wait up to 20s for the row to appear (handlePush runs in
+  // waitUntil and may take a beat to insert).
+  const startedAt = Date.now();
+  const rowAppearDeadline = startedAt + 20_000;
+  const overallDeadline = startedAt + 15 * 60_000; // 15 min hard cap
+  let targetDeployment: CliDeployment | null = null;
+  let lastStatus: string | null = null;
+
+  while (Date.now() < overallDeadline) {
+    let list: CliDeployment[];
+    try {
+      list = (await client.listDeployments(projectSlug)) as unknown as CliDeployment[];
+    } catch (err) {
+      if (!jsonMode) consola.warn(`  Poll failed: ${(err as Error).message}`);
+      await sleep(2000);
+      continue;
+    }
+
+    // Phase 1: find the new row. It's the newest deployment with a
+    // createdAt greater than our snapshot. triggerType should be 'github'
+    // but we don't require it (rollback/promote could race, but extremely
+    // unlikely in the narrow window between snapshot + poll).
+    if (!targetDeployment) {
+      const candidate = list
+        .filter((d) => d.createdAt > previousLatestCreatedAt)
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+      if (candidate) {
+        targetDeployment = candidate;
+        if (!jsonMode) {
+          consola.info(`  v${candidate.version} ${candidate.branch ?? ""}`.trim());
+        }
+      } else if (Date.now() > rowAppearDeadline) {
+        // 20s and no new row — handlePush must have errored before it could
+        // insert. Surface the timeout rather than hanging.
+        if (jsonMode) jsonOutput({ error: "no_deployment", message: "Deployment row did not appear within 20s. Check server logs." }, 1, NO_PROJECT_BREADCRUMBS);
+        consola.error("  Deployment row did not appear within 20s. Check control-plane logs.");
+        process.exit(1);
+      } else {
+        await sleep(1500);
+        continue;
+      }
+    }
+
+    // Phase 2: follow the target row's status
+    const current = list.find((d) => d.id === targetDeployment!.id);
+    if (!current) {
+      // Shouldn't happen — row was there a moment ago
+      await sleep(1500);
+      continue;
+    }
+    targetDeployment = current;
+
+    if (current.status !== lastStatus) {
+      lastStatus = current.status;
+      if (!jsonMode) {
+        if (CLI_IN_FLIGHT_STATUSES.has(current.status)) {
+          consola.start(`  ${current.status}...`);
+        }
+      }
+    }
+
+    if (CLI_TERMINAL_STATUSES.has(current.status)) {
+      break;
+    }
+
+    await sleep(2000);
+  }
+
+  if (!targetDeployment) {
+    if (jsonMode) jsonOutput({ error: "timeout", message: "Timed out waiting for deployment" }, 1, NO_PROJECT_BREADCRUMBS);
+    consola.error("Timed out waiting for deployment");
+    process.exit(1);
+  }
+
+  // Report the outcome
+  if (targetDeployment.status === "active") {
+    if (jsonMode) {
+      jsonOutput(
+        {
+          ok: true,
+          deploymentId: targetDeployment.id,
+          version: targetDeployment.version,
+          status: "active",
+          url: targetDeployment.url,
+        },
+        0,
+        NO_PROJECT_BREADCRUMBS,
+      );
+    } else {
+      consola.success(`  Deployed v${targetDeployment.version}`);
+      if (targetDeployment.url) consola.log(`  ${targetDeployment.url}`);
+    }
+    return;
+  }
+
+  // Failed / cancelled
+  const failureMsg = targetDeployment.errorMessage || `Deployment ${targetDeployment.status}`;
+  if (jsonMode) {
+    jsonOutput(
+      {
+        ok: false,
+        deploymentId: targetDeployment.id,
+        status: targetDeployment.status,
+        failedStep: targetDeployment.failedStep,
+        errorMessage: failureMsg,
+      },
+      1,
+      NO_PROJECT_BREADCRUMBS,
+    );
+  } else {
+    consola.error(
+      `  Deployment ${targetDeployment.status}${targetDeployment.failedStep ? ` at ${targetDeployment.failedStep}` : ""}: ${failureMsg}`,
+    );
+  }
+  process.exit(1);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 // ============================================================================
 // Repo URL deploy — clone from GitHub, detect config, deploy
