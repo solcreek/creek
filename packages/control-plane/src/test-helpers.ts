@@ -149,7 +149,6 @@ export function createTestEnv(db?: MockD1): Env {
     GITHUB_APP_ID: "12345",
     GITHUB_APP_PRIVATE_KEY: "test-private-key",
     GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
-    REMOTE_BUILDER_URL: "https://test-builder.example.com",
     CLOUDFLARE_ZONE_ID: "test-zone-id",
     BUILD_STATUS: { get: async () => null, put: async () => {}, delete: async () => {} } as unknown as KVNamespace,
     REMOTE_BUILDER: { fetch: async () => new Response("{}") } as unknown as Fetcher,
