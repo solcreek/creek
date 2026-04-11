@@ -29,10 +29,17 @@ const PROVIDER_HOSTS: Record<string, ParsedRepoUrl["provider"]> = {
   "www.bitbucket.org": "bitbucket",
 };
 
+// Shorthand prefixes. Short aliases (gh:/gl:/bb:) match the conventions
+// established by the GitHub CLI, GitLab CLI, and other tooling — they're
+// the shortest safe way to reference a repo without colliding with local
+// path syntax (local paths never have ':' before any '/').
 const SHORTHAND_PREFIXES: Record<string, ParsedRepoUrl["provider"]> = {
   "github:": "github",
+  "gh:": "github",
   "gitlab:": "gitlab",
+  "gl:": "gitlab",
   "bitbucket:": "bitbucket",
+  "bb:": "bitbucket",
 };
 
 // Strict character set for owner and repo names
@@ -66,8 +73,11 @@ export function isRepoUrl(input: string): boolean {
  *   https://github.com/owner/repo.git
  *   https://github.com/owner/repo#branch
  *   https://github.com/owner/repo/tree/branch
- *   github:owner/repo
- *   github:owner/repo#branch
+ *   github:owner/repo           (long-form shorthand)
+ *   gh:owner/repo               (short alias — matches gh CLI convention)
+ *   gh:owner/repo#branch
+ *   gitlab:owner/repo           gl:owner/repo
+ *   bitbucket:owner/repo        bb:owner/repo
  */
 export function parseRepoUrl(input: string): ParsedRepoUrl {
   if (!input || typeof input !== "string") {
