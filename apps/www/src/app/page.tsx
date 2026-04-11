@@ -91,7 +91,7 @@ export default function Home() {
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
               <span className="text-foreground font-medium">
-                Ship full-stack Vite apps in one command.
+                Ship full-stack apps in one command.
               </span>{" "}
               Creek provisions the database, cron, queues, and WebSockets —
               use any ORM, or bring your own DB.{" "}
@@ -206,7 +206,7 @@ export default function Home() {
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
           label="07"
-          title="Open source, not lock-in-free"
+          title="Open source. Low lock-in, honestly."
           description="Apache 2.0. Self-host on your own Cloudflare account. We're honest: Creek is built on Cloudflare Workers, so you're ultimately locked to Cloudflare. The point is you're not locked to us — your code keeps working if you eject to raw wrangler, because Creek deploys standard CF primitives, not proprietary ones."
         />
         <OpenSourceSection />
