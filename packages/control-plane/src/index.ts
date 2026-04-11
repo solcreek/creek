@@ -11,7 +11,7 @@ import { deployments } from "./modules/deployments/routes.js";
 import { domains } from "./modules/domains/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
-import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest } from "./modules/github/index.js";
+import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest, handleRepository } from "./modules/github/index.js";
 import { webDeploy } from "./modules/web-deploy/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
@@ -83,6 +83,9 @@ app.post("/webhooks/github", async (c) => {
         case "installation":
         case "installation_repositories":
           await handleInstallation(c.env, payload);
+          break;
+        case "repository":
+          await handleRepository(c.env, payload);
           break;
       }
     } catch (err) {

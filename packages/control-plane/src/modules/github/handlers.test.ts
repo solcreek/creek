@@ -2,8 +2,10 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 import {
   handleInstallation,
   handlePush,
+  handleRepository,
   type PushPayload,
   type InstallationPayload,
+  type RepositoryEventPayload,
 } from "./handlers.js";
 import { createMockD1, createTestEnv, type MockD1 } from "../../test-helpers.js";
 
@@ -184,5 +186,133 @@ describe("handlePush", () => {
 
     const queries = db.getExecuted();
     expect(queries.some((q) => q.sql.includes("INSERT INTO deployment"))).toBe(false);
+  });
+});
+
+// --- Repository event handler (rename + transfer) ---
+
+describe("handleRepository", () => {
+  test("ignores events other than renamed/transferred", async () => {
+    const payload: RepositoryEventPayload = {
+      action: "edited",
+      repository: { id: 999, name: "whatever", owner: { login: "linyiru" } },
+      installation: { id: 1 },
+    };
+
+    await handleRepository(env, payload);
+
+    const queries = db.getExecuted();
+    expect(queries.some((q) => q.sql.includes("UPDATE github_connection"))).toBe(false);
+  });
+
+  test("renamed: updates connection when matching row exists by repoId", async () => {
+    db.seedFirst("WHERE repoId", [12345], {
+      id: "conn-1",
+      projectId: "proj-1",
+      repoId: 12345,
+      repoOwner: "linyiru",
+      repoName: "old-name",
+    });
+
+    const payload: RepositoryEventPayload = {
+      action: "renamed",
+      repository: { id: 12345, name: "new-name", owner: { login: "linyiru" } },
+      changes: { repository: { name: { from: "old-name" } } },
+      installation: { id: 1 },
+    };
+
+    await handleRepository(env, payload);
+
+    const queries = db.getExecuted();
+    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
+    expect(updateConn).toBeDefined();
+    expect(updateConn!.args).toContain("linyiru");
+    expect(updateConn!.args).toContain("new-name");
+    expect(updateConn!.args).toContain(12345);
+    expect(updateConn!.args).toContain("conn-1");
+
+    const updateProj = queries.find(
+      (q) => q.sql.includes("UPDATE project SET githubRepo"),
+    );
+    expect(updateProj).toBeDefined();
+    expect(updateProj!.args).toContain("linyiru/new-name");
+    expect(updateProj!.args).toContain("proj-1");
+  });
+
+  test("renamed: falls back to (owner, old name) lookup for legacy rows with null repoId, backfills repoId", async () => {
+    // First query (by repoId) returns null — simulate "no row with repoId"
+    db.seedFirst("WHERE repoId", [12345], null);
+    // Second query (by owner + old name) returns the legacy row
+    db.seedFirst("WHERE repoOwner = ? AND repoName", ["linyiru", "old-name"], {
+      id: "conn-legacy",
+      projectId: "proj-legacy",
+      repoId: null,
+      repoOwner: "linyiru",
+      repoName: "old-name",
+    });
+
+    const payload: RepositoryEventPayload = {
+      action: "renamed",
+      repository: { id: 12345, name: "new-name", owner: { login: "linyiru" } },
+      changes: { repository: { name: { from: "old-name" } } },
+      installation: { id: 1 },
+    };
+
+    await handleRepository(env, payload);
+
+    const queries = db.getExecuted();
+    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
+    expect(updateConn).toBeDefined();
+    // Backfills the previously-null repoId
+    expect(updateConn!.args).toContain(12345);
+    expect(updateConn!.args).toContain("new-name");
+    expect(updateConn!.args).toContain("conn-legacy");
+  });
+
+  test("renamed: no-op when no connection matches by either path", async () => {
+    // Neither the repoId lookup nor the (owner, old name) lookup finds a row
+    db.seedFirst("WHERE repoId", [99999], null);
+    db.seedFirst("WHERE repoOwner = ? AND repoName", ["linyiru", "ghost"], null);
+
+    const payload: RepositoryEventPayload = {
+      action: "renamed",
+      repository: { id: 99999, name: "phantom", owner: { login: "linyiru" } },
+      changes: { repository: { name: { from: "ghost" } } },
+      installation: { id: 1 },
+    };
+
+    await handleRepository(env, payload);
+
+    const queries = db.getExecuted();
+    expect(queries.some((q) => q.sql.includes("UPDATE github_connection"))).toBe(false);
+    expect(queries.some((q) => q.sql.includes("UPDATE project SET githubRepo"))).toBe(false);
+  });
+
+  test("transferred: updates connection when repoId matches (no fallback for transfers)", async () => {
+    db.seedFirst("WHERE repoId", [55555], {
+      id: "conn-xfer",
+      projectId: "proj-xfer",
+      repoId: 55555,
+      repoOwner: "old-org",
+      repoName: "my-app",
+    });
+
+    const payload: RepositoryEventPayload = {
+      action: "transferred",
+      repository: { id: 55555, name: "my-app", owner: { login: "new-org" } },
+      installation: { id: 1 },
+    };
+
+    await handleRepository(env, payload);
+
+    const queries = db.getExecuted();
+    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
+    expect(updateConn).toBeDefined();
+    expect(updateConn!.args).toContain("new-org");
+    expect(updateConn!.args).toContain("my-app");
+    expect(updateConn!.args).toContain("conn-xfer");
+
+    const updateProj = queries.find((q) => q.sql.includes("UPDATE project SET githubRepo"));
+    expect(updateProj!.args).toContain("new-org/my-app");
   });
 });
