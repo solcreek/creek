@@ -316,11 +316,11 @@ importers:
   packages/creek:
     dependencies:
       '@solcreek/cli':
-        specifier: '>=0.3.7'
-        version: 0.3.7
+        specifier: workspace:^
+        version: link:../cli
       '@solcreek/runtime':
-        specifier: ^0.2.3
-        version: 0.2.3(hono@4.12.11)(react@19.2.4)
+        specifier: workspace:^
+        version: link:../runtime
 
   packages/deploy-api:
     dependencies:
@@ -3149,23 +3149,6 @@ packages:
   '@smithy/uuid@1.1.2':
     resolution: {integrity: sha512-O/IEdcCUKkubz60tFbGA7ceITTAJsty+lBjNoorP4Z6XRqaFb/OjQjZODophEcuq68nKm6/0r+6/lLQ+XVpk8g==}
     engines: {node: '>=18.0.0'}
-
-  '@solcreek/cli@0.3.7':
-    resolution: {integrity: sha512-5dMvcWRZgjbLLfkH9b40EgxMB1mozvQWiNLSClWBkjbmAKnZ3yLPTeawNjAK0EeqpQBs5/KZ2H1dWLNXLLlZlg==}
-
-  '@solcreek/runtime@0.2.3':
-    resolution: {integrity: sha512-KX/EeIRD+rJX2clCUBuW3yDpKHebgLD7KcNizK6PdYdH71et1Lc3o382g3BFvXg/eI8GOiLTSOk1A4J3iHH7KQ==}
-    peerDependencies:
-      hono: '>=4'
-      react: '>=18'
-    peerDependenciesMeta:
-      hono:
-        optional: true
-      react:
-        optional: true
-
-  '@solcreek/sdk@0.1.0-alpha.4':
-    resolution: {integrity: sha512-GM7cAZ5TguYifeogjPrZyi31R0gJrtd+/IuDxwdIB5Nwwv8AEGQlc8qLhcA97M0wQtQEOjG7LW3Yuf835m970g==}
 
   '@speed-highlight/core@1.2.15':
     resolution: {integrity: sha512-BMq1K3DsElxDWawkX6eLg9+CKJrTVGCBAWVuHXVUV2u0s2711qiChLSId6ikYPfxhdYocLNt3wWwSvDiTvFabw==}
@@ -10265,29 +10248,6 @@ snapshots:
   '@smithy/uuid@1.1.2':
     dependencies:
       tslib: 2.8.1
-
-  '@solcreek/cli@0.3.7':
-    dependencies:
-      '@solcreek/sdk': 0.1.0-alpha.4
-      citty: 0.1.6
-      consola: 3.4.2
-      esbuild: 0.25.12
-      miniflare: 4.20260317.3
-      smol-toml: 1.6.0
-      ws: 8.20.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@solcreek/runtime@0.2.3(hono@4.12.11)(react@19.2.4)':
-    optionalDependencies:
-      hono: 4.12.11
-      react: 19.2.4
-
-  '@solcreek/sdk@0.1.0-alpha.4':
-    dependencies:
-      smol-toml: 1.6.0
-      zod: 3.25.76
 
   '@speed-highlight/core@1.2.15': {}
 

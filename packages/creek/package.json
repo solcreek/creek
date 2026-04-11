@@ -49,7 +49,7 @@
     "directory": "packages/creek"
   },
   "dependencies": {
-    "@solcreek/cli": ">=0.3.7",
-    "@solcreek/runtime": "^0.2.3"
+    "@solcreek/cli": "workspace:^",
+    "@solcreek/runtime": "workspace:^"
   }
 }
