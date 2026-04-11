@@ -5,6 +5,52 @@ import { Footer } from "@/components/footer";
 
 const entries = [
   {
+    date: "2026-04-11",
+    version: "cli@0.4.4 · creek@0.4.1",
+    title: "GitHub auto-deploy, remote build via connection",
+    items: [
+      "`creek deploy --from-github [--project <slug>]` — trigger a remote build of the latest commit on the production branch via the project's GitHub connection, no local build required",
+      "GitHub App integration: install the `Creek Deploy` App, connect a repository from the dashboard, and pushes to main auto-deploy while PRs get preview URLs with commit status",
+      "Dashboard Project → Settings → GitHub Connection: show the connected repo, disconnect, or pick a new one via installation + repo picker",
+      "Dashboard Project → Deployments: `Deploy latest` button (same endpoint as the CLI flag), inline commit SHA + message with a link to the GitHub diff, expanded error + failed-step display when a deploy fails, live polling so new deployments appear without a manual refresh",
+      "Server: new `POST /github/deploy-latest` endpoint, auto-resolve slug collisions on import (appends `-2`, `-3`, … when two repos share a name), `github_connection.repoId` column to survive repository renames / transfers, webhook handlers for `repository.renamed` and `repository.transferred`",
+      "CLI: auto-accept PKCS#1 private keys when creating the GitHub App JWT (GitHub's default export format) — no more manual `openssl pkcs8 -topk8`",
+      "Control-plane: `GITHUB_WEBHOOK_SECRET` validation hardened, returns 503 instead of 500 when unconfigured",
+      "Better Auth upgraded 1.5.6 → 1.6.2 — picks up OAuth CSRF + Drizzle date/null fixes that were affecting the dashboard login flow",
+      "`CAPABILITIES.md` at the monorepo root: a one-page index of what Creek can do today and where each capability lives across runtime SDK, `creek.toml`, CLI, MCP, dashboard, and agent skills",
+      "Agent skills bumped to v2.2 (installable via `npx skills add solcreek/skills`) — documents `--from-github`, trigger schemas, semantic resource names, and the GitHub auto-deploy walkthrough",
+    ],
+  },
+  {
+    date: "2026-04-09",
+    version: "runtime@0.4.0 · cli@0.4.2",
+    title: "Cron, queues, analytics, semantic resource names",
+    items: [
+      "Cron triggers: declare `[triggers] cron = [\"0 */6 * * *\"]` in `creek.toml` and export a `scheduled()` handler — Creek wires the Cloudflare cron binding at deploy time",
+      "Queue triggers: `[triggers] queue = true` provisions a per-project Cloudflare Queue, binds a `queue` producer at runtime (`import { queue } from 'creek'`), and invokes your exported `queue(batch, env, ctx)` consumer",
+      "`creek queue send '<json-body>'` — inject a message into the project queue from the CLI",
+      "`creek dev --trigger-cron \"* * * * *\"` — simulate a scheduled event firing during local development",
+      "Per-tenant analytics tab in the dashboard: requests, errors, p50/p99 latency, plus a cron execution log pulled from the Cloudflare GraphQL Analytics API",
+      "Semantic resource names in `creek.toml`: `database` / `storage` / `cache` / `ai` (the legacy `d1` / `kv` / `r2` / `ai` still work for backward compatibility)",
+      "CLI worker-bundler now auto-generates `scheduled()` and `queue()` handler wrappers alongside `fetch()`",
+      "`creek status` shows registered cron schedules and trigger config summary",
+      "Request-scoped runtime bindings (D1, R2, KV, Queue) — multi-tenant safe by construction, no manual context threading",
+    ],
+  },
+  {
+    date: "2026-04-07",
+    version: "cli@0.3.9",
+    title: "First automated release + queue-driven web deploys",
+    items: [
+      "First npm publish triggered by a git tag: `cli@0.3.9` via the new GitHub Actions `publish-cli.yml` workflow",
+      "Companion publish workflows added for `@solcreek/sdk`, `@solcreek/runtime`, `@solcreek/ui`, `create-creek-app`, and the `creek` umbrella",
+      "Remote-builder reworked as a Queue consumer — web-deploy builds now flow through a Cloudflare Queue producer in control-plane + consumer in remote-builder instead of `waitUntil` sharing request lifetime",
+      "`creek ops` command for platform monitoring: list recent web deploys across the cluster, grouped by project",
+      "Sandbox schema rename: the `sandbox` table becomes `deployments` with an `environment` column — one model for sandbox previews, web deploys, and authenticated production deployments",
+      "`@solcreek/runtime` split into `/react` and `/hono` subpath exports so CF Workers builds don't pay the React cost when they don't need it",
+    ],
+  },
+  {
     date: "2026-03-27",
     version: "0.3.0-alpha.14",
     title: "Query commands, MCP server, docs site",
