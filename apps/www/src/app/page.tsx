@@ -55,6 +55,13 @@ export default function Home() {
               >
                 Self-hostable
               </a>
+              <span className="text-muted-foreground/40">·</span>
+              <a
+                href="/docs/mcp"
+                className="hover:text-foreground transition-colors"
+              >
+                MCP · agent-ready
+              </a>
             </motion.div>
             <motion.h1
               initial={{ opacity: 0, y: 16 }}
@@ -92,7 +99,12 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.35 }}
               className="mt-8 space-y-3"
             >
-              <CopyCommand command="npx creek deploy" />
+              <div>
+                <CopyCommand command="npx creek deploy" />
+                <p className="mt-1.5 font-mono text-xs text-muted-foreground/70 tracking-wide">
+                  no signup · live in seconds
+                </p>
+              </div>
               <p className="text-sm text-muted-foreground">
                 or{" "}
                 <a
@@ -159,8 +171,8 @@ export default function Home() {
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
           label="04"
-          title="Vite-first, framework-agnostic"
-          description="Zero-config for Vite apps and anything built on top of Vite. Other frameworks supported with varying maturity — Next.js routing through an adapter, written up honestly."
+          title="Your framework is supported"
+          description="Vite, React, Vue, Svelte, Astro, TanStack Start, React Router, Hono, static sites — zero config. Next.js via our adapter (WIP). Every framework written up honestly below."
         />
         <FrameworksSection />
       </section>
