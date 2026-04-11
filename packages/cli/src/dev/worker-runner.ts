@@ -1,13 +1,105 @@
-// Worker execution for `creek dev` — bundles user code and runs it via Miniflare.
+// Worker execution for `creek dev` — bundles user code and runs it via
+// Miniflare for local D1 / KV / R2 / Queues / Durable Objects simulation.
 //
-// Uses esbuild watch mode for hot reload and Miniflare for D1/KV/R2 simulation.
+// `miniflare` is intentionally NOT in @solcreek/cli's runtime dependencies —
+// it (plus its transitive deps workerd and sharp) adds ~146MB to every
+// install of `creek`. Since `creek deploy` never touches miniflare, it's
+// a pure penalty on the aha-moment flow: paste a command, see a live URL.
+//
+// Instead, `creek dev` resolves miniflare at runtime from the caller's
+// project (npm install --save-dev miniflare in their own package.json),
+// the global npm root, or a creek-managed cache dir. If none of those
+// have miniflare, we throw a zero-jargon error that tells the user
+// exactly one command to run.
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import { execSync } from "node:child_process";
 import { context, type BuildContext } from "esbuild";
-import { Miniflare } from "miniflare";
+// Type-only import — erased at compile time, does not emit a `require`.
+// miniflare is listed in devDependencies so type-checking and bundling
+// still work in-repo, but the published package.json excludes it.
+import type { Miniflare } from "miniflare";
 import { generateWorkerWrapper } from "../utils/worker-bundle.js";
 import type { BindingDeclaration } from "@solcreek/sdk";
+
+/**
+ * Thrown by `creek dev` when no local runtime package can be resolved from
+ * the user's project, global npm root, or creek's dep cache. The message
+ * is deliberately jargon-free: it talks about "a local runtime" instead of
+ * naming miniflare in the explanation, and only mentions the package name
+ * as part of the exact npm command the user needs to run.
+ */
+export class MiniflareNotInstalledError extends Error {
+  constructor() {
+    super(
+      [
+        "`creek dev` needs a local runtime to simulate the edge environment,",
+        "and it isn't installed yet.",
+        "",
+        "  One-time setup — run this in your project directory:",
+        "    npm install --save-dev miniflare",
+        "",
+        "  This downloads ~150MB but only needs to happen once per project.",
+        "  `creek deploy` already works without it — you can skip this step",
+        "  entirely if you only want to deploy.",
+      ].join("\n"),
+    );
+    this.name = "MiniflareNotInstalledError";
+  }
+}
+
+/**
+ * Try to load miniflare from several plausible locations, in order of
+ * preference:
+ *
+ *   1. The user's current project (npm install --save-dev miniflare)
+ *   2. Creek-managed dep cache at ~/.creek/deps/miniflare (for future
+ *      auto-install support — not wired up yet but already searched here
+ *      so a future `creek dev install` command can drop files there)
+ *   3. Global npm root (for users who `npm install -g miniflare`)
+ *
+ * Each location is attempted with a fresh `createRequire` rooted at a
+ * dummy file in that directory, then `require.resolve("miniflare")` is
+ * used to find the package. If all three fail, throws
+ * MiniflareNotInstalledError with a zero-jargon explanation.
+ */
+async function loadMiniflare(): Promise<typeof import("miniflare")> {
+  const searchRoots: string[] = [];
+
+  // 1. User's current project
+  searchRoots.push(process.cwd());
+
+  // 2. Creek-managed cache
+  searchRoots.push(join(homedir(), ".creek", "deps"));
+
+  // 3. Global npm root (best-effort — may be slow on first call)
+  try {
+    const globalRoot = execSync("npm root -g", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (globalRoot) searchRoots.push(globalRoot);
+  } catch {
+    // No npm on PATH, or command failed — skip this search path silently.
+  }
+
+  for (const root of searchRoots) {
+    try {
+      // createRequire needs a file path — use a dummy file inside the root
+      // (the file doesn't have to exist for node_modules lookup to work).
+      const req = createRequire(join(root, "__creek_resolver__.js"));
+      const resolved = req.resolve("miniflare");
+      return (await import(resolved)) as typeof import("miniflare");
+    } catch {
+      // Try the next root.
+    }
+  }
+
+  throw new MiniflareNotInstalledError();
+}
 
 const NODE_BUILTINS = [
   "node:async_hooks",
@@ -92,9 +184,15 @@ export class WorkerRunner {
     // 2. Initial bundle with esbuild
     const bundledScript = await this.bundle(wrapperPath);
 
-    // 3. Start Miniflare
+    // 3. Start Miniflare — loaded from the user's project / cache / global
+    //    so `creek deploy` can ship without miniflare in @solcreek/cli's
+    //    runtime dependencies. See loadMiniflare() above for the search
+    //    order and the MiniflareNotInstalledError message.
+    const miniflareModule = await loadMiniflare();
+    const MiniflareCtor = miniflareModule.Miniflare;
+
     this.mfOptions = this.buildMiniflareOptions(bundledScript, persistDir);
-    this.mf = new Miniflare(this.mfOptions as any);
+    this.mf = new MiniflareCtor(this.mfOptions as any);
 
     // Wait for Miniflare to be ready and get the port
     const readyUrl = await this.mf.ready;
