@@ -225,3 +225,103 @@ describe("POST /github/deploy-latest", () => {
     expect(body.ok).toBe(true);
   });
 });
+
+describe("GET /github/connections/by-project/:projectId", () => {
+  test("returns 404 when project does not exist", async () => {
+    const res = await app.request(
+      "/github/connections/by-project/nope",
+      { method: "GET" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("not_found");
+  });
+
+  test("returns { connection: null } when project has no connection", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+    // No github_connection row seeded → first() returns null
+
+    const res = await app.request(
+      "/github/connections/by-project/proj-1",
+      { method: "GET" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { connection: unknown };
+    expect(body.connection).toBeNull();
+  });
+
+  test("returns the connection row when it exists", async () => {
+    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
+      id: "proj-1",
+    });
+    db.seedFirst("FROM github_connection", ["proj-1"], {
+      id: "conn-1",
+      projectId: "proj-1",
+      installationId: 12345,
+      repoOwner: "linyiru",
+      repoName: "subs-landing-page",
+      productionBranch: "main",
+      autoDeployEnabled: 1,
+      previewEnabled: 1,
+      createdAt: 1775867000671,
+    });
+
+    const res = await app.request(
+      "/github/connections/by-project/proj-1",
+      { method: "GET" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      connection: {
+        id: string;
+        repoOwner: string;
+        repoName: string;
+        productionBranch: string;
+      } | null;
+    };
+    expect(body.connection).not.toBeNull();
+    expect(body.connection!.id).toBe("conn-1");
+    expect(body.connection!.repoOwner).toBe("linyiru");
+    expect(body.connection!.repoName).toBe("subs-landing-page");
+    expect(body.connection!.productionBranch).toBe("main");
+  });
+
+  test("accepts project slug (matches dashboard /projects/:slug route)", async () => {
+    db.seedFirst("SELECT id FROM project", ["subs-landing-page", "subs-landing-page", TEST_TEAM.id], {
+      id: "proj-uuid",
+    });
+    db.seedFirst("FROM github_connection", ["proj-uuid"], {
+      id: "conn-slug",
+      projectId: "proj-uuid",
+      installationId: 1,
+      repoOwner: "linyiru",
+      repoName: "subs-landing-page",
+      productionBranch: "main",
+      autoDeployEnabled: 1,
+      previewEnabled: 1,
+      createdAt: 1,
+    });
+
+    const res = await app.request(
+      "/github/connections/by-project/subs-landing-page",
+      { method: "GET" },
+      env,
+      mockExecutionCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { connection: { id: string } | null };
+    expect(body.connection?.id).toBe("conn-slug");
+  });
+});

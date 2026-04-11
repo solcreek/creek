@@ -4,6 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { ExternalLink } from "lucide-react";
+
+function GithubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+    </svg>
+  );
+}
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/settings",
@@ -17,8 +26,105 @@ function ProjectSettingsTab() {
   return (
     <div className="max-w-lg space-y-8">
       <GeneralSettings projectId={projectId} />
+      <GitHubConnectionSection projectId={projectId} />
       <TriggersSection projectId={projectId} />
       <DangerZone projectId={projectId} />
+    </div>
+  );
+}
+
+interface GitHubConnection {
+  id: string;
+  installationId: number;
+  repoOwner: string;
+  repoName: string;
+  productionBranch: string;
+  autoDeployEnabled: number; // SQLite boolean
+  previewEnabled: number;
+  createdAt: number;
+}
+
+function GitHubConnectionSection({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["project", projectId, "github-connection"],
+    queryFn: () =>
+      api<{ connection: GitHubConnection | null }>(
+        `/github/connections/by-project/${projectId}`,
+      ),
+  });
+
+  return (
+    <section>
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        GitHub Connection
+      </h2>
+      <div className="rounded-lg border border-border p-4">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : data?.connection ? (
+          <ConnectionDetails connection={data.connection} />
+        ) : (
+          <EmptyConnection />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ConnectionDetails({ connection }: { connection: GitHubConnection }) {
+  const repoFull = `${connection.repoOwner}/${connection.repoName}`;
+  const repoUrl = `https://github.com/${repoFull}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <GithubIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <a
+            href={repoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-mono text-sm font-medium hover:underline"
+          >
+            {repoFull}
+            <ExternalLink className="size-3" />
+          </a>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Production branch: <span className="font-mono">{connection.productionBranch}</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Pill enabled={!!connection.autoDeployEnabled} label="Auto-deploy on push" />
+        <Pill enabled={!!connection.previewEnabled} label="Preview on pull requests" />
+      </div>
+    </div>
+  );
+}
+
+function Pill({ enabled, label }: { enabled: boolean; label: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+        enabled
+          ? "border-green-500/30 bg-green-500/10 text-green-400"
+          : "border-border text-muted-foreground"
+      }`}
+    >
+      <span className={`size-1.5 rounded-full ${enabled ? "bg-green-500" : "bg-muted-foreground"}`} />
+      {label}
+    </span>
+  );
+}
+
+function EmptyConnection() {
+  return (
+    <div className="text-sm text-muted-foreground">
+      <p>This project isn't connected to a GitHub repository.</p>
+      <p className="mt-1 text-xs">
+        Connect one to enable auto-deploy on push and preview deployments on pull requests.
+      </p>
     </div>
   );
 }
