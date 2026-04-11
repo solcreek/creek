@@ -6,23 +6,34 @@ on:
       - 'cli@*'
 
 permissions:
-  id-token: write
+  id-token: write # npm trusted publisher via OIDC
   contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/cli
     steps:
       - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9
 
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm install
-      - run: npm run build --if-present
-      - run: npm publish --access public
+      # `pnpm install` (not filtered) so workspace deps like @solcreek/sdk
+      # resolve. The CI-deploy workflow found the hard way that filtered
+      # installs miss transitive dev deps — do a plain install here too.
+      - run: pnpm install
+
+      # Topological build via turbo: @solcreek/cli depends on @solcreek/sdk,
+      # so `turbo build --filter=@solcreek/cli` will build sdk first.
+      - run: pnpm turbo build --filter=@solcreek/cli
+
+      # pnpm publish rewrites workspace:^ to ^X.Y.Z automatically.
+      # --no-git-checks: CI works on a detached HEAD at the tag.
+      - run: pnpm publish --access public --no-git-checks
+        working-directory: packages/cli
