@@ -54,12 +54,75 @@ const PHISHING_PATTERNS: { pattern: RegExp; reason: string }[] = [
     pattern: /<(?:title|h[1-3])[^>]*>[^<]*(?:PayPal|Apple\s+ID|Microsoft\s+(?:365|Account)|Google\s+(?:Sign|Account)|MetaMask|Coinbase|Binance|Netflix|Amazon\s+(?:Prime|Account))[^<]*<\//gi,
     reason: "Brand impersonation detected — potential phishing",
   },
-  // iframe embedding external login pages
-  {
-    pattern: /<iframe[^>]+src\s*=\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)[^"']+["']/gi,
-    reason: "External iframe detected — potential clickjacking",
-  },
+  // NOTE: external iframe check lives in scanHtml() because it needs an
+  // allowlist (YouTube, Vimeo, CodePen, etc.) that regex alone can't express.
 ];
+
+// Well-known embed providers allowed in sandbox HTML.
+//
+// These serve embedded content (video, code, docs) — they're not auth
+// surfaces, so a phishing attacker can't use them to harvest credentials.
+// A fake bank-login iframe pointing to `my-phishing.com` still gets blocked.
+//
+// Match is by suffix so subdomains work: `www.youtube.com`, `youtube-nocookie.com`,
+// `player.vimeo.com`, etc.
+const IFRAME_HOST_ALLOWLIST = [
+  "youtube.com",
+  "youtube-nocookie.com",
+  "youtu.be",
+  "vimeo.com",
+  "wistia.com",
+  "wistia.net",
+  "loom.com",
+  "twitter.com",
+  "x.com",
+  "github.com",          // gist.github.com embeds
+  "codepen.io",
+  "codesandbox.io",
+  "stackblitz.com",
+  "jsfiddle.net",
+  "open.spotify.com",
+  "spotify.com",
+  "soundcloud.com",
+  "figma.com",
+  "docs.google.com",     // Google Docs / Sheets / Slides embeds
+  "calendar.google.com",
+  "maps.google.com",
+  "google.com",          // Google Maps /maps/embed
+  "typeform.com",
+  "airtable.com",
+  "notion.so",
+];
+
+const IFRAME_SRC_PATTERN = /<iframe[^>]+src\s*=\s*["'](https?:\/\/(?!localhost|127\.0\.0\.1)[^"']+)["']/gi;
+
+/**
+ * Extract iframe src URLs and check whether any point to disallowed hosts.
+ *
+ * Returns `null` if all iframes are in the allowlist, or the first offending
+ * URL if not. Allowlist matches by exact host or by suffix so subdomains work
+ * (e.g., `player.vimeo.com` matches `vimeo.com`).
+ */
+function findDisallowedIframe(html: string): string | null {
+  IFRAME_SRC_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = IFRAME_SRC_PATTERN.exec(html)) !== null) {
+    const url = match[1];
+    let host: string;
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return url;
+    }
+    const isAllowed = IFRAME_HOST_ALLOWLIST.some((allowed) =>
+      host === allowed || host.endsWith("." + allowed),
+    );
+    if (!isAllowed) {
+      return url;
+    }
+  }
+  return null;
+}
 
 // Patterns that are OK alone but suspicious with password fields
 const CREDENTIAL_HARVEST_SIGNALS = [
@@ -116,6 +179,16 @@ function scanHtml(content: string): ScanResult {
       return { ok: false, reason: "content_policy", detail: reason };
     }
     pattern.lastIndex = 0;
+  }
+
+  // External iframe check with allowlist for known embed providers.
+  const disallowedIframe = findDisallowedIframe(content);
+  if (disallowedIframe) {
+    return {
+      ok: false,
+      reason: "content_policy",
+      detail: `External iframe to disallowed host: ${disallowedIframe}`,
+    };
   }
 
   return { ok: true };
