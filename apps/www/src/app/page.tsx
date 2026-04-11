@@ -81,27 +81,6 @@ export default function Home() {
               300+ edge POPs.
             </motion.p>
 
-            {/* Framework badges — answers "does this support my stack" in a
-                single glance. Vite gets visual priority because (a) our
-                Vite-based detection is our strongest zero-config tier and
-                (b) we're intentionally planting a flag on the "vite deploy
-                platform" search slot while void.cloud is still in early
-                access. */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.28 }}
-              className="mt-5 flex items-center gap-3 flex-wrap text-xs text-muted-foreground"
-            >
-              <span className="font-mono tracking-wide text-foreground">
-                Vite-first
-              </span>
-              <span className="text-muted-foreground/40">—</span>
-              <FrameworkBadges />
-              <span className="text-muted-foreground/40">·</span>
-              <span>zero config</span>
-            </motion.div>
-
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -118,24 +97,6 @@ export default function Home() {
                   import a repository directly from GitHub
                 </a>{" "}
                 — push to main, auto-deploy, preview URLs on every PR.
-              </p>
-              <p className="text-xs text-muted-foreground/80">
-                Free to start.{" "}
-                <a
-                  href="/pricing"
-                  className="underline underline-offset-4 hover:text-foreground transition-colors"
-                >
-                  See pricing
-                </a>{" "}
-                ·{" "}
-                <a
-                  href="https://github.com/solcreek/creek"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline underline-offset-4 hover:text-foreground transition-colors"
-                >
-                  Star on GitHub
-                </a>
               </p>
             </motion.div>
             <motion.div
@@ -179,10 +140,20 @@ export default function Home() {
         <ZeroConfigDemo />
       </section>
 
-      {/* Section: Agent-First */}
+      {/* Section: Frameworks */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
           label="03"
+          title="Vite-first, framework-agnostic"
+          description="Zero-config for Vite apps and anything built on top of Vite. Other frameworks supported with varying maturity — Next.js routing through an adapter, written up honestly."
+        />
+        <FrameworksSection />
+      </section>
+
+      {/* Section: Agent-First */}
+      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+        <SectionHeader
+          label="04"
           title="Built for AI agents"
           description="Remote MCP server, JSON output on every command, installable agent skills, and the Agent Challenge protocol so verified agents skip CAPTCHAs. All shipping today."
         />
@@ -192,7 +163,7 @@ export default function Home() {
       {/* Section: Edge Performance */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
-          label="04"
+          label="05"
           title="Edge-native performance"
           description="Your app runs on 300+ Cloudflare edge locations. Millisecond cold starts, global TTFB."
         />
@@ -202,7 +173,7 @@ export default function Home() {
       {/* Section: Open Source */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
-          label="05"
+          label="06"
           title="Open source"
           description="Apache 2.0 licensed. Self-host on your own Cloudflare account. No vendor lock-in."
         />
@@ -513,43 +484,92 @@ function OpenSourceSection() {
   );
 }
 
-function FrameworkBadges() {
-  // Only frameworks the landing page can actually back up on the docs
-  // page. Vite leads because vite-based SPA detection is our most mature,
-  // zero-config tier (vite-react, vite-vue, vite-svelte, vite-solid all
-  // work out of the box). The meta-frameworks list is intentionally
-  // honest — Next.js is omitted because that support is still going
-  // through adapter-creek; we'll add it here when the adapter ships.
-  const frameworks = [
-    { name: "Vite", href: "/docs/getting-started", emphasized: true },
-    { name: "React", href: "/docs/getting-started" },
-    { name: "Vue", href: "/docs/getting-started" },
-    { name: "Svelte", href: "/docs/getting-started" },
-    { name: "Solid", href: "/docs/getting-started" },
-    { name: "Astro", href: "/docs/getting-started" },
-    { name: "Nuxt", href: "/docs/getting-started" },
+function FrameworksSection() {
+  const ref = useRef<HTMLDivElement>(null);
+  const isInView = useInView(ref, { once: true, margin: "-60px" });
+
+  // Three honest tiers mirroring getting-started.mdx and CAPABILITIES.md.
+  // "Zero-config" is what resolveConfig was designed against first —
+  // Vite-based SPAs + Astro (Vite under the hood) + TanStack Start.
+  // "Supported" is the next tier: works, may need minor config, server
+  // builds still stabilizing for the Vite meta-frameworks. "Work in
+  // progress" is just Next.js, routed through adapter-creek.
+  const tiers: Array<{
+    label: string;
+    tint: "accent" | "muted" | "dim";
+    caption: string;
+    frameworks: string[];
+  }> = [
+    {
+      label: "Zero-config",
+      tint: "accent",
+      caption: "Detected from package.json + vite.config. Deploy with no flags.",
+      frameworks: ["Vite + React", "Vite + Vue", "Vite + Svelte", "Vite + Solid", "Astro", "TanStack Start"],
+    },
+    {
+      label: "Supported",
+      tint: "muted",
+      caption: "Works today. Server build for SvelteKit / Nuxt is experimental.",
+      frameworks: ["SvelteKit", "Nuxt", "React Router (v7 / Remix)", "Hono", "Static site"],
+    },
+    {
+      label: "Work in progress",
+      tint: "dim",
+      caption: "Routed through @solcreek/adapter-creek, currently via an OpenNextJS workaround.",
+      frameworks: ["Next.js"],
+    },
   ];
 
+  const dotClass = (tint: "accent" | "muted" | "dim") =>
+    tint === "accent"
+      ? "bg-accent"
+      : tint === "muted"
+        ? "bg-muted-foreground/60"
+        : "bg-muted-foreground/30";
+
+  const borderClass = (tint: "accent" | "muted" | "dim") =>
+    tint === "accent"
+      ? "border-accent/30 hover:border-accent/50"
+      : "border-border hover:border-accent/20";
+
   return (
-    <span className="inline-flex items-center gap-2 flex-wrap">
-      {frameworks.map((fw, i) => (
-        <span key={fw.name} className="inline-flex items-center gap-2">
-          <a
-            href={fw.href}
-            className={
-              fw.emphasized
-                ? "font-mono font-semibold text-foreground hover:text-accent transition-colors"
-                : "font-mono hover:text-foreground transition-colors"
-            }
-          >
-            {fw.name}
-          </a>
-          {i < frameworks.length - 1 && (
-            <span className="text-muted-foreground/30">·</span>
-          )}
-        </span>
+    <div ref={ref} className="grid gap-4 lg:grid-cols-3">
+      {tiers.map((tier, i) => (
+        <motion.div
+          key={tier.label}
+          initial={{ opacity: 0, y: 16 }}
+          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ delay: i * 0.08, duration: 0.4 }}
+          className={`rounded-xl border ${borderClass(tier.tint)} bg-code-bg p-6 transition-colors`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`size-1.5 rounded-full ${dotClass(tier.tint)}`} />
+            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              {tier.label}
+            </h3>
+          </div>
+          <ul className="mt-4 space-y-2">
+            {tier.frameworks.map((name) => (
+              <li
+                key={name}
+                className={
+                  tier.tint === "accent"
+                    ? "text-sm font-medium text-foreground"
+                    : tier.tint === "muted"
+                      ? "text-sm text-foreground/80"
+                      : "text-sm text-muted-foreground"
+                }
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+            {tier.caption}
+          </p>
+        </motion.div>
       ))}
-    </span>
+    </div>
   );
 }
 
