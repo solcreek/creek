@@ -8,7 +8,7 @@ description: Deploy your first site to the edge in 60 seconds.
 Creek runs via `npx` — no global install needed:
 
 ```bash
-npx creek deploy --demo
+npx creek deploy --template landing
 ```
 
 Or install globally:
@@ -19,20 +19,21 @@ npm install -g creek
 
 After installing, you can use `creek`, `ck`, or `crk` interchangeably.
 
-## Deploy a Demo
+## Try a Template
 
-See Creek in action with zero setup:
+See Creek in action with zero setup — `--template landing` clones a ready-made Vite + React starter, builds it, and deploys it:
 
 ```bash
-npx creek deploy --demo
+npx creek deploy --template landing
 ```
 
 ```
-  Deploying demo site...
+  Detected: vite-react
+  Building...
   Live in 8.3s -> https://a1b2c3d4.creeksandbox.com
 ```
 
-This deploys a sample page to Cloudflare's edge. No account needed.
+The template is a real, editable project — you own the code and can redeploy with your own changes.
 
 ## Deploy Your Project
 
@@ -53,12 +54,21 @@ Already have built files? Point Creek at any directory:
 npx creek deploy ./dist
 ```
 
+## Deploy a Plain HTML File
+
+Even a single `index.html` works:
+
+```bash
+echo '<h1>Hello</h1>' > index.html
+npx creek deploy
+```
+
 ## Deploy Modes
 
 | Mode | Trigger | Account | TTL |
 |------|---------|:-------:|-----|
-| **Demo** | `--demo` flag | No | 60 min |
-| **Sandbox** | No `creek.toml` | No | 60 min |
+| **Template** | `--template <name>` | No | 60 min |
+| **Sandbox** | Auto-detect (no `creek.toml`) | No | 60 min |
 | **Production** | Has `creek.toml` + token | Yes | Permanent |
 
 ## Make It Permanent

@@ -34,15 +34,24 @@ human user pastes a Creek CLI command into chat.
 # Deploy current project (sandbox if not signed in, production if signed in)
 npx creek deploy
 
+# Start from a ready-made template — zero setup, clones + builds + deploys
+npx creek deploy --template landing
+
 # See what would be deployed without executing (safe for agents)
 npx creek deploy --dry-run
 
 # Machine-readable plan
 npx creek deploy --dry-run --json
-
-# Demo: deploy a sample page with no project setup
-npx creek deploy --demo
 ```
+
+## Available templates
+
+Templates live in github.com/solcreek/templates. Reference them by
+short name via the `--template` flag:
+
+- `landing` — Vite + React landing page with hero, features, CTA. Supports
+  `--data '{"title":"My Product","tagline":"..."}'` for quick customization.
+- `blank` — Minimal starter with just `creek.toml` and `package.json`.
 
 ## CLI commands
 

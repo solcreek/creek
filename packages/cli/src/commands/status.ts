@@ -39,7 +39,7 @@ async function sandboxStatus(sandboxId: string, jsonMode: boolean) {
 
   if (!res.ok) {
     if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: "Sandbox not found" }, 1, [
-    { command: "creek deploy --demo", description: "Deploy a new sandbox" },
+    { command: "creek deploy --template landing", description: "Deploy a new sandbox from a template" },
   ]);
     consola.error("Sandbox not found. It may have expired.");
     process.exit(1);

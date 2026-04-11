@@ -20,10 +20,10 @@ npm install -g creek
 ## Deploy
 
 ```bash
-creek deploy              # Auto-detect framework, build, deploy
-creek deploy --demo       # Deploy a sample site in seconds
-creek deploy ./dist       # Deploy a pre-built directory
-creek dev                 # Local development server
+creek deploy                        # Auto-detect framework, build, deploy
+creek deploy --template landing     # Clone + build + deploy a Vite + React starter
+creek deploy ./dist                 # Deploy a pre-built directory
+creek dev                           # Local development server
 ```
 
 ## Server Runtime

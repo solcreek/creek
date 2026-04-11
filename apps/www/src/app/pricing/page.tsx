@@ -16,7 +16,7 @@ const tiers = [
       "CLI + API + MCP access",
       "Community support",
     ],
-    cta: "npx creek deploy --demo",
+    cta: "npx creek deploy --template landing",
     ctaStyle: "border" as const,
     highlight: false,
   },
