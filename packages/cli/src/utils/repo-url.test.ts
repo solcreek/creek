@@ -18,6 +18,32 @@ describe("isRepoUrl", () => {
     expect(isRepoUrl("github:user/repo")).toBe(true);
   });
 
+  test("returns true for gh: short alias", () => {
+    expect(isRepoUrl("gh:user/repo")).toBe(true);
+  });
+
+  test("returns true for gl: short alias", () => {
+    expect(isRepoUrl("gl:user/repo")).toBe(true);
+  });
+
+  test("returns true for bb: short alias", () => {
+    expect(isRepoUrl("bb:user/repo")).toBe(true);
+  });
+
+  test("gh: shorthand resolves to github.com clone URL", () => {
+    const parsed = parseRepoUrl("gh:jiseeeh/serene-ink");
+    expect(parsed.provider).toBe("github");
+    expect(parsed.owner).toBe("jiseeeh");
+    expect(parsed.repo).toBe("serene-ink");
+    expect(parsed.cloneUrl).toBe("https://github.com/jiseeeh/serene-ink.git");
+  });
+
+  test("gh: shorthand with branch", () => {
+    const parsed = parseRepoUrl("gh:user/repo#feature-branch");
+    expect(parsed.branch).toBe("feature-branch");
+    expect(parsed.cloneUrl).toBe("https://github.com/user/repo.git");
+  });
+
   test("returns true for GitLab URL", () => {
     expect(isRepoUrl("https://gitlab.com/user/repo")).toBe(true);
   });
