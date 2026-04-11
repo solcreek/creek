@@ -1,73 +1,260 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 
 /**
- * Path-based deploy button entry point.
+ * Path-based deploy button entry point — server component.
  *
- * Canonical URL shape for "Deploy to Creek" buttons:
- *
+ * Canonical URL shape:
  *   creek.dev/deploy/gh/owner/repo
- *   creek.dev/deploy/gl/owner/repo
- *   creek.dev/deploy/bb/owner/repo
+ *   creek.dev/deploy/gl/owner/repo       (gitlab)
+ *   creek.dev/deploy/bb/owner/repo       (bitbucket)
+ *   creek.dev/deploy/github/owner/repo   (long form also accepted)
  *
- * The path-based form is the shortest, most shareable, most
- * copy-paste-friendly variant — no `?` or `&` chars that shells
- * misinterpret, no URL encoding, looks clean in Twitter threads
- * and README badges.
+ * This page:
+ * 1. Exports generateMetadata() that fetches GitHub repo info server-side
+ *    and returns repo-specific og:title / og:description / og:image so
+ *    social crawlers (X / Twitter / Facebook / Discord / LinkedIn / Slack)
+ *    show a per-repo preview card instead of the generic creek.dev card.
  *
- * Query-string forms also work via the sibling /deploy route:
+ * 2. Renders a minimal HTML shell that JS-redirects real users to the
+ *    /new page where the actual deploy UI runs. Bots don't execute JS,
+ *    so they only see the metadata. Humans get the interactive flow.
  *
- *   creek.dev/deploy?url=https://github.com/owner/repo   (CF-compatible)
- *   creek.dev/deploy?url=gh:owner/repo                   (short prefix)
- *
- * All three eventually render the same /new page component.
+ * See also: opengraph-image.tsx in this directory, which generates the
+ * dynamic per-repo PNG that social cards embed.
  */
-export default async function DeployPathPage({
-  params,
-}: {
-  params: Promise<{ slug: string[] }>;
-}) {
-  const { slug } = await params;
 
-  if (!slug || slug.length < 3) {
-    // /deploy/gh or /deploy alone — not enough info; redirect to query form
-    redirect("/deploy");
+const PROVIDER_MAP: Record<string, { host: string; displayName: string }> = {
+  gh: { host: "github.com", displayName: "GitHub" },
+  github: { host: "github.com", displayName: "GitHub" },
+  gl: { host: "gitlab.com", displayName: "GitLab" },
+  gitlab: { host: "gitlab.com", displayName: "GitLab" },
+  bb: { host: "bitbucket.org", displayName: "Bitbucket" },
+  bitbucket: { host: "bitbucket.org", displayName: "Bitbucket" },
+};
+
+interface ParsedSlug {
+  provider: string;
+  providerName: string;
+  host: string;
+  owner: string;
+  repo: string;
+}
+
+function parseSlug(slug: string[] | undefined): ParsedSlug | null {
+  if (!slug || slug.length < 3) return null;
+  const [providerRaw, owner, repoRaw] = slug;
+  const provider = providerMap(providerRaw.toLowerCase());
+  if (!provider) return null;
+  const repo = repoRaw.replace(/\.git$/, "");
+  // Strict character safety for owner/repo — prevent weird paths flowing
+  // into URLs and metadata. Follows GitHub's own naming rules.
+  if (!/^[a-zA-Z0-9._-]+$/.test(owner) || !/^[a-zA-Z0-9._-]+$/.test(repo)) {
+    return null;
   }
-
-  const [providerRaw, ...rest] = slug;
-  const provider = providerRaw.toLowerCase();
-
-  // Map short prefixes to provider hosts. Long forms (`github`, `gitlab`,
-  // `bitbucket`) also accepted so both `/deploy/gh/...` and
-  // `/deploy/github/...` work.
-  const providerMap: Record<string, string> = {
-    gh: "github.com",
-    github: "github.com",
-    gl: "gitlab.com",
-    gitlab: "gitlab.com",
-    bb: "bitbucket.org",
-    bitbucket: "bitbucket.org",
+  return {
+    provider: providerRaw.toLowerCase(),
+    providerName: provider.displayName,
+    host: provider.host,
+    owner,
+    repo,
   };
+}
 
-  const host = providerMap[provider];
-  if (!host) {
-    // Unknown provider — fall back to the query-string /deploy page which
-    // will render an error state explaining the issue.
-    redirect("/deploy");
+function providerMap(key: string) {
+  return PROVIDER_MAP[key];
+}
+
+interface GitHubRepoMeta {
+  name: string;
+  full_name: string;
+  description: string | null;
+  stargazers_count: number;
+  language: string | null;
+  topics: string[];
+  html_url: string;
+  owner: { login: string; avatar_url: string };
+}
+
+/**
+ * Fetch a GitHub repo's public metadata. Returns null for 404 / rate-limit
+ * / network failure — the metadata functions fall back to generic copy in
+ * that case rather than breaking the page render.
+ */
+async function fetchGitHubRepo(
+  owner: string,
+  repo: string,
+): Promise<GitHubRepoMeta | null> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "creek-deploy-button",
+        },
+        // Next.js caches the response for 1 hour — repo metadata doesn't
+        // change often and we don't want to hammer GitHub unauth limits.
+        next: { revalidate: 3600 },
+      },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as GitHubRepoMeta;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string[] }> },
+): Promise<Metadata> {
+  const { slug } = await params;
+  const parsed = parseSlug(slug);
+
+  if (!parsed) {
+    return {
+      title: "Deploy to Creek",
+      description: "Deploy any GitHub repository to Creek in seconds — no signup, no config.",
+    };
   }
 
-  // rest should be [owner, repo, ...optional-extras]. Take the first two.
-  const owner = rest[0];
-  const repo = rest[1];
-  if (!owner || !repo) {
-    redirect("/deploy");
+  const { owner, repo, providerName } = parsed;
+  const meta = parsed.provider.startsWith("gh") || parsed.provider === "github"
+    ? await fetchGitHubRepo(owner, repo)
+    : null;
+
+  const title = `Deploy ${owner}/${repo} to Creek`;
+  const description = meta?.description
+    ? `${meta.description} — Deploy in ~15 seconds, no signup.`
+    : `Deploy this ${providerName} repo to Creek in ~15 seconds — no signup, no config, free sandbox URL.`;
+
+  const canonical = `https://creek.dev/deploy/${parsed.provider}/${owner}/${repo}`;
+  // Dynamic OG image generated by the dedicated og-api worker (packages/og-api).
+  // Path-based URL so it's clean in server logs and shareable as a raw PNG link.
+  const ogImage = `https://og.creek.dev/deploy/${parsed.provider}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: "website",
+      url: canonical,
+      siteName: "Creek",
+      title,
+      description,
+      images: [
+        {
+          url: ogImage,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      site: "@useCreek",
+      title,
+      description,
+      images: [ogImage],
+    },
+  };
+}
+
+export default async function DeployPathPage(
+  { params }: { params: Promise<{ slug: string[] }> },
+) {
+  const { slug } = await params;
+  const parsed = parseSlug(slug);
+
+  // Invalid slug → static explainer (no redirect so bots still get metadata)
+  if (!parsed) {
+    return (
+      <FallbackShell
+        title="Deploy to Creek"
+        subtitle="Paste a GitHub, GitLab, or Bitbucket repo URL to deploy it."
+        ctaHref="/deploy"
+        ctaLabel="Open Creek Deploy"
+      />
+    );
   }
 
-  // Strip any trailing .git
-  const cleanRepo = repo.replace(/\.git$/, "");
+  const { owner, repo, host } = parsed;
+  const fullUrl = `https://${host}/${owner}/${repo}`;
+  const target = `/new?repo=${encodeURIComponent(fullUrl)}`;
 
-  // Build the canonical URL and forward to /new which handles the render.
-  // Using the full URL form (not gh: short) because /new's parser accepts
-  // both, and the full URL is unambiguous.
-  const fullUrl = `https://${host}/${owner}/${cleanRepo}`;
-  redirect(`/new?repo=${encodeURIComponent(fullUrl)}`);
+  // Render a minimal SSR shell with metadata-ready HTML. The <script> kicks
+  // real users to the full /new page where useWebDeploy runs. Crawlers
+  // don't execute JS, so they read metadata + snapshot this page and move
+  // on — the metadata export above is what powers the social card.
+  return (
+    <FallbackShell
+      title={`Deploy ${owner}/${repo}`}
+      subtitle={`One click → live URL in ~15 seconds. No signup.`}
+      ctaHref={target}
+      ctaLabel="Continue to deploy"
+      redirectScriptTarget={target}
+    />
+  );
+}
+
+function FallbackShell({
+  title,
+  subtitle,
+  ctaHref,
+  ctaLabel,
+  redirectScriptTarget,
+}: {
+  title: string;
+  subtitle: string;
+  ctaHref: string;
+  ctaLabel: string;
+  redirectScriptTarget?: string;
+}) {
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
+      <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
+        <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
+          <a href="/" className="font-mono text-sm font-medium tracking-tight">creek</a>
+          <div className="flex items-center gap-6 text-sm text-[#888]">
+            <a href="/docs" className="hover:text-[#e5e5e5] transition-colors">Docs</a>
+            <a href="/pricing" className="hover:text-[#e5e5e5] transition-colors">Pricing</a>
+          </div>
+        </div>
+      </nav>
+
+      <main className="flex-1 flex items-center justify-center px-6">
+        <div className="max-w-md w-full text-center">
+          <p className="text-xs font-mono text-[#888] mb-2">Deploy to Creek</p>
+          <h1 className="text-2xl font-semibold tracking-tight mb-3">{title}</h1>
+          <p className="text-sm text-[#888] mb-8 leading-relaxed">{subtitle}</p>
+          <a
+            href={ctaHref}
+            className="inline-block py-3 px-8 rounded-xl bg-[#38bdf8] text-[#0a0a0a] font-semibold text-sm hover:bg-[#60d0e0] transition-colors"
+          >
+            {ctaLabel} →
+          </a>
+          <p className="mt-6 text-xs text-[#555]">
+            No account needed — deploys to a 60-minute preview URL.
+          </p>
+        </div>
+      </main>
+
+      {redirectScriptTarget && (
+        <>
+          {/* Real users in browsers get redirected immediately. Crawlers
+              (Twitterbot, facebookexternalhit, Slackbot, Discordbot) don't
+              execute JS, so they only see the metadata above. */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.location.replace(${JSON.stringify(redirectScriptTarget)});`,
+            }}
+          />
+          <noscript>
+            <meta httpEquiv="refresh" content={`1; url=${redirectScriptTarget}`} />
+          </noscript>
+        </>
+      )}
+    </div>
+  );
 }
