@@ -178,6 +178,21 @@ export async function listInstallationRepos(token: string): Promise<GitHubRepo[]
 }
 
 /**
+ * Get the latest commit on a branch. Returns {sha, message} or null if not found.
+ */
+export async function getLatestCommit(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<{ sha: string; message: string } | null> {
+  const res = await githubFetch(token, `/repos/${owner}/${repo}/commits/${encodeURIComponent(branch)}`);
+  if (!res.ok) return null;
+  const data = await res.json() as { sha: string; commit: { message: string } };
+  return { sha: data.sha, message: data.commit.message };
+}
+
+/**
  * Get file content from a repo. Returns null if file doesn't exist (404).
  */
 export async function getRepoContents(

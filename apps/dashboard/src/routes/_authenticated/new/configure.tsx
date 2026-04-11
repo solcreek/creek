@@ -107,6 +107,15 @@ function ConfigurePage() {
         }
       }
 
+      // 4. Trigger initial deploy from the latest commit on the production
+      //    branch (only for GitHub imports — URL imports have no connection).
+      if (installation_id && owner && repo) {
+        await api("/github/deploy-latest", {
+          method: "POST",
+          body: JSON.stringify({ projectId }),
+        });
+      }
+
       return projectRes.project;
     },
     onSuccess: (project) => {
