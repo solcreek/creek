@@ -32,37 +32,6 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
           {/* Left: Text */}
           <div>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="font-mono text-xs text-muted-foreground mb-5 tracking-wide flex items-center gap-2 flex-wrap"
-            >
-              <a
-                href="https://github.com/solcreek/creek"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
-                title="View source on GitHub"
-              >
-                <span className="size-1.5 rounded-full bg-accent" />
-                Apache 2.0
-              </a>
-              <span className="text-muted-foreground/40">·</span>
-              <a
-                href="/docs/self-hosting"
-                className="hover:text-foreground transition-colors"
-              >
-                Self-hostable
-              </a>
-              <span className="text-muted-foreground/40">·</span>
-              <a
-                href="/docs/mcp"
-                className="hover:text-foreground transition-colors"
-              >
-                MCP · agent-ready
-              </a>
-            </motion.div>
             <motion.h1
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -73,10 +42,9 @@ export default function Home() {
               <br />
               {/* Line 2 stays one tier smaller than line 1 to preserve
                   the headline + qualifier rhythm — Line 1 is the action,
-                  Line 2 is the positioning backup. Self-hostable echoes
-                  the chip row and the Section 07 'Low lock-in' story. */}
+                  Line 2 is the product-benefit payoff. */}
               <span className="block text-3xl sm:text-4xl bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
-                Open source. Self-hostable.
+                Backend included.
               </span>
             </motion.h1>
             <motion.p
@@ -90,7 +58,7 @@ export default function Home() {
               </span>{" "}
               Creek provisions the database, cron, queues, and WebSockets —
               use any ORM, or bring your own DB.{" "}
-              <span className="text-accent font-medium">100k requests/day free. No egress fees.</span>
+              <span className="text-accent font-medium">Free to start.</span>
             </motion.p>
 
             <motion.div
