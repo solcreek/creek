@@ -3,10 +3,14 @@
  *
  * Phase 1 (current): hosted-only CF Worker, powers social cards for
  * creek.dev's deploy buttons and template gallery. Internal use.
+ * Rendering primitives (ImageResponse, brand tokens, card templates)
+ * live in `packages/og` as `@solcreek/og` — consumed here via
+ * workspace reference. This worker is also the reference consumer
+ * for the library.
  *
- * Phase 2 (planned): publish @solcreek/og as an npm package exposing the
- * same ImageResponse primitive this worker uses internally, so Creek users
- * can embed dynamic OG images in their own deployed workers the same way
+ * Phase 2 (planned): flip `packages/og` from `"private": true` to
+ * published and cut `@solcreek/og@0.1.0` on npm, so Creek users can
+ * embed dynamic OG images in their own deployed workers the same way
  * @vercel/og works on Vercel.
  *
  * Phase 3 (planned): `npx creek deploy --template og` scaffolds a
@@ -37,9 +41,11 @@
  */
 
 import { Hono } from "hono";
-import { ImageResponse } from "workers-og";
-import { deployButtonCard } from "./templates/deploy-button.js";
-import { brandCard } from "./templates/creek-brand.js";
+import {
+  ImageResponse,
+  brandCard,
+  deployButtonCard,
+} from "@solcreek/og";
 
 type Env = {
   CREEK_ORIGIN: string;

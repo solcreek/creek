@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.7.4",
-    "workers-og": "^0.0.27"
+    "@solcreek/og": "workspace:*",
+    "hono": "^4.7.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260405.1",

@@ -10,7 +10,9 @@
  * the rendered image to come out empty.
  */
 
-interface DeployButtonCardProps {
+import { creekBrand } from "../brand.js";
+
+export interface DeployButtonCardProps {
   owner: string;
   repo: string;
   description: string | null;
@@ -35,10 +37,9 @@ export function deployButtonCard(props: DeployButtonCardProps) {
         justifyContent: "center",
         alignItems: "center",
         padding: "72px 80px",
-        background:
-          "linear-gradient(135deg, #0a0a0a 0%, #0f1419 50%, #080a0d 100%)",
-        color: "#fafafa",
-        fontFamily: "sans-serif",
+        background: creekBrand.gradients.background,
+        color: creekBrand.colors.fg,
+        fontFamily: creekBrand.fonts.sans,
       }}
     >
       {/* Brand line */}
@@ -46,7 +47,7 @@ export function deployButtonCard(props: DeployButtonCardProps) {
         style={{
           display: "flex",
           fontSize: 26,
-          color: "#a1a1aa",
+          color: creekBrand.colors.mutedFg,
           letterSpacing: 2,
           textTransform: "uppercase",
           marginBottom: 32,
@@ -60,7 +61,7 @@ export function deployButtonCard(props: DeployButtonCardProps) {
         style={{
           display: "flex",
           fontSize: 40,
-          color: "#71717a",
+          color: creekBrand.colors.dimFg,
           marginBottom: 12,
         }}
       >
@@ -73,7 +74,7 @@ export function deployButtonCard(props: DeployButtonCardProps) {
           display: "flex",
           fontSize: 96,
           fontWeight: 700,
-          background: "linear-gradient(135deg, #5eead4, #60a5fa)",
+          background: creekBrand.gradients.heroText,
           backgroundClip: "text",
           color: "transparent",
           letterSpacing: -2,
@@ -89,7 +90,7 @@ export function deployButtonCard(props: DeployButtonCardProps) {
           style={{
             display: "flex",
             fontSize: 30,
-            color: "#a1a1aa",
+            color: creekBrand.colors.mutedFg,
             maxWidth: 1040,
             textAlign: "center",
             marginBottom: 40,
@@ -104,12 +105,12 @@ export function deployButtonCard(props: DeployButtonCardProps) {
         style={{
           display: "flex",
           fontSize: 24,
-          fontFamily: "monospace",
-          color: "#5eead4",
+          fontFamily: creekBrand.fonts.mono,
+          color: creekBrand.colors.accent,
           padding: "14px 28px",
-          border: "1px solid #1f2937",
+          border: `1px solid ${creekBrand.colors.border}`,
           borderRadius: 10,
-          background: "rgba(15, 20, 25, 0.8)",
+          background: creekBrand.colors.surface,
         }}
       >
         $ npx creek deploy gh:{owner}/{repo}
