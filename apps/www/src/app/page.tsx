@@ -184,7 +184,7 @@ export default function Home() {
         <SectionHeader
           label="03"
           title="Built for AI agents"
-          description="The only deployment platform with a remote MCP server. Any AI agent can deploy with a single tool call."
+          description="Remote MCP server, JSON output on every command, installable agent skills, and the Agent Challenge protocol so verified agents skip CAPTCHAs. All shipping today."
         />
         <AgentFirstDemo />
       </section>
@@ -379,6 +379,50 @@ function AgentFirstDemo() {
           <p className="mt-4 text-xs text-muted-foreground/70">
             Structured output. No parsing needed.
           </p>
+        </div>
+      </div>
+
+      {/* Agent Skills — span both columns on lg */}
+      <div className="rounded-xl border border-border overflow-hidden lg:col-span-2">
+        <div className="px-4 py-2.5 bg-code-bg border-b border-border flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/60" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]/60" />
+          <span className="ml-3 text-xs text-muted-foreground font-mono">Agent Skills</span>
+        </div>
+        <div className="bg-code-bg p-5 font-mono text-[13px] leading-7 grid gap-4 sm:grid-cols-[1fr_1fr]">
+          <div>
+            <pre className="text-foreground whitespace-pre">{`$ npx skills add solcreek/skills`}</pre>
+            <pre className="mt-3 text-muted-foreground whitespace-pre text-[12px]">{`# Installs the "creek" skill into
+# Claude Code, Cursor, Copilot,
+# Gemini CLI, OpenCode, …`}</pre>
+          </div>
+          <div>
+            <p className="text-[13px] text-muted-foreground leading-6">
+              Agents get the full CLI reference, deployment modes, trigger
+              schema, and troubleshooting tree — loaded on demand via the{" "}
+              <a
+                href="https://agentskills.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-accent transition-colors"
+              >
+                open Agent Skills standard
+              </a>
+              .
+            </p>
+            <p className="mt-3 text-[11px] text-muted-foreground/60">
+              Apache 2.0 · maintained at{" "}
+              <a
+                href="https://github.com/solcreek/skills"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-accent/80 transition-colors"
+              >
+                solcreek/skills
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </motion.div>
