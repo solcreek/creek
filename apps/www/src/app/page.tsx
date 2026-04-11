@@ -64,10 +64,10 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="text-4xl font-semibold leading-[1.15] tracking-tight sm:text-5xl"
             >
-              Deploy to the edge.
+              Ship side projects for $0 idle.
               <br />
               <span className="bg-gradient-to-r from-accent via-[oklch(0.7_0.12_240)] to-accent bg-clip-text text-transparent">
-                Realtime built in.
+                No bill surprises, ever.
               </span>
             </motion.h1>
             <motion.p
@@ -76,9 +76,9 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              One command or one GitHub push. D1 (SQLite), cron, queues, WebSockets,
-              analytics — all built in. Powered by Cloudflare's network across
-              300+ edge POPs.
+              Git push, zero config. Database, cron, queues, WebSockets,
+              analytics — all auto-provisioned across 300+ edge POPs. Runs on
+              Cloudflare. Self-host any time.
             </motion.p>
 
             <motion.div
@@ -140,10 +140,20 @@ export default function Home() {
         <ZeroConfigDemo />
       </section>
 
-      {/* Section: Frameworks */}
+      {/* Section: Coming from Vercel or Netlify */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
           label="03"
+          title="Coming from Vercel or Netlify?"
+          description="We grew up on those platforms. They taught us what great deploy DX looks like — git push, PR previews, framework detection, env vars in the dashboard. Creek keeps all of it. The bill is different. The license is different. Everything else should feel familiar."
+        />
+        <MigrationSection />
+      </section>
+
+      {/* Section: Frameworks */}
+      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+        <SectionHeader
+          label="04"
           title="Vite-first, framework-agnostic"
           description="Zero-config for Vite apps and anything built on top of Vite. Other frameworks supported with varying maturity — Next.js routing through an adapter, written up honestly."
         />
@@ -153,7 +163,7 @@ export default function Home() {
       {/* Section: Agent-First */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
-          label="04"
+          label="05"
           title="Built for AI agents"
           description="Remote MCP server, JSON output on every command, installable agent skills, and the Agent Challenge protocol so verified agents skip CAPTCHAs. All shipping today."
         />
@@ -163,7 +173,7 @@ export default function Home() {
       {/* Section: Edge Performance */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
-          label="05"
+          label="06"
           title="Edge-native performance"
           description="Your app runs on 300+ Cloudflare edge locations. Millisecond cold starts, global TTFB."
         />
@@ -173,9 +183,9 @@ export default function Home() {
       {/* Section: Open Source */}
       <section className="mx-auto w-full max-w-5xl px-6 pb-24">
         <SectionHeader
-          label="06"
-          title="Open source"
-          description="Apache 2.0 licensed. Self-host on your own Cloudflare account. No vendor lock-in."
+          label="07"
+          title="Open source, not lock-in-free"
+          description="Apache 2.0. Self-host on your own Cloudflare account. We're honest: Creek is built on Cloudflare Workers, so you're ultimately locked to Cloudflare. The point is you're not locked to us — your code keeps working if you eject to raw wrangler, because Creek deploys standard CF primitives, not proprietary ones."
         />
         <OpenSourceSection />
       </section>
@@ -461,9 +471,9 @@ function OpenSourceSection() {
   const isInView = useInView(ref, { once: true, margin: "-60px" });
 
   const items = [
-    { title: "Apache 2.0", desc: "Use it, modify it, self-host it. No strings attached." },
+    { title: "Apache 2.0", desc: "Use it, modify it, self-host it. Full source on GitHub." },
     { title: "Self-hostable", desc: "Run Creek on your own Cloudflare account with a single command." },
-    { title: "No lock-in", desc: "Standard build tools, standard output. Eject anytime." },
+    { title: "Eject anytime", desc: "Creek deploys standard Cloudflare primitives. Your code runs on raw wrangler too." },
   ];
 
   return (
@@ -478,6 +488,85 @@ function OpenSourceSection() {
         >
           <h3 className="text-sm font-semibold mb-1.5">{item.title}</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+function MigrationSection() {
+  const ref = useRef<HTMLDivElement>(null);
+  const isInView = useInView(ref, { once: true, margin: "-60px" });
+
+  // Intentionally warm tone — no dunking on competitors, just a clear
+  // "here's what transfers, here's what changes" layout. Vercel / Netlify
+  // taught the whole category what good DX looks like; we owe them the
+  // respect of naming them without trashing them.
+  const cards = [
+    {
+      label: "Same workflow",
+      lines: [
+        "`git push` deploys.",
+        "PR previews on every pull request.",
+        "Framework auto-detection.",
+        "Env vars in the dashboard.",
+      ],
+      note: "Nothing new to learn. Your muscle memory transfers.",
+    },
+    {
+      label: "Same frameworks",
+      lines: [
+        "Vite, Astro, SvelteKit, Nuxt.",
+        "Every Vite meta-framework, auto-detected.",
+        "Next.js via adapter-creek (WIP).",
+        "Static sites with one index.html.",
+      ],
+      note: "See the Frameworks section below for the full maturity tiers.",
+    },
+    {
+      label: "Different bill",
+      lines: [
+        "Runs on Cloudflare Workers — $0 idle.",
+        "No per-seat fees.",
+        "No surprise invoices when traffic spikes.",
+        "Apache 2.0: self-host on your own account anytime.",
+      ],
+      note: "The point of Creek. The cost shape is structurally different, not marginally different.",
+    },
+  ];
+
+  return (
+    <div ref={ref} className="grid gap-4 lg:grid-cols-3">
+      {cards.map((card, i) => (
+        <motion.div
+          key={card.label}
+          initial={{ opacity: 0, y: 16 }}
+          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ delay: i * 0.08, duration: 0.4 }}
+          className="rounded-xl border border-border bg-code-bg p-6 hover:border-accent/20 transition-colors"
+        >
+          <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+            {card.label}
+          </h3>
+          <ul className="mt-4 space-y-2">
+            {card.lines.map((line, idx) => (
+              <li
+                key={idx}
+                className="text-sm text-foreground/80 leading-relaxed"
+                // The first line in each card uses backticks for code-ish
+                // content; render them as <code> for a light visual anchor.
+                dangerouslySetInnerHTML={{
+                  __html: line.replace(
+                    /`([^`]+)`/g,
+                    '<code class="font-mono text-accent bg-accent/10 rounded px-1 py-0.5">$1</code>',
+                  ),
+                }}
+              />
+            ))}
+          </ul>
+          <p className="mt-4 text-xs text-muted-foreground leading-relaxed border-t border-border pt-3">
+            {card.note}
+          </p>
         </motion.div>
       ))}
     </div>
