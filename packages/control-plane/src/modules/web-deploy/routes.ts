@@ -10,7 +10,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
-import { buildAndDeploy, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
+import { buildAndDeploy, fetchCommitSha, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
 
 type AppEnv = { Bindings: Env };
 
@@ -72,6 +72,17 @@ webDeploy.post("/", async (c) => {
   }
   await c.env.BUILD_STATUS.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
 
+  // Resolve the latest commit SHA from GitHub so the downstream
+  // build cache in remote-builder can key on the exact commit.
+  // Non-blocking: failure just means no cache key (rebuild every time).
+  let commitSha: string | null = null;
+  if (body.type === "repo" && body.repo) {
+    const normalizedRepo = body.repo.startsWith("http")
+      ? body.repo
+      : `https://github.com/${body.repo}`;
+    commitSha = await fetchCommitSha(normalizedRepo, body.branch || "main");
+  }
+
   // Generate build ID
   const buildId = crypto.randomUUID().slice(0, 12);
 
@@ -82,7 +93,7 @@ webDeploy.post("/", async (c) => {
     createdAt: new Date().toISOString(),
   });
 
-  await buildAndDeploy(buildId, body, c.env);
+  await buildAndDeploy(buildId, body, c.env, commitSha);
 
   return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
 });
