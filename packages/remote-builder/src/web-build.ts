@@ -3,6 +3,13 @@
  *
  * Runs as a Queue consumer in remote-builder, so it has no waitUntil time
  * limit. Writes status updates directly to BUILD_STATUS KV.
+ *
+ * Build output caching: when `commitSha` is present in the queue message,
+ * the built bundle JSON is cached in KV under a composite key. Subsequent
+ * deploys of the same repo+branch+sha skip the entire build pipeline and
+ * re-POST the cached bundle to sandbox-api, which creates a FRESH isolated
+ * sandbox. From outside, every deploy looks identical — same endpoint, same
+ * response shape — the caching mechanism is purely internal.
  */
 
 interface WebBuildMessage {
@@ -10,6 +17,7 @@ interface WebBuildMessage {
   repoUrl: string;
   path?: string;
   branch?: string;
+  commitSha?: string;
   templateData?: Record<string, unknown>;
 }
 
@@ -19,56 +27,107 @@ interface WebBuildEnv {
   INTERNAL_SECRET?: string;
 }
 
+/** KV size limit for cached bundles (bytes). KV max is 25 MiB. */
+const MAX_CACHE_SIZE = 24 * 1024 * 1024; // 24 MiB with safety margin
+
+/**
+ * Build a KV cache key for a repo deploy. Returns null if the message
+ * doesn't carry a commitSha (templates, private repos where SHA
+ * resolution failed).
+ */
+function bundleCacheKey(msg: WebBuildMessage): string | null {
+  if (!msg.commitSha) return null;
+  const parts = ["bundlecache", msg.repoUrl, msg.branch || "main", msg.commitSha];
+  if (msg.path) parts.push(msg.path);
+  return parts.join(":");
+}
+
 export async function handleWebBuild(
   message: WebBuildMessage,
   env: WebBuildEnv,
   buildFn: (req: { repoUrl: string; path?: string; branch?: string; templateData?: Record<string, unknown> }) => Promise<any>,
 ): Promise<void> {
   const { buildId } = message;
+  const cacheKey = bundleCacheKey(message);
 
-  // --- Build ---
-  let buildResult: any;
-  try {
-    buildResult = await buildFn({
-      repoUrl: message.repoUrl,
-      path: message.path,
-      branch: message.branch,
-      templateData: message.templateData,
-    });
-  } catch (err) {
-    await updateKV(env, buildId, {
-      status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-      failedStep: "build",
-    });
-    return;
+  // ------------------------------------------------------------------
+  // 1. Try cache — read cached bundle if available
+  // ------------------------------------------------------------------
+  let bundleJson: string | null = null;
+  let cacheHit = false;
+
+  if (cacheKey) {
+    try {
+      const cached = await env.BUILD_STATUS.get(cacheKey);
+      if (cached) {
+        bundleJson = cached;
+        cacheHit = true;
+      }
+    } catch {
+      // KV read failure — fall through to build
+    }
   }
 
-  if (!buildResult.success) {
-    await updateKV(env, buildId, {
-      status: "failed",
-      error: buildResult.message || buildResult.error || "Build failed",
-      failedStep: "build",
+  // ------------------------------------------------------------------
+  // 2. Build (only on cache miss)
+  // ------------------------------------------------------------------
+  if (!bundleJson) {
+    let buildResult: any;
+    try {
+      buildResult = await buildFn({
+        repoUrl: message.repoUrl,
+        path: message.path,
+        branch: message.branch,
+        templateData: message.templateData,
+      });
+    } catch (err) {
+      await updateKV(env, buildId, {
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        failedStep: "build",
+      });
+      return;
+    }
+
+    if (!buildResult.success) {
+      await updateKV(env, buildId, {
+        status: "failed",
+        error: buildResult.message || buildResult.error || "Build failed",
+        failedStep: "build",
+      });
+      return;
+    }
+
+    // Validate bundle
+    const assets = buildResult.bundle?.assets;
+    if (!assets || Object.keys(assets).length === 0) {
+      const hasWorker = buildResult.bundle?.serverFiles && Object.keys(buildResult.bundle.serverFiles).length > 0;
+      await updateKV(env, buildId, {
+        status: "failed",
+        error: hasWorker
+          ? "Worker projects require authenticated deployment. Use `creek deploy` with a Creek account."
+          : "Build produced no output files. Check your build command and output directory.",
+        failedStep: "build",
+      });
+      return;
+    }
+
+    bundleJson = JSON.stringify({
+      assets: buildResult.bundle.assets,
+      serverFiles: buildResult.bundle.serverFiles,
+      manifest: buildResult.bundle.manifest,
+      framework: buildResult.config?.framework,
+      source: "web",
     });
-    return;
   }
 
-  // --- Validate bundle ---
-  const assets = buildResult.bundle?.assets;
-  if (!assets || Object.keys(assets).length === 0) {
-    const hasWorker = buildResult.bundle?.serverFiles && Object.keys(buildResult.bundle.serverFiles).length > 0;
-    await updateKV(env, buildId, {
-      status: "failed",
-      error: hasWorker
-        ? "Worker projects require authenticated deployment. Use `creek deploy` with a Creek account."
-        : "Build produced no output files. Check your build command and output directory.",
-      failedStep: "build",
-    });
-    return;
-  }
-
-  // --- Deploy to sandbox ---
-  await updateKV(env, buildId, { status: "deploying" });
+  // ------------------------------------------------------------------
+  // 3. Deploy to sandbox (always — fresh sandbox per deploy)
+  // ------------------------------------------------------------------
+  await updateKV(env, buildId, {
+    status: "deploying",
+    ...(cacheHit ? { cacheHit: true } : {}),
+  });
 
   let sandboxRes: Response;
   try {
@@ -78,13 +137,7 @@ export async function handleWebBuild(
         "Content-Type": "application/json",
         ...(env.INTERNAL_SECRET ? { "X-Internal-Secret": env.INTERNAL_SECRET } : {}),
       },
-      body: JSON.stringify({
-        assets: buildResult.bundle.assets,
-        serverFiles: buildResult.bundle.serverFiles,
-        manifest: buildResult.bundle.manifest,
-        framework: buildResult.config?.framework,
-        source: "web",
-      }),
+      body: bundleJson,
     });
   } catch (err) {
     await updateKV(env, buildId, {
@@ -96,7 +149,7 @@ export async function handleWebBuild(
   }
 
   if (!sandboxRes.ok) {
-    const err = await sandboxRes.text().catch(() => "");
+    const err = await sandboxRes.text().catch(() => "Deploy rejected");
     await updateKV(env, buildId, {
       status: "failed",
       error: `Deploy failed: ${err.slice(0, 200)}`,
@@ -115,6 +168,12 @@ export async function handleWebBuild(
     expiresAt: sandbox.expiresAt,
     sandboxStatusUrl: sandbox.statusUrl,
   });
+
+  // If sandbox is already active (immediate deploy), write cache + done
+  if (sandbox.status === "active") {
+    await writeBundleCache(env, cacheKey, cacheHit, bundleJson, sandbox.expiresAt);
+    return;
+  }
 
   // If not yet active, poll until terminal state.
   // Queue consumer has no time limit — safe to poll here.
@@ -140,6 +199,7 @@ export async function handleWebBuild(
         previewUrl: sandbox.previewUrl,
         expiresAt: sandbox.expiresAt,
       });
+      await writeBundleCache(env, cacheKey, cacheHit, bundleJson, sandbox.expiresAt);
     } else if (finalStatus.status === "failed") {
       await updateKV(env, buildId, {
         status: "failed",
@@ -162,4 +222,26 @@ async function updateKV(
     JSON.stringify({ buildId, ...data, updatedAt: new Date().toISOString() }),
     { expirationTtl: 3600 },
   );
+}
+
+/**
+ * Write the bundle JSON to KV as a cache entry. Non-critical — if write
+ * fails (bundle too large, KV error), the next deploy just rebuilds.
+ */
+async function writeBundleCache(
+  env: Pick<WebBuildEnv, "BUILD_STATUS">,
+  cacheKey: string | null,
+  alreadyCached: boolean,
+  bundleJson: string | null,
+  expiresAt: string,
+): Promise<void> {
+  if (!cacheKey || alreadyCached || !bundleJson) return;
+  if (bundleJson.length > MAX_CACHE_SIZE) return;
+  try {
+    const remainingMs = new Date(expiresAt).getTime() - Date.now();
+    const ttl = Math.max(60, Math.floor(remainingMs / 1000));
+    await env.BUILD_STATUS.put(cacheKey, bundleJson, { expirationTtl: ttl });
+  } catch {
+    // Cache write failure — non-critical
+  }
 }
