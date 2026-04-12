@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./brand": "./src/brand.ts",
+    "./deploy-url": "./src/deploy-url.ts",
     "./templates/deploy-button": "./src/templates/deploy-button.tsx",
     "./templates/creek-brand": "./src/templates/creek-brand.tsx"
   },
