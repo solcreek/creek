@@ -5,7 +5,7 @@ import { motion, useInView, AnimatePresence } from "framer-motion";
 import { CodeComparison } from "@/components/code-comparison";
 import { Footer } from "@/components/footer";
 import { PresenceBadge } from "@/components/presence-badge";
-import { CornerMarkers, LineworkCard, SectionRule } from "@/components/linework";
+import { CornerMarkers, LineworkCard, LineworkSection } from "@/components/linework";
 
 const DEMO_URL = "https://todo-demo.creek.dev";
 
@@ -15,8 +15,8 @@ export default function Home() {
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg">
         <div className="mx-auto max-w-5xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="inline-flex items-baseline gap-1.5 text-base font-medium tracking-tight">
-            <span aria-hidden="true">⬡</span>
+          <a href="/" className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none">
+            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
             <span className="font-brand">Creek</span>
           </a>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
@@ -108,79 +108,79 @@ export default function Home() {
       </section>
 
       {/* Section: Realtime in 6 lines */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="01"
           title="Realtime in 6 lines"
           description="WebSocket sync, optimistic updates, multi-user rooms. Zero boilerplate."
         />
         <CodeComparison />
-      </section>
+      </LineworkSection>
 
       {/* Section: Your repo is the config */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="02"
           title="Your repo is the config"
           description="creek.toml is optional. Creek reads your framework config, package.json, wrangler files — or just an index.html — and works it out. Framework, bindings, build command, output dir: inferred from what's already in your repo. Add a creek.toml only when you need triggers or explicit overrides."
         />
         <ZeroConfigDemo />
-      </section>
+      </LineworkSection>
 
       {/* Section: Coming from Vercel or Netlify */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="03"
           title="Coming from Vercel or Netlify?"
           description="We grew up on those platforms. They taught us what great deploy DX looks like — git push, PR previews, framework detection, env vars in the dashboard. Creek keeps all of it. The bill is different. The license is different. Everything else should feel familiar."
         />
         <MigrationSection />
-      </section>
+      </LineworkSection>
 
       {/* Section: Frameworks */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="04"
           title="Your framework is supported"
           description="Vite, React, Vue, Svelte, Astro, TanStack Start, React Router, Hono, static sites — zero config. Next.js via our adapter (WIP). Every framework written up honestly below."
         />
         <FrameworksSection />
-      </section>
+      </LineworkSection>
 
       {/* Section: Agent-First */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="05"
           title="Built for AI agents"
           description="Remote MCP server, JSON output on every command, installable agent skills, and the Agent Challenge protocol so verified agents skip CAPTCHAs. All shipping today."
         />
         <AgentFirstDemo />
-      </section>
+      </LineworkSection>
 
       {/* Section: Edge Performance */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="06"
           title="Edge-native performance"
           description="Your app runs on 300+ edge locations. Millisecond cold starts, global TTFB."
         />
         <PerformanceComparison />
-      </section>
+      </LineworkSection>
 
       {/* Section: Open Source */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection>
         <SectionHeader
           label="07"
           title="Open source. Low lock-in, honestly."
           description="Apache 2.0. Self-host on your own Cloudflare account. We're honest: Creek is built on Cloudflare Workers, so you're ultimately locked to Cloudflare. The point is you're not locked to us — your code keeps working if you eject to raw wrangler, because Creek deploys standard CF primitives, not proprietary ones."
         />
         <OpenSourceSection />
-      </section>
+      </LineworkSection>
 
       {/* Feature grid */}
-      <section className="mx-auto w-full max-w-5xl px-6 pb-24">
+      <LineworkSection terminal>
         <FeatureGrid />
-      </section>
+      </LineworkSection>
 
       {/* CTA */}
       <section className="border-t border-border py-20 text-center px-6">
@@ -250,7 +250,6 @@ function SectionHeader({ label, title, description }: { label: string; title: st
 
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: 20 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5 }} className="mb-8">
-      <SectionRule />
       <p className="font-mono text-xs text-muted-foreground mb-3">{label}</p>
       <h2 className="text-2xl font-semibold tracking-tight mb-2">{title}</h2>
       <p className="text-muted-foreground leading-relaxed max-w-lg">{description}</p>
@@ -278,7 +277,7 @@ function ZeroConfigDemo() {
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: i * 0.08, duration: 0.4 }}
         >
-          <LineworkCard className="rounded-xl p-5">
+          <LineworkCard className="p-5">
             <p className="text-sm font-medium mb-3">{fw.name}</p>
             <div className="font-mono text-[12px] leading-6 text-muted-foreground space-y-0.5">
               <p><span className="text-muted-foreground/50">$ </span><span className="text-foreground">creek deploy</span></p>

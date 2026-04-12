@@ -5,8 +5,8 @@ export function Footer() {
     <footer className="border-t border-border py-8 px-6 mt-auto">
       <div className="mx-auto max-w-5xl flex flex-col gap-6 text-xs text-muted-foreground">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="inline-flex items-baseline gap-1.5">
-            <span aria-hidden="true">⬡</span>
+          <span className="inline-flex items-center gap-1.5 leading-none">
+            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
             <span className="font-brand text-base font-medium">Creek</span>
           </span>
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">

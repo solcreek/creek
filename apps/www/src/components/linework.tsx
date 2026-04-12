@@ -2,38 +2,66 @@ import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Architectural / CAD "drawing reference" corner markers.
+ * CSS-drawn cross marker. A 12×12 anchor box with a 1px horizontal
+ * and a 1px vertical bar, both centered via `inset-0 m-auto`. The
+ * `mask-radial-from-15%` feathers the bar ends for a hand-drawn
+ * blueprint feel.
  *
- * Four tiny `+` characters anchored slightly outside the four corners
- * of the parent (which must be `position: relative`). Used to give a
- * container the blueprint / technical-drawing language common in
- * modern dev-tool marketing sites (Linear, Vercel, Neon, Cal.com).
+ * Decoupled from typography — no font metrics, no glyph-centering
+ * quirks, no `calc(+1px)` nudges. Always pixel-perfect, renders
+ * before fonts load, independent of `font-mono` being available.
  *
- * Pure decoration: aria-hidden and pointer-events-none, so no impact
- * on screen readers or click targets.
- *
- * The `group-hover:` brightening is why callers should place the
- * parent in a `group` — markers "light up" when the card is hovered,
- * reinforcing the "coming into focus" feel without a new border.
+ * Callers position the mark at a corner and translate it so its
+ * centre lands exactly on the corner point. The `0.5px` offset keeps
+ * the 1px bars on the device pixel grid (crisp on retina).
  */
-export function CornerMarkers({ className }: { className?: string }) {
-  const base =
-    "pointer-events-none absolute text-[10px] font-mono leading-none select-none text-muted-foreground/30 group-hover:text-accent/60 transition-colors";
+export function CrossMark({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute size-3 mask-radial-from-40%",
+        "before:absolute before:inset-0 before:m-auto before:h-px before:bg-foreground/10",
+        "after:absolute after:inset-0 after:m-auto after:w-px after:bg-foreground/10",
+        className,
+      )}
+    />
+  );
+}
 
+/**
+ * Architectural / CAD "drawing reference" corner markers — crosses
+ * anchored at the four corners of the parent (which must be
+ * `position: relative`). Pure decoration, pointer-events-none.
+ *
+ * Use `group` on the parent to get the hover brighten effect.
+ */
+export function CornerMarkers() {
+  const hover =
+    "before:transition-colors after:transition-colors group-hover:before:bg-accent/70 group-hover:after:bg-accent/70";
+  // Cards use `border border-border` — a 1px border on ALL four sides, so
+  // every edge sits OUTSIDE the relative box. Y and X both need +0.5 to
+  // pull the cross centre onto the border midline.
   return (
     <>
-      <span aria-hidden className={cn(base, "-top-[5px] -left-[5px]", className)}>
-        +
-      </span>
-      <span aria-hidden className={cn(base, "-top-[5px] -right-[5px]", className)}>
-        +
-      </span>
-      <span aria-hidden className={cn(base, "-bottom-[5px] -left-[5px]", className)}>
-        +
-      </span>
-      <span aria-hidden className={cn(base, "-bottom-[5px] -right-[5px]", className)}>
-        +
-      </span>
+      <CrossMark
+        className={cn("top-0 left-0 -translate-[calc(50%+0.5px)]", hover)}
+      />
+      <CrossMark
+        className={cn(
+          "top-0 right-0 translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]",
+          hover,
+        )}
+      />
+      <CrossMark
+        className={cn(
+          "bottom-0 left-0 -translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]",
+          hover,
+        )}
+      />
+      <CrossMark
+        className={cn("bottom-0 right-0 translate-[calc(50%+0.5px)]", hover)}
+      />
     </>
   );
 }
@@ -67,27 +95,59 @@ export function LineworkCard({
 }
 
 /**
- * Linework section header rule — a hairline horizontal line anchored
- * at the top of a section, with `+` markers at both ends. Visually
- * separates major sections without heavy dividers. Pair with the
- * SectionHeader's existing "01/02/..." mono label for consistency.
+ * Full-bleed section wrapper. Frames the content column with a
+ * rectangle of hairline rules — top spanning the full viewport,
+ * verticals hugging the inner container edges — and anchors a
+ * CrossMark at every corner intersection.
+ *
+ * The bottom border is omitted because consecutive sections share a
+ * seam: section N+1's border-t closes section N. The final section
+ * should pass `terminal` so its bottom corners also get marks.
  */
-export function SectionRule({ className }: { className?: string }) {
+export function LineworkSection({
+  children,
+  className,
+  innerClassName,
+  terminal = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  innerClassName?: string;
+  /** Render bottom corner marks. Use on the last section. */
+  terminal?: boolean;
+}) {
   return (
-    <div className={cn("relative mb-6", className)}>
-      <div className="border-t border-border" />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -top-[5px] -left-[5px] text-[10px] font-mono leading-none select-none text-muted-foreground/30"
+    <section className={cn("border-t border-border", className)}>
+      <div
+        className={cn(
+          "relative mx-auto w-full max-w-5xl px-6 py-20",
+          innerClassName,
+        )}
       >
-        +
-      </span>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -top-[5px] -right-[5px] text-[10px] font-mono leading-none select-none text-muted-foreground/30"
-      >
-        +
-      </span>
-    </div>
+        {/* Vertical frame lines at container edges */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-px bg-border"
+        />
+        {/* Top corner marks — centred on the line intersections.
+            X uses `50% - 0.5` (rails are INSIDE the relative box at
+            left:0 / right:0, midline at x = ±0.5). Y uses `50% + 0.5`
+            (border-t lives OUTSIDE, above the relative box, midline
+            at y = -0.5). Mirrored for the bottom corners. */}
+        <CrossMark className="left-0 top-0 -translate-x-[calc(50%-0.5px)] -translate-y-[calc(50%+0.5px)]" />
+        <CrossMark className="right-0 top-0 translate-x-[calc(50%-0.5px)] -translate-y-[calc(50%+0.5px)]" />
+        {terminal && (
+          <>
+            <CrossMark className="left-0 bottom-0 -translate-x-[calc(50%-0.5px)] translate-y-[calc(50%+0.5px)]" />
+            <CrossMark className="right-0 bottom-0 translate-x-[calc(50%-0.5px)] translate-y-[calc(50%+0.5px)]" />
+          </>
+        )}
+        {children}
+      </div>
+    </section>
   );
 }
