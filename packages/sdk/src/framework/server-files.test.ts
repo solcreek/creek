@@ -6,6 +6,7 @@ import {
   getSSRServerDir,
   collectServerFiles,
   isPreBundledFramework,
+  detectAstroCloudflareBuild,
 } from "./server-files.js";
 
 // --- getSSRServerDir ---
@@ -66,6 +67,52 @@ describe("isPreBundledFramework", () => {
 
   test("false for null", () => {
     expect(isPreBundledFramework(null)).toBe(false);
+  });
+});
+
+// --- detectAstroCloudflareBuild ---
+
+describe("detectAstroCloudflareBuild", () => {
+  let probeDir: string;
+  beforeEach(() => {
+    probeDir = mkdtempSync(join(tmpdir(), "creek-astro-cf-test-"));
+  });
+  afterEach(() => {
+    rmSync(probeDir, { recursive: true, force: true });
+  });
+
+  test("detects valid CF adapter output", () => {
+    mkdirSync(join(probeDir, "dist", "server"), { recursive: true });
+    writeFileSync(join(probeDir, "dist", "server", "entry.mjs"), "worker");
+    writeFileSync(join(probeDir, "dist", "server", "wrangler.json"), "{}");
+
+    expect(detectAstroCloudflareBuild(probeDir)).toEqual({
+      serverDir: "dist/server",
+      assetsDir: "dist/client",
+    });
+  });
+
+  test("returns null when only entry.mjs exists (e.g. Node adapter)", () => {
+    mkdirSync(join(probeDir, "dist", "server"), { recursive: true });
+    writeFileSync(join(probeDir, "dist", "server", "entry.mjs"), "worker");
+    // No wrangler.json — this is what the Node adapter output looks like
+
+    expect(detectAstroCloudflareBuild(probeDir)).toBeNull();
+  });
+
+  test("returns null when wrangler.json exists without entry.mjs", () => {
+    mkdirSync(join(probeDir, "dist", "server"), { recursive: true });
+    writeFileSync(join(probeDir, "dist", "server", "wrangler.json"), "{}");
+
+    expect(detectAstroCloudflareBuild(probeDir)).toBeNull();
+  });
+
+  test("returns null for empty directory (static SSG case)", () => {
+    expect(detectAstroCloudflareBuild(probeDir)).toBeNull();
+  });
+
+  test("returns null for missing directory", () => {
+    expect(detectAstroCloudflareBuild(join(probeDir, "does-not-exist"))).toBeNull();
   });
 });
 
