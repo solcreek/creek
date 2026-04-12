@@ -12,11 +12,11 @@ set -euo pipefail
 # worker to that tenant script — so dogfooding is already partially
 # real, even before adapter-creek is complete.
 #
-# IMPORTANT: Do NOT replace the final step with a direct `wrangler
-# deploy`. The `creek-www` Worker (apps/www/wrangler.jsonc) exists but
-# is NOT what creek.dev serves — it's only reachable via
-# creek-www.kaik.workers.dev. Pushing there with wrangler leaves
-# production untouched.
+# IMPORTANT: Do NOT re-introduce an apps/www/wrangler.jsonc or use
+# `wrangler deploy` for creek.dev. The only production path is the
+# `creek deploy --yes` call at the end of this script. Adding a
+# wrangler config and pushing with wrangler deploys to a new worker
+# that nothing routes to, and creek.dev stays untouched.
 #
 # TODO: When adapter-creek is complete, the OpenNextJS + symlink +
 # middleware-manifest patches can go away:
@@ -24,8 +24,7 @@ set -euo pipefail
 #   2. Remove middleware-manifest patch
 #   3. Remove standalone symlink hack
 #   4. The final step is already `creek deploy --yes` — keep it
-#   5. Delete the legacy creek-www Worker and its wrangler.jsonc
-#   6. Delete this script — `creek deploy` should be all that's needed
+#   5. Delete this script — `creek deploy` should be all that's needed
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
