@@ -266,6 +266,12 @@ export const deployCommand = defineCommand({
         "Subdirectory within the repo to deploy, for monorepos. Example: --path apps/web",
       required: false,
     },
+    "no-cache": {
+      type: "boolean",
+      description:
+        "Skip build cache check — always build locally. Use when you suspect cached output is stale or you changed build config without changing source files.",
+      default: false,
+    },
     "from-github": {
       type: "boolean",
       description:
@@ -361,7 +367,7 @@ export const deployCommand = defineCommand({
       }
 
       if (token) {
-        return await deployAuthenticated(cwd, resolved, token, args["skip-build"], jsonMode);
+        return await deployAuthenticated(cwd, resolved, token, args["skip-build"], jsonMode, args["no-cache"]);
       }
       return await deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
     }
@@ -1059,7 +1065,7 @@ function cleanupDir(dir: string): void {
 // Authenticated deploy — existing flow
 // ============================================================================
 
-async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token: string, skipBuild: boolean, jsonMode = false) {
+async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token: string, skipBuild: boolean, jsonMode = false, noCache = false) {
   try {
     const client = new CreekClient(getApiUrl(), token);
 
@@ -1110,6 +1116,15 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
     if (nextjsMode) {
       if (!jsonMode) consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
+    }
+
+    // --- ⚡ Turbo deploy: check if server has a cached build for this commit ---
+    // Read the local git HEAD SHA. If the working tree is clean and the
+    // server has a cached bundle for this exact commit, skip the entire
+    // local build + upload and let the server deploy from cache.
+    const turboResult = await tryTurboDeploy(cwd, client, project, noCache, jsonMode);
+    if (turboResult) {
+      return; // ⚡ done — server deployed from cache
     }
 
     // Build (skip for pure Workers with no build command)
@@ -1462,4 +1477,128 @@ export function patchBareNodeImports(code: string): string {
       /require\(["']([a-z_]+)["']\)/g,
       (match, mod) => NODE_BUILTINS.has(mod) ? match.replace(`"${mod}"`, `"node:${mod}"`).replace(`'${mod}'`, `'node:${mod}'`) : match,
     );
+}
+
+// --- ⚡ Turbo deploy ---
+
+/**
+ * Attempt a Turbo deploy: read the local git HEAD SHA, send it to
+ * the server with cacheCheck, and if the server has a cached bundle
+ * for this exact commit, let it deploy from cache. Returns true if
+ * Turbo succeeded (caller should return), false if caller should
+ * proceed with normal build + upload.
+ *
+ * Graceful: any failure (no git, dirty tree, API error, cache miss)
+ * silently returns false → normal deploy. Turbo is always opt-in bonus.
+ */
+async function tryTurboDeploy(
+  cwd: string,
+  client: CreekClient,
+  project: { id: string; slug: string },
+  noCache: boolean,
+  jsonMode: boolean,
+): Promise<boolean> {
+  if (noCache) return false;
+
+  // 1. Read git HEAD SHA
+  let sha: string;
+  try {
+    sha = execSync("git rev-parse HEAD", { cwd, encoding: "utf-8" }).trim();
+    if (!sha || sha.length < 12) return false;
+  } catch {
+    return false; // not a git repo or git not installed
+  }
+
+  // 2. Check working tree is clean
+  try {
+    const dirty = execSync("git status --porcelain", { cwd, encoding: "utf-8" }).trim();
+    if (dirty) {
+      // Uncommitted changes → can't trust cache (source differs from commit)
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  // 3. Detect branch
+  let branch = "main";
+  try {
+    branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8" }).trim();
+  } catch {
+    // default to main
+  }
+
+  // 4. Ask server to create deployment with cache check
+  const shortSha = sha.slice(0, 12);
+  if (!jsonMode) {
+    consola.info(`  Commit: ${shortSha} (${branch}, clean)`);
+    consola.start("  \x1b[33m⚡\x1b[0m Checking build cache...");
+  }
+
+  try {
+    const res = await client.createDeployment(project.id, {
+      branch,
+      commitSha: shortSha,
+    });
+
+    if (!res.cacheHit) {
+      if (!jsonMode) consola.info("  \x1b[2mCache miss — building from source\x1b[0m");
+      return false;
+    }
+
+    // ⚡ Cache hit! Server is deploying from cache.
+    if (!jsonMode) {
+      consola.success("  \x1b[33m⚡\x1b[0m \x1b[1mCache hit — deploying from cache\x1b[0m");
+    }
+
+    // Poll until deployment is active (same as normal deploy path)
+    const POLL_INTERVAL = 1000;
+    const POLL_TIMEOUT = 30_000; // Turbo should be fast — 30s max
+    const TERMINAL = new Set(["active", "failed", "cancelled"]);
+    let lastStatus = "";
+    const start = Date.now();
+
+    while (Date.now() - start < POLL_TIMEOUT) {
+      const status = await client.getDeploymentStatus(project.id, res.deployment.id);
+      const { status: s } = status.deployment;
+
+      if (s !== lastStatus && !jsonMode) {
+        if (s === "deploying") consola.start("  Deploying to edge...");
+        lastStatus = s;
+      }
+
+      if (TERMINAL.has(s)) {
+        if (s === "active") {
+          const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+          if (jsonMode) {
+            jsonOutput({
+              ok: true,
+              url: status.url ?? status.previewUrl,
+              previewUrl: status.previewUrl,
+              deploymentId: res.deployment.id,
+              project: project.slug,
+              mode: "production",
+              turbo: true,
+              elapsed: `${elapsed}s`,
+            }, 0, []);
+          }
+          consola.success(`  ⬡ Deployed! ${status.url ?? status.previewUrl}`);
+          consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
+          return true;
+        }
+        // Failed — don't fall back to normal build (server already tried)
+        if (!jsonMode) consola.error(`  Deploy from cache failed: ${status.deployment.error_message || "unknown"}`);
+        return true; // return true to prevent double-deploy attempt
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    }
+
+    // Timeout — deploy might still complete, but CLI gives up waiting
+    if (!jsonMode) consola.warn("  Cache deploy timed out — check `creek status`");
+    return true;
+  } catch {
+    // API error — fall through to normal build
+    return false;
+  }
 }
