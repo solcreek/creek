@@ -10,7 +10,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
-import { buildAndDeploy, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
+import { buildAndDeploy, buildCacheKey, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
 
 type AppEnv = { Bindings: Env };
 
@@ -59,8 +59,54 @@ webDeploy.post("/", async (c) => {
     return c.json({ error: "type must be 'template' or 'repo'" }, 400);
   }
 
-  // Rate limit: 3/hr per IP
+  // Rate limit: 3/hr per IP (cache hits don't count — checked below)
   const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";
+
+  // --- Build cache: if a recent sandbox of the same repo+branch+path
+  // is still alive, skip the entire build pipeline and return instantly.
+  // This is Phase 0 of the L4 cache layer — keyed by repo URL + branch,
+  // not commit SHA (Phase 1 will add commit-level precision). The KV
+  // entry lives as long as the sandbox (~55 min) so the same deploy
+  // button link resolves instantly for all followers who click within
+  // the sandbox window.
+  if (body.type === "repo" && body.repo) {
+    const normalizedRepo = body.repo.startsWith("http")
+      ? body.repo
+      : `https://github.com/${body.repo}`;
+    const cacheKey = buildCacheKey(normalizedRepo, body.branch, body.path);
+    const cached = await c.env.BUILD_STATUS.get(cacheKey);
+    if (cached) {
+      try {
+        const hit = JSON.parse(cached) as {
+          sandboxId: string;
+          previewUrl: string;
+          expiresAt: string;
+        };
+        // Only serve cache hit if sandbox has > 5 min remaining — don't
+        // hand users a link that expires before they finish looking.
+        const remaining = new Date(hit.expiresAt).getTime() - Date.now();
+        if (remaining > 5 * 60 * 1000) {
+          // Pre-populate a new buildId with terminal "active" status so
+          // the client's first poll resolves immediately. Rate limit is
+          // NOT consumed (no build resources used).
+          const buildId = crypto.randomUUID().slice(0, 12);
+          await updateStatus(c.env, buildId, {
+            status: "active",
+            sandboxId: hit.sandboxId,
+            previewUrl: hit.previewUrl,
+            expiresAt: hit.expiresAt,
+            cacheHit: true,
+            createdAt: new Date().toISOString(),
+          });
+          return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
+        }
+      } catch {
+        // Corrupt cache entry — fall through to normal build
+      }
+    }
+  }
+
+  // Rate limit: 5/hr per IP
   const rateLimitKey = `rate:${hashIp(ip)}`;
   const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
   if (currentCount >= 5) {
