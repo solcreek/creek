@@ -96,6 +96,9 @@ importers:
       '@opennextjs/cloudflare':
         specifier: ^1.18.0
         version: 1.18.0(next@16.2.1(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(wrangler@4.80.0(@cloudflare/workers-types@4.20260405.1))
+      '@solcreek/og':
+        specifier: workspace:*
+        version: link:../../packages/og
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
