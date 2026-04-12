@@ -321,6 +321,10 @@ function DeployActions({
 
 // --- Simulated build/deploy sub-steps ---
 
+// Simulated steps with fixed delays. The `terminal` flag marks the
+// final step of each phase — it stays in "active" (spinner) until
+// the actual phase completes, preventing a dead zone where all
+// steps are checked but the real build is still running.
 const BUILD_STEPS = [
   { label: "Pulling template from registry", delay: 0 },
   { label: "Resolving dependencies", delay: 3 },
@@ -328,8 +332,8 @@ const BUILD_STEPS = [
   { label: "Detecting framework", delay: 18 },
   { label: "Compiling TypeScript", delay: 20 },
   { label: "Bundling for production", delay: 25 },
-  { label: "Collecting assets", delay: 50 },
-  { label: "Optimizing bundle", delay: 55 },
+  { label: "Collecting assets", delay: 40 },
+  { label: "Optimizing bundle", delay: 50, terminal: true },
 ];
 
 const DEPLOY_STEPS = [
@@ -338,8 +342,7 @@ const DEPLOY_STEPS = [
   { label: "Configuring Workers runtime", delay: 6 },
   { label: "Provisioning SSL certificate", delay: 9 },
   { label: "Propagating edge cache rules", delay: 12 },
-  { label: "Activating Workers", delay: 15 },
-  { label: "Running health checks", delay: 18 },
+  { label: "Activating Workers", delay: 15, terminal: true },
 ];
 
 function useElapsedSeconds(running: boolean) {
@@ -366,11 +369,17 @@ function useSimulatedSteps(steps: typeof BUILD_STEPS, active: boolean) {
     label: step.label,
     state: !active
       ? ("done" as const)
-      : elapsed >= step.delay + 3
-        ? ("done" as const)
-        : elapsed >= step.delay
-          ? ("active" as const)
-          : ("pending" as const),
+      // Terminal steps stay "active" (spinner) until the phase ends —
+      // they never auto-complete based on elapsed time. This avoids
+      // the dead zone where every step is checked but the real build
+      // is still running behind the scenes.
+      : "terminal" in step && step.terminal && elapsed >= step.delay
+        ? ("active" as const)
+        : elapsed >= step.delay + 3
+          ? ("done" as const)
+          : elapsed >= step.delay
+            ? ("active" as const)
+            : ("pending" as const),
   }));
 }
 
