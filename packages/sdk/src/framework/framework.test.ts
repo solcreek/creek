@@ -63,6 +63,26 @@ describe("detectFramework", () => {
     ).toBe("vite-solid");
   });
 
+  test("detects VitePress even when bundled vite/vue are also visible", () => {
+    expect(
+      detectFramework({
+        devDependencies: { vitepress: "1.0.0" },
+      }),
+    ).toBe("vitepress");
+    // Real-world VitePress projects often also surface vite/vue as
+    // transitive deps in the lockfile-hoisted install — the vitepress
+    // check must win over the generic vite-vue branch.
+    expect(
+      detectFramework({
+        devDependencies: {
+          vitepress: "1.0.0",
+          vite: "5.0.0",
+          vue: "3.0.0",
+        },
+      }),
+    ).toBe("vitepress");
+  });
+
   test("returns null for unknown deps", () => {
     expect(detectFramework({ dependencies: { express: "4.0.0" } })).toBeNull();
   });
@@ -101,6 +121,10 @@ describe("getDefaultBuildOutput", () => {
 
   test("vite-react -> dist", () => {
     expect(getDefaultBuildOutput("vite-react")).toBe("dist");
+  });
+
+  test("vitepress -> .vitepress/dist", () => {
+    expect(getDefaultBuildOutput("vitepress")).toBe(".vitepress/dist");
   });
 
   test("null -> dist", () => {
