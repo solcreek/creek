@@ -97,8 +97,9 @@ export class CreekClient {
 
   async createDeployment(
     projectId: string,
-  ): Promise<CreateDeploymentResponse> {
-    return this.request("POST", `/projects/${projectId}/deployments`);
+    options?: { branch?: string; commitSha?: string; commitMessage?: string },
+  ): Promise<CreateDeploymentResponse & { cacheHit?: boolean }> {
+    return this.request("POST", `/projects/${projectId}/deployments`, options);
   }
 
   async uploadDeploymentBundle(
