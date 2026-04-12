@@ -62,10 +62,15 @@ export async function handleWebBuild(
       if (cached) {
         bundleJson = cached;
         cacheHit = true;
+        console.log(`[build-cache] HIT ${cacheKey.slice(0, 80)} (${(cached.length / 1024).toFixed(0)} KB)`);
+      } else {
+        console.log(`[build-cache] MISS ${cacheKey.slice(0, 80)}`);
       }
-    } catch {
-      // KV read failure — fall through to build
+    } catch (err) {
+      console.error(`[build-cache] READ ERROR ${cacheKey.slice(0, 80)}:`, err);
     }
+  } else {
+    console.log(`[build-cache] SKIP (no commitSha in message)`);
   }
 
   // ------------------------------------------------------------------
@@ -249,12 +254,19 @@ async function writeBundleCache(
   expiresAt: string,
 ): Promise<void> {
   if (!cacheKey || alreadyCached || !bundleJson) return;
-  if (bundleJson.length > MAX_CACHE_SIZE) return;
+
+  const sizeKB = (bundleJson.length / 1024).toFixed(0);
+  if (bundleJson.length > MAX_CACHE_SIZE) {
+    console.log(`[build-cache] WRITE SKIP ${cacheKey.slice(0, 80)} — ${sizeKB} KB exceeds ${(MAX_CACHE_SIZE / 1024 / 1024).toFixed(0)} MiB cap`);
+    return;
+  }
+
   try {
     const remainingMs = new Date(expiresAt).getTime() - Date.now();
     const ttl = Math.max(60, Math.floor(remainingMs / 1000));
     await env.BUILD_STATUS.put(cacheKey, bundleJson, { expirationTtl: ttl });
-  } catch {
-    // Cache write failure — non-critical
+    console.log(`[build-cache] WRITE OK ${cacheKey.slice(0, 80)} — ${sizeKB} KB, TTL ${ttl}s`);
+  } catch (err) {
+    console.error(`[build-cache] WRITE ERROR ${cacheKey.slice(0, 80)} — ${sizeKB} KB:`, err);
   }
 }
