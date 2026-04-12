@@ -412,6 +412,14 @@ async function runSandboxDeploy(
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
     framework?: string;
+    // Optional cache-coherent team ID. When present, used as the hash
+    // salt instead of the sandbox-specific ID. This lets CF Static Assets
+    // dedup identical content across sandboxes built from the same
+    // repo@commit — the second deploy uploads 0 bytes because all asset
+    // hashes already exist in the dispatch namespace. The sandboxes are
+    // still FULLY ISOLATED (own script name, own URL, own data) — only
+    // the underlying asset storage is shared.
+    cacheTeamId?: string;
   },
 ) {
   try {
@@ -444,16 +452,20 @@ async function runSandboxDeploy(
     const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : "spa" as const;
 
     // Deploy to WfP sandbox namespace — single script (no branch/production variants)
+    // When cacheTeamId is set (cache-hit deploy from remote-builder), use
+    // it as the hash salt so CF's global asset dedup recognises identical
+    // content from a prior sandbox. 0 bytes uploaded on cache hit → fast.
+    const teamId = bundle.cacheTeamId ?? sandboxId;
     await deployWithAssets(
       env,
-      sandboxId,  // projectSlug = sandboxId
-      "sandbox",  // teamSlug = "sandbox" (all sandboxes under one "team")
+      sandboxId,  // projectSlug = sandboxId (unique per sandbox — isolation)
+      "sandbox",  // teamSlug = "sandbox"
       sandboxId,  // deploymentId = sandboxId
       {
         clientAssets,
         serverFiles,
         renderMode,
-        teamId: sandboxId,     // unique salt per sandbox — prevents asset hash collision
+        teamId,                // cache-coherent OR sandbox-unique salt
         teamSlug: "sandbox",
         projectSlug: sandboxId,
         plan: "sandbox",
