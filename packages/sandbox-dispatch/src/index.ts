@@ -15,6 +15,48 @@ interface Env {
 // Limit each sandbox to 50 unique visitor IPs. Uses KV to track.
 const VISITOR_CAP = 50;
 
+// --- Cache-Control derivation ---
+
+/**
+ * Framework build-output directories where every file is content-hashed
+ * in its filename — the URL itself is content-addressed so the response
+ * can safely be cached forever.
+ */
+const FINGERPRINTED_PATH_RE = /^\/_(astro|next\/static|app\/immutable|nuxt|svelte-kit)\//;
+
+/**
+ * Derive the Cache-Control header for a sandbox response based on the
+ * request path and response Content-Type.
+ *
+ * We override whatever the user worker returned because:
+ *
+ * 1. Sandbox responses share an edge cache namespace scoped by Host,
+ *    so caching must be predictable across the 60-minute sandbox life.
+ * 2. Most user workers don't set Cache-Control explicitly, so without
+ *    an override we'd inherit whichever defaults the Static Assets
+ *    tier happened to apply — which varies by framework.
+ * 3. Asset classes deserve very different TTLs — fingerprinted build
+ *    output can live forever (avoiding FOUC on first visit from any
+ *    edge), HTML must stay fresh enough for sandbox updates, and
+ *    everything else falls in between.
+ */
+export function deriveCacheControl(pathname: string, contentType: string): string {
+  if (FINGERPRINTED_PATH_RE.test(pathname)) {
+    // Content-addressed paths — filename contains the content hash so
+    // what's served at this exact URL can never change.
+    return "public, max-age=31536000, immutable";
+  }
+  if (contentType.startsWith("text/html")) {
+    // HTML may change within a sandbox's 60-minute TTL if the user
+    // re-deploys to the same sandbox ID. Keep the window tight.
+    return "public, max-age=60, s-maxage=60";
+  }
+  // Everything else — favicons, non-fingerprinted images or fonts,
+  // robots.txt, sitemaps, etc. Safe to cache for an hour given the
+  // 60-minute sandbox lifetime.
+  return "public, max-age=3600, s-maxage=3600";
+}
+
 // --- MIME type inference ---
 // WfP Static Assets does not set Content-Type on responses.
 
@@ -252,12 +294,18 @@ export default {
         });
       }
 
-      // Prevent CDN cache cross-contamination between sandboxes.
-      // WfP Static Assets may return shared cache keys — ensure each
-      // sandbox response has its own cache scope via Vary + sandbox ID.
+      // Prevent CDN cache cross-contamination between sandboxes, and
+      // differentiate cache TTL by asset class so fingerprinted build
+      // output caches aggressively (avoiding FOUC on first visit from
+      // any edge) while HTML stays fresh enough for sandbox updates.
+      //
+      // Vary: Host + per-sandbox Host ensures cache keys are scoped to
+      // one sandbox — required because WfP Static Assets may surface
+      // the same file under different sandbox hostnames.
       {
         const headers = new Headers(response.headers);
-        headers.set("Cache-Control", "public, max-age=300, s-maxage=300");
+        const ct = headers.get("Content-Type") ?? "";
+        headers.set("Cache-Control", deriveCacheControl(url.pathname, ct));
         headers.set("Vary", "Host");
         headers.set("X-Sandbox-Id", sandboxId);
         response = new Response(response.body, {

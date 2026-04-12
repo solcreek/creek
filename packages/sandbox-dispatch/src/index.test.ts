@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from "vitest";
-import worker from "./index.js";
+import worker, { deriveCacheControl } from "./index.js";
 
 interface MockSandboxRow {
   id: string;
@@ -188,5 +188,135 @@ describe("sandbox-dispatch worker", () => {
 
     const res = await worker.fetch(new Request(`https://${sandboxId}.creeksandbox.com/`), env);
     expect(res.status).toBe(503);
+  });
+});
+
+describe("deriveCacheControl", () => {
+  test("fingerprinted Astro build path → 1 year immutable", () => {
+    expect(
+      deriveCacheControl("/_astro/about.x6foEjjJ.css", "text/css; charset=utf-8"),
+    ).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("fingerprinted Next.js static path → 1 year immutable", () => {
+    expect(
+      deriveCacheControl("/_next/static/chunks/abc123.js", "text/javascript"),
+    ).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("fingerprinted SvelteKit immutable path → 1 year immutable", () => {
+    expect(
+      deriveCacheControl("/_app/immutable/chunks/entry.XYZ.js", "text/javascript"),
+    ).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("fingerprinted Nuxt path → 1 year immutable", () => {
+    expect(
+      deriveCacheControl("/_nuxt/entry.abc.js", "text/javascript"),
+    ).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("HTML response → 60 second cache", () => {
+    expect(
+      deriveCacheControl("/", "text/html; charset=utf-8"),
+    ).toBe("public, max-age=60, s-maxage=60");
+    expect(
+      deriveCacheControl("/about", "text/html"),
+    ).toBe("public, max-age=60, s-maxage=60");
+  });
+
+  test("non-fingerprinted static asset → 1 hour cache", () => {
+    expect(
+      deriveCacheControl("/favicon.svg", "image/svg+xml"),
+    ).toBe("public, max-age=3600, s-maxage=3600");
+    expect(
+      deriveCacheControl("/robots.txt", "text/plain"),
+    ).toBe("public, max-age=3600, s-maxage=3600");
+    expect(
+      deriveCacheControl("/images/hero.png", "image/png"),
+    ).toBe("public, max-age=3600, s-maxage=3600");
+  });
+
+  test("fingerprinted path classification beats content-type HTML fallback", () => {
+    // If a hashed HTML fragment ever lived under /_astro/, still treat
+    // it as immutable — the content hash guarantees freshness.
+    expect(
+      deriveCacheControl("/_astro/page.abc.html", "text/html"),
+    ).toBe("public, max-age=31536000, immutable");
+  });
+
+  test("path prefix matching is anchored — /fake/_astro/ does NOT match", () => {
+    expect(
+      deriveCacheControl("/fake/_astro/abc.css", "text/css"),
+    ).toBe("public, max-age=3600, s-maxage=3600");
+  });
+});
+
+describe("Cache-Control on dispatched responses", () => {
+  async function dispatch(opts: {
+    sandboxId: string;
+    pathname: string;
+    contentType: string;
+    body: string;
+  }) {
+    const { env } = createEnv({
+      d1Rows: {
+        [opts.sandboxId]: {
+          id: opts.sandboxId,
+          status: "active",
+          expiresAt: Date.now() + 60_000,
+          previewHost: `${opts.sandboxId}.creeksandbox.com`,
+          deployDurationMs: 9000,
+        },
+      },
+      scriptHandlers: {
+        [`${opts.sandboxId}-sandbox`]: async () =>
+          new Response(opts.body, {
+            headers: { "Content-Type": opts.contentType },
+          }),
+      },
+    });
+    return worker.fetch(
+      new Request(`https://${opts.sandboxId}.creeksandbox.com${opts.pathname}`),
+      env,
+    );
+  }
+
+  test("HTML response gets short TTL and sandbox scope headers", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/",
+      contentType: "text/html",
+      body: "<html><body>hi</body></html>",
+    });
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60, s-maxage=60");
+    expect(res.headers.get("Vary")).toBe("Host");
+    expect(res.headers.get("X-Sandbox-Id")).toBe("abc12345");
+  });
+
+  test("fingerprinted CSS asset gets 1-year immutable", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/_astro/about.x6foEjjJ.css",
+      contentType: "text/css",
+      body: "body{color:red}",
+    });
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(res.headers.get("Vary")).toBe("Host");
+    expect(res.headers.get("X-Sandbox-Id")).toBe("abc12345");
+  });
+
+  test("non-fingerprinted favicon gets 1 hour cache", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/favicon.svg",
+      contentType: "image/svg+xml",
+      body: "<svg/>",
+    });
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=3600, s-maxage=3600",
+    );
   });
 });
