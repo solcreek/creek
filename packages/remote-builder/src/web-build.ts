@@ -262,12 +262,17 @@ async function writeBundleCache(
   }
 
   try {
-    // Cache TTL is tied to the COMMIT, not the sandbox. The bundle is
-    // valid as long as the repo hasn't changed — 24h covers the typical
-    // deploy-button-on-Twitter lifecycle and lets cache outlive any
-    // individual sandbox. KV auto-evicts after TTL, keeping storage
-    // bounded without a cron.
-    const ttl = 24 * 60 * 60; // 24 hours
+    // Cache TTL is long because the key includes the commit SHA —
+    // a specific commit's build output is IMMUTABLE and never goes
+    // stale. Freshness is guaranteed by the control-plane's
+    // fetchCommitSha() which always resolves the latest SHA from
+    // GitHub before looking up the cache. A new push to the branch
+    // produces a new SHA → new cache key → miss → rebuild.
+    //
+    // 7 days covers the typical deploy-button viral lifecycle (peak
+    // traffic in the first few days). KV auto-evicts after TTL,
+    // keeping storage bounded. Cost: ~100 repos × 2MB ≈ $0.10/month.
+    const ttl = 7 * 24 * 60 * 60; // 7 days
     await env.BUILD_STATUS.put(cacheKey, bundleJson, { expirationTtl: ttl });
     console.log(`[build-cache] WRITE OK ${cacheKey.slice(0, 80)} — ${sizeKB} KB, TTL ${ttl}s`);
   } catch (err) {
