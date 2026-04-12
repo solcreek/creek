@@ -17,14 +17,27 @@ export interface DeployButtonCardProps {
   repo: string;
   description: string | null;
   providerHost: string;
+  /** Optional branch name, if the URL pointed at a /tree/{branch}... path. */
+  branch?: string | null;
+  /** Optional subpath within the repo, slash-joined (e.g. "examples/blog"). */
+  subpath?: string | null;
 }
 
 export function deployButtonCard(props: DeployButtonCardProps) {
-  const { owner, repo, description } = props;
+  const { owner, repo, description, branch, subpath } = props;
   const truncatedDesc = description
     ? description.length > 120
       ? description.slice(0, 117) + "…"
       : description
+    : "";
+
+  // Subpath chip label. Shown between repo name and description when the
+  // slug included a /tree/{branch}/... segment. Flat string, no nested
+  // flex — satori renders reliably this way.
+  const subpathLabel = branch
+    ? subpath
+      ? `${branch} / ${subpath}`
+      : branch
     : "";
 
   return (
@@ -78,11 +91,26 @@ export function deployButtonCard(props: DeployButtonCardProps) {
           backgroundClip: "text",
           color: "transparent",
           letterSpacing: -2,
-          marginBottom: 24,
+          marginBottom: subpathLabel ? 8 : 24,
         }}
       >
         {repo}
       </div>
+
+      {/* Subpath chip — shown when the slug points at a /tree/{branch}/... path */}
+      {subpathLabel && (
+        <div
+          style={{
+            display: "flex",
+            fontSize: 24,
+            fontFamily: creekBrand.fonts.mono,
+            color: creekBrand.colors.accent,
+            marginBottom: 24,
+          }}
+        >
+          {subpathLabel}
+        </div>
+      )}
 
       {/* Description */}
       {truncatedDesc && (
@@ -100,11 +128,14 @@ export function deployButtonCard(props: DeployButtonCardProps) {
         </div>
       )}
 
-      {/* Footer CTA */}
+      {/* Footer CTA — CLI invocation hint. For root-of-repo deploys
+          we show the short gh:owner/repo form. For subpath deploys we
+          show the full github URL tail since the shorthand can't
+          express tree/branch/path. */}
       <div
         style={{
           display: "flex",
-          fontSize: 24,
+          fontSize: subpath ? 20 : 24,
           fontFamily: creekBrand.fonts.mono,
           color: creekBrand.colors.accent,
           padding: "14px 28px",
@@ -113,7 +144,11 @@ export function deployButtonCard(props: DeployButtonCardProps) {
           background: creekBrand.colors.surface,
         }}
       >
-        $ npx creek deploy gh:{owner}/{repo}
+        {subpath
+          ? `github.com/${owner}/${repo}/tree/${branch}/${subpath}`
+          : branch
+            ? `github.com/${owner}/${repo}/tree/${branch}`
+            : `$ npx creek deploy gh:${owner}/${repo}`}
       </div>
     </div>
   );
