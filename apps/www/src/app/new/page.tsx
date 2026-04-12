@@ -3,13 +3,29 @@
 import { useState, useEffect, useRef } from "react";
 import { useWebDeploy, type DeployStatus } from "../../lib/deploy";
 
-function parseRepoFromUrl(searchParams: string): { owner: string; repo: string; full: string } | null {
+interface ParsedRepo {
+  owner: string;
+  repo: string;
+  full: string;
+  /** Optional branch from either a tree/{branch}/ URL or an explicit ?branch= param. */
+  branch: string | null;
+  /** Optional subpath from either a tree/{branch}/{path} URL or an explicit ?path= param. */
+  path: string | null;
+}
+
+function parseRepoFromUrl(searchParams: string): ParsedRepo | null {
   const params = new URLSearchParams(searchParams);
   // Accept both `?repo=` (Creek native) and `?url=` (CF / Vercel / Netlify
   // convention) so "Deploy to Creek" buttons can use the same URL shape as
   // every other deploy button badge template authors are already embedding.
   const raw = params.get("repo") || params.get("url");
   if (!raw) return null;
+
+  // Explicit ?branch= / ?path= override whatever is in the raw repo URL.
+  // /deploy/[...slug] passes these alongside the full GitHub tree URL so
+  // we don't have to do fragile URL parsing on the client.
+  const explicitBranch = params.get("branch");
+  const explicitPath = params.get("path");
 
   const cleaned = raw
     // Short-form prefixes — match the CLI's gh:/gl:/bb: shorthand so the
@@ -29,14 +45,31 @@ function parseRepoFromUrl(searchParams: string): { owner: string; repo: string; 
 
   // If the first segment is a provider host (from gl:/bb: expansion above),
   // strip it and keep owner/repo.
-  let owner = parts[0];
-  let repo = parts[1];
-  if (owner === "gitlab.com" || owner === "bitbucket.org") {
+  let offset = 0;
+  if (parts[0] === "gitlab.com" || parts[0] === "bitbucket.org") {
     if (parts.length < 3) return null;
-    owner = parts[1];
-    repo = parts[2];
+    offset = 1;
   }
-  return { owner, repo, full: `https://github.com/${owner}/${repo}` };
+  const owner = parts[offset];
+  const repo = parts[offset + 1];
+
+  // Extract branch / path from a GitHub-style /tree/{branch}/{path...}
+  // tail if present in the raw URL. Explicit query params take precedence.
+  let urlBranch: string | null = null;
+  let urlPath: string | null = null;
+  if (parts[offset + 2] === "tree" && parts[offset + 3]) {
+    urlBranch = parts[offset + 3];
+    const tail = parts.slice(offset + 4);
+    urlPath = tail.length > 0 ? tail.join("/") : null;
+  }
+
+  return {
+    owner,
+    repo,
+    full: `https://github.com/${owner}/${repo}`,
+    branch: explicitBranch ?? urlBranch,
+    path: explicitPath ?? urlPath,
+  };
 }
 
 function parseTemplateFromUrl(searchParams: string): {
@@ -73,7 +106,7 @@ const STATUS_LABELS: Record<DeployStatus, string> = {
 
 export default function NewPage() {
   const [mounted, setMounted] = useState(false);
-  const [repoInfo, setRepoInfo] = useState<{ owner: string; repo: string; full: string } | null>(null);
+  const [repoInfo, setRepoInfo] = useState<ParsedRepo | null>(null);
   const [templateInfo, setTemplateInfo] = useState<{ template: string; data: Record<string, string> } | null>(null);
   const [copied, setCopied] = useState(false);
   const deployState = useWebDeploy();
@@ -107,8 +140,18 @@ export default function NewPage() {
     );
   }
 
-  const command = repoInfo
-    ? `npx creek deploy ${repoInfo.full}`
+  // CLI command preview — include /tree/{branch}/{path} tail when
+  // present so users who copy it get an identical deploy via the CLI.
+  const cliRepoArg = repoInfo
+    ? repoInfo.path
+      ? `${repoInfo.full}/tree/${repoInfo.branch ?? "main"}/${repoInfo.path}`
+      : repoInfo.branch
+        ? `${repoInfo.full}/tree/${repoInfo.branch}`
+        : repoInfo.full
+    : null;
+
+  const command = cliRepoArg
+    ? `npx creek deploy ${cliRepoArg}`
     : templateInfo
       ? buildTemplateCommand(templateInfo.template, templateInfo.data)
       : "npx creek deploy";
@@ -121,7 +164,12 @@ export default function NewPage() {
 
   const handleDeploy = () => {
     if (repoInfo) {
-      deployState.deploy({ type: "repo", repo: repoInfo.full });
+      deployState.deploy({
+        type: "repo",
+        repo: repoInfo.full,
+        branch: repoInfo.branch ?? undefined,
+        path: repoInfo.path ?? undefined,
+      });
     } else if (templateInfo) {
       deployState.deploy({
         type: "template",
