@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildAndBundle } from "./build-pipeline.js";
+import { buildAndBundle, detectPM, detectWorkspaceCascade } from "./build-pipeline.js";
 
 /**
  * These tests verify the build pipeline logic using mock project directories.
@@ -33,20 +33,128 @@ describe("build-pipeline types", () => {
   });
 });
 
-describe("build-pipeline integration (requires network)", () => {
-  // These tests are skipped by default — they do real git clones.
-  // Run with: CREEK_BUILD_E2E=1 pnpm test
+describe("detectPM — walks up the tree for monorepos", () => {
+  test("returns pnpm when pnpm-lock.yaml is at workspace root", () => {
+    // Simulate: /tmp/repo/pnpm-lock.yaml + /tmp/repo/templates/starter/package.json
+    writeFileSync(join(tmpDir, "pnpm-lock.yaml"), "");
+    const sub = join(tmpDir, "templates", "starter");
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, "package.json"), "{}");
+    expect(detectPM(sub, tmpDir)).toBe("pnpm");
+  });
 
-  const runE2E = process.env.CREEK_BUILD_E2E === "1";
+  test("returns pnpm when pnpm-workspace.yaml is at root (no lockfile yet)", () => {
+    writeFileSync(join(tmpDir, "pnpm-workspace.yaml"), "");
+    const sub = join(tmpDir, "apps", "web");
+    mkdirSync(sub, { recursive: true });
+    expect(detectPM(sub, tmpDir)).toBe("pnpm");
+  });
 
-  test.skipIf(!runE2E)("builds a simple static site", async () => {
-    // Create a minimal project in tmpDir
-    writeFileSync(join(tmpDir, "index.html"), "<h1>Hello</h1>");
+  test("returns yarn when yarn.lock is at workspace root", () => {
+    writeFileSync(join(tmpDir, "yarn.lock"), "");
+    const sub = join(tmpDir, "packages", "app");
+    mkdirSync(sub, { recursive: true });
+    expect(detectPM(sub, tmpDir)).toBe("yarn");
+  });
 
-    // buildAndBundle expects a repoUrl for git clone,
-    // but we can't test that without a real repo.
-    // This test serves as documentation of the expected flow.
-    expect(true).toBe(true);
+  test("prefers lockfile closest to cwd over ancestor", () => {
+    // Root has pnpm-lock, but subdir has its own package-lock → subdir wins
+    writeFileSync(join(tmpDir, "pnpm-lock.yaml"), "");
+    const sub = join(tmpDir, "standalone");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "package-lock.json"), "{}");
+    expect(detectPM(sub, tmpDir)).toBe("npm");
+  });
+
+  test("stops at stopAt and never escapes the repo", () => {
+    // Even if the host machine has a pnpm-lock above stopAt, we must not see it.
+    const sub = join(tmpDir, "leaf");
+    mkdirSync(sub);
+    // No lockfiles anywhere in tmpDir → should return npm, not walk further up.
+    expect(detectPM(sub, tmpDir)).toBe("npm");
+  });
+
+  test("handles cwd === stopAt", () => {
+    writeFileSync(join(tmpDir, "pnpm-lock.yaml"), "");
+    expect(detectPM(tmpDir, tmpDir)).toBe("pnpm");
+  });
+});
+
+describe("detectWorkspaceCascade — pnpm monorepo build cascade", () => {
+  test("triggers for pnpm target with workspace:* deps", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "@acme/web",
+        dependencies: { "@acme/core": "workspace:*", react: "^18" },
+      }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "pnpm")).toEqual({
+      useCascade: true,
+      targetName: "@acme/web",
+    });
+  });
+
+  test("triggers for workspace:^ and workspace:~ variants", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "@acme/web",
+        dependencies: { "@acme/lib": "workspace:^" },
+      }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(true);
+  });
+
+  test("no cascade when deps are all external", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "standalone",
+        dependencies: { astro: "^6", react: "^18" },
+      }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(false);
+  });
+
+  test("no cascade for yarn even with workspace deps (pnpm-only feature)", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "@acme/web",
+        dependencies: { "@acme/core": "workspace:*" },
+      }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "yarn").useCascade).toBe(false);
+    expect(detectWorkspaceCascade(tmpDir, "npm").useCascade).toBe(false);
+  });
+
+  test("no cascade when target has no name field", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ dependencies: { "@acme/core": "workspace:*" } }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(false);
+  });
+
+  test("no cascade when package.json is missing", () => {
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(false);
+  });
+
+  test("handles malformed package.json gracefully", () => {
+    writeFileSync(join(tmpDir, "package.json"), "{ not valid json");
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(false);
+  });
+
+  test("checks devDependencies too", () => {
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "@acme/web",
+        devDependencies: { "@acme/test-utils": "workspace:*" },
+      }),
+    );
+    expect(detectWorkspaceCascade(tmpDir, "pnpm").useCascade).toBe(true);
   });
 });
 

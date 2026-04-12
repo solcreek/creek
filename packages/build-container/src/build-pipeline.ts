@@ -7,7 +7,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, readdirSync, rmSync, mkdirSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import {
   resolveConfig,
@@ -129,8 +129,9 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
 
     // 3. Install dependencies
     let installResult: BuildResult["install"] = null;
+    let pm = "npm";
     if (existsSync(join(workDir, "package.json"))) {
-      const pm = detectPM(workDir);
+      pm = detectPM(workDir, repoDir);
       const cmds: Record<string, [string, string[]]> = {
         npm: ["npm", ["install", "--no-audit", "--no-fund"]],
         pnpm: ["pnpm", ["install"]],
@@ -140,25 +141,75 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
 
       t0 = t();
       try {
-        execFileSync(cmd, args, { cwd: workDir, stdio: "pipe", timeout: 120_000 });
+        execFileSync(cmd, args, { cwd: workDir, stdio: "pipe", timeout: 180_000 });
         installResult = { success: true, pm };
       } catch (err: any) {
-        installResult = { success: false, pm, stderr: (err.stderr?.toString() || "").slice(0, 500) };
+        installResult = { success: false, pm, stderr: (err.stderr?.toString() || "").slice(0, 2000) };
       }
       timing.install = t() - t0;
+
+      // Fail fast on install errors — running the build afterwards
+      // would silently "succeed" with an empty `dist/` and surface a
+      // misleading "no output files" message much later in the pipeline.
+      if (!installResult.success) {
+        cleanup(repoDir);
+        return {
+          error: "install_failed",
+          message: `${pm} install failed: ${installResult.stderr?.slice(0, 800) || "unknown error"}`,
+        };
+      }
     }
 
-    // 4. Build
+    // 4. Build — use the detected package manager so pnpm-specific
+    // features (catalog:, workspace protocols, custom hooks) resolve
+    // correctly. `npm run build` worked by accident for most projects
+    // because it only invokes scripts, but pnpm run uses the workspace
+    // context when available.
+    //
+    // Workspace fast-path (pnpm monorepos with `workspace:*` deps):
+    // if the target `package.json` pulls in internal workspace
+    // packages, `pnpm install` only symlinks them — their source has
+    // never been built, so `astro build` / `vite build` will fail to
+    // resolve imports like `@emdash-cms/cloudflare` (no `dist/` to
+    // read entries from). Use `pnpm --filter <pkg>... build` which
+    // selects the target AND all of its workspace dependencies and
+    // runs `build` in topological order. Scoped to pnpm because the
+    // filter syntax is pnpm-specific.
     let buildResult: BuildResult["build"] = null;
     if (resolved.buildCommand) {
+      const { useCascade, targetName } = detectWorkspaceCascade(workDir, pm);
+
       t0 = t();
       try {
-        execFileSync("npm", ["run", "build"], { cwd: workDir, stdio: "pipe", timeout: 120_000 });
+        if (useCascade && targetName) {
+          execFileSync("pnpm", ["--filter", `${targetName}...`, "build"], {
+            cwd: repoDir,
+            stdio: "pipe",
+            timeout: 300_000,
+          });
+        } else {
+          execFileSync(pm, ["run", "build"], {
+            cwd: workDir,
+            stdio: "pipe",
+            timeout: 180_000,
+          });
+        }
         buildResult = { success: true };
       } catch (err: any) {
-        buildResult = { success: false, stderr: (err.stderr?.toString() || "").slice(0, 500) };
+        buildResult = { success: false, stderr: (err.stderr?.toString() || "").slice(0, 2000) };
       }
       timing.build = t() - t0;
+
+      // Same reasoning as install: surface the real stderr instead of
+      // the downstream "no output files" cover-up.
+      if (!buildResult.success) {
+        cleanup(repoDir);
+        const label = useCascade ? "workspace cascade build" : `${pm} run build`;
+        return {
+          error: useCascade ? "workspace_build_failed" : "build_failed",
+          message: `${label} failed: ${buildResult.stderr?.slice(0, 800) || "unknown error"}`,
+        };
+      }
     }
 
     // 5. Collect client assets
@@ -256,9 +307,70 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
 
 // --- Helpers ---
 
-function detectPM(cwd: string): string {
-  if (existsSync(join(cwd, "pnpm-lock.yaml"))) return "pnpm";
-  if (existsSync(join(cwd, "yarn.lock"))) return "yarn";
+/**
+ * Detect package manager by walking up the directory tree from `cwd`
+ * until a lockfile or workspace root is found, or we reach `stopAt`
+ * (the repo root, so we never escape the cloned project).
+ *
+ * Walking up matters for monorepos: the lockfile lives at the
+ * workspace root, not inside `templates/starter/` or `apps/web/`.
+ * Without this, a pnpm workspace subdir looks like `npm` to us,
+ * `npm install` runs, and fails on `catalog:` / `workspace:*`
+ * references — producing a misleading "no output files" error
+ * three steps later.
+ */
+/**
+ * Detect whether the target should be built via `pnpm --filter` cascade
+ * instead of a plain `pnpm run build` in the subdirectory.
+ *
+ * Trigger condition: the target's `package.json` imports at least one
+ * internal `workspace:*` package AND the active PM is pnpm. In that
+ * case, `pnpm install` has only symlinked the workspace packages;
+ * their `dist/` still needs building (typically by running each
+ * package's `build` script in topological order) before the target
+ * can resolve imports like `@emdash-cms/cloudflare`.
+ *
+ * Non-pnpm monorepos fall back to the plain build — they don't have
+ * equivalent filter syntax (yarn workspaces have `yarn workspaces focus`
+ * but semantics differ). Surfacing the real stderr via Gap B is still
+ * better than the old silent failure.
+ */
+export function detectWorkspaceCascade(
+  targetDir: string,
+  pm: string,
+): { useCascade: boolean; targetName: string | null } {
+  if (pm !== "pnpm") return { useCascade: false, targetName: null };
+  const pkgPath = join(targetDir, "package.json");
+  if (!existsSync(pkgPath)) return { useCascade: false, targetName: null };
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      name?: string;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const hasWorkspaceDep = Object.values({
+      ...pkg.dependencies,
+      ...pkg.devDependencies,
+    }).some((v) => typeof v === "string" && v.startsWith("workspace:"));
+    if (!hasWorkspaceDep) return { useCascade: false, targetName: null };
+    if (!pkg.name) return { useCascade: false, targetName: null };
+    return { useCascade: true, targetName: pkg.name };
+  } catch {
+    return { useCascade: false, targetName: null };
+  }
+}
+
+export function detectPM(cwd: string, stopAt: string): string {
+  let dir = cwd;
+  while (true) {
+    if (existsSync(join(dir, "pnpm-lock.yaml")) || existsSync(join(dir, "pnpm-workspace.yaml"))) return "pnpm";
+    if (existsSync(join(dir, "yarn.lock"))) return "yarn";
+    if (existsSync(join(dir, "package-lock.json"))) return "npm";
+    if (dir === stopAt) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
   return "npm";
 }
 
