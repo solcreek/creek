@@ -77,10 +77,11 @@ webDeploy.post("/", async (c) => {
   // Non-blocking: failure just means no cache key (rebuild every time).
   let commitSha: string | null = null;
   if (body.type === "repo" && body.repo) {
-    const normalizedRepo = body.repo.startsWith("http")
-      ? body.repo
+    const normalizedRepo = body.repo!.startsWith("http")
+      ? body.repo!
       : `https://github.com/${body.repo}`;
     commitSha = await fetchCommitSha(normalizedRepo, body.branch || "main");
+    console.log(`[web-deploy] SHA resolve: ${normalizedRepo} → ${commitSha ?? "null (cache will be skipped)"}`);
   }
 
   // Generate build ID
