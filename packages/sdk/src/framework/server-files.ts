@@ -44,6 +44,40 @@ export function isPreBundledFramework(framework: Framework | null): boolean {
   return getSSRServerDir(framework) !== null;
 }
 
+/**
+ * Post-build detection for Astro + `@astrojs/cloudflare` adapter.
+ *
+ * Astro's adapter layer only picks a target at build time, so we can't
+ * tell pre-install whether a project is "Astro SSG" (`dist/`), "Astro
+ * with Node adapter" (`dist/server/entry.mjs`, node-targeted, we can't
+ * run), or "Astro with CF adapter" (`dist/server/entry.mjs`
+ * workerd-targeted + `dist/client/`).
+ *
+ * The distinguishing fingerprint is `dist/server/wrangler.json` —
+ * that file is **only** emitted by `@astrojs/cloudflare`, because it's
+ * the adapter writing down the resolved CF bindings for downstream
+ * deploy tools. The Node adapter does not emit it.
+ *
+ * Returns the split output directories, or null if this isn't a CF
+ * adapter build. Callers should still guard on `framework === "astro"`
+ * to avoid false positives in unrelated projects that happen to have
+ * a `dist/server/` (unlikely but cheap to check).
+ */
+export function detectAstroCloudflareBuild(cwd: string): {
+  /** Relative path to the pre-bundled Worker output (`entry.mjs` + chunks). */
+  serverDir: string;
+  /** Relative path to the static client assets. */
+  assetsDir: string;
+} | null {
+  if (
+    existsSync(join(cwd, "dist/server/entry.mjs")) &&
+    existsSync(join(cwd, "dist/server/wrangler.json"))
+  ) {
+    return { serverDir: "dist/server", assetsDir: "dist/client" };
+  }
+  return null;
+}
+
 // Files to skip when collecting server output
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 

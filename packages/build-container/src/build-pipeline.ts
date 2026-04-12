@@ -19,6 +19,7 @@ import {
   getSSRServerDir,
   getDefaultBuildOutput,
   collectServerFiles,
+  detectAstroCloudflareBuild,
   type ResolvedConfig,
 } from "@solcreek/sdk";
 
@@ -212,12 +213,23 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       }
     }
 
+    // 4c. Detect pre-bundled Astro + `@astrojs/cloudflare` adapter
+    // output. Framework detection happens pre-install from
+    // package.json, so `resolved.framework === "astro"` could be
+    // either SSG (static `dist/`) or CF-adapter-SSR — we only know
+    // which once we can see the build output. See the SDK helper
+    // for the detection fingerprint.
+    const astroCF =
+      framework === "astro" ? detectAstroCloudflareBuild(workDir) : null;
+
     // 5. Collect client assets
     let assets: Record<string, string> = {};
     let fileList: string[] = [];
 
     if (!isWorker) {
-      const outputDir = join(workDir, resolved.buildOutput);
+      const outputDir = astroCF
+        ? join(workDir, astroCF.assetsDir)
+        : join(workDir, resolved.buildOutput);
       if (existsSync(outputDir)) {
         const collected = collectAssetsBase64(outputDir);
         assets = collected.assets;
@@ -228,7 +240,14 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // 6. Collect server files
     let serverFiles: Record<string, string> | undefined;
 
-    if (isSSR && framework && isPreBundledFramework(framework)) {
+    if (astroCF) {
+      // Pre-bundled Astro CF adapter output: upload dist/server/ as worker modules.
+      const serverDir = join(workDir, astroCF.serverDir);
+      const collected = collectServerFiles(serverDir);
+      serverFiles = Object.fromEntries(
+        Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
+      );
+    } else if (isSSR && framework && isPreBundledFramework(framework)) {
       // Pre-bundled SSR: upload entire server directory
       const serverDirRel = getSSRServerDir(framework);
       if (serverDirRel) {
@@ -266,6 +285,15 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
 
     timing.total = Object.values(timing).reduce((a, b) => a + b, 0);
 
+    // If the Astro CF adapter fired, upgrade the pre-build render mode
+    // ("spa", assumed because framework === "astro") to actual "ssr".
+    // The adapter also generates its own wrangler.json inside
+    // dist/server/ whose "main" field points to entry.mjs — that's
+    // the real Worker entrypoint, not the user-level wrangler.main.
+    const effectiveRenderMode = astroCF ? "ssr" : renderMode;
+    const effectiveHasWorker = astroCF ? true : (isSSR || isWorker);
+    const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
+
     const result: BuildResult = {
       success: true,
       timing,
@@ -273,7 +301,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         wranglerSource: resolved.source.startsWith("wrangler") ? resolved.source : null,
         workerEntry: resolved.workerEntry,
         framework: resolved.framework,
-        renderMode,
+        renderMode: effectiveRenderMode,
         summary: formatDetectionSummary(resolved),
       },
       install: installResult,
@@ -281,9 +309,9 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       bundle: {
         manifest: {
           assets: isWorker ? [] : fileList,
-          hasWorker: isSSR || isWorker,
-          entrypoint: resolved.workerEntry,
-          renderMode,
+          hasWorker: effectiveHasWorker,
+          entrypoint: effectiveEntrypoint,
+          renderMode: effectiveRenderMode,
         },
         assets: isWorker ? {} : assets,
         serverFiles,

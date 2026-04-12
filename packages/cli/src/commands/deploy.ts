@@ -22,6 +22,7 @@ import {
   getSSRServerDir,
   collectServerFiles,
   isPreBundledFramework,
+  detectAstroCloudflareBuild,
   detectNextjsMode,
   detectMonorepo,
   type Framework,
@@ -1156,6 +1157,13 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       }
     }
 
+    // Post-build detection: Astro + @astrojs/cloudflare produces a
+    // pre-bundled Worker (dist/server/entry.mjs) + split client assets
+    // (dist/client/). We can only detect this after build — before
+    // build `framework === "astro"` could mean SSG or CF-adapter-SSR.
+    const astroCF =
+      framework === "astro" ? detectAstroCloudflareBuild(cwd) : null;
+
     // Collect client assets
     // Worker + SPA hybrid: if a Worker project has buildOutput with built files, collect them too
     let clientAssets: Record<string, string> = {};
@@ -1169,6 +1177,10 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       // Adapter output takes precedence for Next.js
       if (framework === "nextjs" && hasAdapterOutput(cwd)) {
         clientAssetsDir = resolve(cwd, ".creek/adapter-output/assets");
+      } else if (astroCF) {
+        // Astro CF adapter splits its output: client assets live in
+        // dist/client/ (not dist/), so redirect the collector there.
+        clientAssetsDir = resolve(cwd, astroCF.assetsDir);
       } else {
         const outputDir = resolve(cwd, resolved.buildOutput);
         if (!existsSync(outputDir)) {
@@ -1192,7 +1204,20 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     // Bundle server/worker files
     let serverFiles: Record<string, string> | undefined;
 
-    if (isSSR && framework) {
+    if (astroCF) {
+      // Astro CF adapter: upload dist/server/ as worker modules
+      // (same shape Nuxt/SolidStart use — pre-bundled, do not re-bundle).
+      const serverDir = resolve(cwd, astroCF.serverDir);
+      if (existsSync(serverDir)) {
+        consola.start("  Collecting Astro CF server files...");
+        const collected = collectServerFiles(serverDir);
+        const fileCount = Object.keys(collected).length;
+        serverFiles = Object.fromEntries(
+          Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
+        );
+        consola.success(`  Astro CF worker: ${fileCount} files`);
+      }
+    } else if (isSSR && framework) {
       if (framework === "nextjs" && hasAdapterOutput(cwd)) {
         // Adapter path: read pre-bundled output from .creek/adapter-output/
         const adapterServerDir = resolve(cwd, ".creek/adapter-output/server");
@@ -1298,12 +1323,18 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     const { deployment } = await client.createDeployment(project.id);
 
     consola.start("  Uploading bundle...");
+    // If the Astro CF adapter fired post-build, the project is actually
+    // SSR (not SPA): overwrite the pre-build-computed renderMode and
+    // point the entrypoint at the adapter-emitted entry.mjs.
+    const effectiveRenderMode = astroCF ? "ssr" : renderMode;
+    const effectiveHasWorker = astroCF ? true : (isSSR || isWorker);
+    const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
     const bundle = {
       manifest: {
         assets: fileList,
-        hasWorker: isSSR || isWorker,
-        entrypoint: resolved.workerEntry,
-        renderMode,
+        hasWorker: effectiveHasWorker,
+        entrypoint: effectiveEntrypoint,
+        renderMode: effectiveRenderMode,
         framework: framework ?? undefined,
       },
       workerScript: null,
@@ -1387,7 +1418,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
         // Contextual next-step hints (non-JSON only)
         if (!jsonMode) {
-          printNextStepHint(renderMode, resolved);
+          printNextStepHint(effectiveRenderMode, resolved);
         }
         return;
       }

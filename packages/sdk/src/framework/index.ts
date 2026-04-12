@@ -175,4 +175,5 @@ export {
   getSSRServerDir,
   collectServerFiles,
   isPreBundledFramework,
+  detectAstroCloudflareBuild,
 } from "./server-files.js";
