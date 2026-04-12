@@ -45,6 +45,7 @@ import {
   ImageResponse,
   brandCard,
   deployButtonCard,
+  parseDeploySlug,
 } from "@solcreek/og";
 
 type Env = {
@@ -68,26 +69,6 @@ app.get("/health", (c) => {
 });
 
 // ---- Deploy button card ----
-
-const PROVIDER_MAP: Record<string, { host: string; displayName: string }> = {
-  gh: { host: "github.com", displayName: "GitHub" },
-  github: { host: "github.com", displayName: "GitHub" },
-  gl: { host: "gitlab.com", displayName: "GitLab" },
-  gitlab: { host: "gitlab.com", displayName: "GitLab" },
-  bb: { host: "bitbucket.org", displayName: "Bitbucket" },
-  bitbucket: { host: "bitbucket.org", displayName: "Bitbucket" },
-};
-
-/**
- * Validate an owner/repo segment — GitHub's own rules: alphanumeric,
- * hyphens, dots, underscores. This prevents weird paths from being
- * interpolated into HTML text nodes or URLs in the rendered image.
- */
-function safeName(name: string | undefined): string | null {
-  if (!name) return null;
-  if (!/^[a-zA-Z0-9._-]+$/.test(name)) return null;
-  return name;
-}
 
 /**
  * Fetch a GitHub repo's public metadata. Returns null for 404 / rate
@@ -116,33 +97,38 @@ async function fetchGitHubDescription(
   }
 }
 
-app.get("/deploy/:provider/:owner/:repo", async (c) => {
-  const providerKey = c.req.param("provider")?.toLowerCase();
-  const owner = safeName(c.req.param("owner"));
-  const repoRaw = c.req.param("repo");
-  const repo = safeName(repoRaw?.replace(/\.git$/, ""));
-
-  const provider = providerKey ? PROVIDER_MAP[providerKey] : undefined;
+// Catch-all for /deploy/... — handles both standard 3-segment slugs
+// and the longer /tree/{branch}/{subpath} variants. Parsing is
+// delegated to the shared parseDeploySlug in @solcreek/og, which is
+// also used by apps/www's /deploy/[...slug] server component so a
+// single source of truth decides what's valid.
+app.get("/deploy/*", async (c) => {
+  const url = new URL(c.req.url);
+  const tail = url.pathname.replace(/^\/deploy\//, "").replace(/\/$/, "");
+  const slug = tail ? tail.split("/") : [];
+  const parsed = parseDeploySlug(slug);
 
   // Invalid params → fall back to generic Creek brand card, still 200
   // so social crawlers get a valid image instead of a broken image icon.
-  if (!provider || !owner || !repo) {
+  if (!parsed) {
     return renderBrandCard();
   }
 
   // Only GitHub is wired for description fetch today; GitLab/Bitbucket
   // cards render with just owner/repo until the registry supports them.
   const description =
-    provider.host === "github.com"
-      ? await fetchGitHubDescription(owner, repo)
+    parsed.provider.host === "github.com"
+      ? await fetchGitHubDescription(parsed.owner, parsed.repo)
       : null;
 
   return new ImageResponse(
     deployButtonCard({
-      owner,
-      repo,
+      owner: parsed.owner,
+      repo: parsed.repo,
       description,
-      providerHost: provider.host,
+      providerHost: parsed.provider.host,
+      branch: parsed.branch,
+      subpath: parsed.subpath,
     }),
     { width: 1200, height: 630 },
   );
