@@ -118,7 +118,20 @@ export async function handleWebBuild(
       manifest: buildResult.bundle.manifest,
       framework: buildResult.config?.framework,
       source: "web",
+      // Cache-coherent team ID for CF Static Assets dedup. When a
+      // second sandbox deploys the same repo@commit, the hashes match
+      // because the salt is the same → CF returns "0 buckets to upload"
+      // → asset upload step is instant. Each sandbox still gets its OWN
+      // script name / URL / data — only asset storage is shared.
+      cacheTeamId: cacheTeamId(),
     });
+  }
+
+  function cacheTeamId(): string | undefined {
+    if (!message.commitSha) return undefined;
+    // Deterministic per repo+commit — all sandboxes of the same content
+    // produce identical asset hashes and benefit from CF's global dedup.
+    return `cache-${message.repoUrl.replace(/[^a-zA-Z0-9]/g, "").slice(-20)}-${message.commitSha}`;
   }
 
   // ------------------------------------------------------------------
