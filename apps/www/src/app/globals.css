@@ -80,3 +80,38 @@ body {
     @apply font-sans;
   }
 }
+
+/*
+ * Brand wordmark — Fraunces serif.
+ *
+ * - font-optical-sizing: auto lets the browser pick the `opsz` axis value
+ *   from the computed font-size. Small nav instances get chunkier strokes
+ *   for legibility; large hero instances get thinner, more editorial
+ *   strokes. This is the "right" default for variable fonts with opsz.
+ * - SOFT 40 rounds the serifs slightly — adds warmth without going full
+ *   humanist. 0 = sharp traditional serif, 100 = fully rounded.
+ * - WONK 0 keeps standard glyphs. Flip to 1 for quirky alternates (italic
+ *   'g', slanted 'e') — too playful for a wordmark, usable for marketing
+ *   headers or accent elements.
+ * - letter-spacing slightly tight counters the serif's natural openness.
+ */
+.font-brand {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-optical-sizing: auto;
+  font-variation-settings: "SOFT" 40, "WONK" 0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * Force a large-display opsz even at smaller font sizes — for rare cases
+ * where we want the thin editorial silhouette on a smaller surface
+ * (e.g. a footer that should still feel display-like). Use sparingly;
+ * prefer .font-brand + a larger font-size instead when possible.
+ */
+.font-brand-display {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-variation-settings: "opsz" 144, "SOFT" 40, "WONK" 0;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}

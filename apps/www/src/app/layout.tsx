@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, JetBrains_Mono } from "next/font/google";
+import { Geist, JetBrains_Mono, Fraunces } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,17 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
+});
+
+// Fraunces — brand serif used for the "Creek" wordmark.
+// Variable axes enabled:
+//   opsz  — optical sizing (handled automatically via font-optical-sizing: auto)
+//   SOFT  — serif roundness (set per-usage in CSS)
+//   WONK  — enables quirky alternate glyphs (off by default)
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  axes: ["SOFT", "WONK", "opsz"],
 });
 
 export const metadata: Metadata = {
@@ -47,7 +58,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn("h-full antialiased dark", geist.variable, jetbrainsMono.variable)} suppressHydrationWarning>
+    <html lang="en" className={cn("h-full antialiased dark", geist.variable, jetbrainsMono.variable, fraunces.variable)} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
         {/*
           esbuild __name helper polyfill.

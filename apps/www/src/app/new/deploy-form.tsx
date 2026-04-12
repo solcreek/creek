@@ -151,7 +151,7 @@ export default function DeployForm() {
       <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
         <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
           <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
-            <a href="/" className="font-mono text-sm font-medium tracking-tight">creek</a>
+            <a href="/" className="font-brand text-base font-medium tracking-tight">Creek</a>
             <div className="flex items-center gap-6 text-sm text-[#888]">
               <a href="/docs" className="hover:text-[#e5e5e5] transition-colors">Docs</a>
               <a href="/pricing" className="hover:text-[#e5e5e5] transition-colors">Pricing</a>
@@ -212,7 +212,7 @@ export default function DeployForm() {
       {/* Nav */}
       <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
         <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="font-mono text-sm font-medium tracking-tight">creek</a>
+          <a href="/" className="font-brand text-base font-medium tracking-tight">Creek</a>
           <div className="flex items-center gap-6 text-sm text-[#888]">
             <a href="/docs" className="hover:text-[#e5e5e5] transition-colors">Docs</a>
             <a href="/pricing" className="hover:text-[#e5e5e5] transition-colors">Pricing</a>

@@ -5,7 +5,7 @@ export function Footer() {
     <footer className="border-t border-border py-8 px-6 mt-auto">
       <div className="mx-auto max-w-5xl flex flex-col gap-6 text-xs text-muted-foreground">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="font-mono font-medium">creek</span>
+          <span className="font-brand text-base font-medium">Creek</span>
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
