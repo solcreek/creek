@@ -49,6 +49,26 @@ function normalizeRepoUrl(repo: string): string {
   return repo.startsWith("http") ? repo : `https://github.com/${repo}`;
 }
 
+/**
+ * Build cache key for repo deploys. Used by:
+ * - POST /web-deploy (cache read, before enqueueing)
+ * - remote-builder/web-build.ts (cache write, after successful build)
+ *
+ * Key shape: `webcache:repo:{url}:{branch}:{path}`
+ * Phase 0 precision: repo + branch + path (no commit SHA).
+ * KV TTL matches sandbox lifetime (~55 min) so cache auto-expires
+ * when the sandbox it points to does.
+ */
+export function buildCacheKey(
+  repoUrl: string,
+  branch?: string | null,
+  path?: string | null,
+): string {
+  const parts = ["webcache", "repo", repoUrl, branch || "main"];
+  if (path) parts.push(path);
+  return parts.join(":");
+}
+
 export function hashIp(ip: string): string {
   let hash = 0;
   for (let i = 0; i < ip.length; i++) {
