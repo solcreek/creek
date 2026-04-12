@@ -205,6 +205,7 @@ export default function DeployForm() {
               previewUrl={deployState.previewUrl}
               expiresAt={deployState.expiresAt}
               error={deployState.error}
+              cacheHit={deployState.cacheHit}
               onReset={deployState.reset}
             />
           ) : repoInfo ? (
@@ -388,12 +389,14 @@ function DeployProgress({
   previewUrl,
   expiresAt,
   error,
+  cacheHit,
   onReset,
 }: {
   status: DeployStatus;
   previewUrl: string | null;
   expiresAt: string | null;
   error: string | null;
+  cacheHit: boolean;
   onReset: () => void;
 }) {
   const isBuilding = status === "building";
@@ -401,7 +404,7 @@ function DeployProgress({
   const buildElapsed = useElapsedSeconds(isBuilding);
   const deployElapsed = useElapsedSeconds(isDeploying);
 
-  const buildSteps = useSimulatedSteps(BUILD_STEPS, isBuilding);
+  const buildSteps = useSimulatedSteps(BUILD_STEPS, isBuilding && !cacheHit);
   const deploySteps = useSimulatedSteps(DEPLOY_STEPS, isDeploying);
 
   return (
@@ -409,23 +412,44 @@ function DeployProgress({
       <div>
         <p className="text-xs font-mono text-[#888] mb-2">Deploy to Creek</p>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {status === "active" ? "Deployed!" : status === "failed" ? "Deploy Failed" : "Deploying..."}
+          {status === "active" ? (
+            <>
+              Deployed!
+              {cacheHit && (
+                <span className="ml-2 text-lg font-mono text-[#fbbf24]">⚡ Turbo</span>
+              )}
+            </>
+          ) : status === "failed" ? "Deploy Failed" : "Deploying..."}
         </h1>
       </div>
 
       {/* Build phase */}
-      <div className="rounded-xl border border-[#222] bg-[#111] p-5 text-left">
-        <div className={`flex items-center justify-between ${isBuilding ? "mb-3" : ""}`}>
+      <div className={`rounded-xl border p-5 text-left transition-colors ${
+        cacheHit
+          ? "border-[#fbbf24]/30 bg-[#1a1610]"
+          : "border-[#222] bg-[#111]"
+      }`}>
+        <div className={`flex items-center justify-between ${isBuilding && !cacheHit ? "mb-3" : ""}`}>
           <div className="flex items-center gap-2">
-            <StepIcon state={isBuilding ? "active" : status === "failed" && error?.includes("build") ? "failed" : isBuilding ? "active" : "done"} />
-            <span className="text-sm font-medium text-[#e5e5e5]">Building project</span>
+            {cacheHit ? (
+              <span className="text-[#fbbf24] text-base leading-none">⚡</span>
+            ) : (
+              <StepIcon state={
+                isBuilding ? "active"
+                  : status === "failed" && error?.includes("build") ? "failed"
+                    : "done"
+              } />
+            )}
+            <span className={`text-sm font-medium ${cacheHit ? "text-[#fbbf24]" : "text-[#e5e5e5]"}`}>
+              {cacheHit ? "Cache hit — skipping build" : "Building project"}
+            </span>
           </div>
-          {isBuilding && (
+          {isBuilding && !cacheHit && (
             <span className="text-xs font-mono text-[#555]">{buildElapsed}s</span>
           )}
         </div>
 
-        {isBuilding && (
+        {isBuilding && !cacheHit && (
           <div className="ml-7 space-y-1.5">
             {buildSteps.map((step) => (
               <SubStep key={step.label} label={step.label} state={step.state} />
