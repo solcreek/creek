@@ -262,8 +262,12 @@ async function writeBundleCache(
   }
 
   try {
-    const remainingMs = new Date(expiresAt).getTime() - Date.now();
-    const ttl = Math.max(60, Math.floor(remainingMs / 1000));
+    // Cache TTL is tied to the COMMIT, not the sandbox. The bundle is
+    // valid as long as the repo hasn't changed — 24h covers the typical
+    // deploy-button-on-Twitter lifecycle and lets cache outlive any
+    // individual sandbox. KV auto-evicts after TTL, keeping storage
+    // bounded without a cron.
+    const ttl = 24 * 60 * 60; // 24 hours
     await env.BUILD_STATUS.put(cacheKey, bundleJson, { expirationTtl: ttl });
     console.log(`[build-cache] WRITE OK ${cacheKey.slice(0, 80)} — ${sizeKB} KB, TTL ${ttl}s`);
   } catch (err) {
