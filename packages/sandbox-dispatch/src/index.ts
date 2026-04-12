@@ -15,6 +15,60 @@ interface Env {
 // Limit each sandbox to 50 unique visitor IPs. Uses KV to track.
 const VISITOR_CAP = 50;
 
+// --- Preload Link header extraction ---
+
+/**
+ * Extract preload candidates from an HTML string — looks for
+ * `<link rel="stylesheet">` and `<script type="module" src=...>`
+ * tags and returns a list of values suitable for an HTTP `Link:`
+ * header like `</_astro/abc.css>; rel=preload; as=style`.
+ *
+ * Only same-origin paths (starting with `/`) are emitted. Cross-origin
+ * and protocol-relative URLs are skipped — they would open CORS
+ * questions and the browser may reject the hint anyway.
+ *
+ * Cloudflare's Early Hints zone feature reads these Link headers off
+ * the cached response and replays them as an HTTP 103 interim
+ * response on subsequent requests, so the browser can start fetching
+ * the critical assets before the origin has even started computing
+ * the final HTML. For the very first visitor there is no cached
+ * response yet, but the Link headers on the 200 response are still
+ * parsed by modern browsers as preload hints arriving ahead of the
+ * HTML body — a smaller but non-zero win.
+ *
+ * The hint list is capped at MAX_PRELOAD_HINTS to bound Link header
+ * size and because browsers rate-limit preload hints anyway.
+ */
+const MAX_PRELOAD_HINTS = 20;
+const CSS_LINK_RE =
+  /<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
+const MODULE_SCRIPT_RE =
+  /<script\b[^>]*\btype\s*=\s*["']module["'][^>]*\bsrc\s*=\s*["']([^"']+)["']/gi;
+
+export function extractPreloadLinks(html: string): string[] {
+  const hints: string[] = [];
+
+  const pushHint = (url: string, as: string) => {
+    if (hints.length >= MAX_PRELOAD_HINTS) return;
+    if (!url.startsWith("/") || url.startsWith("//")) return; // same-origin only
+    hints.push(`<${url}>; rel=preload; as=${as}`);
+  };
+
+  // Reset lastIndex because these regex instances are module-level
+  CSS_LINK_RE.lastIndex = 0;
+  MODULE_SCRIPT_RE.lastIndex = 0;
+
+  let m: RegExpExecArray | null;
+  while ((m = CSS_LINK_RE.exec(html)) !== null) {
+    pushHint(m[1], "style");
+  }
+  while ((m = MODULE_SCRIPT_RE.exec(html)) !== null) {
+    pushHint(m[1], "script");
+  }
+
+  return hints;
+}
+
 // --- Cache-Control derivation ---
 
 /**
@@ -331,6 +385,18 @@ export default {
         headers.set("X-Robots-Tag", "noindex, nofollow");
         headers.set("X-Sandbox-Expires-At", new Date(sandbox.expiresAt).toISOString());
         headers.delete("Content-Length"); // length changed after injection
+
+        // Extract critical CSS / JS paths from the HTML and emit them
+        // as a Link header. Cloudflare Early Hints (enabled on this
+        // zone) caches these hints and replays them as an HTTP 103
+        // interim response on subsequent requests, so browsers start
+        // fetching CSS/JS before the origin finishes the HTML body.
+        // Also acts as a preload hint on the 200 response itself for
+        // the first visitor.
+        const preloadHints = extractPreloadLinks(html);
+        if (preloadHints.length > 0) {
+          headers.set("Link", preloadHints.join(", "));
+        }
 
         return new Response(injected, {
           status: response.status,
