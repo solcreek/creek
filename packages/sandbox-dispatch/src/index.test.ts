@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from "vitest";
-import worker, { deriveCacheControl } from "./index.js";
+import worker, { deriveCacheControl, extractPreloadLinks } from "./index.js";
 
 interface MockSandboxRow {
   id: string;
@@ -318,5 +318,152 @@ describe("Cache-Control on dispatched responses", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=3600, s-maxage=3600",
     );
+  });
+});
+
+describe("extractPreloadLinks", () => {
+  test("extracts a single stylesheet link", () => {
+    const html = `<html><head><link rel="stylesheet" href="/_astro/a.css"></head></html>`;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</_astro/a.css>; rel=preload; as=style",
+    ]);
+  });
+
+  test("extracts a single module script", () => {
+    const html = `<html><head><script type="module" src="/_astro/client.js"></script></head></html>`;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</_astro/client.js>; rel=preload; as=script",
+    ]);
+  });
+
+  test("extracts multiple stylesheets and scripts together", () => {
+    const html = `
+      <link rel="stylesheet" href="/_astro/a.css" data-precedence="next"/>
+      <link rel="stylesheet" href="/_astro/b.css"/>
+      <script type="module" src="/_astro/router.js"></script>
+    `;
+    const hints = extractPreloadLinks(html);
+    expect(hints).toContain("</_astro/a.css>; rel=preload; as=style");
+    expect(hints).toContain("</_astro/b.css>; rel=preload; as=style");
+    expect(hints).toContain("</_astro/router.js>; rel=preload; as=script");
+    expect(hints).toHaveLength(3);
+  });
+
+  test("accepts single-quoted attribute values", () => {
+    const html = `<link rel='stylesheet' href='/a.css'>`;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</a.css>; rel=preload; as=style",
+    ]);
+  });
+
+  test("skips cross-origin URLs", () => {
+    const html = `
+      <link rel="stylesheet" href="https://cdn.example.com/a.css">
+      <link rel="stylesheet" href="//cdn.example.com/b.css">
+      <link rel="stylesheet" href="/local.css">
+    `;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</local.css>; rel=preload; as=style",
+    ]);
+  });
+
+  test("skips relative paths without leading slash", () => {
+    const html = `
+      <link rel="stylesheet" href="./a.css">
+      <link rel="stylesheet" href="b.css">
+      <link rel="stylesheet" href="/c.css">
+    `;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</c.css>; rel=preload; as=style",
+    ]);
+  });
+
+  test("skips non-module classic scripts", () => {
+    const html = `
+      <script src="/classic.js"></script>
+      <script type="module" src="/mod.js"></script>
+    `;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</mod.js>; rel=preload; as=script",
+    ]);
+  });
+
+  test("skips <link rel='preload'> and other rel values", () => {
+    const html = `
+      <link rel="preload" href="/font.woff2" as="font">
+      <link rel="icon" href="/favicon.svg">
+      <link rel="stylesheet" href="/style.css">
+    `;
+    expect(extractPreloadLinks(html)).toEqual([
+      "</style.css>; rel=preload; as=style",
+    ]);
+  });
+
+  test("caps the number of hints at 20", () => {
+    // Build HTML with 25 stylesheet links
+    const links = Array.from(
+      { length: 25 },
+      (_, i) => `<link rel="stylesheet" href="/a${i}.css">`,
+    ).join("\n");
+    const hints = extractPreloadLinks(links);
+    expect(hints).toHaveLength(20);
+  });
+
+  test("returns empty array when HTML has no preloadable assets", () => {
+    expect(extractPreloadLinks("<html><body>hi</body></html>")).toEqual([]);
+    expect(extractPreloadLinks("")).toEqual([]);
+  });
+
+  test("idempotent — multiple calls return identical results", () => {
+    const html = `<link rel="stylesheet" href="/a.css">`;
+    const first = extractPreloadLinks(html);
+    const second = extractPreloadLinks(html);
+    expect(first).toEqual(second);
+  });
+});
+
+describe("Link header on dispatched HTML responses", () => {
+  async function dispatchHtml(html: string, sandboxId = "abc12345") {
+    const { env } = createEnv({
+      d1Rows: {
+        [sandboxId]: {
+          id: sandboxId,
+          status: "active",
+          expiresAt: Date.now() + 60_000,
+          previewHost: `${sandboxId}.creeksandbox.com`,
+          deployDurationMs: 9000,
+        },
+      },
+      scriptHandlers: {
+        [`${sandboxId}-sandbox`]: async () =>
+          new Response(html, { headers: { "Content-Type": "text/html" } }),
+      },
+    });
+    return worker.fetch(
+      new Request(`https://${sandboxId}.creeksandbox.com/`),
+      env,
+    );
+  }
+
+  test("Link header is set with preload hints for Astro-style HTML", async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html><head>
+        <link rel="stylesheet" href="/_astro/about.x6foEjjJ.css">
+        <script type="module" src="/_astro/ClientRouter.QW52Ox2j.js"></script>
+      </head><body>hi</body></html>
+    `;
+    const res = await dispatchHtml(html);
+    const link = res.headers.get("Link");
+    expect(link).not.toBeNull();
+    expect(link).toContain("</_astro/about.x6foEjjJ.css>; rel=preload; as=style");
+    expect(link).toContain(
+      "</_astro/ClientRouter.QW52Ox2j.js>; rel=preload; as=script",
+    );
+  });
+
+  test("Link header is absent when HTML has no preloadable assets", async () => {
+    const res = await dispatchHtml("<html><body>plain</body></html>");
+    expect(res.headers.get("Link")).toBeNull();
   });
 });
