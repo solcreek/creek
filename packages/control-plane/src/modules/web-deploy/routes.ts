@@ -167,6 +167,53 @@ webDeploy.get("/list", async (c) => {
   return c.json(merged);
 });
 
+// GET /web-deploy/preflight — check if the repo@commit is already cached,
+// so the UI can show "⚡ Turbo — instant deploy" before the user clicks.
+// Public, unauthenticated, cheap (one GitHub API call + one KV read).
+// Must be defined BEFORE /:buildId so Hono routes it correctly.
+webDeploy.get("/preflight", async (c) => {
+  const repo = c.req.query("repo");
+  const branch = c.req.query("branch") || "main";
+  const path = c.req.query("path");
+
+  if (!repo) {
+    return c.json({ cached: false, reason: "missing_repo" });
+  }
+
+  const normalizedRepo = repo.startsWith("http")
+    ? repo
+    : `https://github.com/${repo}`;
+
+  try {
+    const sha = await fetchCommitSha(normalizedRepo, branch);
+    if (!sha) {
+      // GitHub API failure or non-GitHub host — can't cache without SHA
+      return c.json({ cached: false, reason: "no_sha" });
+    }
+
+    const metaKey = `bundlemeta:${normalizedRepo}:${branch}:${sha}${path ? `:${path}` : ""}`;
+    const meta = await c.env.BUILD_STATUS.get(metaKey);
+
+    if (meta) {
+      try {
+        const parsed = JSON.parse(meta) as { size?: number; cachedAt?: number };
+        return c.json({
+          cached: true,
+          commitSha: sha,
+          cachedAt: parsed.cachedAt,
+          sizeKB: parsed.size ? Math.round(parsed.size / 1024) : undefined,
+        });
+      } catch {
+        // Corrupt metadata — treat as uncached
+      }
+    }
+
+    return c.json({ cached: false, commitSha: sha });
+  } catch {
+    return c.json({ cached: false, reason: "error" });
+  }
+});
+
 // GET /web-deploy/:buildId — poll status
 webDeploy.get("/:buildId", async (c) => {
   const buildId = c.req.param("buildId");

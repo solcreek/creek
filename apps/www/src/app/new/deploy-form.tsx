@@ -104,11 +104,19 @@ const STATUS_LABELS: Record<DeployStatus, string> = {
   failed: "Deploy failed",
 };
 
+interface Preflight {
+  cached: boolean;
+  commitSha?: string;
+  cachedAt?: number;
+  sizeKB?: number;
+}
+
 export default function DeployForm() {
   const [mounted, setMounted] = useState(false);
   const [repoInfo, setRepoInfo] = useState<ParsedRepo | null>(null);
   const [templateInfo, setTemplateInfo] = useState<{ template: string; data: Record<string, string> } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
   const deployState = useWebDeploy();
 
   useEffect(() => {
@@ -119,6 +127,23 @@ export default function DeployForm() {
     if (!parsedRepo) setTemplateInfo(parsedTemplate);
     setMounted(true);
   }, []);
+
+  // Preflight: check if the repo@commit is already cached so we can
+  // show "⚡ Turbo — ready (~7s)" before the user clicks Deploy.
+  useEffect(() => {
+    if (!repoInfo) return;
+    const params = new URLSearchParams({ repo: repoInfo.full });
+    if (repoInfo.branch) params.set("branch", repoInfo.branch);
+    if (repoInfo.path) params.set("path", repoInfo.path);
+    fetch(`https://api.creek.dev/web-deploy/preflight?${params}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setPreflight(data as Preflight);
+      })
+      .catch(() => {
+        // Preflight failure is non-critical — just don't show the chip
+      });
+  }, [repoInfo]);
 
   // SSR: show minimal loading shell. Client JS takes over after mount.
   if (!mounted) {
@@ -221,10 +246,12 @@ export default function DeployForm() {
                 href={repoInfo.full}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block text-sm text-[#888] hover:text-[#60d0e0] transition-colors mb-8"
+                className="inline-block text-sm text-[#888] hover:text-[#60d0e0] transition-colors mb-4"
               >
                 View on GitHub →
               </a>
+
+              <PreflightChip preflight={preflight} />
 
               <DeployActions
                 command={command}
@@ -283,6 +310,36 @@ export default function DeployForm() {
 }
 
 // --- Components ---
+
+function PreflightChip({ preflight }: { preflight: Preflight | null }) {
+  // Hidden until preflight resolves — avoids layout shift
+  if (!preflight) return null;
+
+  if (preflight.cached) {
+    return (
+      <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#fbbf24]/30 bg-[#fbbf24]/5 px-3 py-1.5 text-xs font-mono">
+        <span className="text-[#fbbf24]">⚡</span>
+        <span className="text-[#fbbf24]">Turbo ready</span>
+        <span className="text-[#888]">·</span>
+        <span className="text-[#888]">
+          ~7s deploy
+          {preflight.commitSha && (
+            <span className="ml-1 text-[#555]">@ {preflight.commitSha.slice(0, 7)}</span>
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  // Not cached — first-time deploy for this commit
+  return (
+    <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#222] bg-[#111] px-3 py-1.5 text-xs font-mono text-[#888]">
+      <span>First-time deploy</span>
+      <span className="text-[#555]">·</span>
+      <span className="text-[#555]">~60s build</span>
+    </div>
+  );
+}
 
 function DeployActions({
   command,
@@ -441,7 +498,7 @@ function DeployProgress({
               } />
             )}
             <span className={`text-sm font-medium ${cacheHit ? "text-[#fbbf24]" : "text-[#e5e5e5]"}`}>
-              {cacheHit ? "Cache hit — skipping build" : "Building project"}
+              {cacheHit ? "Turbo build — ready" : "Building project"}
             </span>
           </div>
           {isBuilding && !cacheHit && (
