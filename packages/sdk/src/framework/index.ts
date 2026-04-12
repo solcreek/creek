@@ -26,6 +26,12 @@ export function detectFramework(packageJson: PackageJson): Framework | null {
   // astro adapters but we treat the common SSG case first.
   if (allDeps["astro"]) return "astro";
 
+  // VitePress — Vue-based docs site generator. Check BEFORE vite-vue
+  // because vitepress bundles vite + vue transitively; without this
+  // check a VitePress project would slip through as vite-vue and ship
+  // with the wrong build output directory.
+  if (allDeps["vitepress"]) return "vitepress";
+
   // SPA frameworks (Vite-wrapped)
   if (allDeps["vite"]) {
     if (allDeps["react"] || allDeps["react-dom"]) return "vite-react";
@@ -55,6 +61,13 @@ export function getDefaultBuildOutput(framework: Framework | null): string {
     case "vite-svelte":
     case "vite-solid":
       return "dist";
+    case "vitepress":
+      // Default VitePress outDir when the `.vitepress/config.*` is at
+      // the project root. Projects that keep their docs in a
+      // subfolder (the common `docs/` pattern) use the deploy button's
+      // subpath support so this detection runs against that subfolder
+      // as the effective project root.
+      return ".vitepress/dist";
     default:
       return "dist";
   }
