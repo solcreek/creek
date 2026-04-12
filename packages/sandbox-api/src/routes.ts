@@ -100,8 +100,15 @@ routes.post("/deploy", async (c) => {
     return c.json({ error: "validation", message: "Bundle too large. Max 50MB." }, 400);
   }
 
-  // Tiered rate limiting — demo deploys are exempt
+  // Tiered rate limiting
+  // - Demo deploys (source = "cli-demo") are exempt.
+  // - Trusted internal calls (remote-builder via X-Internal-Secret) are
+  //   exempt because rate limiting was already applied at the control-plane
+  //   level with the real user IP. Without this exemption, ALL web deploys
+  //   share a single rate limit bucket because remote-builder doesn't
+  //   forward the original user IP → ipHash = hash("unknown").
   const isDemo = body.source === "cli-demo";
+  const isRateLimitExempt = isDemo || isTrustedInternal;
   const tier = await resolveRateTier(c, env, ipHash);
   const RATE_LIMIT = RATE_LIMITS[tier];
   const RATE_WINDOW = 3600_000; // 1 hour
@@ -109,7 +116,7 @@ routes.post("/deploy", async (c) => {
   let remaining = RATE_LIMIT;
   let resetAt = now + RATE_WINDOW;
 
-  if (!isDemo) {
+  if (!isRateLimitExempt) {
     const rateInfo = await env.DB.prepare(
       "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != 'cli-demo' AND createdAt > ?",
     )
