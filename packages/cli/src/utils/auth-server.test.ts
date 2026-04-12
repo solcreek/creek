@@ -12,9 +12,11 @@ describe("auth-server state generation", () => {
   });
 });
 
-// Full auth-server tests require localhost network.
-// Run with: TEST_NETWORK=1 pnpm vitest run src/utils/auth-server.test.ts
-describe.skipIf(!process.env.TEST_NETWORK)("auth-server network", () => {
+// Full auth-server tests require loopback TCP. Some sandboxed
+// environments (certain CI runners, Claude Code's tool sandbox)
+// block even localhost binds — gate on TEST_NETWORK so default
+// `pnpm test` stays green, and real dev/CI runs the tests.
+describe.skipIf(!process.env.TEST_NETWORK)("auth-server loopback", () => {
   test("starts, receives callback, validates state", async () => {
     const { startAuthServer } = await import("./auth-server.js");
     const { port, state, waitForCallback, close } = startAuthServer();
@@ -29,6 +31,28 @@ describe.skipIf(!process.env.TEST_NETWORK)("auth-server network", () => {
 
       const key = await waitForCallback();
       expect(key).toBe("creek_test");
+    } finally {
+      close();
+    }
+  });
+
+  test("rejects callback with mismatched state", async () => {
+    const { startAuthServer } = await import("./auth-server.js");
+    const { port, waitForCallback, close } = startAuthServer();
+
+    // Observe the rejection to prevent unhandled-rejection warning —
+    // state mismatch rejects the waitForCallback promise.
+    const observed = waitForCallback().catch((err) => err);
+
+    try {
+      const res = await fetch(
+        `http://localhost:${port}/callback?key=creek_test&state=wrong`,
+      );
+      expect(res.status).toBe(400);
+
+      const err = await observed;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/state mismatch/i);
     } finally {
       close();
     }
