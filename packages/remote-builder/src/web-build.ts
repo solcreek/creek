@@ -116,15 +116,6 @@ export async function handleWebBuild(
     sandboxStatusUrl: sandbox.statusUrl,
   });
 
-  // If sandbox is already active (immediate deploy), write cache now
-  if (sandbox.status === "active") {
-    await writeBuildCache(env, message, {
-      sandboxId: sandbox.sandboxId,
-      previewUrl: sandbox.previewUrl,
-      expiresAt: sandbox.expiresAt,
-    });
-  }
-
   // If not yet active, poll until terminal state.
   // Queue consumer has no time limit — safe to poll here.
   if (sandbox.status !== "active" && sandbox.status !== "failed" && sandbox.statusUrl) {
@@ -145,17 +136,6 @@ export async function handleWebBuild(
     if (finalStatus.status === "active") {
       await updateKV(env, buildId, {
         status: "active",
-        sandboxId: sandbox.sandboxId,
-        previewUrl: sandbox.previewUrl,
-        expiresAt: sandbox.expiresAt,
-      });
-      // Write build cache so subsequent deploys of the same
-      // repo+branch+path skip the entire build pipeline.
-      // KV TTL matches sandbox remaining lifetime — cache
-      // auto-expires when the sandbox it points to does.
-      // Cache key matches the one checked in control-plane's
-      // POST /web-deploy route (buildCacheKey in build-and-deploy.ts).
-      await writeBuildCache(env, message, {
         sandboxId: sandbox.sandboxId,
         previewUrl: sandbox.previewUrl,
         expiresAt: sandbox.expiresAt,
@@ -182,41 +162,4 @@ async function updateKV(
     JSON.stringify({ buildId, ...data, updatedAt: new Date().toISOString() }),
     { expirationTtl: 3600 },
   );
-}
-
-/**
- * Write a build cache entry so subsequent web-deploy requests for
- * the same repo+branch+path skip the entire build pipeline.
- *
- * Cache key shape matches `buildCacheKey()` in the control-plane's
- * web-deploy module (packages/control-plane/src/modules/web-deploy/
- * build-and-deploy.ts). KV TTL is set to the sandbox's remaining
- * lifetime so the cache self-cleans when the sandbox expires.
- */
-async function writeBuildCache(
-  env: Pick<WebBuildEnv, "BUILD_STATUS">,
-  message: WebBuildMessage,
-  sandbox: { sandboxId: string; previewUrl: string; expiresAt: string },
-): Promise<void> {
-  try {
-    const branch = message.branch || "main";
-    const parts = ["webcache", "repo", message.repoUrl, branch];
-    if (message.path) parts.push(message.path);
-    const cacheKey = parts.join(":");
-
-    const remainingMs = new Date(sandbox.expiresAt).getTime() - Date.now();
-    const ttlSeconds = Math.max(60, Math.floor(remainingMs / 1000));
-
-    await env.BUILD_STATUS.put(
-      cacheKey,
-      JSON.stringify({
-        sandboxId: sandbox.sandboxId,
-        previewUrl: sandbox.previewUrl,
-        expiresAt: sandbox.expiresAt,
-      }),
-      { expirationTtl: ttlSeconds },
-    );
-  } catch {
-    // Cache write failure is not critical — next deploy just rebuilds
-  }
 }
