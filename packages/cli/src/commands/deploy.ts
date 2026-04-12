@@ -1542,13 +1542,13 @@ async function tryTurboDeploy(
     });
 
     if (!res.cacheHit) {
-      if (!jsonMode) consola.info("  \x1b[2mCache miss — building from source\x1b[0m");
+      if (!jsonMode) consola.info("  \x1b[2mFirst-time build — building from source\x1b[0m");
       return false;
     }
 
-    // ⚡ Cache hit! Server is deploying from cache.
+    // ⚡ Turbo build — server is deploying from cache.
     if (!jsonMode) {
-      consola.success("  \x1b[33m⚡\x1b[0m \x1b[1mCache hit — deploying from cache\x1b[0m");
+      consola.success("  \x1b[33m⚡\x1b[0m \x1b[1mTurbo build — ready\x1b[0m");
     }
 
     // Poll until deployment is active (same as normal deploy path)
