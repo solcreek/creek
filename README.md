@@ -39,8 +39,36 @@ npx creek deploy
 
 Creek detects your framework, provisions resources, builds, and deploys.
 
-**Supported:** React · Vue · Svelte · Solid · Astro · Hono · TanStack Start · React Router · static HTML
+**Supported:** React · Vue · Svelte · Solid · Astro · VitePress · Hono · TanStack Start · React Router · static HTML
 **WIP:** Next.js · Nuxt · Remix · SvelteKit
+
+---
+
+## Try it — deploy these in ~15 seconds
+
+No signup, no config. Click a badge, watch it go live.
+
+| | Repo | Stars | What you'll see |
+|---|---|---|---|
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/satnaing/astro-paper) | [satnaing/astro-paper](https://github.com/satnaing/astro-paper) | ⭐ 4.4k | Minimal, SEO-friendly Astro blog — the most popular Astro theme |
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/withastro/docs) | [withastro/docs](https://github.com/withastro/docs) | ⭐ 1.6k | Astro's **official documentation site** |
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/vuejs/docs) | [vuejs/docs](https://github.com/vuejs/docs) | ⭐ 3.2k | Vue 3's **official documentation** — VitePress |
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/vitejs/vite/tree/main/docs) | [vitejs/vite](https://github.com/vitejs/vite) `/docs` | ⭐ 58k | Vite's **official documentation** — VitePress in a monorepo subpath |
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/sanity-io/sanity-template-astro-clean) | [sanity-io/sanity-template-astro-clean](https://github.com/sanity-io/sanity-template-astro-clean) | ⭐ 173 | Astro + Sanity starter — headless CMS pipeline |
+| [![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/danielcgilibert/blog-template) | [danielcgilibert/blog-template](https://github.com/danielcgilibert/blog-template) | ⭐ 995 | Openblog — elegant, SEO-optimised Astro blog |
+
+First click of any repo runs a full build (~60–90s). Every click after
+the first hits the build cache and deploys in ⚡ ~7s — the repo only
+rebuilds when someone pushes a new commit.
+
+**Add it to your own repo's README:**
+
+```markdown
+[![Deploy to Creek](https://creek.dev/deploy.svg)](https://creek.dev/deploy/gh/YOUR-ORG/YOUR-REPO)
+```
+
+Supports GitHub `tree/{branch}/{path}` URLs for monorepos — point at a
+subfolder the same way you'd link to it on GitHub.
 
 ---
 
