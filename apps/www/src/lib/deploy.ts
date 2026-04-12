@@ -11,6 +11,8 @@ export interface DeployState {
   sandboxId: string | null;
   expiresAt: string | null;
   error: string | null;
+  /** True when remote-builder served this deploy from its KV bundle cache — build phase skipped. */
+  cacheHit: boolean;
 }
 
 const INITIAL_STATE: DeployState = {
@@ -20,6 +22,7 @@ const INITIAL_STATE: DeployState = {
   sandboxId: null,
   expiresAt: null,
   error: null,
+  cacheHit: false,
 };
 
 export function useWebDeploy() {
@@ -102,6 +105,7 @@ export function useWebDeploy() {
             sandboxId: data.sandboxId || s.sandboxId,
             expiresAt: data.expiresAt || s.expiresAt,
             error: data.error || null,
+            cacheHit: data.cacheHit ?? s.cacheHit,
           }));
 
           // Stop polling on terminal states
