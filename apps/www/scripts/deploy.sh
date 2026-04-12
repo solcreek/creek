@@ -5,22 +5,27 @@ set -euo pipefail
 #
 # Usage: ./scripts/deploy.sh
 #
-# This script builds and deploys creek.dev.
+# This script builds and deploys creek.dev THROUGH the Creek platform
+# (dogfooding). creek.dev's apex is a CNAME to cname.bycreek.com (CF for
+# SaaS), which routes via the dispatch-worker to the www project's
+# tenant script. `creek deploy --yes` uploads the bundled OpenNextJS
+# worker to that tenant script — so dogfooding is already partially
+# real, even before adapter-creek is complete.
 #
-# CURRENT PATH (production): OpenNextJS + middleware-manifest patch +
-# direct `wrangler deploy` to the `creek-www` Worker (see wrangler.jsonc).
-# creek.dev's custom domain is bound to this Worker outside of the Creek
-# platform — because adapter-creek (the Next.js adapter that will let us
-# dogfood `creek deploy`) is still work-in-progress, tracked in issue #1.
+# IMPORTANT: Do NOT replace the final step with a direct `wrangler
+# deploy`. The `creek-www` Worker (apps/www/wrangler.jsonc) exists but
+# is NOT what creek.dev serves — it's only reachable via
+# creek-www.kaik.workers.dev. Pushing there with wrangler leaves
+# production untouched.
 #
-# TODO: When adapter-creek is complete, the whole pipeline collapses to:
+# TODO: When adapter-creek is complete, the OpenNextJS + symlink +
+# middleware-manifest patches can go away:
 #   1. Remove OpenNextJS dependency entirely
 #   2. Remove middleware-manifest patch
 #   3. Remove standalone symlink hack
-#   4. Switch to: creek deploy --yes (single command, no workarounds)
-#   5. Re-setup creek.dev custom domain: creek domains add creek.dev --project www
-#   6. Verify: creek.dev serves correctly via Creek platform
-#   7. Delete this script — creek deploy should be all that's needed
+#   4. The final step is already `creek deploy --yes` — keep it
+#   5. Delete the legacy creek-www Worker and its wrangler.jsonc
+#   6. Delete this script — `creek deploy` should be all that's needed
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -70,12 +75,12 @@ else:
     print('  ⚠ Pattern not found (already patched or Next.js version changed)')
 "
 
-# Step 6: Deploy via wrangler
-# Direct `wrangler deploy` to the `creek-www` Worker (see wrangler.jsonc).
-# This is where creek.dev's custom domain currently points. Once
-# adapter-creek is ready this step becomes `creek deploy --yes` instead.
-echo "→ Deploying via wrangler..."
-npx wrangler deploy
+# Step 6: Deploy via Creek CLI (dogfooding)
+# creek.dev routes via CF for SaaS → dispatch-worker → www tenant
+# script. The creek CLI uploads the OpenNextJS bundle to that tenant
+# script, which IS what serves creek.dev.
+echo "→ Deploying via Creek..."
+node "$MONOREPO_ROOT/packages/cli/dist/index.js" deploy --yes
 
 echo ""
 echo "⬡ Deploy complete. Verify: https://creek.dev"
