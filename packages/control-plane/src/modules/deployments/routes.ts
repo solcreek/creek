@@ -73,7 +73,45 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
     metadata: { projectId: project.id, version },
   }, c.get("auditCtx"));
 
-  return c.json({ deployment }, 201);
+  // --- Build cache check (⚡ Turbo deploy) ---
+  // If the CLI sent a commitSha, check if the remote-builder's
+  // KV cache has a pre-built bundle for this exact commit. If so,
+  // kick off a deploy from cache asynchronously — the CLI sees
+  // cacheHit=true and skips its local build + upload entirely.
+  let cacheHit = false;
+  if (body.commitSha && c.env.BUILD_STATUS) {
+    try {
+      // Try multiple cache key patterns (with and without branch)
+      const repoUrl = await getProjectRepoUrl(c.env.DB, project.id);
+      if (repoUrl) {
+        const branch = body.branch || "main";
+        const cacheKey = `bundlecache:${repoUrl}:${branch}:${body.commitSha}`;
+        const cached = await c.env.BUILD_STATUS.get(cacheKey);
+        if (cached) {
+          cacheHit = true;
+          console.log(`[turbo-deploy] HIT ${cacheKey.slice(0, 80)} for deployment ${id}`);
+          // Deploy from cache asynchronously — same path as PUT /bundle
+          // but using the cached bundle instead of CLI upload
+          c.executionCtx.waitUntil(
+            deployFromBundleCache(c.env, project, {
+              id,
+              teamId,
+              teamSlug: c.get("teamSlug"),
+              branch: body.branch,
+              commitSha: body.commitSha,
+            }, cached),
+          );
+        } else {
+          console.log(`[turbo-deploy] MISS ${cacheKey.slice(0, 80)}`);
+        }
+      }
+    } catch (err) {
+      console.error("[turbo-deploy] cache check error:", err);
+      // Fall through — CLI will build + upload normally
+    }
+  }
+
+  return c.json({ deployment, cacheHit }, 201);
 });
 
 // Upload deployment bundle (async — returns 202, deploy runs via waitUntil)
@@ -809,5 +847,107 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
     }, 500);
   }
 });
+
+// --- Turbo deploy helpers ---
+
+async function getProjectRepoUrl(
+  db: D1Database,
+  projectId: string,
+): Promise<string | null> {
+  const row = await db.prepare(
+    "SELECT githubRepo FROM project WHERE id = ?",
+  ).bind(projectId).first<{ githubRepo: string | null }>();
+  if (!row?.githubRepo) return null;
+  // githubRepo is stored as "owner/repo" — normalize to full URL
+  return row.githubRepo.startsWith("http")
+    ? row.githubRepo
+    : `https://github.com/${row.githubRepo}`;
+}
+
+/**
+ * Deploy from the remote-builder's KV bundle cache. Runs inside
+ * waitUntil — no timeout pressure. Mirrors the PUT /bundle handler's
+ * deploy path but reads the bundle from cache instead of the request body.
+ */
+async function deployFromBundleCache(
+  env: any,
+  project: { id: string; slug: string },
+  deployment: {
+    id: string;
+    teamId: string;
+    teamSlug: string;
+    branch?: string | null;
+    commitSha?: string | null;
+  },
+  cachedBundleJson: string,
+): Promise<void> {
+  try {
+    // Parse cached bundle (same format as sandbox-api POST /deploy body)
+    const bundle = JSON.parse(cachedBundleJson) as {
+      assets: Record<string, string>;
+      serverFiles?: Record<string, string>;
+      manifest: { assets: string[]; hasWorker: boolean; entrypoint: string | null; renderMode: string; framework?: string };
+    };
+
+    // Decode assets from base64
+    const clientAssets: Record<string, ArrayBuffer> = {};
+    for (const [path, b64] of Object.entries(bundle.assets)) {
+      const binary = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+      clientAssets[path] = binary.buffer;
+    }
+
+    const serverFiles: Record<string, ArrayBuffer> | undefined = bundle.serverFiles
+      ? Object.fromEntries(
+          Object.entries(bundle.serverFiles).map(([path, b64]) => [
+            path,
+            Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)).buffer,
+          ]),
+        )
+      : undefined;
+
+    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : "spa" as const;
+
+    // Update status
+    await env.DB.prepare(
+      "UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = ?",
+    ).bind(Date.now(), deployment.id).run();
+
+    // Deploy via the same deployWithAssets used by PUT /bundle
+    const { deployWithAssets } = await import("./deploy.js");
+    await deployWithAssets(
+      env,
+      project.slug,
+      deployment.teamSlug,
+      deployment.id,
+      {
+        clientAssets,
+        serverFiles,
+        renderMode,
+        teamId: deployment.teamId,
+        teamSlug: deployment.teamSlug,
+        projectSlug: project.slug,
+        plan: "pro",
+        bindings: [],
+      },
+      deployment.branch,
+      "main",
+    );
+
+    await env.DB.prepare(
+      "UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?",
+    ).bind(Date.now(), deployment.id).run();
+
+    console.log(`[turbo-deploy] ⚡ deployed ${deployment.id} from cache`);
+  } catch (err) {
+    console.error("[turbo-deploy] deploy-from-cache failed:", err);
+    await env.DB.prepare(
+      "UPDATE deployment SET status = 'failed', failedStep = 'deploying', errorMessage = ?, updatedAt = ? WHERE id = ?",
+    ).bind(
+      err instanceof Error ? err.message : String(err),
+      Date.now(),
+      deployment.id,
+    ).run();
+  }
+}
 
 export { deployments };
