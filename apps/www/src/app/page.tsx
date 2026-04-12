@@ -5,6 +5,7 @@ import { motion, useInView, AnimatePresence } from "framer-motion";
 import { CodeComparison } from "@/components/code-comparison";
 import { Footer } from "@/components/footer";
 import { PresenceBadge } from "@/components/presence-badge";
+import { CornerMarkers, LineworkCard, SectionRule } from "@/components/linework";
 
 const DEMO_URL = "https://todo-demo.creek.dev";
 
@@ -227,7 +228,8 @@ function HeroDemo() {
   const iframeSrc = `${DEMO_URL}/?room=${roomId}`;
 
   return (
-    <div className="rounded-xl border border-border overflow-hidden bg-[oklch(0.1_0_0)]">
+    <div className="group relative rounded-xl border border-border overflow-hidden bg-[oklch(0.1_0_0)]">
+      <CornerMarkers />
       <div style={{ height: 380 }}>
         <iframe
           src={iframeSrc}
@@ -248,6 +250,7 @@ function SectionHeader({ label, title, description }: { label: string; title: st
 
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: 20 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5 }} className="mb-8">
+      <SectionRule />
       <p className="font-mono text-xs text-muted-foreground mb-3">{label}</p>
       <h2 className="text-2xl font-semibold tracking-tight mb-2">{title}</h2>
       <p className="text-muted-foreground leading-relaxed max-w-lg">{description}</p>
@@ -274,16 +277,17 @@ function ZeroConfigDemo() {
           initial={{ opacity: 0, y: 12 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: i * 0.08, duration: 0.4 }}
-          className="rounded-xl border border-border bg-code-bg p-5"
         >
-          <p className="text-sm font-medium mb-3">{fw.name}</p>
-          <div className="font-mono text-[12px] leading-6 text-muted-foreground space-y-0.5">
-            <p><span className="text-muted-foreground/50">$ </span><span className="text-foreground">creek deploy</span></p>
-            <p className="text-accent">  Detected: {fw.detect}</p>
-            <p>  Building...</p>
-            <p>  Output: {fw.output}</p>
-            <p className="text-green-400">  Live in {fw.time} →</p>
-          </div>
+          <LineworkCard className="rounded-xl p-5">
+            <p className="text-sm font-medium mb-3">{fw.name}</p>
+            <div className="font-mono text-[12px] leading-6 text-muted-foreground space-y-0.5">
+              <p><span className="text-muted-foreground/50">$ </span><span className="text-foreground">creek deploy</span></p>
+              <p className="text-accent">  Detected: {fw.detect}</p>
+              <p>  Building...</p>
+              <p>  Output: {fw.output}</p>
+              <p className="text-green-400">  Live in {fw.time} →</p>
+            </div>
+          </LineworkCard>
         </motion.div>
       ))}
     </div>
@@ -698,10 +702,14 @@ function FeatureGrid() {
           initial={{ opacity: 0, y: 16 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: i * 0.06, duration: 0.4 }}
-          className="rounded-xl border border-border bg-code-bg p-6 hover:border-accent/20 transition-colors"
         >
-          <h3 className="text-sm font-medium mb-1.5">{f.title}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
+          <LineworkCard
+            index={i + 1}
+            className="p-6 hover:border-accent/20 transition-colors"
+          >
+            <h3 className="text-sm font-medium mb-1.5">{f.title}</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
+          </LineworkCard>
         </motion.div>
       ))}
     </div>
