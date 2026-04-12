@@ -14,8 +14,9 @@ export default function Home() {
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg">
         <div className="mx-auto max-w-5xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="font-brand text-base font-medium tracking-tight">
-            Creek
+          <a href="/" className="inline-flex items-baseline gap-1.5 text-base font-medium tracking-tight">
+            <span aria-hidden="true">⬡</span>
+            <span className="font-brand">Creek</span>
           </a>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
             <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>

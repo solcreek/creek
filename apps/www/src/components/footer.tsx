@@ -5,14 +5,17 @@ export function Footer() {
     <footer className="border-t border-border py-8 px-6 mt-auto">
       <div className="mx-auto max-w-5xl flex flex-col gap-6 text-xs text-muted-foreground">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="font-brand text-base font-medium">Creek</span>
+          <span className="inline-flex items-baseline gap-1.5">
+            <span aria-hidden="true">⬡</span>
+            <span className="font-brand text-base font-medium">Creek</span>
+          </span>
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
             <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
             <Link href="/changelog" className="hover:text-foreground transition-colors">Changelog</Link>
             <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors">GitHub</a>
-            <a href="https://x.com/creekdev" className="hover:text-foreground transition-colors">X</a>
+            <a href="https://x.com/useCreek" className="hover:text-foreground transition-colors">X</a>
           </div>
         </div>
         <div className="flex flex-wrap justify-center sm:justify-end gap-x-6 gap-y-2">
