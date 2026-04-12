@@ -328,6 +328,13 @@ pnpm dev             # Start all dev servers
 
 ---
 
+## Ecosystem
+
+- **[Awesome Creek](https://github.com/solcreek/awesome-creek)** — Curated list of templates, integrations, guides, and community projects. Submissions welcome.
+- **[Templates Gallery](https://templates.creek.dev)** — Live previews of official starter templates.
+
+---
+
 ## Contributing
 
 We welcome contributions. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
