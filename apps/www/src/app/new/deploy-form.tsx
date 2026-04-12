@@ -237,19 +237,20 @@ export default function DeployForm() {
             <>
               <div className="mb-6">
                 <p className="text-xs font-mono text-[#888] mb-2">Deploy to Creek</p>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  {repoInfo.owner}/{repoInfo.repo}
+                <h1 className="text-2xl font-semibold tracking-tight inline-flex items-baseline gap-1.5">
+                  <a
+                    href={repoInfo.full}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group inline-flex items-baseline gap-1.5 hover:text-[#60d0e0] transition-colors"
+                    aria-label={`View ${repoInfo.owner}/${repoInfo.repo} on GitHub`}
+                    title="View on GitHub"
+                  >
+                    {repoInfo.owner}/{repoInfo.repo}
+                    <span className="text-sm text-[#555] group-hover:text-[#60d0e0] transition-colors">↗</span>
+                  </a>
                 </h1>
               </div>
-
-              <a
-                href={repoInfo.full}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block text-sm text-[#888] hover:text-[#60d0e0] transition-colors mb-4"
-              >
-                View on GitHub →
-              </a>
 
               <PreflightChip preflight={preflight} />
 
