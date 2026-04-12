@@ -49,6 +49,31 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("h-full antialiased dark", geist.variable, jetbrainsMono.variable)} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
+        {/*
+          esbuild __name helper polyfill.
+          Some bundled chunks emitted by the Next.js 16 / OpenNextJS /
+          Turbopack pipeline reference `__name` (esbuild's --keep-names
+          wrapper that preserves function .name in minified output)
+          without inlining the helper itself, causing the whole inline
+          `<script>` to throw `ReferenceError: __name is not defined`
+          at runtime. The most visible casualty is fumadocs-ui
+          RootProvider's theme-init script, whose post-error lines
+          never run — localStorage theme preference and
+          prefers-color-scheme detection silently stop working, and
+          every visitor is locked into whatever theme SSR hardcoded on
+          <html>.
+          Defining a global `__name` here, BEFORE RootProvider renders
+          its theme script, lets those scripts run to completion. The
+          polyfill is the same shape esbuild would have inlined:
+            var __name = (fn, n) => Object.defineProperty(fn, "name", { value: n, configurable: true });
+          This is a mitigation. The root cause (bundler dropping the
+          helper) should be traced and fixed upstream post-launch.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `var __name=(t,n)=>Object.defineProperty(t,"name",{value:n,configurable:true});`,
+          }}
+        />
         <RootProvider
           theme={{
             defaultTheme: "dark",
