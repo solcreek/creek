@@ -151,8 +151,8 @@ export default function DeployForm() {
       <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
         <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
           <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
-            <a href="/" className="inline-flex items-baseline gap-1.5 text-base font-medium tracking-tight">
-              <span aria-hidden="true">⬡</span>
+            <a href="/" className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none">
+              <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
               <span className="font-brand">Creek</span>
             </a>
             <div className="flex items-center gap-6 text-sm text-[#888]">
@@ -215,8 +215,8 @@ export default function DeployForm() {
       {/* Nav */}
       <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
         <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="inline-flex items-baseline gap-1.5 text-base font-medium tracking-tight">
-              <span aria-hidden="true">⬡</span>
+          <a href="/" className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none">
+              <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
               <span className="font-brand">Creek</span>
             </a>
           <div className="flex items-center gap-6 text-sm text-[#888]">
