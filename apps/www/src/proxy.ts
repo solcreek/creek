@@ -1,13 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Content negotiation middleware.
+ * Content negotiation proxy (Next.js 16 — was `middleware` before the
+ * file-convention rename).
  *
- * When an AI agent requests a page with Accept: text/markdown or text/plain,
- * set a header so the page can return agent-friendly content.
- * Gives agents clean, parseable content instead of HTML.
+ * When an AI agent requests a page with Accept: text/markdown or
+ * text/plain, set a header so the page can return agent-friendly
+ * content. Gives agents clean, parseable content instead of HTML.
+ *
+ * Next.js 16 kept emitting the internal `middleware-manifest.json`
+ * build artefact under the old name for compatibility, so OpenNextJS
+ * (which reads that manifest) works unchanged after this rename.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const accept = request.headers.get("accept") ?? "";
   const isAgentRequest =
     accept.includes("text/markdown") ||
