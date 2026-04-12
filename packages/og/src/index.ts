@@ -35,6 +35,16 @@ export { ImageResponse } from "workers-og";
 export { creekBrand } from "./brand.js";
 export type { CreekBrand } from "./brand.js";
 
+// Deploy URL parsing — shared between apps/www and og-api so a single
+// source of truth governs the /deploy/[...slug] URL shape.
+export {
+  parseDeploySlug,
+  buildDeployPath,
+  PROVIDER_MAP,
+  type ParsedDeploySlug,
+  type ProviderInfo,
+} from "./deploy-url.js";
+
 // Pre-baked card templates.
 export {
   deployButtonCard,
