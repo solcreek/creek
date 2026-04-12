@@ -274,6 +274,15 @@ async function writeBundleCache(
     // keeping storage bounded. Cost: ~100 repos × 2MB ≈ $0.10/month.
     const ttl = 7 * 24 * 60 * 60; // 7 days
     await env.BUILD_STATUS.put(cacheKey, bundleJson, { expirationTtl: ttl });
+    // Also write a lightweight existence marker so control-plane can
+    // check cache status without reading the full bundle. Used to
+    // decide whether to consume rate limit before enqueueing.
+    const metaKey = cacheKey.replace(/^bundlecache:/, "bundlemeta:");
+    await env.BUILD_STATUS.put(
+      metaKey,
+      JSON.stringify({ size: bundleJson.length, cachedAt: Date.now() }),
+      { expirationTtl: ttl },
+    );
     console.log(`[build-cache] WRITE OK ${cacheKey.slice(0, 80)} — ${sizeKB} KB, TTL ${ttl}s`);
   } catch (err) {
     console.error(`[build-cache] WRITE ERROR ${cacheKey.slice(0, 80)} — ${sizeKB} KB:`, err);

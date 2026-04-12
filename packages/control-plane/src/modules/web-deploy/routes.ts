@@ -59,29 +59,54 @@ webDeploy.post("/", async (c) => {
     return c.json({ error: "type must be 'template' or 'repo'" }, 400);
   }
 
-  // Rate limit: 3/hr per IP
   const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";
-  const rateLimitKey = `rate:${hashIp(ip)}`;
-  const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
-  if (currentCount >= 5) {
-    return c.json({
-      error: "rate_limited",
-      message: "You've used all 5 free deploys this hour.",
-      retryAfter: 3600,
-    }, 429);
-  }
-  await c.env.BUILD_STATUS.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
 
-  // Resolve the latest commit SHA from GitHub so the downstream
-  // build cache in remote-builder can key on the exact commit.
-  // Non-blocking: failure just means no cache key (rebuild every time).
+  // --- Cache hit bypass ---
+  // Resolve the commit SHA and check if remote-builder already has a
+  // pre-built bundle. Cache hits bypass the rate limit entirely because
+  // they consume no build resources — rate limiting exists to protect
+  // container builds, not downstream sandbox deploys. Without this
+  // bypass, a viral deploy button would rate-limit after 5 clicks from
+  // the same IP (office NAT) even though 99% are instant cache hits.
+  //
+  // We check a lightweight "bundlemeta:" existence marker (~100 bytes)
+  // rather than reading the full multi-MB bundle on every POST.
   let commitSha: string | null = null;
+  let cacheHitPreflight = false;
   if (body.type === "repo" && body.repo) {
     const normalizedRepo = body.repo!.startsWith("http")
       ? body.repo!
       : `https://github.com/${body.repo}`;
     commitSha = await fetchCommitSha(normalizedRepo, body.branch || "main");
     console.log(`[web-deploy] SHA resolve: ${normalizedRepo} → ${commitSha ?? "null (cache will be skipped)"}`);
+
+    if (commitSha) {
+      try {
+        const branch = body.branch || "main";
+        const metaKey = `bundlemeta:${normalizedRepo}:${branch}:${commitSha}${body.path ? `:${body.path}` : ""}`;
+        const meta = await c.env.BUILD_STATUS.get(metaKey);
+        if (meta) {
+          cacheHitPreflight = true;
+          console.log(`[web-deploy] CACHE HIT preflight — bypassing rate limit`);
+        }
+      } catch {
+        // Non-critical — fall through to rate limit
+      }
+    }
+  }
+
+  // Rate limit: 5/hr per IP — cache hits are exempt
+  if (!cacheHitPreflight) {
+    const rateLimitKey = `rate:${hashIp(ip)}`;
+    const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
+    if (currentCount >= 5) {
+      return c.json({
+        error: "rate_limited",
+        message: "You've used all 5 free builds this hour. Deploy a cached repo (any repo someone else deployed recently) or wait.",
+        retryAfter: 3600,
+      }, 429);
+    }
+    await c.env.BUILD_STATUS.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
   }
 
   // Generate build ID
