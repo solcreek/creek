@@ -35,4 +35,4 @@ CREEK_DOMAIN = "bycreek.com"
 #   wrangler secret put REALTIME_URL          # https://realtime.creek.dev
 #   wrangler secret put REALTIME_MASTER_KEY   # match realtime-worker's key
 # When unset (dev), realtime push is skipped silently.
-REALTIME_URL = "https://realtime.creek.dev"
+REALTIME_URL = "https://rt.creek.dev"
