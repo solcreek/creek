@@ -15,6 +15,7 @@ export function Footer() {
             <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
             <Link href="/changelog" className="hover:text-foreground transition-colors">Changelog</Link>
             <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors">GitHub</a>
+            <Link href="/discord" className="hover:text-foreground transition-colors">Discord</Link>
             <a href="https://x.com/useCreek" className="hover:text-foreground transition-colors">X</a>
           </div>
         </div>
