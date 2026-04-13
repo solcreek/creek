@@ -256,9 +256,19 @@ describe("Cache-Control on dispatched responses", () => {
   async function dispatch(opts: {
     sandboxId: string;
     pathname: string;
-    contentType: string;
-    body: string;
+    contentType?: string;
+    body?: string;
+    method?: string;
+    requestInit?: RequestInit;
+    /** Headers the user worker returns. Used to test Set-Cookie + Cache-Control passthrough. */
+    responseHeaders?: HeadersInit;
+    /** Status the user worker returns. Default 200. */
+    responseStatus?: number;
   }) {
+    const headers = new Headers(opts.responseHeaders ?? {});
+    if (opts.contentType && !headers.has("Content-Type")) {
+      headers.set("Content-Type", opts.contentType);
+    }
     const { env } = createEnv({
       d1Rows: {
         [opts.sandboxId]: {
@@ -271,13 +281,17 @@ describe("Cache-Control on dispatched responses", () => {
       },
       scriptHandlers: {
         [`${opts.sandboxId}-sandbox`]: async () =>
-          new Response(opts.body, {
-            headers: { "Content-Type": opts.contentType },
+          new Response(opts.body ?? "ok", {
+            status: opts.responseStatus ?? 200,
+            headers,
           }),
       },
     });
     return worker.fetch(
-      new Request(`https://${opts.sandboxId}.creeksandbox.com${opts.pathname}`),
+      new Request(`https://${opts.sandboxId}.creeksandbox.com${opts.pathname}`, {
+        method: opts.method ?? "GET",
+        ...opts.requestInit,
+      }),
       env,
     );
   }
@@ -318,6 +332,197 @@ describe("Cache-Control on dispatched responses", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=3600, s-maxage=3600",
     );
+  });
+});
+
+/**
+ * Regression suite for the auth-killer bug:
+ *
+ * Pre-fix, sandbox-dispatch unconditionally rewrote `Cache-Control` to a
+ * `public` value. That is fatal for any response carrying `Set-Cookie`
+ * because Cloudflare strips Set-Cookie from `public`-cached responses
+ * (the cached entity is shared across users). On EmDash this manifested
+ * as: passkey signup completes server-side (user + credential in D1,
+ * session in KV), the response's session cookie is stripped, the browser
+ * navigates back to /admin without a cookie, the auth middleware fails
+ * to find the session, and the user is bounced to /login forever.
+ *
+ * The rules we now enforce:
+ *   1. Only safe-method responses (GET, HEAD) get the `public` override.
+ *   2. Any response with `Set-Cookie` keeps its private semantics.
+ *   3. If the user worker explicitly sets `private` / `no-store` /
+ *      `no-cache`, leave it alone.
+ *   4. POST/PUT/PATCH/DELETE responses default to `private, no-store`
+ *      so misbehaving intermediaries don't cache mutations.
+ */
+describe("Cache-Control — auth & session safety (regression)", () => {
+  async function dispatch(opts: {
+    sandboxId: string;
+    pathname: string;
+    method?: string;
+    responseHeaders?: HeadersInit;
+    responseStatus?: number;
+  }) {
+    const headers = new Headers(opts.responseHeaders ?? {});
+    const { env } = createEnv({
+      d1Rows: {
+        [opts.sandboxId]: {
+          id: opts.sandboxId,
+          status: "active",
+          expiresAt: Date.now() + 60_000,
+          previewHost: `${opts.sandboxId}.creeksandbox.com`,
+          deployDurationMs: 9000,
+        },
+      },
+      scriptHandlers: {
+        [`${opts.sandboxId}-sandbox`]: async () =>
+          new Response("ok", {
+            status: opts.responseStatus ?? 200,
+            headers,
+          }),
+      },
+    });
+    return worker.fetch(
+      new Request(`https://${opts.sandboxId}.creeksandbox.com${opts.pathname}`, {
+        method: opts.method ?? "GET",
+      }),
+      env,
+    );
+  }
+
+  test("GET response with Set-Cookie is NOT made public-cacheable", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/_emdash/api/auth/signup/complete",
+      responseHeaders: {
+        "Content-Type": "application/json",
+        "Set-Cookie": "astro-session=abc; HttpOnly; Secure; SameSite=Lax; Path=/",
+      },
+    });
+    const cc = res.headers.get("Cache-Control") ?? "";
+    expect(cc).not.toMatch(/public/);
+    // Set-Cookie must survive verbatim — that's the whole point.
+    expect(res.headers.get("Set-Cookie")).toContain("astro-session=abc");
+  });
+
+  test("POST response (no Set-Cookie) defaults to private, no-store", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/_emdash/api/content/pages",
+      method: "POST",
+      responseHeaders: { "Content-Type": "application/json" },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  test("PUT / PATCH / DELETE responses default to private, no-store", async () => {
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      const res = await dispatch({
+        sandboxId: "abc12345",
+        pathname: "/api/x",
+        method,
+        responseHeaders: { "Content-Type": "application/json" },
+      });
+      expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+  });
+
+  test("HEAD response IS treated like GET (safe method)", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/about.html",
+      method: "HEAD",
+      responseHeaders: { "Content-Type": "text/html" },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60, s-maxage=60");
+  });
+
+  test("user worker's `Cache-Control: private` is preserved", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/account",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Cache-Control": "private, max-age=0",
+      },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=0");
+  });
+
+  test("user worker's `Cache-Control: no-store` is preserved", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/dashboard",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Cache-Control": "no-store",
+      },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  test("user worker's `Cache-Control: no-cache` is preserved", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/auth/check",
+      responseHeaders: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+      },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("no-cache");
+  });
+
+  test("Vary: Host and X-Sandbox-Id are still set even when CC is private", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/api/me",
+      method: "POST",
+    });
+    expect(res.headers.get("Vary")).toBe("Host");
+    expect(res.headers.get("X-Sandbox-Id")).toBe("abc12345");
+  });
+
+  test("POST WITH Set-Cookie still preserves Set-Cookie + private CC", async () => {
+    // The hot path that broke EmDash login: passkey verify is POST and
+    // returns Set-Cookie. Both must survive.
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/_emdash/api/auth/passkey/verify",
+      method: "POST",
+      responseHeaders: {
+        "Content-Type": "application/json",
+        "Set-Cookie": "astro-session=xyz; HttpOnly; Secure; SameSite=Lax",
+      },
+    });
+    expect(res.headers.get("Cache-Control")).not.toMatch(/public/);
+    expect(res.headers.get("Set-Cookie")).toContain("astro-session=xyz");
+  });
+
+  test("safe-method GET without Set-Cookie still gets the standard public override", async () => {
+    // Sanity check — the override DOES still apply when it's safe to.
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/blog/post-1",
+      responseHeaders: { "Content-Type": "text/html" },
+    });
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60, s-maxage=60");
+  });
+
+  test("safe-method GET WITH Set-Cookie keeps user CC if set, otherwise private", async () => {
+    // Some CMS responses set both — e.g. a page that also lazily writes
+    // a CSRF cookie. We must not turn it into `public`.
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/page-with-csrf",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "csrf=tok; HttpOnly; SameSite=Strict",
+      },
+    });
+    const cc = res.headers.get("Cache-Control") ?? "";
+    expect(cc).not.toMatch(/^public/);
+    expect(res.headers.get("Set-Cookie")).toContain("csrf=tok");
   });
 });
 

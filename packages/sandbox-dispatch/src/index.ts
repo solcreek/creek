@@ -356,10 +356,31 @@ export default {
       // Vary: Host + per-sandbox Host ensures cache keys are scoped to
       // one sandbox — required because WfP Static Assets may surface
       // the same file under different sandbox hostnames.
+      //
+      // CRITICAL: skip the override on:
+      //   - non-GET/HEAD methods (POST etc. must never be cached)
+      //   - responses carrying Set-Cookie (CF strips Set-Cookie from
+      //     `public`-cached responses, breaking auth/session flows —
+      //     this exact bug took out EmDash passkey login)
+      //   - responses with explicit `private` / `no-store` /
+      //     `no-cache` directives the user worker chose
       {
         const headers = new Headers(response.headers);
         const ct = headers.get("Content-Type") ?? "";
-        headers.set("Cache-Control", deriveCacheControl(url.pathname, ct));
+        const method = request.method.toUpperCase();
+        const hasSetCookie = headers.has("Set-Cookie");
+        const userCacheCtl = headers.get("Cache-Control") ?? "";
+        const userOptedOut =
+          /\b(private|no-store|no-cache)\b/i.test(userCacheCtl);
+        const isReadMethod = method === "GET" || method === "HEAD";
+
+        if (isReadMethod && !hasSetCookie && !userOptedOut) {
+          headers.set("Cache-Control", deriveCacheControl(url.pathname, ct));
+        } else if (!userCacheCtl) {
+          // No user override + not safe to cache → mark explicitly
+          // private so any intermediate proxy treats it correctly.
+          headers.set("Cache-Control", "private, no-store");
+        }
         headers.set("Vary", "Host");
         headers.set("X-Sandbox-Id", sandboxId);
         response = new Response(response.body, {
