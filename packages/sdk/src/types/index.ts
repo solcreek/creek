@@ -138,3 +138,49 @@ export interface DeploymentStatusResponse {
   url: string | null;
   previewUrl: string;
 }
+
+// --- Logs (Phase 8 — mirrors control-plane/src/modules/logs/types.ts) ---
+
+export interface LogEntry {
+  v: 1;
+  timestamp: number;
+  team: string;
+  project: string;
+  scriptType: "production" | "branch" | "deployment";
+  branch?: string;
+  deployId?: string;
+  outcome:
+    | "ok" | "exception" | "exceededCpu" | "exceededMemory"
+    | "canceled" | "responseStreamDisconnected" | "scriptNotFound" | "unknown";
+  request?: { url: string; method: string; status?: number };
+  logs: Array<{
+    level: "log" | "warn" | "error" | "info" | "debug";
+    message: unknown[];
+    timestamp: number;
+  }>;
+  exceptions: Array<{ name: string; message: string; timestamp: number }>;
+}
+
+export interface LogQueryFilters {
+  /** Relative ("1h", "30m", "2d") or ISO timestamp. */
+  since?: string;
+  /** "now" or ISO timestamp. */
+  until?: string;
+  outcomes?: LogEntry["outcome"][];
+  scriptTypes?: LogEntry["scriptType"][];
+  /** 8-hex deployId — implies scriptType=deployment. */
+  deployment?: string;
+  /** Branch name — implies scriptType=branch. */
+  branch?: string;
+  levels?: LogEntry["logs"][number]["level"][];
+  /** Substring against console messages, exception messages, request URL. */
+  search?: string;
+  /** Max returned. Server clamps to 1000. */
+  limit?: number;
+}
+
+export interface LogQueryResponse {
+  entries: LogEntry[];
+  truncated: boolean;
+  query: { sinceMs: number; untilMs: number; limit: number };
+}

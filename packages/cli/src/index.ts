@@ -18,6 +18,7 @@ import { devCommand } from "./commands/dev.js";
 import { rollbackCommand } from "./commands/rollback.js";
 import { opsCommand } from "./commands/ops.js";
 import { queueCommand } from "./commands/queue.js";
+import { logsCommand } from "./commands/logs.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -45,6 +46,7 @@ const main = defineCommand({
     status: statusCommand,
     projects: projectsCommand,
     deployments: deploymentsCommand,
+    logs: logsCommand,
     login: loginCommand,
     whoami: whoamiCommand,
     init: initCommand,
