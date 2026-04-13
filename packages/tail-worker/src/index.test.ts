@@ -13,9 +13,25 @@
  *   - team list is cached across calls (no second D1 hit)
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
 import handler from "./index.js";
 import type { TailEvent } from "./types.js";
+
+let realtimePosts: Array<{ url: string; body: string }>;
+beforeEach(() => {
+  realtimePosts = [];
+  vi.stubGlobal("fetch", (input: RequestInfo, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    realtimePosts.push({
+      url,
+      body: typeof init?.body === "string" ? init.body : "",
+    });
+    return Promise.resolve(new Response("", { status: 200 }));
+  });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 let r2Puts: Array<{ key: string; body: string }>;
 let aePoints: Array<{ blobs?: string[]; doubles?: number[]; indexes?: string[] }>;
@@ -54,6 +70,8 @@ function makeEnv() {
       },
     } as unknown as AnalyticsEngineDataset,
     CREEK_DOMAIN: "bycreek.com",
+    REALTIME_URL: "https://realtime.example.com",
+    REALTIME_MASTER_KEY: "test-master-key",
   };
 }
 
@@ -245,8 +263,37 @@ describe("creek-tail handler", () => {
         throw new Error("R2 down");
       },
     } as unknown as R2Bucket;
-    await expect(handler.tail([makeTailEvent()], env)).rejects.toThrow("R2 down");
-    // AE still got its data point — metrics aren't lost when storage fails
+    // R2 + realtime go through Promise.allSettled — failures are swallowed
+    await handler.tail([makeTailEvent()], env);
+    expect(aePoints).toHaveLength(1);
+    // R2 failure didn't bubble up
+    expect(r2Puts).toHaveLength(0);
+  });
+
+  test("realtime push fires alongside R2 + AE for tenant entries", async () => {
+    await handler.tail(
+      [
+        makeTailEvent({ scriptName: "my-blog-acme" }),
+        makeTailEvent({ scriptName: "creek-dispatch" }), // dropped
+      ],
+      env,
+    );
+    // One realtime POST per tenant entry; dispatch trace dropped
+    expect(realtimePosts).toHaveLength(1);
+    expect(realtimePosts[0].url).toBe(
+      "https://realtime.example.com/acme-my-blog/rooms/logs/broadcast",
+    );
+    const body = JSON.parse(realtimePosts[0].body);
+    expect(body.type).toBe("log");
+    expect(body.entry).toMatchObject({ team: "acme", project: "my-blog" });
+  });
+
+  test("realtime push failure does NOT prevent R2 write (best-effort fan-out)", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(new Response("oops", { status: 500 })),
+    );
+    await handler.tail([makeTailEvent()], env);
+    expect(r2Puts).toHaveLength(1);
     expect(aePoints).toHaveLength(1);
   });
 });
