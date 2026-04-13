@@ -22,3 +22,17 @@ database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
 
 [vars]
 CREEK_DOMAIN = "bycreek.com"
+
+# Tail Worker for the entire dispatch namespace.
+#
+# Per CF docs (cloudflare-for-platforms/.../observability), attaching
+# a tail consumer to the dispatch worker collects events for BOTH the
+# dispatch worker itself AND every user worker dispatched through it.
+# This is the only mechanism that fans out across all tenant scripts;
+# per-user-script tail_consumers via the upload metadata API is
+# silently ignored for WfP-uploaded scripts (verified 2026-04-13).
+#
+# The Tail Worker (creek-tail) drops dispatch-worker traces in its
+# parser, so we don't double-count tenant traffic.
+[[tail_consumers]]
+service = "creek-tail"

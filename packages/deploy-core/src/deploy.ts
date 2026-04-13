@@ -65,13 +65,14 @@ export async function deployScriptWithAssets(
       jwt: completionJwt,
       config: assetsConfig ?? {},
     },
-    // Attach creek-tail to every tenant Worker so the platform sees
-    // console.log / exceptions / request metadata for `creek logs`,
-    // R2 log archive, and Analytics Engine metrics. CF doesn't
-    // support namespace-level tail consumers, so we inject per-script
-    // here — this is the single place every tenant deploy passes
-    // through. See creek-observability-design.md for the design.
-    tail_consumers: [{ service: "creek-tail", environment: "production" }],
+    // NOTE: tail_consumers is NOT set here. CF silently ignores
+    // tail_consumers in the WfP script upload metadata (verified
+    // 2026-04-13: deploys with the field accept it but no events
+    // ever reach the named tail worker). The supported pattern for
+    // WfP is to attach the tail consumer to the dispatch worker
+    // itself — see packages/dispatch-worker/wrangler.toml. The
+    // dispatch worker's tail_consumers automatically captures every
+    // user worker dispatched through it.
   };
 
   if (cronSchedules && cronSchedules.length > 0) {
