@@ -132,10 +132,16 @@ export class RealtimeRoom implements DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // POST /broadcast — called by user workers when DB writes happen
+    // POST /broadcast — called by user workers (DB change events) or
+    // platform workers (log fan-out from creek-tail). Accepts any
+    // shape; the `type` field controls how clients route the message.
+    // Falls back to `db_changed` so existing user-worker DB-change
+    // emitters keep working without a body change.
     if (url.pathname === "/broadcast" && request.method === "POST") {
-      const event = await request.json<{ table?: string; operation?: string }>();
-      const msg = JSON.stringify({ type: "db_changed", ...event });
+      const event = await request.json<Record<string, unknown> & { type?: string }>();
+      const type = typeof event.type === "string" ? event.type : "db_changed";
+      const { type: _ignored, ...rest } = event;
+      const msg = JSON.stringify({ type, ...rest });
       const sent = this.broadcast(msg);
       return Response.json({ ok: true, clients: sent });
     }
