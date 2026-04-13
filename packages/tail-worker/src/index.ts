@@ -24,6 +24,13 @@ interface Env {
   DB: D1Database;
   LOGS_BUCKET: R2Bucket;
   CREEK_DOMAIN: string;
+  /**
+   * TEMPORARY (Phase 8 verification only): allows GET /__inspect to
+   * list R2 contents when called with this secret in `x-creek-inspect`.
+   * Remove this handler + binding once Step 5 (control-plane log API)
+   * lands and provides a properly authed read path.
+   */
+  INSPECT_SECRET?: string;
 }
 
 // --- Team cache ---
@@ -48,6 +55,25 @@ async function getTeams(db: D1Database): Promise<TeamInfo[]> {
 }
 
 export default {
+  // TEMPORARY (Phase 8 verification): see Env.INSPECT_SECRET.
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    if (url.pathname !== "/__inspect") return new Response("not found", { status: 404 });
+    if (!env.INSPECT_SECRET || req.headers.get("x-creek-inspect") !== env.INSPECT_SECRET) {
+      return new Response("forbidden", { status: 403 });
+    }
+    const prefix = url.searchParams.get("prefix") ?? "logs/";
+    const list = await env.LOGS_BUCKET.list({ prefix, limit: 50 });
+    const objects = await Promise.all(
+      list.objects.map(async (o) => {
+        const obj = await env.LOGS_BUCKET.get(o.key);
+        const body = obj ? await obj.text() : "";
+        return { key: o.key, size: o.size, uploaded: o.uploaded, sample: body.slice(0, 500) };
+      }),
+    );
+    return Response.json({ count: list.objects.length, truncated: list.truncated, objects });
+  },
+
   async tail(events: TailEvent[], env: Env): Promise<void> {
     if (events.length === 0) return;
 
