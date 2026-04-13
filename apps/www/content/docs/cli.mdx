@@ -125,6 +125,68 @@ creek deployments --project my-app
 creek deployments --json
 ```
 
+### `creek logs`
+
+Read recent log entries for a project. Console output (`console.log/warn/error`) and uncaught exceptions from every request your Worker handled are captured per-tenant and archived for 7 days.
+
+```bash
+creek logs                           # Last 1 hour (default)
+creek logs --since 30m               # Last 30 min (relative: s/m/h/d)
+creek logs --since 2026-04-13T18:00Z # ISO timestamp also accepted
+creek logs --limit 500               # Up to 1000 per call
+creek logs --json                    # ndjson, pipe to jq
+creek logs --project other-app       # Not in cwd
+```
+
+**Filter by what went wrong:**
+
+```bash
+creek logs --outcome exception              # Only failed invocations
+creek logs --outcome exceededCpu,exception  # Multiple outcomes (comma-separated)
+creek logs --level error                    # Only entries with error-level console output
+creek logs --search "TypeError"             # Substring match on messages, exceptions, URLs
+```
+
+**Filter by deploy variant:**
+
+```bash
+creek logs --deployment a1b2c3d4            # Specific deployment preview (8-hex id)
+creek logs --branch feat-checkout           # Specific branch preview
+creek logs --script-type production         # Exclude preview deploys
+```
+
+**Live tail** via WebSocket, until Ctrl+C:
+
+```bash
+creek logs --follow                         # Historical context + stream new entries
+creek logs --follow --outcome exception     # Alert on errors only, live
+creek logs --follow --json | jq '.outcome'  # Pipe to jq or any shell filter
+```
+
+Live tail prints the most recent historical entries first (so you don't stare at an empty terminal waiting for traffic), then streams new entries as they arrive. Dedup is automatic — you won't see the same entry twice across the historical → live boundary.
+
+**Output shape:**
+
+Each log line is a JSON object with the producer Worker's outcome, request metadata, and captured console/exception output:
+
+```json
+{
+  "v": 1,
+  "timestamp": 1776108325010,
+  "team": "acme",
+  "project": "my-app",
+  "scriptType": "production",
+  "outcome": "exception",
+  "request": { "url": "https://my-app-acme.bycreek.com/api/x", "method": "GET", "status": 500 },
+  "logs": [
+    { "level": "error", "message": ["TypeError: x is undefined"], "timestamp": 1776108325009 }
+  ],
+  "exceptions": []
+}
+```
+
+Sensitive request headers (`Authorization`, `Cookie`, etc.) are redacted at ingest — Creek never stores them.
+
 ### `creek login`
 
 Authenticate with Creek.
@@ -204,9 +266,9 @@ output = "dist"
 worker = "worker/index.ts"   # Optional — enables creek dev + Worker deploy
 
 [resources]
-d1 = true
-kv = false
-r2 = false
+database = true     # D1
+cache = false       # KV
+storage = false     # R2
 ```
 
 ## For AI Agents
