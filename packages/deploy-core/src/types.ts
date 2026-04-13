@@ -22,7 +22,7 @@ export interface AssetManifestEntry {
 export interface DeployAssetsInput {
   clientAssets: Record<string, ArrayBuffer>;
   serverFiles?: Record<string, ArrayBuffer>;
-  renderMode: "spa" | "ssr";
+  renderMode: "spa" | "ssr" | "worker";
   teamId: string;
   teamSlug: string;
   projectSlug: string;

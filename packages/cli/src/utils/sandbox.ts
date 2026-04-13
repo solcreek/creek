@@ -36,6 +36,17 @@ export async function sandboxDeploy(
     framework?: string;
     templateId?: string;
     source: string;
+    /**
+     * Binding declarations from creek.toml / wrangler.*. Sandbox-api
+     * provisions ephemeral D1/R2/KV per entry so `env.DB` etc. work
+     * in the user's Worker without any auth or extra setup.
+     */
+    bindings?: Array<{ type: string; bindingName: string }>;
+    /** Compat overrides — required for Node-API-heavy bundles. */
+    compatibilityDate?: string;
+    compatibilityFlags?: string[];
+    /** Framework-aware hint (admin URL, warnings) for the UI layer. */
+    hint?: { adminPath?: string; adminLabel?: string; warnings?: string[] };
   },
   opts?: {
     tos?: TosAcceptance;
