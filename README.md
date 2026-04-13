@@ -210,6 +210,9 @@ creek deploy --skip-build           Deploy without running build step
 creek dev                   Local dev server with D1/KV/R2 simulation
 creek status                Project status, triggers, deployment info
 creek deployments           List deployment history
+creek logs                  Read recent log entries (R2 archive)
+creek logs --follow         Live tail via WebSocket until Ctrl+C
+creek logs --deployment <id> --outcome exception   Filter by deploy / outcome / branch / level / search
 creek rollback              Rollback to a previous deployment
 creek env set <key> <val>   Set an environment variable
 creek env ls                List environment variables

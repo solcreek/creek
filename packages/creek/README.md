@@ -109,6 +109,7 @@ app.use("/api/*", room());
 |---------|-------------|
 | `creek deploy` | Deploy to production |
 | `creek dev` | Local development server |
+| `creek logs` | Read recent logs (`--follow` for live tail) |
 | `creek rollback` | Rollback to previous deployment |
 | `creek domains` | Manage custom domains |
 | `creek env` | Manage environment variables |
