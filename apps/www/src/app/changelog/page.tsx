@@ -5,6 +5,21 @@ import { Footer } from "@/components/footer";
 
 const entries = [
   {
+    date: "2026-04-13",
+    version: "cli@0.4.13 · creek@0.4.13 · sdk@0.4.5",
+    title: "creek logs: per-tenant observability, live tail, WebSocket streaming",
+    items: [
+      "**`creek logs` — read your project's logs from the CLI.** Every `console.log`, `console.error`, and uncaught exception in every request your Worker served is captured, per-tenant, and archived for 7 days. Query by time range, outcome, deployment preview, branch, console level, or free-text search. Pipe to `jq` with `--json`. First day it was live it surfaced a latent `TypeError: Cannot read properties of undefined (reading 'fetch')` in a tenant's SPA fallback that had been quietly 500-ing for hours — the command paid for itself within a minute.",
+      "**`creek logs --follow` — live tail via WebSocket.** Prints recent historical context first so you don't stare at an empty terminal waiting for traffic, then streams new entries as they arrive (until Ctrl+C). Dedup is automatic across the historical → live boundary. Pair with `--outcome exception` to get a live error feed, or pipe `--json | jq` straight into a notification webhook.",
+      "**Per-tenant isolation is structural, not role-gated.** The R2 key prefix is server-derived as `logs/{team}/{project}/...` from the authenticated session — a user cannot read another team's logs even by forging URL params. Tested end-to-end against the `vite-react-drizzle` sample. Sensitive request headers (Authorization, Cookie, Set-Cookie) are redacted at ingest and never stored.",
+      "**Deploy path unification.** `deploySandbox` and `deployAuthenticated` used to be two parallel implementations that drifted — the sandbox path was silently missing worker bundling for anyone who declared `[build].worker` but hadn't signed in. Replaced with a single `prepareDeployBundle()` helper driving both flows, and a pure `planDeploy()` resolver (SDK) with 17 table-driven test rows covering every combination of (framework × worker entry × build output). 'SPA framework + custom Worker' (the vite-react-drizzle shape) now deploys correctly with zero config changes.",
+      "**Pre-bundled Worker shortcut.** When `[build].worker` points at a `.js/.mjs/.cjs` file inside the build output, the CLI uploads the bytes verbatim instead of re-bundling and wrapping with the Creek runtime. Lets portable apps (like the new `vite-react-drizzle` example) keep their deployed Worker free of any `@solcreek/*` dependency.",
+      "**New example: `vite-react-drizzle`.** Reference for the 'same code runs locally against `better-sqlite3` and on Cloudflare against D1' pattern. Three files carry runtime differences (`server/local.ts`, `server/worker.ts`, `server/routes.ts` — the last one driver-agnostic). Everything else — schema, routes, frontend — is portable. Ships with `local-dev.md`, `deploy-creek.md`, and `migrate-away.md` documenting both the Creek happy path and how to leave Creek for plain `wrangler deploy`.",
+      "**Sandbox rate limit 5 → 15/hr** for unverified users. Five deploys per hour wasn't enough to debug a template through a few iterations.",
+      "**CLI regression fix (0.4.7 → 0.4.8).** `cli@0.4.7` shipped with a stale workspace pin to `sdk@0.4.2` that didn't export helpers the CLI imported at startup. Both `creek@0.4.7` and `@solcreek/cli@0.4.7` have been deprecated on npm — `npm install` auto-suggests 0.4.8+.",
+    ],
+  },
+  {
     date: "2026-04-11",
     version: "cli@0.4.6 · creek@0.4.3 · sdk@0.4.2",
     title: "Install size −85%, Astro support, --dry-run, static-site fast path",
