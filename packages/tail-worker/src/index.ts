@@ -18,11 +18,13 @@
 
 import { parseScriptName, type TeamInfo } from "./parse.js";
 import { writeBatchToR2 } from "./r2-writer.js";
+import { writeBatchToAnalytics } from "./analytics.js";
 import type { LogEntry, TailEvent } from "./types.js";
 
 interface Env {
   DB: D1Database;
   LOGS_BUCKET: R2Bucket;
+  ANALYTICS: AnalyticsEngineDataset;
   CREEK_DOMAIN: string;
 }
 
@@ -83,6 +85,11 @@ export default {
 
     if (entries.length === 0) return;
 
+    // AE writes are sync and don't need awaiting (writeDataPoint is
+    // fire-and-forget); R2 writes are async. Analytics first means
+    // metrics are recorded even if R2 fails — useful for tracking
+    // ingestion errors via the metrics themselves later.
+    writeBatchToAnalytics(env, entries);
     await writeBatchToR2(env, entries);
   },
 };

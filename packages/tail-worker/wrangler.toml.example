@@ -16,6 +16,11 @@ database_id = ""
 binding = "LOGS_BUCKET"
 bucket_name = "creek-logs"
 
+# Aggregate counters. Auto-created on first write.
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "creek_tenant_requests"
+
 [vars]
 # Domain used to disambiguate script names from custom hostnames.
 # (Tail handler doesn't see hostnames directly, but reuse for consistency.)
