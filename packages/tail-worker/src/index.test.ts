@@ -18,6 +18,7 @@ import handler from "./index.js";
 import type { TailEvent } from "./types.js";
 
 let r2Puts: Array<{ key: string; body: string }>;
+let aePoints: Array<{ blobs?: string[]; doubles?: number[]; indexes?: string[] }>;
 let dbQueryCount: number;
 
 const TEAMS = [
@@ -28,6 +29,7 @@ const TEAMS = [
 
 function makeEnv() {
   r2Puts = [];
+  aePoints = [];
   dbQueryCount = 0;
   return {
     DB: {
@@ -46,6 +48,11 @@ function makeEnv() {
         return Promise.resolve(null);
       },
     } as unknown as R2Bucket,
+    ANALYTICS: {
+      writeDataPoint(dp: { blobs?: string[]; doubles?: number[]; indexes?: string[] }) {
+        aePoints.push(dp);
+      },
+    } as unknown as AnalyticsEngineDataset,
     CREEK_DOMAIN: "bycreek.com",
   };
 }
@@ -214,5 +221,32 @@ describe("creek-tail handler", () => {
     const queriesAfterFirst = dbQueryCount;
     await handler.tail([makeTailEvent()], env);
     expect(dbQueryCount).toBe(queriesAfterFirst);
+  });
+
+  test("AE receives one data point per tenant entry alongside R2 write", async () => {
+    await handler.tail(
+      [
+        makeTailEvent({ scriptName: "my-blog-acme" }),
+        makeTailEvent({ scriptName: "shop-bob" }),
+        makeTailEvent({ scriptName: "creek-dispatch" }), // dropped
+      ],
+      env,
+    );
+    expect(aePoints).toHaveLength(2); // dispatch dropped
+    expect(aePoints[0].indexes?.[0]).toBe("acme");
+    expect(aePoints[1].indexes?.[0]).toBe("bob");
+    // R2 writes the same set
+    expect(r2Puts).toHaveLength(2);
+  });
+
+  test("AE writes happen even if R2 throws (best-effort metrics)", async () => {
+    env.LOGS_BUCKET = {
+      put() {
+        throw new Error("R2 down");
+      },
+    } as unknown as R2Bucket;
+    await expect(handler.tail([makeTailEvent()], env)).rejects.toThrow("R2 down");
+    // AE still got its data point — metrics aren't lost when storage fails
+    expect(aePoints).toHaveLength(1);
   });
 });

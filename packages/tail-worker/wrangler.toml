@@ -16,6 +16,14 @@ database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
 binding = "LOGS_BUCKET"
 bucket_name = "creek-logs"
 
+# Aggregate counters per (team, project, scriptType, outcome, method,
+# statusBucket). Auto-created on first write — no provisioning needed.
+# Queried via CF GraphQL `analyticsEngineAdaptiveGroups` from the
+# Dashboard metrics tab and (later) `creek metrics` CLI.
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "creek_tenant_requests"
+
 [vars]
 # Domain used to disambiguate script names from custom hostnames.
 # (Tail handler doesn't see hostnames directly, but reuse for consistency.)
