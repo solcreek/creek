@@ -1,0 +1,22 @@
+name = "creek-tail"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+workers_dev = false
+
+# Read tenant slug + plan list (same DB the dispatch-worker uses).
+# Required to map `scriptName` → { project, team, type }.
+[[d1_databases]]
+binding = "DB"
+database_name = "creek-db"
+database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
+
+# Append-only ndjson log storage.
+# Key shape: logs/{team}/{project}/{date}/{hour}-{scriptType}.ndjson
+[[r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "creek-logs"
+
+[vars]
+# Domain used to disambiguate script names from custom hostnames.
+# (Tail handler doesn't see hostnames directly, but reuse for consistency.)
+CREEK_DOMAIN = "bycreek.com"
