@@ -7,6 +7,9 @@ import type {
   CreateDeploymentResponse,
   DeploymentStatusResponse,
   ApiError,
+  LogEntry,
+  LogQueryFilters,
+  LogQueryResponse,
 } from "../types/index.js";
 
 export class CreekClient {
@@ -193,6 +196,44 @@ export class CreekClient {
     url: string;
   }> {
     return this.request("POST", `/projects/${projectId}/rollback`, options ?? {});
+  }
+
+  // --- Logs ---
+
+  /**
+   * Read structured log entries for a project from the R2 archive
+   * written by the tail-worker. Server applies team-scoped auth; the
+   * URL never carries a teamSlug. See packages/control-plane/src/
+   * modules/logs/routes.ts for the source-of-truth filter shape.
+   */
+  async getLogs(
+    projectSlug: string,
+    filters?: LogQueryFilters,
+  ): Promise<LogQueryResponse> {
+    const url = new URL(`/projects/${projectSlug}/logs`, "http://x"); // base discarded by request()
+    if (filters?.since) url.searchParams.set("since", filters.since);
+    if (filters?.until) url.searchParams.set("until", filters.until);
+    if (filters?.deployment) url.searchParams.set("deployment", filters.deployment);
+    if (filters?.branch) url.searchParams.set("branch", filters.branch);
+    if (filters?.search) url.searchParams.set("search", filters.search);
+    if (filters?.limit !== undefined) url.searchParams.set("limit", String(filters.limit));
+    for (const o of filters?.outcomes ?? []) url.searchParams.append("outcome", o);
+    for (const s of filters?.scriptTypes ?? []) url.searchParams.append("scriptType", s);
+    for (const l of filters?.levels ?? []) url.searchParams.append("level", l);
+    return this.request("GET", url.pathname + url.search);
+  }
+
+  /**
+   * Mint a 5-min WebSocket subscribe token for `creek logs --follow`.
+   * Returns the wsUrl ready to connect to.
+   */
+  async getLogsWsToken(projectSlug: string): Promise<{
+    token: string;
+    expiresAt: number;
+    slug: string;
+    wsUrl: string;
+  }> {
+    return this.request("GET", `/projects/${projectSlug}/logs/ws-token`);
   }
 
   // --- Custom Domains ---
