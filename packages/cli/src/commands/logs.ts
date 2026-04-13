@@ -138,46 +138,42 @@ export const logsCommand = defineCommand({
       process.exit(1);
     }
 
+    // Print historical first, in both JSON and human mode. Ordering:
+    // oldest-at-top so the newest entry is closest to the prompt (and
+    // when --follow streams in below, it continues chronologically).
     if (jsonMode) {
-      // ndjson — easy to pipe to jq
       for (const entry of response.entries) {
         process.stdout.write(JSON.stringify(entry) + "\n");
       }
-      if (response.truncated) {
+      if (response.truncated && !args.follow) {
         process.stderr.write(
           `# truncated — more entries match. Refine --since/--limit to narrow.\n`,
         );
       }
-      return;
+    } else {
+      if (response.entries.length === 0 && !args.follow) {
+        consola.info("No log entries match the query.");
+        return;
+      }
+      const ordered = [...response.entries].reverse();
+      for (const entry of ordered) {
+        printEntry(entry);
+      }
+      if (response.truncated && !args.follow) {
+        consola.warn(
+          `Truncated to ${response.entries.length} entries — refine --since/--limit to see more.`,
+        );
+      }
     }
 
-    if (response.entries.length === 0 && !args.follow) {
-      consola.info("No log entries match the query.");
-      return;
-    }
+    // No --follow → done.
+    if (!args.follow) return;
 
-    // Human output: oldest at top so the latest entry is closest to the prompt.
-    const ordered = [...response.entries].reverse();
-    for (const entry of ordered) {
-      printEntry(entry);
-    }
-
-    if (response.truncated && !args.follow) {
-      consola.warn(
-        `Truncated to ${response.entries.length} entries — refine --since/--limit to see more.`,
-      );
-    }
-
-    if (args.follow) {
-      // Track the newest historical timestamp so we can drop any
-      // duplicates that the WS would otherwise replay (R2 → realtime
-      // race window — the same event can appear on both within a
-      // ~second of being captured).
-      const seenAfter = response.entries.length > 0
-        ? Math.max(...response.entries.map((e) => e.timestamp))
-        : 0;
-      await follow(client, projectSlug, filters, seenAfter, jsonMode);
-    }
+    // --follow → switch to WebSocket live tail.
+    const seenAfter = response.entries.length > 0
+      ? Math.max(...response.entries.map((e) => e.timestamp))
+      : 0;
+    await follow(client, projectSlug, filters, seenAfter, jsonMode);
   },
 });
 
@@ -288,8 +284,10 @@ async function follow(
         resolve();
       });
 
-      ws.on("error", () => {
+      ws.on("error", (err) => {
         // The "close" event will fire after this; resolve happens there.
+        // Surface to stderr so reconnect storms aren't invisible.
+        if (!jsonMode) consola.warn(`ws error: ${err.message}`);
       });
     });
 
