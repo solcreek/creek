@@ -9,6 +9,7 @@
 import type { DoctorContext, DoctorReport, Finding } from "./types.js";
 import { BUILTIN_RULES, collectFindings } from "./rules.js";
 import { isSSRFramework } from "../types/index.js";
+import { detectFramework } from "../framework/index.js";
 
 export interface RunDoctorOptions {
   /** Override rule set. Default = BUILTIN_RULES. Used for focused tests. */
@@ -37,7 +38,14 @@ function countBySeverity(findings: Finding[]): DoctorReport["summary"] {
 
 function detectArchetype(ctx: DoctorContext): DoctorReport["archetype"] {
   if (!ctx.resolved) return "unknown";
-  const framework = ctx.resolved.framework;
+  // creek.toml can set framework explicitly; if not, fall back to the
+  // package.json-driven detector (same chain deploy.ts uses at
+  // line 818). Without this fallback, every project that doesn't pin
+  // framework in creek.toml gets archetype="worker-only" or "unknown"
+  // despite being a real SPA+Worker coexist.
+  const framework =
+    ctx.resolved.framework ??
+    (ctx.packageJson ? detectFramework(ctx.packageJson) : null);
   const hasWorker = !!ctx.resolved.workerEntry;
   const isSSR = isSSRFramework(framework);
 

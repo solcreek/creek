@@ -89,6 +89,31 @@ const CK_WORKER_MISSING: Rule = (ctx) => {
 
 const CK_SYNC_SQLITE: Rule = (ctx) => {
   if (!ctx.allDeps["better-sqlite3"]) return [];
+  // If a dual-driver ORM is also installed AND better-sqlite3 is
+  // devDep-only, the project is using the 'local sync / prod async'
+  // pattern deliberately. Downgrade the finding — it's a feature,
+  // not a bug.
+  const hasDualDriverOrm =
+    !!ctx.allDeps["drizzle-orm"] || !!ctx.allDeps["kysely"];
+  const devOnly =
+    !!ctx.packageJson?.devDependencies?.["better-sqlite3"] &&
+    !ctx.packageJson?.dependencies?.["better-sqlite3"];
+
+  if (hasDualDriverOrm && devOnly) {
+    return [
+      {
+        code: "CK-SYNC-SQLITE",
+        severity: "info",
+        title: "better-sqlite3 (devDep) + dual-driver ORM — local-sync / prod-async pattern",
+        detail:
+          "better-sqlite3 is in devDependencies and an ORM with a D1 adapter (Drizzle/Kysely) is also present. This is the recommended dual-driver shape: the same Hono routes run locally against a SQLite file and on Workers against env.DB.",
+        fix:
+          "No action needed. Verify: server/local.ts should import from `drizzle-orm/better-sqlite3` (or `kysely`'s SQLite dialect) while server/worker.ts imports from `drizzle-orm/d1`. Reference: examples/vite-react-drizzle.",
+        references: ["package.json"],
+      },
+    ];
+  }
+
   return [
     {
       code: "CK-SYNC-SQLITE",
@@ -97,7 +122,7 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
       detail:
         "better-sqlite3 is a Node native module with a synchronous API (db.prepare(...).get()). Cloudflare Workers runs workerd (no native bindings, no sync DB access). D1 — Creek's default `env.DB` — has an async API; the method signatures differ. A codemod-style rename won't work; every call site needs an `await`.",
       fix:
-        "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example: examples/vite-react-drizzle/ (zero @solcreek/* deps in the runtime).\n\nDocs: https://creek.dev/docs/cli#creek-logs",
+        "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example: examples/vite-react-drizzle/ (zero @solcreek/* deps in the runtime).",
       references: ["package.json"],
     },
   ];

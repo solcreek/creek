@@ -146,11 +146,40 @@ describe("CK-WORKER-MISSING", () => {
 // ─── CK-SYNC-SQLITE ──────────────────────────────────────────────────────
 
 describe("CK-SYNC-SQLITE", () => {
-  test("fires when better-sqlite3 is in deps", () => {
-    const ctx = buildCtx({ allDeps: { "better-sqlite3": "^11.0.0" } });
+  test("fires as WARN when better-sqlite3 is in production deps without an ORM", () => {
+    const ctx = buildCtx({
+      allDeps: { "better-sqlite3": "^11.0.0" },
+      packageJson: pkg({ "better-sqlite3": "^11.0.0" }),
+    });
     const findings = rules.CK_SYNC_SQLITE(ctx);
     expect(findings).toHaveLength(1);
     expect(findings[0].code).toBe("CK-SYNC-SQLITE");
+    expect(findings[0].severity).toBe("warn");
+  });
+
+  test("fires as INFO when better-sqlite3 is devDep-only AND Drizzle is also present (dual-driver pattern)", () => {
+    const ctx = buildCtx({
+      allDeps: {
+        "better-sqlite3": "^11.0.0",
+        "drizzle-orm": "^0.36.0",
+      },
+      packageJson: pkg({ "drizzle-orm": "^0.36.0" }, { "better-sqlite3": "^11.0.0" }),
+    });
+    const findings = rules.CK_SYNC_SQLITE(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("info");
+    expect(findings[0].title).toContain("dual-driver");
+  });
+
+  test("WARN (not INFO) when ORM present but better-sqlite3 is in prod deps — suspicious", () => {
+    const ctx = buildCtx({
+      allDeps: {
+        "better-sqlite3": "*",
+        "drizzle-orm": "*",
+      },
+      packageJson: pkg({ "better-sqlite3": "*", "drizzle-orm": "*" }),
+    });
+    const findings = rules.CK_SYNC_SQLITE(ctx);
     expect(findings[0].severity).toBe("warn");
   });
 
