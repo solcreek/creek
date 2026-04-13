@@ -141,7 +141,7 @@ export async function deployWithAssets(
   let mainModule: string;
   let assetsConfig: Record<string, unknown> | undefined;
 
-  if (input.renderMode === "ssr" && input.serverFiles) {
+  if ((input.renderMode === "ssr" || input.renderMode === "worker") && input.serverFiles) {
     workerFiles = Object.entries(input.serverFiles).map(
       ([name, content]) =>
         new File([content], name, { type: workerFileType(name) }),

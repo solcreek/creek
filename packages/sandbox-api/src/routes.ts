@@ -69,7 +69,7 @@ routes.post("/deploy", async (c) => {
       assets?: string[];
       hasWorker?: boolean;
       entrypoint?: string | null;
-      renderMode?: "spa" | "ssr" | "static";
+      renderMode?: "spa" | "ssr" | "static" | "worker";
     };
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
@@ -98,9 +98,15 @@ routes.post("/deploy", async (c) => {
     return c.json({ error: "validation", message: "Invalid or missing JSON body" }, 400);
   }
 
-  if (!body.assets || Object.keys(body.assets).length === 0) {
-    return c.json({ error: "validation", message: "At least one asset is required" }, 400);
+  // Pure-worker deploys (Hono app with inlined HTML, etc.) legitimately
+  // ship zero static assets. Require EITHER assets OR serverFiles so the
+  // sandbox has something to serve.
+  const hasAssets = body.assets && Object.keys(body.assets).length > 0;
+  const hasServerFiles = body.serverFiles && Object.keys(body.serverFiles).length > 0;
+  if (!hasAssets && !hasServerFiles) {
+    return c.json({ error: "validation", message: "Bundle must include assets or serverFiles" }, 400);
   }
+  if (!body.assets) body.assets = {};
 
   // Derive manifest defaults from assets if not provided
   const assetPaths = Object.keys(body.assets);
@@ -474,11 +480,12 @@ async function runSandboxDeploy(
         )
       : undefined;
 
-    // "static" mode → deploy as "spa" but without index.html fallback embedding
-    // (deploy-core handles this: "spa" embeds fallback, "ssr" does not)
-    // For static MPA, we use "spa" since WfP serves exact asset paths — the SPA
-    // fallback only triggers for paths that don't match any asset.
-    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : "spa" as const;
+    // "static" → "spa" (no fallback embedding needed for MPA; WfP serves
+    // exact asset paths). "worker" and "ssr" both route serverFiles through
+    // as the main module. Anything else defaults to "spa".
+    const rm = bundle.manifest.renderMode;
+    const renderMode: "spa" | "ssr" | "worker" =
+      rm === "ssr" ? "ssr" : rm === "worker" ? "worker" : "spa";
 
     // Provision ephemeral CF resources for this sandbox — one D1/R2/KV
     // per binding declared in the bundle. Without this step, CMS-class

@@ -874,24 +874,46 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     process.exit(1);
   }
 
-  // Collect assets
+  // Collect assets + determine render mode.
+  //
+  // Three shapes, mirroring the authenticated deploy path:
+  //   1. Framework-detected SSR (Astro/Nuxt/etc.) → bundle the framework's
+  //      server entry, upload dist/ as assets.
+  //   2. User-declared Worker (`[build].worker` in creek.toml, no framework)
+  //      → bundle the Worker entry with esbuild, serverFiles = { worker.js }.
+  //      `dist/` assets are skipped for now — the "Workers + Static Assets
+  //      coexist" zero-config pattern is tracked separately and requires
+  //      build-pipeline changes; until it lands, users inline HTML/JS/CSS
+  //      into the Worker (see docs).
+  //   3. Neither → plain SPA/static, everything goes as assets.
   const isSSR = isSSRFramework(framework);
-  const renderMode = isSSR ? "ssr" : "spa";
+  const isWorker = !framework && !!resolved?.workerEntry;
+  const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
 
-  let clientAssetsDir: string;
-  if (useAdapterOutput) {
-    clientAssetsDir = resolve(outputDir, "assets");
-  } else {
-    clientAssetsDir = outputDir;
-    if (isSSR && framework) {
-      const subdir = getClientAssetsDir(framework);
-      if (subdir) clientAssetsDir = resolve(outputDir, subdir);
+  let clientAssets: Record<string, string> = {};
+  let fileList: string[] = [];
+  if (!isWorker) {
+    let clientAssetsDir: string;
+    if (useAdapterOutput) {
+      clientAssetsDir = resolve(outputDir, "assets");
+    } else {
+      clientAssetsDir = outputDir;
+      if (isSSR && framework) {
+        const subdir = getClientAssetsDir(framework);
+        if (subdir) clientAssetsDir = resolve(outputDir, subdir);
+      }
     }
+    const collected = collectAssets(clientAssetsDir);
+    clientAssets = collected.assets;
+    fileList = collected.fileList;
   }
 
   section("Upload");
-  const { assets: clientAssets, fileList } = collectAssets(clientAssetsDir);
-  consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
+  if (isWorker) {
+    consola.info(`  Worker mode (${resolved!.workerEntry})`);
+  } else {
+    consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
+  }
 
   let serverFiles: Record<string, string> | undefined;
   if (isSSR && framework) {
@@ -905,6 +927,18 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
         consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
       }
     }
+  } else if (isWorker && resolved?.workerEntry) {
+    const workerEntryPath = resolve(cwd, resolved.workerEntry);
+    if (!existsSync(workerEntryPath)) {
+      consola.error(`Worker entry not found: ${resolved.workerEntry}`);
+      process.exit(1);
+    }
+    consola.start("  Bundling worker...");
+    const bundled = await bundleWorker(workerEntryPath, cwd, {
+      hasClientAssets: false,
+    });
+    serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
+    consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
   }
 
   // Deploy to sandbox
@@ -914,10 +948,25 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   }
   try {
     const result = await sandboxDeploy({
+      manifest: {
+        assets: fileList,
+        hasWorker: isSSR || isWorker,
+        entrypoint: resolved?.workerEntry ?? null,
+        renderMode,
+      },
       assets: clientAssets,
       serverFiles,
       framework: framework ?? undefined,
       source: "cli",
+      ...(resolved
+        ? { bindings: resolvedConfigToBindingRequirements(resolved) }
+        : {}),
+      ...(resolved?.compatibilityDate
+        ? { compatibilityDate: resolved.compatibilityDate }
+        : {}),
+      ...(resolved && resolved.compatibilityFlags.length > 0
+        ? { compatibilityFlags: resolved.compatibilityFlags }
+        : {}),
     }, { tos });
 
     const status = await pollSandboxStatus(result.statusUrl);
