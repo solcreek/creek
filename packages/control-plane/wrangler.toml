@@ -13,6 +13,12 @@ database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
 binding = "ASSETS"
 bucket_name = "creek-assets"
 
+# Per-tenant log archive written by tail-worker.
+# Read by /api/projects/:slug/logs (Phase 8 Step 5+).
+[[r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "creek-logs"
+
 [[kv_namespaces]]
 binding = "BUILD_STATUS"
 id = "5f22449ab2094383a3c95fb80aa10fa2"
