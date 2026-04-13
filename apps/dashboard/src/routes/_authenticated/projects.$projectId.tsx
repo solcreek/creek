@@ -16,9 +16,11 @@ function ProjectLayout() {
   const path = location.pathname;
 
   const isAnalyticsTab = path.endsWith("/analytics");
+  const isLogsTab = path.endsWith("/logs");
   const isEnvTab = path.endsWith("/env");
   const isSettingsTab = path.endsWith("/settings");
-  const isDeploymentsTab = !isAnalyticsTab && !isEnvTab && !isSettingsTab;
+  const isDeploymentsTab =
+    !isAnalyticsTab && !isLogsTab && !isEnvTab && !isSettingsTab;
 
   const tabClass = (active: boolean) =>
     `pb-2 text-sm ${active ? "border-b-2 border-foreground font-medium" : "text-muted-foreground hover:text-foreground"}`;
@@ -39,6 +41,9 @@ function ProjectLayout() {
         </Link>
         <Link to="/projects/$projectId/analytics" params={{ projectId }} className={tabClass(isAnalyticsTab)}>
           Analytics
+        </Link>
+        <Link to="/projects/$projectId/logs" params={{ projectId }} className={tabClass(isLogsTab)}>
+          Logs
         </Link>
         <Link to="/projects/$projectId/env" params={{ projectId }} className={tabClass(isEnvTab)}>
           Environment
