@@ -157,6 +157,7 @@ describe("schema audit", () => {
     "__drizzle_migrations",
     // SQLite internals
     "sqlite_master",
+    "sqlite_schema", // alias for sqlite_master (SQLite ≥3.33)
     "sqlite_sequence",
     "_cf_KV",
     // d1-schema package internal table
