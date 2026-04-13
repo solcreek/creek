@@ -1,0 +1,7 @@
+node_modules
+dist
+.creek
+local.db
+local.db-journal
+local.db-shm
+local.db-wal

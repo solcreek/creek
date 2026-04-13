@@ -1,0 +1,95 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  display: grid;
+  place-items: start center;
+  min-height: 100dvh;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  width: min(560px, 92vw);
+  padding: 2.5rem 0;
+}
+
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+}
+
+.hint {
+  margin: 0 0 1.5rem;
+  color: GrayText;
+  font-size: 0.875rem;
+}
+
+form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+input[type="text"], form input {
+  flex: 1;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid CanvasText;
+  background: Canvas;
+  color: CanvasText;
+  border-radius: 4px;
+  font: inherit;
+}
+
+button {
+  padding: 0.625rem 1rem;
+  border: 1px solid CanvasText;
+  background: CanvasText;
+  color: Canvas;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+}
+
+li.done span {
+  text-decoration: line-through;
+  color: GrayText;
+}
+
+li button {
+  background: transparent;
+  color: GrayText;
+  border-color: transparent;
+  font-size: 1.25rem;
+  padding: 0 0.5rem;
+}
+
+.empty {
+  color: GrayText;
+  text-align: center;
+  padding: 2rem 0;
+  border: none;
+}
+
+.err {
+  color: #c33;
+  font-size: 0.875rem;
+}
