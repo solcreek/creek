@@ -1,0 +1,33 @@
+{
+  "name": "example-vite-react-drizzle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n vite,api -c cyan,magenta \"vite\" \"tsx watch server/local.ts\"",
+    "build": "vite build && esbuild server/worker.ts --bundle --format=esm --platform=neutral --target=es2022 --conditions=workerd,worker,import --external:cloudflare:* --outfile=dist/_worker.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "tsx server/migrate-local.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.6.12",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "better-sqlite3": "^11.7.0",
+    "concurrently": "^9.1.0",
+    "drizzle-kit": "^0.30.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.3.5"
+  }
+}

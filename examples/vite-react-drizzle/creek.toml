@@ -1,0 +1,10 @@
+[project]
+name = "vite-react-drizzle"
+
+[build]
+command = "npm run build"
+output = "dist"
+worker = "dist/_worker.mjs"
+
+[resources]
+database = true
