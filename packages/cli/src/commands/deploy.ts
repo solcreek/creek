@@ -25,6 +25,7 @@ import {
   detectAstroCloudflareBuild,
   detectNextjsMode,
   detectMonorepo,
+  planDeploy,
   type Framework,
   type ResolvedConfig,
 } from "@solcreek/sdk";
@@ -866,79 +867,97 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     ? resolve(cwd, ".creek/adapter-output")
     : resolve(cwd, resolved?.buildOutput ?? getDefaultBuildOutput(framework));
 
-  if (!existsSync(outputDir)) {
-    consola.error(`Build output not found: ${outputDir}`);
-    if (framework) {
-      consola.info(`Expected output for ${framework}: ${getDefaultBuildOutput(framework)}`);
-    }
+  // Whether buildOutput exists is now an INPUT to planDeploy, not a
+  // hard precondition — pure-Worker projects legitimately have no
+  // build output directory, and planDeploy returns an explicit error
+  // for the cases that genuinely need one.
+
+  // Resolve deploy shape via the SDK's pure planner. All branching
+  // (SPA vs SSR vs Worker, with-or-without coexisting static assets,
+  // bundled vs source worker entry) lives in deploy-plan.ts and is
+  // table-tested. Don't re-derive these conditions inline.
+  const planResult = planDeploy({
+    framework,
+    workerEntry: resolved?.workerEntry ?? null,
+    workerEntryExists: !!resolved?.workerEntry &&
+      existsSync(resolve(cwd, resolved.workerEntry)),
+    buildOutput: resolved?.buildOutput ?? "dist",
+    buildOutputExists: existsSync(outputDir),
+    astroCF: null, // sandbox path doesn't run post-build adapter detection (yet)
+  });
+  if (!planResult.ok) {
+    consola.error(planResult.reason);
     process.exit(1);
   }
-
-  // Collect assets + determine render mode.
-  //
-  // Three shapes, mirroring the authenticated deploy path:
-  //   1. Framework-detected SSR (Astro/Nuxt/etc.) → bundle the framework's
-  //      server entry, upload dist/ as assets.
-  //   2. User-declared Worker (`[build].worker` in creek.toml, no framework)
-  //      → bundle the Worker entry with esbuild, serverFiles = { worker.js }.
-  //      `dist/` assets are skipped for now — the "Workers + Static Assets
-  //      coexist" zero-config pattern is tracked separately and requires
-  //      build-pipeline changes; until it lands, users inline HTML/JS/CSS
-  //      into the Worker (see docs).
-  //   3. Neither → plain SPA/static, everything goes as assets.
-  const isSSR = isSSRFramework(framework);
-  const isWorker = !framework && !!resolved?.workerEntry;
-  const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
+  const plan = planResult.plan;
+  const renderMode = plan.renderMode;
 
   let clientAssets: Record<string, string> = {};
   let fileList: string[] = [];
-  if (!isWorker) {
-    let clientAssetsDir: string;
-    if (useAdapterOutput) {
-      clientAssetsDir = resolve(outputDir, "assets");
-    } else {
-      clientAssetsDir = outputDir;
-      if (isSSR && framework) {
-        const subdir = getClientAssetsDir(framework);
-        if (subdir) clientAssetsDir = resolve(outputDir, subdir);
-      }
+  if (plan.assets.enabled && plan.assets.dir) {
+    let clientAssetsDir = useAdapterOutput
+      ? resolve(outputDir, "assets")
+      : resolve(cwd, plan.assets.dir);
+    if (!useAdapterOutput && isSSRFramework(framework) && framework) {
+      const subdir = getClientAssetsDir(framework);
+      if (subdir) clientAssetsDir = resolve(clientAssetsDir, subdir);
     }
     const collected = collectAssets(clientAssetsDir);
     clientAssets = collected.assets;
     fileList = collected.fileList;
+    if (plan.assets.excludeFile) {
+      delete clientAssets["/" + plan.assets.excludeFile];
+      delete clientAssets[plan.assets.excludeFile];
+      fileList = fileList.filter(
+        (p) => p !== plan.assets.excludeFile && p !== "/" + plan.assets.excludeFile,
+      );
+    }
   }
 
   section("Upload");
-  if (isWorker) {
-    consola.info(`  Worker mode (${resolved!.workerEntry})`);
-  } else {
+  consola.info(`  Mode: ${renderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
+  if (plan.assets.enabled) {
     consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
   }
 
   let serverFiles: Record<string, string> | undefined;
-  if (isSSR && framework) {
-    const serverEntry = getSSRServerEntry(framework);
-    if (serverEntry) {
-      const serverEntryPath = resolve(outputDir, serverEntry);
-      if (existsSync(serverEntryPath)) {
-        consola.start("  Bundling SSR server...");
-        const bundled = await bundleSSRServer(serverEntryPath);
-        serverFiles = { "server.js": Buffer.from(bundled).toString("base64") };
-        consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
+  switch (plan.worker.strategy) {
+    case "none":
+      break;
+    case "ssr-framework": {
+      // Sandbox path doesn't currently support pre-bundled SSR
+      // frameworks (Nuxt/SvelteKit/Astro CF); planDeploy only returns
+      // this strategy for SSR frameworks, which we still bundle via
+      // the legacy single-file path below to keep diff small.
+      const serverEntry = getSSRServerEntry(framework);
+      if (serverEntry) {
+        const serverEntryPath = resolve(outputDir, serverEntry);
+        if (existsSync(serverEntryPath)) {
+          consola.start("  Bundling SSR server...");
+          const bundled = await bundleSSRServer(serverEntryPath);
+          serverFiles = { "server.js": Buffer.from(bundled).toString("base64") };
+          consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
+        }
       }
+      break;
     }
-  } else if (isWorker && resolved?.workerEntry) {
-    const workerEntryPath = resolve(cwd, resolved.workerEntry);
-    if (!existsSync(workerEntryPath)) {
-      consola.error(`Worker entry not found: ${resolved.workerEntry}`);
-      process.exit(1);
+    case "esbuild-bundle": {
+      const workerEntryPath = resolve(cwd, plan.worker.entry!);
+      consola.start("  Bundling worker...");
+      const bundled = await bundleWorker(workerEntryPath, cwd, {
+        hasClientAssets: plan.assets.enabled,
+      });
+      serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
+      consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
+      break;
     }
-    consola.start("  Bundling worker...");
-    const bundled = await bundleWorker(workerEntryPath, cwd, {
-      hasClientAssets: false,
-    });
-    serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
-    consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
+    case "upload-asis": {
+      const workerEntryPath = resolve(cwd, plan.worker.entry!);
+      const bytes = readFileSync(workerEntryPath);
+      serverFiles = { "worker.js": bytes.toString("base64") };
+      consola.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
+      break;
+    }
   }
 
   // Deploy to sandbox
@@ -950,7 +969,7 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     const result = await sandboxDeploy({
       manifest: {
         assets: fileList,
-        hasWorker: isSSR || isWorker,
+        hasWorker: plan.worker.strategy !== "none",
         entrypoint: resolved?.workerEntry ?? null,
         renderMode,
       },
@@ -1151,11 +1170,34 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
     }
 
-    // Determine deploy mode
+    // Determine deploy mode via the SDK's pure planner. The downstream
+    // framework-specific branches (Astro CF, Next.js adapter, Nuxt, etc.)
+    // are kept as-is — planDeploy decides the SHAPE (spa / ssr / worker
+    // and whether the worker is source vs prebundled), and the legacy
+    // collection logic decides WHERE to read the bytes from for each
+    // framework. astroCF detection happens post-build below; for the
+    // initial plan we conservatively pass null and the framework SSR
+    // branch handles the adapter case.
     const framework = resolved.framework;
     const isSSR = isSSRFramework(framework);
-    const isWorker = !framework && !!resolved.workerEntry;
-    const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
+    const initialPlan = planDeploy({
+      framework,
+      workerEntry: resolved.workerEntry ?? null,
+      workerEntryExists: !!resolved.workerEntry &&
+        existsSync(resolve(cwd, resolved.workerEntry)),
+      buildOutput: resolved.buildOutput,
+      buildOutputExists: existsSync(resolve(cwd, resolved.buildOutput)),
+      astroCF: null,
+    });
+    if (!initialPlan.ok) {
+      consola.error(initialPlan.reason);
+      process.exit(1);
+    }
+    const isWorker = initialPlan.plan.worker.strategy === "esbuild-bundle" ||
+      initialPlan.plan.worker.strategy === "upload-asis";
+    const workerIsPrebundled = initialPlan.plan.worker.strategy === "upload-asis";
+    const workerExcludeFromAssets = initialPlan.plan.assets.excludeFile;
+    const renderMode = initialPlan.plan.renderMode;
 
     // Detect Next.js mode for special build handling
     const pkg = existsSync(join(cwd, "package.json"))
@@ -1349,10 +1391,21 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         }
       }
     } else if (isWorker && resolved.workerEntry) {
-      // Worker: auto-generate _setEnv wrapper + esbuild bundle
       const workerEntryPath = resolve(cwd, resolved.workerEntry);
-      if (existsSync(workerEntryPath)) {
-        section("Bundle");
+      if (!existsSync(workerEntryPath)) {
+        consola.error(`Worker entry not found: ${resolved.workerEntry}`);
+        process.exit(1);
+      }
+      section("Bundle");
+      if (workerIsPrebundled) {
+        // User's build script already produced a fully self-contained
+        // bundle inside buildOutput; ship the bytes verbatim. No wrapper,
+        // no Creek runtime injection — keeps the deployed Worker free of
+        // any @solcreek/* dependency.
+        const bytes = readFileSync(workerEntryPath);
+        serverFiles = { "worker.js": bytes.toString("base64") };
+        consola.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
+      } else {
         consola.start("  Bundling worker...");
         const bundled = await bundleWorker(workerEntryPath, cwd, {
           hasClientAssets: !!workerHasClientAssets,
@@ -1361,10 +1414,18 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
           "worker.js": Buffer.from(bundled).toString("base64"),
         };
         consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
-      } else {
-        consola.error(`Worker entry not found: ${resolved.workerEntry}`);
-        process.exit(1);
       }
+    }
+
+    // When the worker bundle lives INSIDE the static asset dir
+    // (e.g. dist/_worker.mjs), drop it from clientAssets so it isn't
+    // double-uploaded as a publicly accessible file.
+    if (workerExcludeFromAssets) {
+      delete clientAssets[workerExcludeFromAssets];
+      delete clientAssets["/" + workerExcludeFromAssets];
+      fileList = fileList.filter(
+        (p) => p !== workerExcludeFromAssets && p !== "/" + workerExcludeFromAssets,
+      );
     }
 
     section("Deploy");
