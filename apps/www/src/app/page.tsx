@@ -25,6 +25,7 @@ export default function Home() {
             <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
             <a href="/changelog" className="hover:text-foreground transition-colors">Changelog</a>
             <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="/discord" className="hover:text-foreground transition-colors">Discord</a>
           </div>
         </div>
       </nav>

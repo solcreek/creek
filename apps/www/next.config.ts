@@ -15,6 +15,17 @@ const nextConfig: NextConfig = {
       { source: "/deploy", destination: "/new" },
     ];
   },
+  async redirects() {
+    return [
+      // Vanity short link to the community Discord — stable across
+      // invite rotations as long as we keep this config up to date.
+      {
+        source: "/discord",
+        destination: "https://discord.gg/2mkz2m9w6m",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 const withMDX = createMDX();
