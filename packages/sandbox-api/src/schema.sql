@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS deployments (
   userAgent TEXT,
   tosVersion TEXT,
   tosAcceptedAt TEXT,
-  contentHash TEXT
+  contentHash TEXT,
+  -- JSON blob recording CF resources we provisioned for this sandbox
+  -- so cleanup.ts can delete them when the sandbox expires.
+  -- Shape: { "d1": [{"name","id"}], "r2": [{"name"}], "kv": [{"id","title"}] }
+  provisionedResources TEXT
 );
 
 -- Stores raw IPs temporarily for legal compliance (30-day retention).

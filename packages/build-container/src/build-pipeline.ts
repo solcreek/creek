@@ -20,6 +20,8 @@ import {
   getDefaultBuildOutput,
   collectServerFiles,
   detectAstroCloudflareBuild,
+  resolveDeployHint,
+  type DeployHint,
   type ResolvedConfig,
 } from "@solcreek/sdk";
 
@@ -60,6 +62,7 @@ export interface BuildResult {
     compatibilityFlags: string[] | undefined;
     cron: string[] | undefined;
     queue: boolean | undefined;
+    hint?: DeployHint;
   };
 }
 
@@ -127,6 +130,21 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     const isSSR = isSSRFramework(framework);
     const isWorker = !framework && !!resolved.workerEntry;
     const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
+
+    // 2b. Framework-aware post-deploy hints (admin URLs, warnings, etc.)
+    // Pure metadata — no build or runtime side effects. Resolved from
+    // the target's package.json deps so it works for any framework
+    // whether or not we specialise the build for it.
+    let deployHint: DeployHint | null = null;
+    const pkgPathForHint = join(workDir, "package.json");
+    if (existsSync(pkgPathForHint)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPathForHint, "utf-8"));
+        deployHint = resolveDeployHint(pkg);
+      } catch {
+        // ignore — malformed package.json isn't fatal for hint resolution
+      }
+    }
 
     // 3. Install dependencies
     let installResult: BuildResult["install"] = null;
@@ -294,6 +312,29 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     const effectiveHasWorker = astroCF ? true : (isSSR || isWorker);
     const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
 
+    // Merge adapter-emitted bindings on top of user-declared ones.
+    // `@astrojs/cloudflare` injects bindings the user's root
+    // wrangler.jsonc never mentions — most notably SESSION (KV),
+    // IMAGES, and `worker_loaders` — into `dist/server/wrangler.json`.
+    // Without this merge, sandbox-api only provisions the user-visible
+    // subset and the Worker crashes on runtime access to env.SESSION.
+    // Adapter-merged bindings can include types beyond the SDK's
+    // narrow union (worker_loader, images), so widen to the broader
+    // shape sandbox-api accepts.
+    let effectiveBindings: Array<{ type: string; bindingName: string }> =
+      resolvedConfigToBindingRequirements(resolved);
+    if (astroCF) {
+      const adapterWranglerPath = join(workDir, astroCF.serverDir, "wrangler.json");
+      if (existsSync(adapterWranglerPath)) {
+        try {
+          const adapterWrangler = JSON.parse(readFileSync(adapterWranglerPath, "utf-8"));
+          effectiveBindings = mergeAdapterBindings(effectiveBindings, adapterWrangler);
+        } catch {
+          // Malformed adapter JSON — keep user-declared bindings only
+        }
+      }
+    }
+
     const result: BuildResult = {
       success: true,
       timing,
@@ -316,12 +357,13 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         assets: isWorker ? {} : assets,
         serverFiles,
         resources: resolvedConfigToResources(resolved),
-        bindings: resolvedConfigToBindingRequirements(resolved),
+        bindings: effectiveBindings,
         vars: Object.keys(resolved.vars).length > 0 ? resolved.vars : {},
         compatibilityDate: resolved.compatibilityDate ?? undefined,
         compatibilityFlags: resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
         cron: resolved.cron.length > 0 ? resolved.cron : undefined,
         queue: resolved.queue || undefined,
+        hint: deployHint ?? undefined,
       },
     };
 
@@ -334,6 +376,67 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
 }
 
 // --- Helpers ---
+
+/**
+ * Merge binding requirements emitted by an adapter's generated
+ * `wrangler.json` on top of those derived from the user's root
+ * config. Adapters (most notably `@astrojs/cloudflare`) inject bindings
+ * the user never wrote — SESSION (KV), IMAGES, `worker_loaders` — and
+ * the Worker will crash at runtime if we don't provision them.
+ *
+ * User-declared entries take precedence on binding-name conflict so
+ * a user explicitly overriding a binding isn't silently clobbered.
+ */
+// SDK's `BindingRequirement` is currently typed to "d1"|"r2"|"kv"|"ai".
+// Adapters can declare more (worker_loader for plugin sandboxes,
+// images for the CF Images binding). We widen the union locally and
+// hand the result back as a loosely-typed array — sandbox-api +
+// deploy-core both accept `string` for binding type.
+type BindingType = "d1" | "r2" | "kv" | "ai" | "worker_loader" | "images";
+type BindingReq = { type: BindingType; bindingName: string };
+
+export function mergeAdapterBindings(
+  existing: ReadonlyArray<{ type: string; bindingName: string }>,
+  adapterWrangler: Record<string, unknown>,
+): BindingReq[] {
+  const seen = new Set(existing.map((b) => `${b.type}:${b.bindingName}`));
+  // Cast existing entries; their type field is already one of the
+  // narrower SDK union members, so this is safe.
+  const out: BindingReq[] = existing.map((b) => ({
+    type: b.type as BindingType,
+    bindingName: b.bindingName,
+  }));
+
+  const push = (type: BindingType, bindingName: string) => {
+    const key = `${type}:${bindingName}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ type, bindingName });
+    }
+  };
+
+  const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+  for (const d1 of arr<{ binding?: string }>(adapterWrangler.d1_databases)) {
+    if (d1.binding) push("d1", d1.binding);
+  }
+  for (const r2 of arr<{ binding?: string }>(adapterWrangler.r2_buckets)) {
+    if (r2.binding) push("r2", r2.binding);
+  }
+  for (const kv of arr<{ binding?: string }>(adapterWrangler.kv_namespaces)) {
+    if (kv.binding) push("kv", kv.binding);
+  }
+  // Plugin sandbox (Dynamic Workers) — the binding declaration alone
+  // is what enables `env.LOADER`. No resource provisioning needed;
+  // sandbox-api treats this as "declare-only".
+  for (const wl of arr<{ binding?: string }>(adapterWrangler.worker_loaders)) {
+    if (wl.binding) push("worker_loader", wl.binding);
+  }
+  // CF Images binding — account-level service, declare-only.
+  const images = adapterWrangler.images as { binding?: string } | undefined;
+  if (images?.binding) push("images", images.binding);
+  return out;
+}
 
 /**
  * Detect package manager by walking up the directory tree from `cwd`
