@@ -237,6 +237,7 @@ export default function DeployForm() {
               expiresAt={deployState.expiresAt}
               error={deployState.error}
               cacheHit={deployState.cacheHit}
+              hint={deployState.hint}
               onReset={deployState.reset}
             />
           ) : repoInfo ? (
@@ -454,6 +455,7 @@ function DeployProgress({
   expiresAt,
   error,
   cacheHit,
+  hint,
   onReset,
 }: {
   status: DeployStatus;
@@ -461,6 +463,7 @@ function DeployProgress({
   expiresAt: string | null;
   error: string | null;
   cacheHit: boolean;
+  hint: { adminPath?: string; adminLabel?: string; warnings?: string[] } | null;
   onReset: () => void;
 }) {
   const isBuilding = status === "building";
@@ -596,6 +599,31 @@ function DeployProgress({
           >
             Open Preview →
           </a>
+
+          {/* Framework-aware post-deploy hint (e.g. EmDash admin link
+              + "DB empty" warning). Only rendered when the build
+              container detected a template with a known hint. */}
+          {hint?.adminPath && (
+            <a
+              href={`${previewUrl}${hint.adminPath}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full py-2.5 px-5 rounded-lg border border-[#38bdf8]/30 bg-[#38bdf8]/5 text-[#60d0e0] text-sm text-center hover:border-[#38bdf8]/60 hover:bg-[#38bdf8]/10 transition-colors"
+            >
+              {hint.adminLabel ?? "Open admin"} →
+            </a>
+          )}
+
+          {hint?.warnings && hint.warnings.length > 0 && (
+            <div className="rounded-lg border border-[#444] bg-[#1a1a1a] px-4 py-3 space-y-1.5 text-left">
+              {hint.warnings.map((w) => (
+                <p key={w} className="text-xs text-[#aaa] leading-relaxed">
+                  {w}
+                </p>
+              ))}
+            </div>
+          )}
+
           <p className="text-xs text-[#555] text-center">
             Preview expires {expiresAt ? `at ${new Date(expiresAt).toLocaleTimeString()}` : "in 60 minutes"}.{" "}
             <a href="https://app.creek.dev" className="text-[#60d0e0]/60 hover:text-[#60d0e0]">
