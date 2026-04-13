@@ -4,6 +4,11 @@ export interface Env {
   // Cloudflare bindings
   DB: D1Database;
   ASSETS: R2Bucket;
+  /**
+   * Per-tenant log archive written by tail-worker. Read-only here.
+   * Optional because dev/test envs run without it. Phase 8 Step 5+.
+   */
+  LOGS_BUCKET?: R2Bucket;
   CREEK_DOMAIN: string;
   CREEK_REALTIME_URL?: string;
   REALTIME_MASTER_KEY?: string;
