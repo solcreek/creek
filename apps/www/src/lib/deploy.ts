@@ -4,6 +4,12 @@ import { useState, useCallback, useRef } from "react";
 
 export type DeployStatus = "idle" | "building" | "deploying" | "active" | "failed";
 
+export interface DeployHint {
+  adminPath?: string;
+  adminLabel?: string;
+  warnings?: string[];
+}
+
 export interface DeployState {
   status: DeployStatus;
   buildId: string | null;
@@ -13,6 +19,11 @@ export interface DeployState {
   error: string | null;
   /** True when remote-builder served this deploy from its KV bundle cache — build phase skipped. */
   cacheHit: boolean;
+  /**
+   * Framework-aware post-deploy hint (e.g. admin URL for CMS
+   * templates). Populated by the server once the deploy succeeds.
+   */
+  hint: DeployHint | null;
 }
 
 const INITIAL_STATE: DeployState = {
@@ -23,6 +34,7 @@ const INITIAL_STATE: DeployState = {
   expiresAt: null,
   error: null,
   cacheHit: false,
+  hint: null,
 };
 
 export function useWebDeploy() {
@@ -106,6 +118,7 @@ export function useWebDeploy() {
             expiresAt: data.expiresAt || s.expiresAt,
             error: data.error || null,
             cacheHit: data.cacheHit ?? s.cacheHit,
+            hint: data.hint ?? s.hint,
           }));
 
           // Stop polling on terminal states
