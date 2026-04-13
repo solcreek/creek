@@ -178,6 +178,15 @@ export {
   detectAstroCloudflareBuild,
 } from "./server-files.js";
 
+// Pure deploy-shape resolver (input: detection results; output: plan)
+export {
+  planDeploy,
+  type PlanDeployInput,
+  type PlanDeployResult,
+  type DeployPlan,
+  type WorkerStrategy,
+} from "./deploy-plan.js";
+
 // Post-deploy UI hints (shallow framework-aware metadata)
 export {
   detectEmdash,
