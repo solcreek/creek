@@ -34,6 +34,7 @@ import { collectAssets } from "../utils/bundle.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess } from "../utils/sandbox.js";
+import { prepareDeployBundle } from "../utils/prepare-bundle.js";
 import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput } from "../utils/nextjs.js";
@@ -816,8 +817,6 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
 
   const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
   const framework = resolved?.framework ?? detectFramework(pkg);
-
-  // Detect Next.js mode (static vs opennext SSR)
   const nextjsMode = framework === "nextjs" ? detectNextjsMode(pkg, cwd) : null;
   const monorepo = detectMonorepo(cwd);
 
@@ -826,138 +825,21 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   if (nextjsMode) consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
   consola.info("  Mode: sandbox (60 min preview)");
 
-  // Build
-  if (!skipBuild) {
-    section("Build");
-
-    if (nextjsMode === "opennext") {
-      // Next.js SSR on CF Workers: adapter (>= 16.2) or legacy opennext
-      try {
-        buildNextjs(cwd, monorepo.isMonorepo);
-      } catch {
-        consola.error("Next.js build failed");
-        process.exit(1);
-      }
-      consola.success("  Build complete");
-    } else {
-      const buildCommand = resolved?.buildCommand || "npm run build";
-      if (!buildCommand) {
-        consola.error("No build script found in package.json.");
-        consola.info("Add a 'build' script or use --skip-build if already built.");
-        process.exit(1);
-      }
-
-      consola.start(`  ${buildCommand}`);
-      try {
-        execSync(buildCommand, { cwd, stdio: "inherit" });
-      } catch {
-        consola.error("Build failed");
-        consola.info("");
-        consola.info("  Common fixes:");
-        consola.info("    npm install (missing dependencies?)");
-        consola.info("    Check for TypeScript errors");
-        process.exit(1);
-      }
-      consola.success("  Build complete");
-    }
-  }
-
-  const useAdapterOutput = framework === "nextjs" && hasAdapterOutput(cwd);
-  const outputDir = useAdapterOutput
-    ? resolve(cwd, ".creek/adapter-output")
-    : resolve(cwd, resolved?.buildOutput ?? getDefaultBuildOutput(framework));
-
-  // Whether buildOutput exists is now an INPUT to planDeploy, not a
-  // hard precondition — pure-Worker projects legitimately have no
-  // build output directory, and planDeploy returns an explicit error
-  // for the cases that genuinely need one.
-
-  // Resolve deploy shape via the SDK's pure planner. All branching
-  // (SPA vs SSR vs Worker, with-or-without coexisting static assets,
-  // bundled vs source worker entry) lives in deploy-plan.ts and is
-  // table-tested. Don't re-derive these conditions inline.
-  const planResult = planDeploy({
-    framework,
-    workerEntry: resolved?.workerEntry ?? null,
-    workerEntryExists: !!resolved?.workerEntry &&
-      existsSync(resolve(cwd, resolved.workerEntry)),
-    buildOutput: resolved?.buildOutput ?? "dist",
-    buildOutputExists: existsSync(outputDir),
-    astroCF: null, // sandbox path doesn't run post-build adapter detection (yet)
+  // Pre-build header so the section banner ("Build") still appears
+  // before build output streams. Then prepareDeployBundle owns the
+  // actual build + plan + collect + bundle pipeline.
+  if (!skipBuild) section("Build");
+  const prepared = await prepareDeployBundle({
+    cwd,
+    resolved: resolved ?? ({} as ResolvedConfig), // sandbox path can be called without resolved when delegating; guarded above
+    skipBuild,
   });
-  if (!planResult.ok) {
-    consola.error(planResult.reason);
-    process.exit(1);
-  }
-  const plan = planResult.plan;
-  const renderMode = plan.renderMode;
-
-  let clientAssets: Record<string, string> = {};
-  let fileList: string[] = [];
-  if (plan.assets.enabled && plan.assets.dir) {
-    let clientAssetsDir = useAdapterOutput
-      ? resolve(outputDir, "assets")
-      : resolve(cwd, plan.assets.dir);
-    if (!useAdapterOutput && isSSRFramework(framework) && framework) {
-      const subdir = getClientAssetsDir(framework);
-      if (subdir) clientAssetsDir = resolve(clientAssetsDir, subdir);
-    }
-    const collected = collectAssets(clientAssetsDir);
-    clientAssets = collected.assets;
-    fileList = collected.fileList;
-    if (plan.assets.excludeFile) {
-      delete clientAssets["/" + plan.assets.excludeFile];
-      delete clientAssets[plan.assets.excludeFile];
-      fileList = fileList.filter(
-        (p) => p !== plan.assets.excludeFile && p !== "/" + plan.assets.excludeFile,
-      );
-    }
-  }
+  const { plan, fileList, assets: clientAssets, serverFiles, effectiveRenderMode } = prepared;
 
   section("Upload");
-  consola.info(`  Mode: ${renderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
+  consola.info(`  Mode: ${effectiveRenderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
   if (plan.assets.enabled) {
     consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
-  }
-
-  let serverFiles: Record<string, string> | undefined;
-  switch (plan.worker.strategy) {
-    case "none":
-      break;
-    case "ssr-framework": {
-      // Sandbox path doesn't currently support pre-bundled SSR
-      // frameworks (Nuxt/SvelteKit/Astro CF); planDeploy only returns
-      // this strategy for SSR frameworks, which we still bundle via
-      // the legacy single-file path below to keep diff small.
-      const serverEntry = getSSRServerEntry(framework);
-      if (serverEntry) {
-        const serverEntryPath = resolve(outputDir, serverEntry);
-        if (existsSync(serverEntryPath)) {
-          consola.start("  Bundling SSR server...");
-          const bundled = await bundleSSRServer(serverEntryPath);
-          serverFiles = { "server.js": Buffer.from(bundled).toString("base64") };
-          consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
-        }
-      }
-      break;
-    }
-    case "esbuild-bundle": {
-      const workerEntryPath = resolve(cwd, plan.worker.entry!);
-      consola.start("  Bundling worker...");
-      const bundled = await bundleWorker(workerEntryPath, cwd, {
-        hasClientAssets: plan.assets.enabled,
-      });
-      serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
-      consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
-      break;
-    }
-    case "upload-asis": {
-      const workerEntryPath = resolve(cwd, plan.worker.entry!);
-      const bytes = readFileSync(workerEntryPath);
-      serverFiles = { "worker.js": bytes.toString("base64") };
-      consola.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
-      break;
-    }
   }
 
   // Deploy to sandbox
@@ -969,13 +851,13 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     const result = await sandboxDeploy({
       manifest: {
         assets: fileList,
-        hasWorker: plan.worker.strategy !== "none",
-        entrypoint: resolved?.workerEntry ?? null,
-        renderMode,
+        hasWorker: prepared.serverFiles !== undefined,
+        entrypoint: prepared.effectiveEntrypoint,
+        renderMode: effectiveRenderMode,
       },
       assets: clientAssets,
       serverFiles,
-      framework: framework ?? undefined,
+      framework: prepared.framework ?? undefined,
       source: "cli",
       ...(resolved
         ? { bindings: resolvedConfigToBindingRequirements(resolved) }
@@ -1170,44 +1052,20 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
     }
 
-    // Determine deploy mode via the SDK's pure planner. The downstream
-    // framework-specific branches (Astro CF, Next.js adapter, Nuxt, etc.)
-    // are kept as-is — planDeploy decides the SHAPE (spa / ssr / worker
-    // and whether the worker is source vs prebundled), and the legacy
-    // collection logic decides WHERE to read the bytes from for each
-    // framework. astroCF detection happens post-build below; for the
-    // initial plan we conservatively pass null and the framework SSR
-    // branch handles the adapter case.
+    // Framework is resolved upstream; everything else (SSR / worker /
+    // assets / bundling) is decided inside prepareDeployBundle via the
+    // SDK's planDeploy resolver.
     const framework = resolved.framework;
-    const isSSR = isSSRFramework(framework);
-    const initialPlan = planDeploy({
-      framework,
-      workerEntry: resolved.workerEntry ?? null,
-      workerEntryExists: !!resolved.workerEntry &&
-        existsSync(resolve(cwd, resolved.workerEntry)),
-      buildOutput: resolved.buildOutput,
-      buildOutputExists: existsSync(resolve(cwd, resolved.buildOutput)),
-      astroCF: null,
-    });
-    if (!initialPlan.ok) {
-      consola.error(initialPlan.reason);
-      process.exit(1);
-    }
-    const isWorker = initialPlan.plan.worker.strategy === "esbuild-bundle" ||
-      initialPlan.plan.worker.strategy === "upload-asis";
-    const workerIsPrebundled = initialPlan.plan.worker.strategy === "upload-asis";
-    const workerExcludeFromAssets = initialPlan.plan.assets.excludeFile;
-    const renderMode = initialPlan.plan.renderMode;
 
-    // Detect Next.js mode for special build handling
+    // Detect Next.js mode for the info banner only — actual handling is
+    // inside prepareDeployBundle.
     const pkg = existsSync(join(cwd, "package.json"))
       ? JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"))
       : {};
     const nextjsMode = framework === "nextjs" ? detectNextjsMode(pkg, cwd) : null;
     const monorepo = framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
-
-    if (nextjsMode) {
-      if (!jsonMode) consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
+    if (nextjsMode && !jsonMode) {
+      consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
     }
 
     // --- ⚡ Turbo deploy: check if server has a cached build for this commit ---
@@ -1219,226 +1077,31 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       return; // ⚡ done — server deployed from cache
     }
 
-    // Build (skip for pure Workers with no build command)
-    if (!skipBuild && resolved.buildCommand) {
-      section("Build");
+    // Single source of truth for build → plan → collect → bundle. Both
+    // sandbox and authenticated paths call the same function; they
+    // diverge only in where the bundle gets POSTed.
+    if (!skipBuild && resolved.buildCommand) section("Build");
+    const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild });
+    const {
+      plan,
+      framework: detectedFramework,
+      effectiveRenderMode,
+      effectiveEntrypoint,
+      fileList,
+      assets: clientAssets,
+      serverFiles,
+    } = prepared;
+    void detectedFramework; // framework var above is the source of truth here
 
-      if (nextjsMode === "opennext") {
-        try {
-          buildNextjs(cwd, monorepo.isMonorepo);
-        } catch {
-          consola.error("Next.js build failed");
-          process.exit(1);
-        }
-        consola.success("  Build complete");
-      } else {
-        const buildCmd = resolved.buildCommand;
-        if (buildCmd.length > 500) {
-          consola.error("Invalid build command (too long)");
-          process.exit(1);
-        }
-        consola.start(`  ${buildCmd}`);
-        try {
-          execSync(buildCmd, { cwd, stdio: "inherit" });
-        } catch {
-          consola.error("Build failed");
-          process.exit(1);
-        }
-        consola.success("  Build complete");
-      }
-    }
-
-    // Post-build detection: Astro + @astrojs/cloudflare produces a
-    // pre-bundled Worker (dist/server/entry.mjs) + split client assets
-    // (dist/client/). We can only detect this after build — before
-    // build `framework === "astro"` could mean SSG or CF-adapter-SSR.
-    const astroCF =
-      framework === "astro" ? detectAstroCloudflareBuild(cwd) : null;
-
-    // Collect client assets
-    // Worker + SPA hybrid: if a Worker project has buildOutput with built files, collect them too
-    let clientAssets: Record<string, string> = {};
-    let fileList: string[] = [];
-    const workerHasClientAssets = isWorker && resolved.buildOutput && resolved.buildOutput !== "." &&
-      existsSync(resolve(cwd, resolved.buildOutput));
-
-    if (!isWorker || workerHasClientAssets) {
-      let clientAssetsDir: string;
-
-      // Adapter output takes precedence for Next.js
-      if (framework === "nextjs" && hasAdapterOutput(cwd)) {
-        clientAssetsDir = resolve(cwd, ".creek/adapter-output/assets");
-      } else if (astroCF) {
-        // Astro CF adapter splits its output: client assets live in
-        // dist/client/ (not dist/), so redirect the collector there.
-        clientAssetsDir = resolve(cwd, astroCF.assetsDir);
-      } else {
-        const outputDir = resolve(cwd, resolved.buildOutput);
-        if (!existsSync(outputDir)) {
-          consola.error(`Build output directory not found: ${resolved.buildOutput}`);
-          process.exit(1);
-        }
-        clientAssetsDir = outputDir;
-        if (isSSR && framework) {
-          const clientSubdir = getClientAssetsDir(framework);
-          if (clientSubdir) {
-            clientAssetsDir = resolve(outputDir, clientSubdir);
-          }
-        }
-      }
-
-      section("Upload");
-      ({ assets: clientAssets, fileList } = collectAssets(clientAssetsDir));
-      consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
-    }
-
-    // Bundle server/worker files
-    let serverFiles: Record<string, string> | undefined;
-
-    if (astroCF) {
-      // Astro CF adapter: upload dist/server/ as worker modules
-      // (same shape Nuxt/SolidStart use — pre-bundled, do not re-bundle).
-      const serverDir = resolve(cwd, astroCF.serverDir);
-      if (existsSync(serverDir)) {
-        consola.start("  Collecting Astro CF server files...");
-        const collected = collectServerFiles(serverDir);
-        const fileCount = Object.keys(collected).length;
-        serverFiles = Object.fromEntries(
-          Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
-        );
-        consola.success(`  Astro CF worker: ${fileCount} files`);
-      }
-    } else if (isSSR && framework) {
-      if (framework === "nextjs" && hasAdapterOutput(cwd)) {
-        // Adapter path: read pre-bundled output from .creek/adapter-output/
-        const adapterServerDir = resolve(cwd, ".creek/adapter-output/server");
-        consola.start("  Collecting adapter output...");
-
-        const collected: Record<string, Buffer> = {};
-        if (existsSync(adapterServerDir)) {
-          for (const f of readdirSync(adapterServerDir)) {
-            const fp = join(adapterServerDir, f);
-            if (!statSync(fp).isFile()) continue;
-            if (f.endsWith(".map")) continue;
-            let content = readFileSync(fp);
-            // Patch bare Node.js module imports → node: prefix (workerd requires it)
-            // Note: nodejs_compat_v2 handles most modules, but bare specifiers
-            // (without node: prefix) still need patching.
-            if (f.endsWith(".js") || f.endsWith(".mjs")) {
-              content = Buffer.from(patchBareNodeImports(content.toString("utf-8")));
-            }
-            collected[f] = content;
-          }
-        }
-
-        const fileCount = Object.keys(collected).length;
-        serverFiles = Object.fromEntries(
-          Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
-        );
-        consola.success(`  Worker bundled: ${fileCount} files (${Math.round(Object.values(collected).reduce((s, b) => s + b.length, 0) / 1024)}KB)`);
-      } else if (framework === "nextjs") {
-        // Legacy path: use wrangler to produce a single bundled worker
-        const bundleDir = resolve(cwd, ".creek/bundled");
-        consola.start("  Bundling Next.js worker (legacy)...");
-        execSync(`npx wrangler deploy --dry-run --outdir "${bundleDir}"`, { cwd, stdio: "pipe" });
-
-        patchBundledWorker(bundleDir, resolve(cwd, ".open-next"));
-
-        const collected: Record<string, Buffer> = {};
-        if (existsSync(bundleDir)) {
-          for (const f of readdirSync(bundleDir)) {
-            const fp = join(bundleDir, f);
-            if (!statSync(fp).isFile()) continue;
-            if (f.endsWith(".map") || f === "README.md") continue;
-            collected[f] = readFileSync(fp);
-          }
-        }
-
-        const fileCount = Object.keys(collected).length;
-        serverFiles = Object.fromEntries(
-          Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
-        );
-        consola.success(`  Worker bundled: ${fileCount} files (${Math.round(Object.values(collected).reduce((s, b) => s + b.length, 0) / 1024)}KB)`);
-      } else if (isPreBundledFramework(framework)) {
-        // Other pre-bundled SSR frameworks (Nuxt, SvelteKit, etc.)
-        const serverDirRel = getSSRServerDir(framework);
-        if (serverDirRel) {
-          const serverDir = resolve(cwd, serverDirRel);
-          if (existsSync(serverDir)) {
-            consola.start("  Collecting SSR server files...");
-            const collected = collectServerFiles(serverDir);
-            const fileCount = Object.keys(collected).length;
-            serverFiles = Object.fromEntries(
-              Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
-            );
-            consola.success(`  SSR server: ${fileCount} files`);
-          }
-        }
-      } else {
-        // Non-pre-bundled SSR: esbuild single-file bundle (fallback)
-        const outputDir = resolve(cwd, resolved.buildOutput);
-        const serverEntry = getSSRServerEntry(framework);
-        if (serverEntry) {
-          const serverEntryPath = resolve(outputDir, serverEntry);
-          if (existsSync(serverEntryPath)) {
-            consola.start("  Bundling SSR server...");
-            const bundled = await bundleSSRServer(serverEntryPath);
-            serverFiles = {
-              "server.js": Buffer.from(bundled).toString("base64"),
-            };
-            consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
-          }
-        }
-      }
-    } else if (isWorker && resolved.workerEntry) {
-      const workerEntryPath = resolve(cwd, resolved.workerEntry);
-      if (!existsSync(workerEntryPath)) {
-        consola.error(`Worker entry not found: ${resolved.workerEntry}`);
-        process.exit(1);
-      }
-      section("Bundle");
-      if (workerIsPrebundled) {
-        // User's build script already produced a fully self-contained
-        // bundle inside buildOutput; ship the bytes verbatim. No wrapper,
-        // no Creek runtime injection — keeps the deployed Worker free of
-        // any @solcreek/* dependency.
-        const bytes = readFileSync(workerEntryPath);
-        serverFiles = { "worker.js": bytes.toString("base64") };
-        consola.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
-      } else {
-        consola.start("  Bundling worker...");
-        const bundled = await bundleWorker(workerEntryPath, cwd, {
-          hasClientAssets: !!workerHasClientAssets,
-        });
-        serverFiles = {
-          "worker.js": Buffer.from(bundled).toString("base64"),
-        };
-        consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
-      }
-    }
-
-    // When the worker bundle lives INSIDE the static asset dir
-    // (e.g. dist/_worker.mjs), drop it from clientAssets so it isn't
-    // double-uploaded as a publicly accessible file.
-    if (workerExcludeFromAssets) {
-      delete clientAssets[workerExcludeFromAssets];
-      delete clientAssets["/" + workerExcludeFromAssets];
-      fileList = fileList.filter(
-        (p) => p !== workerExcludeFromAssets && p !== "/" + workerExcludeFromAssets,
-      );
-    }
+    section("Upload");
+    consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
 
     section("Deploy");
     consola.start("  Creating deployment...");
     const { deployment } = await client.createDeployment(project.id);
 
     consola.start("  Uploading bundle...");
-    // If the Astro CF adapter fired post-build, the project is actually
-    // SSR (not SPA): overwrite the pre-build-computed renderMode and
-    // point the entrypoint at the adapter-emitted entry.mjs.
-    const effectiveRenderMode = astroCF ? "ssr" : renderMode;
-    const effectiveHasWorker = astroCF ? true : (isSSR || isWorker);
-    const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
+    const effectiveHasWorker = serverFiles !== undefined;
     const bundle = {
       manifest: {
         assets: fileList,
