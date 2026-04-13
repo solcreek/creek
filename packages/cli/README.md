@@ -67,6 +67,9 @@ creek deploy https://github.com/user/repo/tree/main/packages/app
 | `creek deploy --dry-run` | Show the deploy plan without executing (agent-safe) |
 | `creek projects` | List your projects |
 | `creek deployments` | List deployments for a project |
+| `creek logs` | Read recent log entries (R2 archive) |
+| `creek logs --follow` | Live tail via WebSocket until Ctrl+C |
+| `creek logs --outcome exception` | Filter by tail outcome (or `--deployment`, `--branch`, `--level`, `--search`) |
 | `creek status` | Show current project status |
 | `creek login` | Authenticate with Creek |
 | `creek login --token <key>` | Authenticate in CI/CD (non-interactive) |
