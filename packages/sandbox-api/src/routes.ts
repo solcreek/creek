@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "./types.js";
 import { deployWithAssets, shortDeployId } from "@solcreek/deploy-core";
+import { provisionSandboxResources } from "./provision.js";
 import { scanBundle } from "./scan.js";
 import { verifyAgentToken } from "./agent-challenge.js";
 
@@ -75,6 +76,21 @@ routes.post("/deploy", async (c) => {
     framework?: string;
     templateId?: string;
     source?: string;
+    cacheTeamId?: string;
+    compatibilityDate?: string;
+    compatibilityFlags?: string[];
+    hint?: {
+      adminPath?: string;
+      adminLabel?: string;
+      warnings?: string[];
+    };
+    /**
+     * Binding requirements declared by the user's wrangler.jsonc /
+     * creek.toml. Sandbox-api provisions an ephemeral D1/R2/KV for
+     * each matching entry so CMS-class templates (EmDash, etc.) can
+     * actually boot their `env.DB` / `env.MEDIA` bindings.
+     */
+    bindings?: Array<{ type: string; bindingName: string }>;
   };
   try {
     body = await c.req.json();
@@ -427,6 +443,12 @@ async function runSandboxDeploy(
     // still FULLY ISOLATED (own script name, own URL, own data) — only
     // the underlying asset storage is shared.
     cacheTeamId?: string;
+    // Bundle-declared compat — required when the user's code uses newer
+    // Node APIs (e.g. Astro+@astrojs/cloudflare pulls in node:fs paths
+    // that CF only resolves on newer compat dates).
+    compatibilityDate?: string;
+    compatibilityFlags?: string[];
+    bindings?: Array<{ type: string; bindingName: string }>;
   },
 ) {
   try {
@@ -458,6 +480,26 @@ async function runSandboxDeploy(
     // fallback only triggers for paths that don't match any asset.
     const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : "spa" as const;
 
+    // Provision ephemeral CF resources for this sandbox — one D1/R2/KV
+    // per binding declared in the bundle. Without this step, CMS-class
+    // templates (EmDash, Payload, etc.) hit 1101 errors on every
+    // request because `env.DB` is undefined. Provisioned resources are
+    // recorded in `deployments.provisionedResources` so cleanup.ts
+    // can delete them when the sandbox expires.
+    const { bindings: deployBindings, provisioned } = await provisionSandboxResources(
+      env,
+      sandboxId,
+      bundle.bindings ?? [],
+    );
+
+    if (Object.keys(provisioned).length > 0) {
+      await env.DB.prepare(
+        "UPDATE deployments SET provisionedResources = ? WHERE id = ?",
+      )
+        .bind(JSON.stringify(provisioned), sandboxId)
+        .run();
+    }
+
     // Deploy to WfP sandbox namespace — single script (no branch/production variants)
     // When cacheTeamId is set (cache-hit deploy from remote-builder), use
     // it as the hash salt so CF's global asset dedup recognises identical
@@ -476,7 +518,9 @@ async function runSandboxDeploy(
         teamSlug: "sandbox",
         projectSlug: sandboxId,
         plan: "sandbox",
-        bindings: [], // no per-tenant resources
+        bindings: deployBindings,
+        compatibilityDate: bundle.compatibilityDate,
+        compatibilityFlags: bundle.compatibilityFlags,
       },
     );
 

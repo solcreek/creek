@@ -129,6 +129,22 @@ export async function handleWebBuild(
       // → asset upload step is instant. Each sandbox still gets its OWN
       // script name / URL / data — only asset storage is shared.
       cacheTeamId: cacheTeamId(),
+      // Bundle-declared compat — propagated to sandbox-api so the
+      // deployed Worker gets the same compat envelope the user asked
+      // for. Astro+@astrojs/cloudflare needs `nodejs_compat` + a
+      // recent date to resolve `node:fs` imports; hardcoding our
+      // default dropped that on the floor, producing 10021 errors.
+      compatibilityDate: buildResult.bundle.compatibilityDate,
+      compatibilityFlags: buildResult.bundle.compatibilityFlags,
+      // Post-deploy UI hint (admin path, setup warnings) derived
+      // from framework detection. Propagated verbatim to sandbox-api
+      // and surfaced on the deploy-success page.
+      hint: buildResult.bundle.hint,
+      // Binding requirements from the user's wrangler.jsonc /
+      // creek.toml. Sandbox-api uses these to provision ephemeral
+      // D1/R2/KV so CMS-class templates (EmDash etc.) can actually
+      // resolve their env.DB / env.MEDIA bindings at runtime.
+      bindings: buildResult.bundle.bindings,
     });
   }
 
@@ -137,6 +153,16 @@ export async function handleWebBuild(
     // Deterministic per repo+commit — all sandboxes of the same content
     // produce identical asset hashes and benefit from CF's global dedup.
     return `cache-${message.repoUrl.replace(/[^a-zA-Z0-9]/g, "").slice(-20)}-${message.commitSha}`;
+  }
+
+  // Extract the deploy hint from the bundle so we can surface it in
+  // status updates the UI polls. Works for both fresh builds (just
+  // written) and cache hits (re-read from cached bundleJson).
+  let deployHint: unknown;
+  try {
+    deployHint = JSON.parse(bundleJson).hint;
+  } catch {
+    // bundleJson parse errors are handled elsewhere
   }
 
   // ------------------------------------------------------------------
@@ -185,6 +211,7 @@ export async function handleWebBuild(
     previewUrl: sandbox.previewUrl,
     expiresAt: sandbox.expiresAt,
     sandboxStatusUrl: sandbox.statusUrl,
+    ...(deployHint ? { hint: deployHint } : {}),
   });
 
   // If sandbox is already active (immediate deploy), write cache + done
@@ -216,6 +243,7 @@ export async function handleWebBuild(
         sandboxId: sandbox.sandboxId,
         previewUrl: sandbox.previewUrl,
         expiresAt: sandbox.expiresAt,
+        ...(deployHint ? { hint: deployHint } : {}),
       });
       await writeBundleCache(env, cacheKey, cacheHit, bundleJson, sandbox.expiresAt);
     } else if (finalStatus.status === "failed") {

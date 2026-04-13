@@ -1,5 +1,11 @@
 import type { Env } from "./types.js";
-import { cfApi } from "@solcreek/deploy-core";
+import {
+  cfApi,
+  deleteD1Database,
+  deleteR2Bucket,
+  deleteKVNamespace,
+} from "@solcreek/deploy-core";
+import type { ProvisionedResources } from "./provision.js";
 
 /**
  * Clean up expired sandboxes:
@@ -12,12 +18,12 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
 
   // Find expired active sandboxes (batch of 20)
   const expired = await env.DB.prepare(
-    `SELECT id, previewHost FROM deployments
+    `SELECT id, previewHost, provisionedResources FROM deployments
      WHERE status = 'active' AND expiresAt < ? AND cleanedUpAt IS NULL
      LIMIT 20`,
   )
     .bind(now)
-    .all<{ id: string; previewHost: string }>();
+    .all<{ id: string; previewHost: string; provisionedResources: string | null }>();
 
   let cleaned = 0;
 
@@ -47,6 +53,40 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
         );
       } catch {
         // Ignore
+      }
+
+      // Delete any CF resources we provisioned for this sandbox
+      // (D1 databases, R2 buckets, KV namespaces). Each delete is
+      // wrapped so one failure doesn't leak the others — worst case
+      // we orphan a resource that the periodic `sbox-*` sweep picks
+      // up later, instead of leaking everything.
+      if (sandbox.provisionedResources) {
+        try {
+          const resources = JSON.parse(sandbox.provisionedResources) as ProvisionedResources;
+          for (const d1 of resources.d1 ?? []) {
+            try {
+              await deleteD1Database(env, d1.id);
+            } catch {
+              // orphaned — will need manual cleanup
+            }
+          }
+          for (const r2 of resources.r2 ?? []) {
+            try {
+              await deleteR2Bucket(env, r2.name);
+            } catch {
+              // orphaned
+            }
+          }
+          for (const kv of resources.kv ?? []) {
+            try {
+              await deleteKVNamespace(env, kv.id);
+            } catch {
+              // orphaned
+            }
+          }
+        } catch {
+          // Malformed JSON — skip
+        }
       }
 
       // Mark as cleaned up
