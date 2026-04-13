@@ -19,6 +19,7 @@
 import { parseScriptName, type TeamInfo } from "./parse.js";
 import { writeBatchToR2 } from "./r2-writer.js";
 import { writeBatchToAnalytics } from "./analytics.js";
+import { pushBatchToRealtime } from "./realtime.js";
 import type { LogEntry, TailEvent } from "./types.js";
 
 interface Env {
@@ -26,6 +27,9 @@ interface Env {
   LOGS_BUCKET: R2Bucket;
   ANALYTICS: AnalyticsEngineDataset;
   CREEK_DOMAIN: string;
+  /** Optional realtime push (for `creek logs --follow`). Skipped when unset. */
+  REALTIME_URL?: string;
+  REALTIME_MASTER_KEY?: string;
 }
 
 // --- Team cache ---
@@ -85,11 +89,17 @@ export default {
 
     if (entries.length === 0) return;
 
-    // AE writes are sync and don't need awaiting (writeDataPoint is
-    // fire-and-forget); R2 writes are async. Analytics first means
-    // metrics are recorded even if R2 fails — useful for tracking
-    // ingestion errors via the metrics themselves later.
+    // Three destinations:
+    //   1. AE — sync, fire-and-forget; metrics survive R2 failures.
+    //   2. R2 — durable history; awaited because it's the source of
+    //      truth for `creek logs --since`.
+    //   3. Realtime DO — best-effort push for `creek logs --follow`.
+    //      Failures don't fail the tail handler; subscribers are
+    //      expected to resync from R2 if they need a complete trace.
     writeBatchToAnalytics(env, entries);
-    await writeBatchToR2(env, entries);
+    await Promise.allSettled([
+      writeBatchToR2(env, entries),
+      pushBatchToRealtime(env, entries),
+    ]);
   },
 };
