@@ -90,8 +90,24 @@ const VALID_WORKER_EXTENSIONS = new Set([
   ".html",                 // Text modules
 ]);
 
+// Config-style files that adapters may drop into the server output
+// directory but that are NOT runtime modules. Uploading them as Worker
+// modules makes CF's module uploader reject the whole deploy with
+// code 10162 ("unsupported Content-Type application/json").
+//
+// Example: @astrojs/cloudflare writes dist/server/wrangler.json with
+// the adapter-resolved bindings for downstream `wrangler deploy`; it
+// is never imported by entry.mjs.
+const SKIP_FILENAMES = new Set([
+  "wrangler.json",
+  "wrangler.jsonc",
+  "wrangler.toml",
+  ".wrangler",
+]);
+
 function shouldSkipFile(name: string): boolean {
   if (name.endsWith(".map")) return true;
+  if (SKIP_FILENAMES.has(name)) return true;
 
   // Skip files without a valid worker module extension
   // (e.g., BUILD_ID, LICENSE, .meta files, binary files)

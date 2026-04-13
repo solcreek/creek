@@ -167,6 +167,20 @@ describe("collectServerFiles", () => {
     expect(Object.keys(files)).toEqual(["index.mjs"]);
   });
 
+  test("skips adapter-emitted wrangler config files", () => {
+    // @astrojs/cloudflare drops a wrangler.json next to entry.mjs that
+    // documents the adapter-resolved bindings. It is a config artifact,
+    // not a runtime module — uploading it as a worker module makes CF
+    // reject the whole deploy with "unsupported Content-Type" errors.
+    writeFileSync(join(tmpDir, "entry.mjs"), "worker");
+    writeFileSync(join(tmpDir, "wrangler.json"), '{"name":"x"}');
+    writeFileSync(join(tmpDir, "wrangler.jsonc"), "{}");
+    writeFileSync(join(tmpDir, "wrangler.toml"), "name = 'x'");
+
+    const files = collectServerFiles(tmpDir);
+    expect(Object.keys(files).sort()).toEqual(["entry.mjs"]);
+  });
+
   test("respects maxFiles limit", () => {
     for (let i = 0; i < 10; i++) {
       writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
