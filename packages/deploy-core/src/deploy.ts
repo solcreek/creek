@@ -46,13 +46,19 @@ export async function deployScriptWithAssets(
   bindings: WfPBinding[],
   assetsConfig?: Record<string, unknown>,
   cronSchedules?: string[],
+  compatibilityDate?: string,
+  compatibilityFlags?: string[],
 ): Promise<void> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
 
   const metadata: Record<string, unknown> = {
     main_module: mainModule,
-    compatibility_date: "2025-03-14",
-    compatibility_flags: ["nodejs_compat"],
+    // Prefer the bundle's declared compat date/flags — user bundles
+    // can require newer Node API support (e.g. `@astrojs/cloudflare`
+    // pulls in `node:fs` paths that only resolve on newer dates).
+    // Fall back to a conservative Creek default when unset.
+    compatibility_date: compatibilityDate ?? "2025-03-14",
+    compatibility_flags: compatibilityFlags ?? ["nodejs_compat"],
     tags,
     bindings,
     assets: {
@@ -140,8 +146,17 @@ export async function deployWithAssets(
       ([name, content]) =>
         new File([content], name, { type: workerFileType(name) }),
     );
+    // Prefer the framework's canonical entrypoint name. `entry.mjs` is
+    // emitted by `@astrojs/cloudflare`; the others cover our older
+    // SSR paths (Nuxt/SolidStart nitro, custom workers). Fallback to
+    // the first file only if none match.
     mainModule = Object.keys(input.serverFiles).find(
-      (n) => n === "worker.js" || n === "server.js" || n === "index.js" || n === "index.mjs",
+      (n) =>
+        n === "worker.js" ||
+        n === "server.js" ||
+        n === "index.js" ||
+        n === "index.mjs" ||
+        n === "entry.mjs",
     ) ?? Object.keys(input.serverFiles)[0];
   } else {
     const indexHtml = input.clientAssets["/index.html"] ?? input.clientAssets["index.html"];
@@ -216,6 +231,8 @@ export async function deployWithAssets(
       input.bindings,
       assetsConfig,
       isProduction ? cronSchedules : undefined,
+      input.compatibilityDate,
+      input.compatibilityFlags,
     );
   }
 }
