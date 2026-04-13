@@ -8,7 +8,7 @@
  *   4. POST /agent-verify/:id/submit { digest } → { token, expiresAt }
  *
  * The token is an HMAC-signed JWT-like string bound to the caller's IP hash.
- * It grants elevated rate limits (60/hr vs 10/hr for humans, 3/hr unverified).
+ * It grants elevated rate limits (60/hr vs 10/hr for humans, 15/hr unverified).
  */
 
 import { Hono } from "hono";

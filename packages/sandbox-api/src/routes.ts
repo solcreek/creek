@@ -14,7 +14,7 @@ const routes = new Hono<SandboxEnv>();
 // ---------------------------------------------------------------------------
 // Tier 1: Verified agent (passed agent challenge) → 60/hr
 // Tier 2: Human CLI (TTY detected, source = "cli") → 10/hr
-// Tier 3: Unverified (no token, no TTY signal)     →  5/hr
+// Tier 3: Unverified (no token, no TTY signal)     → 15/hr
 // Demo deploys (source = "cli-demo") are exempt from rate limits.
 // ---------------------------------------------------------------------------
 
@@ -23,7 +23,7 @@ type RateTier = "verified_agent" | "human_cli" | "unverified";
 const RATE_LIMITS: Record<RateTier, number> = {
   verified_agent: 60,
   human_cli: 10,
-  unverified: 5,
+  unverified: 15,
 };
 
 async function resolveRateTier(
