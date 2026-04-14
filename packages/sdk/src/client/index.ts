@@ -236,6 +236,46 @@ export class CreekClient {
     return this.request("GET", `/projects/${projectSlug}/logs/ws-token`);
   }
 
+  // --- Build Logs ---
+
+  /**
+   * Upload a build log for a deployment. Body is ndjson — one JSON
+   * object per line: {ts, step, stream, level, msg, code?}.
+   * Server scrubs secrets + gzips before writing R2.
+   */
+  async uploadBuildLog(
+    deploymentId: string,
+    ndjsonBody: string,
+    opts: {
+      status: "success" | "failed" | "running";
+      errorCode?: string | null;
+      errorStep?: string | null;
+      startedAt?: number;
+    },
+  ): Promise<{ ok: boolean; bytes: number; lines: number; truncated: boolean }> {
+    const qs = new URLSearchParams({ status: opts.status });
+    if (opts.errorCode) qs.set("errorCode", opts.errorCode);
+    if (opts.errorStep) qs.set("errorStep", opts.errorStep);
+    if (opts.startedAt !== undefined) qs.set("startedAt", String(opts.startedAt));
+
+    const res = await fetch(`${this.baseUrl}/builds/${deploymentId}/logs?${qs.toString()}`, {
+      method: "POST",
+      headers: {
+        "x-api-key": this.token,
+        "Content-Type": "application/x-ndjson",
+      },
+      body: ndjsonBody,
+    });
+    if (!res.ok) {
+      throw new CreekApiError(
+        res.status,
+        "build_log_upload_failed",
+        `Build log upload failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    return res.json() as Promise<{ ok: boolean; bytes: number; lines: number; truncated: boolean }>;
+  }
+
   // --- Custom Domains ---
 
   async listDomains(
