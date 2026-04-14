@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -133,6 +133,19 @@ function LogsTab() {
           {live ? "● Live" : "Live tail"}
         </Button>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Logs capture worker invocations only — requests served from CF edge
+        cache don't appear here.{" "}
+        <Link
+          to="/projects/$projectId/analytics"
+          params={{ projectId }}
+          className="underline hover:text-foreground"
+        >
+          See Analytics
+        </Link>{" "}
+        for total traffic including cache hits.
+      </p>
 
       {live && (
         <LiveTail

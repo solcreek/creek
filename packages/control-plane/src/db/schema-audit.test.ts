@@ -170,6 +170,8 @@ describe("schema audit", () => {
     "_cf_KV",
     // d1-schema package internal table
     "_d1schema_meta",
+    // Analytics Engine dataset (not D1) — tail-worker writes, metrics reads
+    "creek_tenant_requests",
   ]);
 
   // Walk all package source dirs

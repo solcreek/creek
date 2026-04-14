@@ -595,11 +595,19 @@ deployments.get("/:projectId/analytics", async (c) => {
   const scriptName = `${project.slug}-${teamSlug}`;
 
   // Period → hours + grouping
-  const periodHours = period === "30d" ? 720 : period === "7d" ? 168 : 24;
+  const periodHours =
+    period === "30d" ? 720
+    : period === "7d" ? 168
+    : period === "6h" ? 6
+    : period === "1h" ? 1
+    : 24;
   const since = new Date(Date.now() - periodHours * 60 * 60 * 1000).toISOString();
 
-  // Use datetimeHour for 7d/30d, datetimeFiveMinutes for 24h
-  const timeDimension = periodHours <= 24 ? "datetimeFifteenMinutes" : "datetimeHour";
+  // Bucket width: ≤1h → 5 min, ≤24h → 15 min, else 1 hour
+  const timeDimension =
+    periodHours <= 1 ? "datetimeFiveMinutes"
+    : periodHours <= 24 ? "datetimeFifteenMinutes"
+    : "datetimeHour";
 
   const query = `
     query {
