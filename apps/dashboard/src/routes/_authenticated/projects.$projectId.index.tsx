@@ -9,7 +9,8 @@ import {
   DropdownMenuTrigger,
 } from "@solcreek/ui/components/dropdown-menu";
 import { Button } from "@solcreek/ui/components/button";
-import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink } from "lucide-react";
+import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink, ScrollText } from "lucide-react";
+import { BuildLogPanel } from "./-components/BuildLogPanel";
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/",
@@ -49,6 +50,14 @@ const IN_FLIGHT_STATUSES = new Set(["queued", "uploading", "provisioning", "depl
 function DeploymentsTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
+  const [openLogs, setOpenLogs] = useState<Set<string>>(new Set());
+  const toggleLog = (id: string) =>
+    setOpenLogs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // After clicking "Deploy latest" we have to poll for a brief window even
   // when the list looks idle — handlePush runs in waitUntil, so the new
@@ -250,6 +259,14 @@ function DeploymentsTab() {
                 </a>
               )}
               <span className="text-xs text-muted-foreground">{d.id.slice(0, 8)}</span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => toggleLog(d.id)}
+                title={openLogs.has(d.id) ? "Hide build log" : "Show build log"}
+              >
+                <ScrollText className="size-4" />
+              </Button>
               {canPromote && (
                 <DropdownMenu>
                   <DropdownMenuTrigger render={
@@ -290,6 +307,10 @@ function DeploymentsTab() {
                   </pre>
                 )}
               </div>
+            )}
+
+            {(openLogs.has(d.id) || d.status === "failed") && (
+              <BuildLogPanel projectId={projectId} deploymentId={d.id} />
             )}
           </div>
         );
