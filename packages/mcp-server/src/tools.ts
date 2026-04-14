@@ -153,6 +153,114 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       return { content: [{ type: "text" as const, text: `Sandbox ${sandboxId} deleted.` }] };
     },
   );
+
+  // ================================================================
+  // Tier 2: Authenticated (Creek account) — agent passes a Creek API key
+  // ================================================================
+
+  server.tool(
+    "get_build_log",
+    "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Requires a Creek API key (obtain via `creek login`).",
+    {
+      apiKey: z
+        .string()
+        .describe(
+          "Creek API key. Users should run `creek login` then copy the stored token; CLI-first agents can read ~/.creek/config.json.",
+        ),
+      projectSlug: z.string().describe("Project slug (shown by `creek projects` or `creek status`)"),
+      deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+    },
+    async ({ apiKey, projectSlug, deploymentId }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      // Resolve short id → full id if needed. GET /logs requires full uuid.
+      let fullId = deploymentId;
+      if (fullId.length < 36) {
+        const listRes = await fetch(`${base}/projects/${projectSlug}/deployments`, {
+          headers: { "x-api-key": apiKey },
+        });
+        if (!listRes.ok) {
+          const err = await listRes.json().catch(() => ({ message: listRes.statusText })) as { message?: string };
+          return {
+            content: [{ type: "text" as const, text: `Lookup failed: ${err.message ?? listRes.statusText}` }],
+            isError: true,
+          };
+        }
+        const list = (await listRes.json()) as Array<{ id: string }>;
+        const match = list.find((d) => d.id.startsWith(fullId));
+        if (!match) {
+          return {
+            content: [{ type: "text" as const, text: `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.` }],
+            isError: true,
+          };
+        }
+        fullId = match.id;
+      }
+
+      const res = await fetch(
+        `${base}/projects/${projectSlug}/deployments/${fullId}/logs`,
+        { headers: { "x-api-key": apiKey } },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText })) as { message?: string; error?: string };
+        return {
+          content: [{ type: "text" as const, text: `Read failed (${res.status}): ${err.message ?? res.statusText}` }],
+          isError: true,
+        };
+      }
+
+      const log = (await res.json()) as {
+        entries: Array<{ ts: number; step: string; stream: string; level: string; msg: string; code?: string }>;
+        metadata: null | {
+          deploymentId: string;
+          status: "running" | "success" | "failed";
+          startedAt: number;
+          endedAt: number | null;
+          bytes: number;
+          lines: number;
+          truncated: boolean;
+          errorCode: string | null;
+          errorStep: string | null;
+          r2Key: string;
+        };
+        message?: string;
+      };
+
+      // Summarise for agent consumption. We put the actionable bits up
+      // top (status, failing step, error code, last errors) so even a
+      // truncated response is useful, and include the full grouped log
+      // below so the agent can dig deeper without a second round-trip.
+      const summary =
+        log.metadata === null
+          ? { status: "unknown", message: log.message ?? "No log available" }
+          : {
+              status: log.metadata.status,
+              errorCode: log.metadata.errorCode,
+              errorStep: log.metadata.errorStep,
+              lines: log.metadata.lines,
+              truncated: log.metadata.truncated,
+            };
+
+      // Show only error / fatal lines + the failing-step lines in the
+      // short view — the full log is attached below for follow-up.
+      const failing = log.metadata?.errorStep ?? null;
+      const importantLines = log.entries.filter(
+        (e) =>
+          e.level === "error" ||
+          e.level === "fatal" ||
+          (failing !== null && e.step === failing),
+      );
+
+      const payload = {
+        summary,
+        importantLines,
+        fullLog: log.entries,
+      };
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+      };
+    },
+  );
 }
 
 // ================================================================
