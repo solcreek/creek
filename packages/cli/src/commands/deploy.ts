@@ -35,6 +35,7 @@ import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess } from "../utils/sandbox.js";
 import { prepareDeployBundle } from "../utils/prepare-bundle.js";
+import { BuildLogEmitter } from "../utils/build-log.js";
 import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput } from "../utils/nextjs.js";
@@ -1100,6 +1101,21 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     consola.start("  Creating deployment...");
     const { deployment } = await client.createDeployment(project.id);
 
+    // Collect a minimal structured build log for the dashboard. We emit
+    // one line per high-level phase — verbose stdout capture is a
+    // Phase 2 concern. The log is POSTed once we reach a terminal
+    // status (success / failed), so the dashboard panel shows something
+    // useful for every authenticated deploy.
+    const buildLog = new BuildLogEmitter();
+    buildLog.info(
+      "detect",
+      `framework=${framework ?? "none"} renderMode=${effectiveRenderMode} entrypoint=${effectiveEntrypoint ?? "none"}`,
+    );
+    if (resolved.buildCommand) {
+      buildLog.info("build", `ran: ${resolved.buildCommand}`);
+    }
+    buildLog.info("bundle", `${fileList.length} assets (${assetSummary(fileList)})`);
+
     consola.start("  Uploading bundle...");
     const effectiveHasWorker = serverFiles !== undefined;
     const bundle = {
@@ -1148,6 +1164,8 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     let lastStatus = "";
     const start = Date.now();
 
+    buildLog.info("upload", `bundle uploaded (${fileList.length} files)`);
+
     while (Date.now() - start < POLL_TIMEOUT) {
       const res = await client.getDeploymentStatus(project.id, deployment.id);
       const { status, failed_step, error_message } = res.deployment;
@@ -1159,10 +1177,27 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         if (!TERMINAL.has(status) && STEP_LABELS[status]) {
           consola.start(STEP_LABELS[status]);
         }
+        // Map server-side phase transitions into build-log steps so
+        // the dashboard timeline shows what happened after upload.
+        if (status === "provisioning") buildLog.info("provision", "provisioning resources");
+        if (status === "deploying") buildLog.info("activate", "activating at edge");
         lastStatus = status;
       }
 
       if (status === "active") {
+        buildLog.info("activate", `deployed: ${res.url ?? res.previewUrl}`);
+        // Fire-and-forget the build log upload — don't block the user
+        // on it or make a slow/failing log API take down a successful
+        // deploy.
+        void client
+          .uploadBuildLog(deployment.id, buildLog.toNdjson(), {
+            status: "success",
+            startedAt: buildLog.startedAt,
+          })
+          .catch(() => {
+            // Silent — build log is best-effort for now.
+          });
+
         if (jsonMode) {
           jsonOutput({
             ok: true,
@@ -1199,6 +1234,19 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (status === "failed") {
         const step = failed_step ? ` at ${failed_step}` : "";
         const msg = error_message ?? "Unknown error";
+        buildLog.error(
+          (failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate",
+          msg,
+        );
+        void client
+          .uploadBuildLog(deployment.id, buildLog.toNdjson(), {
+            status: "failed",
+            startedAt: buildLog.startedAt,
+            errorStep: failed_step ?? null,
+          })
+          .catch(() => {
+            // Silent — build log is best-effort for now.
+          });
         if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", message: msg, failedStep: failed_step }, 1, [
           { command: `creek deployments --project ${project.slug}`, description: "Check previous deployments" },
           { command: `creek rollback --project ${project.slug}`, description: "Rollback to previous version" },
