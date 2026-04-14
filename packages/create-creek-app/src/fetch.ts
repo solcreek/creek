@@ -2,7 +2,14 @@ import { downloadTemplate } from "giget";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
-const TEMPLATE_REPO = "github:solcreek/templates";
+/**
+ * Default source for built-in templates. Points at the monorepo's
+ * `examples/` directory so the templates ARE the examples we actually
+ * dogfood and test — no separate `solcreek/templates` repo to drift
+ * out of sync. Third-party templates (`github:user/repo`) pass
+ * through unchanged; see isThirdParty() below.
+ */
+const TEMPLATE_REPO = "github:solcreek/creek/examples";
 
 export interface FetchResult {
   dir: string;

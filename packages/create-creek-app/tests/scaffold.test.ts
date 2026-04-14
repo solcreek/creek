@@ -130,7 +130,7 @@ describe("scaffold", () => {
     expect(toml).toContain('name = "awesome-app"');
   });
 
-  it("resolves built-in template to solcreek/templates", async () => {
+  it("resolves built-in template to monorepo examples/", async () => {
     const dest = join(baseDir, "test");
     mockedDownload.mockImplementation(async (_src, opts) => {
       setupMockTemplate(opts!.dir!);
@@ -138,15 +138,18 @@ describe("scaffold", () => {
     });
 
     await scaffold({
-      template: "landing",
+      template: "vite-react-drizzle",
       dir: dest,
       install: false,
       git: false,
       silent: true,
     });
 
+    // Built-in templates are subpaths of the monorepo's examples/
+    // directory. This keeps "official template" == "tested example"
+    // as a single source of truth.
     expect(mockedDownload).toHaveBeenCalledWith(
-      "github:solcreek/templates/landing",
+      "github:solcreek/creek/examples/vite-react-drizzle",
       expect.objectContaining({ dir: dest }),
     );
   });
