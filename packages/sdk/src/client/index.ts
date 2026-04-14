@@ -276,6 +276,43 @@ export class CreekClient {
     return res.json() as Promise<{ ok: boolean; bytes: number; lines: number; truncated: boolean }>;
   }
 
+  /**
+   * Read archived build log for a deployment. Returns parsed entries
+   * + metadata (status, sizes, truncation flag, CK-code on failure).
+   * Caller must be in the deployment's team (server-side check).
+   */
+  async getBuildLog(
+    projectSlug: string,
+    deploymentId: string,
+  ): Promise<{
+    entries: Array<{
+      ts: number;
+      step: string;
+      stream: string;
+      level: string;
+      msg: string;
+      code?: string;
+    }>;
+    metadata: {
+      deploymentId: string;
+      status: "running" | "success" | "failed";
+      startedAt: number;
+      endedAt: number | null;
+      bytes: number;
+      lines: number;
+      truncated: boolean;
+      errorCode: string | null;
+      errorStep: string | null;
+      r2Key: string;
+    } | null;
+    message?: string;
+  }> {
+    return this.request(
+      "GET",
+      `/projects/${projectSlug}/deployments/${deploymentId}/logs`,
+    );
+  }
+
   // --- Custom Domains ---
 
   async listDomains(
