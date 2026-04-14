@@ -107,7 +107,15 @@ function extractTableRefs(filePath: string): SqlReference[] {
   while ((m = backtickRe.exec(content)) !== null) literals.push(m[1]);
 
   for (const literal of literals) {
-    if (!/\b(SELECT|INSERT|UPDATE|DELETE)\b/i.test(literal)) continue;
+    // Require complete-looking SQL shape, not just the presence of a keyword.
+    // English prose ("update one file", "update creek.toml") contains UPDATE
+    // but never pairs it with SET; real SQL always does. Same for the others.
+    const looksLikeSql =
+      /\bSELECT\b[\s\S]+?\bFROM\b/i.test(literal) ||
+      /\bINSERT\s+INTO\b/i.test(literal) ||
+      /\bUPDATE\b[\s\S]+?\bSET\b/i.test(literal) ||
+      /\bDELETE\s+FROM\b/i.test(literal);
+    if (!looksLikeSql) continue;
 
     // FROM <table> or JOIN <table>
     // Skip qualified names like p.id (table is "p", we don't want aliases)
