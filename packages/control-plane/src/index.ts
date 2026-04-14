@@ -10,6 +10,7 @@ import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
 import { domains } from "./modules/domains/routes.js";
 import { logs } from "./modules/logs/routes.js";
+import { metrics } from "./modules/metrics/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
 import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest, handleRepository } from "./modules/github/index.js";
@@ -111,6 +112,7 @@ app.route("/projects", deployments);
 app.route("/projects", domains);
 app.route("/projects", envVars);
 app.route("/projects", logs);
+app.route("/projects", metrics);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
 
