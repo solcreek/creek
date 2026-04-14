@@ -267,6 +267,32 @@ export const auditIpLog = sqliteTable("audit_ip_log", {
 ]);
 
 // ============================================================================
+// Build Logs
+// ============================================================================
+//
+// Build log pipeline (see product-planning/creek-build-logs.md):
+//   - build-container / remote-builder / CLI → POST /builds/:id/logs
+//   - Body: ndjson lines {ts, step, stream, level, msg, code?}
+//   - control-plane gzips, scrubs secrets, writes R2: builds/{team}/{project}/{deployId}.ndjson.gz
+//   - This table is metadata only — no log bodies live here
+//   - Retention: 30d for success, 90d for failed; cron purges both
+
+export const buildLog = sqliteTable("build_log", {
+  deploymentId: text("deploymentId").primaryKey().references(() => deployment.id),
+  status: text("status").notNull(), // running | success | failed
+  startedAt: integer("startedAt", { mode: "timestamp" }).notNull(),
+  endedAt: integer("endedAt", { mode: "timestamp" }),
+  bytes: integer("bytes").notNull().default(0), // compressed size
+  lines: integer("lines").notNull().default(0),
+  truncated: integer("truncated", { mode: "boolean" }).notNull().default(false),
+  errorCode: text("errorCode"), // CK-* if failed
+  errorStep: text("errorStep"), // which step died
+  r2Key: text("r2Key").notNull(),
+}, (table) => [
+  index("idx_build_log_status").on(table.status, table.startedAt),
+]);
+
+// ============================================================================
 // Resource Cleanup
 // ============================================================================
 

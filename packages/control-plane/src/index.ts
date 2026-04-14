@@ -15,6 +15,7 @@ import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
 import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest, handleRepository } from "./modules/github/index.js";
 import { webDeploy } from "./modules/web-deploy/routes.js";
+import { buildLogs } from "./modules/build-logs/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 
@@ -100,6 +101,12 @@ app.post("/webhooks/github", async (c) => {
 
 // Public routes — no auth required
 app.route("/web-deploy", webDeploy);
+
+// Build log ingest — its own auth inside (INTERNAL_SECRET for internal
+// callers, tenantMiddleware for CLI). Not nested under /projects because
+// the deploymentId alone identifies the log; callers don't always know
+// the project slug at the time they POST.
+app.route("/builds", buildLogs);
 
 // Protected routes — tenant middleware resolves user + team, audit captures request context
 app.use("/projects/*", tenantMiddleware);

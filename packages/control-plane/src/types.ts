@@ -5,8 +5,10 @@ export interface Env {
   DB: D1Database;
   ASSETS: R2Bucket;
   /**
-   * Per-tenant log archive written by tail-worker. Read-only here.
-   * Optional because dev/test envs run without it. Phase 8 Step 5+.
+   * Per-tenant log archive. Two prefixes share this bucket:
+   *   - `logs/{team}/{project}/...`   — runtime logs (tail-worker writes, control-plane reads)
+   *   - `builds/{team}/{project}/...` — build logs (control-plane read+write)
+   * Optional because dev/test envs run without it.
    */
   LOGS_BUCKET?: R2Bucket;
   CREEK_DOMAIN: string;
