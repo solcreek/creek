@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useWebDeploy, type DeployStatus } from "../../lib/deploy";
+import { useWebDeploy, type DeployStatus, type BuildLogLine } from "../../lib/deploy";
 
 interface ParsedRepo {
   owner: string;
@@ -238,6 +238,7 @@ export default function DeployForm() {
               error={deployState.error}
               cacheHit={deployState.cacheHit}
               hint={deployState.hint}
+              buildLog={deployState.buildLog}
               onReset={deployState.reset}
             />
           ) : repoInfo ? (
@@ -456,6 +457,7 @@ function DeployProgress({
   error,
   cacheHit,
   hint,
+  buildLog,
   onReset,
 }: {
   status: DeployStatus;
@@ -464,6 +466,7 @@ function DeployProgress({
   error: string | null;
   cacheHit: boolean;
   hint: { adminPath?: string; adminLabel?: string; warnings?: string[] } | null;
+  buildLog: BuildLogLine[] | null;
   onReset: () => void;
 }) {
   const isBuilding = status === "building";
@@ -582,8 +585,13 @@ function DeployProgress({
             <p className="text-xs text-[#555]">Or try again in an hour.</p>
           </div>
         ) : (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-            <p className="text-xs text-red-400 font-mono">{error}</p>
+          <div className="space-y-2">
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <p className="text-xs text-red-400 font-mono">{error}</p>
+            </div>
+            {buildLog && buildLog.length > 0 && (
+              <BuildLogPanel lines={buildLog} />
+            )}
           </div>
         )
       )}
@@ -706,6 +714,61 @@ function CommandCard({
           {copied ? "Copied!" : "Copy"}
         </span>
       </button>
+    </div>
+  );
+}
+
+function BuildLogPanel({ lines }: { lines: BuildLogLine[] }) {
+  const [open, setOpen] = useState(true);
+  // Group by step so a failing step is visible without scrolling through
+  // the whole transcript.
+  const ordered: Array<{ step: string; lines: BuildLogLine[] }> = [];
+  const seen = new Map<string, BuildLogLine[]>();
+  for (const l of lines) {
+    let bucket = seen.get(l.step);
+    if (!bucket) {
+      bucket = [];
+      seen.set(l.step, bucket);
+      ordered.push({ step: l.step, lines: bucket });
+    }
+    bucket.push(l);
+  }
+
+  return (
+    <div className="rounded-lg border border-[#1a1a1a] bg-[#0d0d0d]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs text-[#888] hover:text-[#e5e5e5]"
+      >
+        <span className="font-mono">Build log ({lines.length} lines)</span>
+        <span>{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-[#1a1a1a] max-h-80 overflow-auto px-3 py-2 text-left font-mono text-[11px] leading-relaxed">
+          {ordered.map((group, gi) => (
+            <div key={gi} className="mb-2">
+              <div className="uppercase tracking-wide text-[#555] text-[10px] mb-1">
+                {group.step}
+              </div>
+              {group.lines.map((l, i) => (
+                <div
+                  key={i}
+                  className={`whitespace-pre-wrap break-words ${
+                    l.level === "error" || l.level === "fatal"
+                      ? "text-red-400"
+                      : l.level === "warn"
+                        ? "text-amber-400"
+                        : "text-[#888]"
+                  }`}
+                >
+                  {l.msg}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
