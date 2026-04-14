@@ -1,0 +1,10 @@
+{
+  "name": "vite-react-drizzle",
+  "description": "Vite + React + Hono + Drizzle — portable full-stack todo. Same code runs locally against better-sqlite3 and on Cloudflare Workers against D1.",
+  "capabilities": ["database"],
+  "docs": {
+    "localDev": "docs/local-dev.md",
+    "deploy": "docs/deploy-creek.md",
+    "portability": "docs/migrate-away.md"
+  }
+}
