@@ -5,6 +5,20 @@ import { Footer } from "@/components/footer";
 
 const entries = [
   {
+    date: "2026-04-14",
+    version: "Dashboard · api.creek.dev",
+    title: "Cache-aware Analytics: see the traffic the worker never knew about",
+    items: [
+      "**Analytics tab now shows real visitor traffic — including the requests CF served from the edge cache.** A static SPA's index.html gets `cache-control: public, max-age=0, must-revalidate` from the Workers+Assets binding, and CF's edge fronts it with ETag-based revalidation: subsequent visits are answered at the edge without ever invoking the worker. Tail events only fire on worker invocations — by definition, cache hits are invisible to them. We were under-reporting traffic for every cached HTML response. Fixed by querying zone-level `httpRequestsAdaptiveGroups` from CF's GraphQL Analytics API alongside the existing Analytics Engine source. The Requests card is now the true number, and a Cache hit % card sits next to it so you can see how much of your traffic is being CDN-served vs hitting your worker.",
+      "**Metrics and Analytics merged into a single Analytics tab.** Two tabs reading two data sources for overlapping numbers was confusing — same chart, slightly different totals depending on which side ran first. Six stat cards now live in one place: Requests (zone, all traffic), Cache hit (% served from edge), Invocations (worker runs), Error rate (errors / invocations — error rate quoted against invocations because cache hits physically can't error), CPU p50, CPU p99 (production deployment, from Workers GraphQL).",
+      "**Stacked time-series chart.** When zone analytics is available, the requests-over-time chart stacks origin traffic on top and edge-cached traffic in a lighter shade — so you can see when a viral spike was actually CPU pressure on your worker vs just CDN passthrough. Falls back to the worker-invocations chart when zone data isn't available.",
+      "**Period coverage expanded to 1h / 6h / 24h / 7d / 30d.** Both the AE-backed metrics endpoint and the Workers-GraphQL-backed analytics endpoint accept the same set, so switching periods recomputes everything coherently.",
+      "**Per-deployment-type breakdown.** New visualizations for: HTTP method (GET / POST / …), deployment type (production / branch / preview), and status bucket (2xx / 4xx / 5xx). Driven by the Analytics Engine dataset the tail-worker has been writing since Phase 8. A noisy 4xx column is the fastest way to spot a broken redirect a user is hammering.",
+      "**Logs tab note: edge-cached requests don't appear in logs.** This was the most-asked question — \"why don't I see GET / in my logs?\". Worker logs are by-definition worker invocations only; cached requests didn't run any code and have no `console.log` to show. Logs tab now says this explicitly with a deep link to the Analytics tab where total traffic (including cache hits) is visible.",
+      "**Architectural alignment with CF's documented pattern.** Tail Workers are the right tool for invocation detail (CPU, exceptions, console output, sub-requests). Zone Analytics is the right tool for total request volume (cache + origin). We layer them, like CF's own dashboard does, instead of trying to make either one cover both jobs. Bonus: the layered model means tenants don't lose edge caching for the sake of observability — which would have been the most expensive false economy the platform could choose.",
+    ],
+  },
+  {
     date: "2026-04-13",
     version: "cli@0.4.13 · creek@0.4.13 · sdk@0.4.5",
     title: "creek logs: per-tenant observability, live tail, WebSocket streaming",
