@@ -94,11 +94,21 @@ export async function handleWebBuild(
       return;
     }
 
+    // Extract container-emitted structured build log once — use it on
+    // every failure branch so the creek.dev/new UI can render the
+    // actual phase-by-phase transcript instead of the one-line error.
+    // Capped to 200 lines so the KV entry stays well under the 25MB
+    // limit even on pathological inputs.
+    const buildLog: unknown[] = Array.isArray(buildResult?.logs)
+      ? buildResult.logs.slice(-200)
+      : [];
+
     if (!buildResult.success) {
       await updateKV(env, buildId, {
         status: "failed",
         error: buildResult.message || buildResult.error || "Build failed",
         failedStep: "build",
+        buildLog,
       });
       return;
     }
@@ -113,8 +123,16 @@ export async function handleWebBuild(
           ? "Worker projects require authenticated deployment. Use `creek deploy` with a Creek account."
           : "Build produced no output files. Check your build command and output directory.",
         failedStep: "build",
+        buildLog,
       });
       return;
+    }
+
+    // Success: stash the log alongside the bundle so the UI can show
+    // it as confirmation (and for agent diagnostics even when nothing
+    // went wrong). Cheap — we already have it in memory.
+    if (buildLog.length > 0) {
+      await updateKV(env, buildId, { status: "built", buildLog });
     }
 
     bundleJson = JSON.stringify({

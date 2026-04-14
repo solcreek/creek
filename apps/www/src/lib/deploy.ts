@@ -10,6 +10,15 @@ export interface DeployHint {
   warnings?: string[];
 }
 
+export interface BuildLogLine {
+  ts: number;
+  step: string;
+  stream: string;
+  level: string;
+  msg: string;
+  code?: string;
+}
+
 export interface DeployState {
   status: DeployStatus;
   buildId: string | null;
@@ -24,6 +33,12 @@ export interface DeployState {
    * templates). Populated by the server once the deploy succeeds.
    */
   hint: DeployHint | null;
+  /**
+   * Structured build-container transcript. Surfaced on failure so users
+   * can see the actual phase that broke and the subprocess stderr
+   * instead of a one-line error. Null until the container reports back.
+   */
+  buildLog: BuildLogLine[] | null;
 }
 
 const INITIAL_STATE: DeployState = {
@@ -35,6 +50,7 @@ const INITIAL_STATE: DeployState = {
   error: null,
   cacheHit: false,
   hint: null,
+  buildLog: null,
 };
 
 export function useWebDeploy() {
@@ -119,6 +135,11 @@ export function useWebDeploy() {
             error: data.error || null,
             cacheHit: data.cacheHit ?? s.cacheHit,
             hint: data.hint ?? s.hint,
+            // Preserve existing log on later status ticks that don't
+            // carry it — remote-builder only writes buildLog once per
+            // build, so subsequent 'deploying' / 'active' updates
+            // overwrite the field back to null without this guard.
+            buildLog: Array.isArray(data.buildLog) ? data.buildLog : s.buildLog,
           }));
 
           // Stop polling on terminal states
