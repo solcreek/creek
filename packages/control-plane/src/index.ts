@@ -15,7 +15,8 @@ import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
 import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest, handleRepository } from "./modules/github/index.js";
 import { webDeploy } from "./modules/web-deploy/routes.js";
-import { buildLogs } from "./modules/build-logs/routes.js";
+import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
+import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 
@@ -120,6 +121,7 @@ app.route("/projects", domains);
 app.route("/projects", envVars);
 app.route("/projects", logs);
 app.route("/projects", metrics);
+app.route("/projects", buildLogsRead);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
 
@@ -302,6 +304,7 @@ export default {
         processResourceCleanupQueue(env),
         syncPendingDomains(env),
         purgeAuditIpLogs(env.DB),
+        purgeExpiredBuildLogs(env),
       ]),
     );
   },
