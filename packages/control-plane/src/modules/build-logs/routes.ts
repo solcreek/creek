@@ -16,8 +16,9 @@ import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
+import { requirePermission } from "../tenant/permissions.js";
 import { storeBuildLog } from "./storage.js";
-import type { BuildLogStatus } from "./types.js";
+import type { BuildLogLine, BuildLogStatus } from "./types.js";
 
 type BuildLogsEnv = {
   Bindings: Env;
@@ -68,6 +69,108 @@ buildLogs.post("/:id/logs", async (c, next) => {
 });
 
 buildLogs.post("/:id/logs", tenantMiddleware, async (c) => ingestHandler(c, { internal: false }));
+
+// --- Read routes (mounted under /projects) --------------------------
+//
+// GET /projects/:slug/deployments/:id/logs — dashboard + CLI read path.
+// Tenant check via tenantMiddleware; ownership cross-checked against
+// the deployment's project.
+export const buildLogsRead = new Hono<BuildLogsEnv>();
+
+buildLogsRead.get(
+  "/:slug/deployments/:id/logs",
+  requirePermission("project:read"),
+  async (c) => {
+    const projectSlug = c.req.param("slug");
+    const deploymentId = c.req.param("id");
+    const teamId = c.get("teamId");
+    if (!teamId) return c.json({ error: "unauthorized" }, 401);
+
+    // Ownership: the deployment's project.slug + project.organizationId
+    // must match the URL slug + session team.
+    const row = await c.env.DB.prepare(
+      `SELECT p.slug AS projectSlug, t.slug AS teamSlug
+       FROM deployment d
+       JOIN project p ON d.projectId = p.id
+       JOIN organization t ON p.organizationId = t.id
+       WHERE d.id = ? AND p.slug = ? AND t.id = ?`,
+    )
+      .bind(deploymentId, projectSlug, teamId)
+      .first<{ projectSlug: string; teamSlug: string }>();
+    if (!row) {
+      return c.json({ error: "not_found" }, 404);
+    }
+
+    // Metadata row — covers the "still running / never uploaded" cases.
+    const meta = await c.env.DB.prepare(
+      `SELECT deploymentId, status, startedAt, endedAt, bytes, lines,
+              truncated, errorCode, errorStep, r2Key
+       FROM build_log WHERE deploymentId = ?`,
+    )
+      .bind(deploymentId)
+      .first<{
+        deploymentId: string;
+        status: string;
+        startedAt: number;
+        endedAt: number | null;
+        bytes: number;
+        lines: number;
+        truncated: number;
+        errorCode: string | null;
+        errorStep: string | null;
+        r2Key: string;
+      }>();
+
+    if (!meta) {
+      return c.json({
+        entries: [] as BuildLogLine[],
+        metadata: null,
+        message: "Build log not yet available — the deploy may still be running or never uploaded logs.",
+      });
+    }
+
+    if (!c.env.LOGS_BUCKET) {
+      return c.json({ error: "logs_unavailable" }, 503);
+    }
+
+    const object = await c.env.LOGS_BUCKET.get(meta.r2Key);
+    if (!object) {
+      // D1 row exists but R2 object missing — consistency issue.
+      return c.json(
+        {
+          entries: [] as BuildLogLine[],
+          metadata: meta,
+          message: "Log archive not found",
+        },
+        200,
+      );
+    }
+
+    // Decompress the gzipped ndjson in-worker. R2 does NOT auto-decode
+    // contentEncoding on .get() — it returns raw bytes.
+    const decoded = await new Response(
+      object.body!.pipeThrough(new DecompressionStream("gzip")),
+    ).text();
+
+    const entries: BuildLogLine[] = [];
+    for (const line of decoded.split("\n")) {
+      if (!line) continue;
+      try {
+        entries.push(JSON.parse(line));
+      } catch {
+        // Non-JSON residue from scrubNdjson fallback path — skip.
+      }
+    }
+
+    return c.json({
+      entries,
+      metadata: {
+        ...meta,
+        truncated: Boolean(meta.truncated),
+      },
+    });
+  },
+);
 
 async function ingestHandler(
   c: {
