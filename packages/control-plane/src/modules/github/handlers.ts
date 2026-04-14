@@ -258,6 +258,32 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
 
     const buildResult = await buildRes.json() as any;
 
+    // Ship the container's build log to R2 immediately — regardless of
+    // success/failure, the dashboard panel should have something. Ignore
+    // errors silently; a missing build log is strictly less bad than a
+    // failed deploy call.
+    if (Array.isArray(buildResult.logs) && buildResult.logs.length > 0) {
+      try {
+        const { storeBuildLog } = await import("../build-logs/storage.js");
+        const ndjson = (buildResult.logs as unknown[])
+          .map((l) => JSON.stringify(l))
+          .join("\n");
+        await storeBuildLog(env, {
+          team: project.teamSlug,
+          project: project.slug,
+          deploymentId,
+          status: buildResult.success ? "running" : "failed",
+          startedAt: Date.now() - (Number(buildResult.timing?.total) || 0),
+          endedAt: Date.now(),
+          body: ndjson,
+          errorCode: buildResult.success ? null : (buildResult.error ?? null),
+          errorStep: buildResult.success ? null : "build",
+        });
+      } catch {
+        // best-effort
+      }
+    }
+
     if (!buildResult.success) {
       await failDeployment(env, deploymentId, "building", buildResult.error || "Build failed");
       await createCommitStatus(token, owner, repo, after, "failure", {
@@ -297,6 +323,29 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
     )
       .bind(deploymentId)
       .first<{ status: string; failedStep: string | null; errorMessage: string | null }>();
+
+    // Reflect the final deploy outcome in the build-log metadata row.
+    // We already wrote logs with status="running" right after the build
+    // step returned — now that the deploy pipeline has finished we know
+    // whether it's truly success/failed.
+    try {
+      const finalStatus = deployment?.status === "active" ? "success" : "failed";
+      await env.DB.prepare(
+        `UPDATE build_log
+         SET status = ?, endedAt = ?, errorStep = COALESCE(?, errorStep), errorCode = COALESCE(?, errorCode)
+         WHERE deploymentId = ?`,
+      )
+        .bind(
+          finalStatus,
+          Date.now(),
+          deployment?.failedStep ?? null,
+          deployment?.errorMessage ? deployment.errorMessage.slice(0, 80) : null,
+          deploymentId,
+        )
+        .run();
+    } catch {
+      // non-fatal
+    }
 
     if (deployment?.status === "active") {
       const domain = env.CREEK_DOMAIN;

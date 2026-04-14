@@ -34,9 +34,34 @@ export interface BuildRequest {
   templateData?: Record<string, unknown>;
 }
 
+/**
+ * Structured build log line. One per phase boundary and on subprocess
+ * output. Collected inside the container and shipped back to the
+ * caller (remote-builder or control-plane) as part of BuildResult /
+ * BuildError so whatever stores them (R2) has the full transcript.
+ */
+export interface BuildLogLine {
+  ts: number;
+  step:
+    | "clone"
+    | "detect"
+    | "install"
+    | "build"
+    | "bundle"
+    | "upload"
+    | "provision"
+    | "activate"
+    | "cleanup";
+  stream: "stdout" | "stderr" | "creek";
+  level: "debug" | "info" | "warn" | "error" | "fatal";
+  msg: string;
+  code?: string;
+}
+
 export interface BuildResult {
   success: true;
   timing: Record<string, number>;
+  logs: BuildLogLine[];
   config: {
     wranglerSource: string | null;
     workerEntry: string | null;
@@ -70,6 +95,7 @@ export interface BuildError {
   error: string;
   message: string;
   timing?: Record<string, number>;
+  logs?: BuildLogLine[];
 }
 
 // --- Main pipeline ---
@@ -79,11 +105,35 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
   const t = () => Date.now();
   let t0: number;
 
+  // --- Build log collector ---
+  //
+  // One flat array we push to at each phase boundary + on captured
+  // subprocess stderr when a step fails. Included in every return
+  // path (success + error) so the control-plane / dashboard panel
+  // always has context, especially for failures.
+  const logs: BuildLogLine[] = [];
+  const log = (
+    step: BuildLogLine["step"],
+    level: BuildLogLine["level"],
+    msg: string,
+    opts?: { stream?: BuildLogLine["stream"]; code?: string },
+  ): void => {
+    logs.push({
+      ts: Date.now(),
+      step,
+      stream: opts?.stream ?? "creek",
+      level,
+      msg,
+      ...(opts?.code ? { code: opts.code } : {}),
+    });
+  };
+
   // 1. Clone
   const buildId = Date.now().toString(36);
   const repoDir = `/tmp/build-${buildId}`;
 
   t0 = t();
+  log("clone", "info", `cloning ${req.repoUrl}${req.branch ? `#${req.branch}` : ""}`);
   try {
     execFileSync("git", [
       "clone", "--depth", "1", "--single-branch",
@@ -96,11 +146,13 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
   } catch (err: any) {
     cleanup(repoDir);
     const stderr = err.stderr?.toString() || "";
-    if (stderr.includes("not found")) return { error: "clone_failed", message: `Repository not found: ${req.repoUrl}` };
-    if (stderr.includes("Authentication")) return { error: "clone_failed", message: "Private repository — not supported for remote build" };
-    return { error: "clone_failed", message: stderr.slice(0, 500) };
+    log("clone", "error", stderr.slice(0, 500), { stream: "stderr" });
+    if (stderr.includes("not found")) return { error: "clone_failed", message: `Repository not found: ${req.repoUrl}`, logs };
+    if (stderr.includes("Authentication")) return { error: "clone_failed", message: "Private repository — not supported for remote build", logs };
+    return { error: "clone_failed", message: stderr.slice(0, 500), logs };
   }
   timing.clone = t() - t0;
+  log("clone", "info", `cloned in ${timing.clone}ms`);
 
   // Remove .git immediately (security + disk)
   rmSync(join(repoDir, ".git"), { recursive: true, force: true });
@@ -108,7 +160,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
   const workDir = req.path ? join(repoDir, req.path) : repoDir;
   if (!existsSync(workDir)) {
     cleanup(repoDir);
-    return { error: "subpath_not_found", message: `Subdirectory '${req.path}' not found` };
+    return { error: "subpath_not_found", message: `Subdirectory '${req.path}' not found`, logs };
   }
 
   try {
@@ -123,13 +175,19 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       resolved = resolveConfig(workDir);
     } catch {
       cleanup(repoDir);
-      return { error: "no_config", message: "No supported project found (creek.toml, wrangler.*, package.json, or index.html)" };
+      log("detect", "error", "no supported config found");
+      return { error: "no_config", message: "No supported project found (creek.toml, wrangler.*, package.json, or index.html)", logs };
     }
 
     const framework = resolved.framework;
     const isSSR = isSSRFramework(framework);
     const isWorker = !framework && !!resolved.workerEntry;
     const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
+    log(
+      "detect",
+      "info",
+      `framework=${framework ?? "none"} renderMode=${renderMode} buildCmd=${resolved.buildCommand ?? "none"}`,
+    );
 
     // 2b. Framework-aware post-deploy hints (admin URLs, warnings, etc.)
     // Pure metadata — no build or runtime side effects. Resolved from
@@ -158,6 +216,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       };
       const [cmd, args] = cmds[pm];
 
+      log("install", "info", `${cmd} ${args.join(" ")}`);
       t0 = t();
       try {
         execFileSync(cmd, args, { cwd: workDir, stdio: "pipe", timeout: 180_000 });
@@ -171,12 +230,15 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       // would silently "succeed" with an empty `dist/` and surface a
       // misleading "no output files" message much later in the pipeline.
       if (!installResult.success) {
+        log("install", "error", installResult.stderr ?? "install failed", { stream: "stderr" });
         cleanup(repoDir);
         return {
           error: "install_failed",
           message: `${pm} install failed: ${installResult.stderr?.slice(0, 800) || "unknown error"}`,
+          logs,
         };
       }
+      log("install", "info", `installed in ${timing.install}ms`);
     }
 
     // 4. Build — use the detected package manager so pnpm-specific
@@ -198,6 +260,10 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     if (resolved.buildCommand) {
       const { useCascade, targetName } = detectWorkspaceCascade(workDir, pm);
 
+      const buildCmdLabel = useCascade && targetName
+        ? `pnpm --filter ${targetName}... build`
+        : `${pm} run build`;
+      log("build", "info", buildCmdLabel);
       t0 = t();
       try {
         if (useCascade && targetName) {
@@ -222,13 +288,16 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       // Same reasoning as install: surface the real stderr instead of
       // the downstream "no output files" cover-up.
       if (!buildResult.success) {
+        log("build", "error", buildResult.stderr ?? "build failed", { stream: "stderr" });
         cleanup(repoDir);
         const label = useCascade ? "workspace cascade build" : `${pm} run build`;
         return {
           error: useCascade ? "workspace_build_failed" : "build_failed",
           message: `${label} failed: ${buildResult.stderr?.slice(0, 800) || "unknown error"}`,
+          logs,
         };
       }
+      log("build", "info", `built in ${timing.build}ms`);
     }
 
     // 4c. Detect pre-bundled Astro + `@astrojs/cloudflare` adapter
@@ -335,9 +404,16 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       }
     }
 
+    log(
+      "bundle",
+      "info",
+      `${fileList.length} assets, ${serverFiles ? Object.keys(serverFiles).length : 0} server files`,
+    );
+
     const result: BuildResult = {
       success: true,
       timing,
+      logs,
       config: {
         wranglerSource: resolved.source.startsWith("wrangler") ? resolved.source : null,
         workerEntry: resolved.workerEntry,
@@ -371,7 +447,9 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     return result;
   } catch (err) {
     cleanup(repoDir);
-    return { error: "internal", message: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    log("cleanup", "fatal", msg, { stream: "stderr" });
+    return { error: "internal", message: msg, logs };
   }
 }
 
