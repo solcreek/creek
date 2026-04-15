@@ -313,6 +313,89 @@ export class CreekClient {
     );
   }
 
+  // --- Resources v2 (team-owned) ---
+
+  async listResources(): Promise<{
+    resources: Array<{
+      id: string;
+      teamId: string;
+      kind: string;
+      name: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+      status: string;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+  }> {
+    return this.request("GET", "/resources");
+  }
+
+  async createResource(input: {
+    kind: "database" | "storage" | "cache" | "ai";
+    name: string;
+    cfResourceId?: string;
+    cfResourceType?: string;
+  }): Promise<{
+    id: string;
+    teamId: string;
+    kind: string;
+    name: string;
+    status: string;
+  }> {
+    return this.request("POST", "/resources", input);
+  }
+
+  async getResource(id: string): Promise<{
+    id: string;
+    teamId: string;
+    kind: string;
+    name: string;
+    cfResourceId: string | null;
+    cfResourceType: string | null;
+    status: string;
+    bindings: Array<{ projectId: string; projectSlug: string; bindingName: string }>;
+  }> {
+    return this.request("GET", `/resources/${id}`);
+  }
+
+  async renameResource(id: string, name: string): Promise<{ id: string; name: string }> {
+    return this.request("PATCH", `/resources/${id}`, { name });
+  }
+
+  async deleteResource(id: string): Promise<{ id: string; status: string }> {
+    return this.request("DELETE", `/resources/${id}`);
+  }
+
+  async listBindings(projectSlug: string): Promise<{
+    bindings: Array<{
+      bindingName: string;
+      resourceId: string;
+      kind: string;
+      name: string;
+      status: string;
+      createdAt: number;
+    }>;
+  }> {
+    return this.request("GET", `/projects/${projectSlug}/bindings`);
+  }
+
+  async attachBinding(
+    projectSlug: string,
+    input: { resourceId: string; bindingName: string },
+  ): Promise<{
+    projectId: string;
+    bindingName: string;
+    resourceId: string;
+    createdAt: number;
+  }> {
+    return this.request("POST", `/projects/${projectSlug}/bindings`, input);
+  }
+
+  async detachBinding(projectSlug: string, bindingName: string): Promise<{ ok: boolean }> {
+    return this.request("DELETE", `/projects/${projectSlug}/bindings/${bindingName}`);
+  }
+
   // --- Custom Domains ---
 
   async listDomains(
