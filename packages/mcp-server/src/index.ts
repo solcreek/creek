@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { Env } from "./types.js";
 import { registerTools } from "./tools.js";
+import { registerResources } from "./resources.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -22,6 +23,7 @@ app.all("/mcp", async (c) => {
 
   const clientIp = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
   registerTools(server, { env: c.env, clientIp });
+  registerResources(server);
 
   const transport = new WebStandardStreamableHTTPServerTransport({
     enableJsonResponse: true, // stateless — JSON responses, no SSE streaming needed
