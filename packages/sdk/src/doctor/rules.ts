@@ -220,6 +220,50 @@ const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: split db.local.ts + db.prod.ts (or equivalents) ──────────────
+//
+// Agents frequently propose this pattern to work around perceived
+// incompatibility between SQLite and D1. The portable driver in
+// `@solcreek/runtime/db` and the `vite-react-drizzle` example both
+// ship a single `server/db.ts` that works in both environments — so
+// the split is extra code without benefit. Emit an info-level
+// pointer, not a warning, because the split isn't actively broken,
+// just unnecessary.
+
+const DUAL_DRIVER_PAIRS: Array<[string, string]> = [
+  ["server/db.local.ts", "server/db.prod.ts"],
+  ["server/db.local.ts", "server/db.worker.ts"],
+  ["server/db.dev.ts", "server/db.prod.ts"],
+  ["src/db.local.ts", "src/db.prod.ts"],
+  ["src/db/local.ts", "src/db/prod.ts"],
+  ["db.local.ts", "db.prod.ts"],
+];
+
+const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
+  const hit = DUAL_DRIVER_PAIRS.find(
+    ([a, b]) => ctx.fileExists(a) && ctx.fileExists(b),
+  );
+  if (!hit) return [];
+  return [
+    {
+      code: "CK-DB-DUAL-DRIVER-SPLIT",
+      severity: "info",
+      title: `Split database driver files detected (${hit[0]} + ${hit[1]})`,
+      detail:
+        "You have two database setup files — one for local dev, one for Workers. " +
+        "Creek's portable driver pattern collapses this to a single file: `server/db.ts` " +
+        "detects the runtime and picks the driver. Same schema, same migrations, " +
+        "same query API. Common reason for the split: an AI agent inferred that " +
+        "better-sqlite3 can't run on Workers and proposed maintaining both paths.",
+      fix:
+        "Consolidate into one `server/db.ts` using the dual-driver Drizzle/Kysely " +
+        "pattern shown in examples/vite-react-drizzle. Delete the extra file once " +
+        "imports are rewritten.",
+      references: [hit[0], hit[1]],
+    },
+  ];
+};
+
 // ─── Rule registry ──────────────────────────────────────────────────────
 
 export const BUILTIN_RULES: Rule[] = [
@@ -231,6 +275,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_RUNTIME_LOCKIN,
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
+  CK_DB_DUAL_DRIVER_SPLIT,
 ];
 
 // Named exports for tests to target individual rules.
@@ -243,6 +288,7 @@ export const rules = {
   CK_RUNTIME_LOCKIN,
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
+  CK_DB_DUAL_DRIVER_SPLIT,
 } satisfies Record<string, Rule>;
 
 // Helper used by the runner so rules don't have to normalize inputs.
