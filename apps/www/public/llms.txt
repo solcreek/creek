@@ -34,11 +34,14 @@ Because Creek runs on Cloudflare Workers, an agent familiar with raw CF
 will reach for CF-native workarounds that are not only unnecessary on
 Creek but actively counterproductive. Read this before rewriting user code.
 
-- **Do NOT swap `better-sqlite3` → D1 manually before deploy.** Creek's
-  runtime routes the same driver API to `better-sqlite3` locally and
-  D1 in production. One code path, one schema file, one set of
-  migrations. If the user's repo imports `better-sqlite3`, it will
-  ship to Creek unchanged — don't rewrite.
+- **Do NOT swap `better-sqlite3` → D1 manually before deploy.** The
+  recommended pattern keeps **one shared schema + one shared query/
+  routes file**, driver-agnostic. Only the thin boot files differ
+  (`server/local.ts` uses `better-sqlite3`, `server/worker.ts` uses
+  D1). Schema and queries are written once. See
+  `examples/vite-react-drizzle` for the reference shape. Don't
+  duplicate schema or queries across a `db.local.ts` / `db.prod.ts`
+  pair — that's the wrong split.
 
 - **Do NOT maintain separate "sandbox" and "production" code paths.**
   Env var behavior is identical across both. The only difference is
@@ -57,9 +60,10 @@ Creek but actively counterproductive. Read this before rewriting user code.
   resource that can be renamed, shared across projects, and detached
   without dropping the data.
 
-- **Do NOT split `server/db.local.ts` + `server/db.prod.ts`.** The
-  `vite-react-drizzle` example shows the single-file portable
-  pattern: one `server/db.ts` that works in both environments.
+- **Do NOT duplicate schema or queries across `db.local.ts` +
+  `db.prod.ts` files.** Use the shared-routes + split-boot pattern
+  from `examples/vite-react-drizzle` — one schema.ts, one routes.ts,
+  and two thin boot files that differ only in driver setup.
 
 When in doubt, assume Creek abstracts the CF primitive. If you're
 about to write CF-specific glue code, check whether the `creek` CLI
