@@ -267,6 +267,46 @@ export const auditIpLog = sqliteTable("audit_ip_log", {
 ]);
 
 // ============================================================================
+// Resources v2 — team-owned resources + project-level bindings
+// ============================================================================
+//
+// See product-planning/creek-resources-v2.md.
+//
+// - `resource` is a team-scoped first-class entity (DB, storage bucket, ...)
+//   with a stable UUID and a mutable semantic name. Replaces the
+//   `project_resource` row-per-type model, which stays alive in parallel
+//   during the phased migration.
+// - `project_resource_binding` is the project-side alias: "in this project,
+//   the env var DB points to resource X." One resource can be bound to
+//   many projects under many names; renaming the resource never breaks
+//   the binding.
+
+export const resource = sqliteTable("resource", {
+  id: text("id").primaryKey(),
+  teamId: text("teamId").notNull(),
+  kind: text("kind").notNull(), // database | storage | cache | ai
+  name: text("name").notNull(), // semantic label — mutable
+  cfResourceId: text("cfResourceId"),
+  cfResourceType: text("cfResourceType"), // d1 | r2 | kv
+  status: text("status").notNull().default("active"), // active | provisioning | failed | deleted
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+}, (table) => [
+  uniqueIndex("idx_resource_team_name").on(table.teamId, table.name),
+  index("idx_resource_team_kind").on(table.teamId, table.kind),
+]);
+
+export const projectResourceBinding = sqliteTable("project_resource_binding", {
+  projectId: text("projectId").notNull().references(() => project.id),
+  bindingName: text("bindingName").notNull(),
+  resourceId: text("resourceId").notNull().references(() => resource.id),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.bindingName] }),
+  index("idx_prb_resource").on(table.resourceId),
+]);
+
+// ============================================================================
 // Build Logs
 // ============================================================================
 //
