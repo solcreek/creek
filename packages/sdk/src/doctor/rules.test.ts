@@ -367,6 +367,40 @@ describe("runDoctor", () => {
   });
 });
 
+// ─── CK-DB-DUAL-DRIVER-SPLIT ─────────────────────────────────────────────
+
+describe("CK-DB-DUAL-DRIVER-SPLIT", () => {
+  test("fires when server/db.local.ts + server/db.prod.ts both exist", () => {
+    const present = new Set(["server/db.local.ts", "server/db.prod.ts"]);
+    const ctx = buildCtx({
+      fileExists: (p) => present.has(p),
+      resolved: resolvedConfig(),
+    });
+    const findings = rules.CK_DB_DUAL_DRIVER_SPLIT(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-DB-DUAL-DRIVER-SPLIT");
+    expect(findings[0].severity).toBe("info");
+  });
+
+  test("fires on db.local.ts + db.prod.ts at project root too", () => {
+    const present = new Set(["db.local.ts", "db.prod.ts"]);
+    const ctx = buildCtx({ fileExists: (p) => present.has(p) });
+    expect(rules.CK_DB_DUAL_DRIVER_SPLIT(ctx)).toHaveLength(1);
+  });
+
+  test("silent when only one half of the pair exists", () => {
+    const present = new Set(["server/db.local.ts"]);
+    const ctx = buildCtx({ fileExists: (p) => present.has(p) });
+    expect(rules.CK_DB_DUAL_DRIVER_SPLIT(ctx)).toEqual([]);
+  });
+
+  test("silent on single unified server/db.ts (the recommended shape)", () => {
+    const present = new Set(["server/db.ts"]);
+    const ctx = buildCtx({ fileExists: (p) => present.has(p) });
+    expect(rules.CK_DB_DUAL_DRIVER_SPLIT(ctx)).toEqual([]);
+  });
+});
+
 describe("collectFindings contract", () => {
   test("builtin rules return at least one finding on an empty context", () => {
     // Sanity: an empty project hits CK-NO-CONFIG at minimum.

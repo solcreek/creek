@@ -28,6 +28,43 @@ human user pastes a Creek CLI command into chat.
 - Non-TTY invocations automatically use JSON output (no flag needed inside an agent tool call)
 - Exit code 0 = success, 1 = error. Error output includes a `hint` field in JSON mode guiding the next step (e.g. "run creek login")
 
+## What you DON'T need to do on Creek
+
+Because Creek runs on Cloudflare Workers, an agent familiar with raw CF
+will reach for CF-native workarounds that are not only unnecessary on
+Creek but actively counterproductive. Read this before rewriting user code.
+
+- **Do NOT swap `better-sqlite3` → D1 manually before deploy.** Creek's
+  runtime routes the same driver API to `better-sqlite3` locally and
+  D1 in production. One code path, one schema file, one set of
+  migrations. If the user's repo imports `better-sqlite3`, it will
+  ship to Creek unchanged — don't rewrite.
+
+- **Do NOT maintain separate "sandbox" and "production" code paths.**
+  Env var behavior is identical across both. The only difference is
+  that sandbox runs without user-set secrets (for safety). If an
+  app needs an LLM API key, gate on `env.MY_KEY` being present
+  and deploy to production via `creek deploy` — don't build a
+  parallel sandbox-only code tree.
+
+- **Do NOT hand-edit `wrangler.toml`.** Creek reads `creek.toml` and
+  generates the wrangler config at build time. Resource bindings are
+  declared in the dashboard or via `creek db attach` — not in
+  `wrangler.toml`.
+
+- **Do NOT create a D1 database via `wrangler d1 create`.**
+  Use `creek db create <name>` instead — it creates a team-owned
+  resource that can be renamed, shared across projects, and detached
+  without dropping the data.
+
+- **Do NOT split `server/db.local.ts` + `server/db.prod.ts`.** The
+  `vite-react-drizzle` example shows the single-file portable
+  pattern: one `server/db.ts` that works in both environments.
+
+When in doubt, assume Creek abstracts the CF primitive. If you're
+about to write CF-specific glue code, check whether the `creek` CLI
+or the `@solcreek/runtime` package already covers the concern.
+
 ## Quick Start
 
 ```

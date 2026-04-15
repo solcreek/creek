@@ -1094,6 +1094,18 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     } = prepared;
     void detectedFramework; // framework var above is the source of truth here
 
+    // Resource / runtime anchors — inline lines that pre-empt the most
+    // common wrong assumptions an AI agent reads from Creek running on
+    // Cloudflare. Cheap to print, and they parse them directly.
+    const dbDeps =
+      !!resolved.bindings.find((b) => b.type === "d1") ||
+      fileList.some((f) => /\.(db|sqlite)$/i.test(f));
+    if (!jsonMode && dbDeps) {
+      consola.info(
+        "  ℹ Database: Creek uses the portable driver — better-sqlite3 locally, D1 remotely. Your code reads env.DB in both. Do NOT rewrite for D1 manually; `creek db attach` wires the binding.",
+      );
+    }
+
     section("Upload");
     consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
 
