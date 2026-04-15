@@ -250,15 +250,19 @@ const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
       severity: "info",
       title: `Split database driver files detected (${hit[0]} + ${hit[1]})`,
       detail:
-        "You have two database setup files — one for local dev, one for Workers. " +
-        "Creek's portable driver pattern collapses this to a single file: `server/db.ts` " +
-        "detects the runtime and picks the driver. Same schema, same migrations, " +
-        "same query API. Common reason for the split: an AI agent inferred that " +
-        "better-sqlite3 can't run on Workers and proposed maintaining both paths.",
+        "You have two database setup files named `db.local` + `db.prod` (or " +
+        "equivalent). The recommended Creek pattern keeps **schema and query " +
+        "code shared** and splits only the **boot files** — see examples/vite-" +
+        "react-drizzle where `server/routes.ts` and `server/schema.ts` run " +
+        "unchanged in both environments, while `server/local.ts` (better-" +
+        "sqlite3) and `server/worker.ts` (D1) handle driver setup. A db.local/" +
+        "db.prod split often signals duplicated schema or queries, which drifts " +
+        "over time.",
       fix:
-        "Consolidate into one `server/db.ts` using the dual-driver Drizzle/Kysely " +
-        "pattern shown in examples/vite-react-drizzle. Delete the extra file once " +
-        "imports are rewritten.",
+        "Extract schema into `server/schema.ts` and queries into `server/routes.ts` " +
+        "— driver-agnostic. Keep one `server/local.ts` for dev (Node + better-" +
+        "sqlite3) and one `server/worker.ts` for prod (CF Worker + D1); each " +
+        "imports the shared schema/routes. Delete the old db.local/db.prod files.",
       references: [hit[0], hit[1]],
     },
   ];
