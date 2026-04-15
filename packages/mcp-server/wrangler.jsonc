@@ -8,6 +8,15 @@
   // No D1, R2, or DO — this is a stateless protocol translator.
   // All business logic lives in sandbox-api and control-plane.
 
+  // Import skill reference .md files as strings at build time. Source
+  // of truth: skills/creek/references/ at the monorepo root, which
+  // also drives the filesystem skill (`npx skills add`). Single
+  // location, bundled into this worker via wrangler's Text module
+  // loader — no sync script, no generated TS snapshot, no drift.
+  "rules": [
+    { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
+  ],
+
   "vars": {
     "SANDBOX_API_URL": "https://sandbox-api.creek.dev",
     "CONTROL_PLANE_URL": "https://api.creek.dev"
