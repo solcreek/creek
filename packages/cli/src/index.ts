@@ -20,6 +20,7 @@ import { opsCommand } from "./commands/ops.js";
 import { queueCommand } from "./commands/queue.js";
 import { logsCommand } from "./commands/logs.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { dbCommand } from "./commands/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -55,6 +56,7 @@ const main = defineCommand({
     claim: claimCommand,
     env: envCommand,
     queue: queueCommand,
+    db: dbCommand,
     domains: domainsCommand,
     rollback: rollbackCommand,
     ops: opsCommand,
