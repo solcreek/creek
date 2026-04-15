@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
 import { ExternalLink } from "lucide-react";
+import { BindingsPanel } from "./-components/BindingsPanel";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -24,11 +25,18 @@ function ProjectSettingsTab() {
   const { projectId } = Route.useParams();
 
   return (
-    <div className="max-w-lg space-y-8">
-      <GeneralSettings projectId={projectId} />
-      <GitHubConnectionSection projectId={projectId} />
-      <TriggersSection projectId={projectId} />
-      <DangerZone projectId={projectId} />
+    <div className="space-y-10">
+      <div className="max-w-lg space-y-8">
+        <GeneralSettings projectId={projectId} />
+        <GitHubConnectionSection projectId={projectId} />
+        <TriggersSection projectId={projectId} />
+      </div>
+      <div className="max-w-3xl">
+        <BindingsPanel projectId={projectId} />
+      </div>
+      <div className="max-w-lg">
+        <DangerZone projectId={projectId} />
+      </div>
     </div>
   );
 }
