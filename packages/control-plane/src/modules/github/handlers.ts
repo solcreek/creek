@@ -6,7 +6,7 @@
 
 import type { Env } from "../../types.js";
 import * as schema from "../../db/schema.js";
-import { exchangeInstallationToken, createCommitStatus, createOrUpdatePRComment, formatPreviewComment } from "./api.js";
+import { exchangeInstallationToken, createCommitStatus, createOrUpdatePRComment, formatPreviewComment, findPRForBranch } from "./api.js";
 import { scanRepo } from "./scan.js";
 
 // --- Types for GitHub webhook payloads ---
@@ -359,6 +359,25 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
         targetUrl: url,
         context: "Creek",
       });
+
+      // Post PR comment for preview deploys
+      if (!isProduction) {
+        try {
+          const prNumber = await findPRForBranch(token, owner, repo, branch);
+          if (prNumber) {
+            const buildTime = buildResult.timing?.total ?? 0;
+            const assetCount = buildResult.bundle?.manifest?.assets?.length ?? 0;
+            const serverCount = buildResult.bundle?.serverFiles
+              ? Object.keys(buildResult.bundle.serverFiles).length
+              : 0;
+            const framework = buildResult.config?.framework ?? null;
+            const comment = formatPreviewComment(url, buildTime, framework, assetCount, serverCount);
+            await createOrUpdatePRComment(token, owner, repo, prNumber, comment);
+          }
+        } catch {
+          // Best effort — deploy already succeeded
+        }
+      }
     } else {
       await createCommitStatus(token, owner, repo, after, "failure", {
         description: `Deploy failed: ${deployment?.errorMessage || "unknown"}`,
@@ -380,61 +399,16 @@ export async function handlePullRequest(env: Env, payload: PullRequestPayload): 
   if (!["opened", "synchronize", "reopened"].includes(payload.action)) return;
 
   const { pull_request, repository, installation } = payload;
-  const branch = pull_request.head.ref;
-  const sha = pull_request.head.sha;
-  const owner = repository.owner.login;
-  const repo = repository.name;
 
-  // Find connected project
-  const connection = await env.DB.prepare(
-    "SELECT * FROM github_connection WHERE repoOwner = ? AND repoName = ?",
-  )
-    .bind(owner, repo)
-    .first<{
-      id: string;
-      projectId: string;
-      installationId: number;
-      productionBranch: string;
-      previewEnabled: number;
-    }>();
-
-  if (!connection || !connection.previewEnabled) return;
-  if (!installation) return;
-
-  const token = await exchangeInstallationToken(env, installation.id);
-
-  // Post status: pending
-  await createCommitStatus(token, owner, repo, sha, "pending", {
-    description: "Building preview...",
-    context: "Creek Preview",
-  });
-
-  // Reuse push handler logic for the actual deploy (pass branch to handlePush-like flow)
-  // For simplicity, construct a push-like payload and delegate
+  // Delegate to handlePush — it handles preview deploys, commit statuses,
+  // and PR comments (via findPRForBranch) with real deployment data.
   await handlePush(env, {
-    ref: `refs/heads/${branch}`,
-    after: sha,
+    ref: `refs/heads/${pull_request.head.ref}`,
+    after: pull_request.head.sha,
     head_commit: null,
     repository,
     installation,
   });
-
-  // After deploy, post PR comment
-  const project = await env.DB.prepare(
-    `SELECT p.slug, o.slug as teamSlug FROM project p
-     JOIN organization o ON p.organizationId = o.id WHERE p.id = ?`,
-  )
-    .bind(connection.projectId)
-    .first<{ slug: string; teamSlug: string }>();
-
-  if (project) {
-    const domain = env.CREEK_DOMAIN;
-    const shortId = sha.slice(0, 8); // Use commit SHA for unique preview
-    const previewUrl = `${project.slug}-git-${branch}-${project.teamSlug}.${domain}`;
-
-    const comment = formatPreviewComment(previewUrl, 0, null, 0, 0);
-    await createOrUpdatePRComment(token, owner, repo, payload.number, comment).catch(() => {});
-  }
 }
 
 // --- Helpers ---

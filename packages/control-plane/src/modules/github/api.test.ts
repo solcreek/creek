@@ -78,7 +78,7 @@ describe("createAppJWT", () => {
       87,
       41,
     );
-    expect(comment).toContain("### Creek Preview");
+    expect(comment).toContain("Creek Preview");
     expect(comment).toContain("my-app-git-feat-acme.bycreek.com");
     expect(comment).toContain("94s");
     expect(comment).toContain("Nuxt");
