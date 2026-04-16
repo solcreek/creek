@@ -157,12 +157,12 @@ All bindings are request-scoped and multi-tenant safe.
 
 ## Agent integration channels
 
-- **MCP server**: `https://mcp.creek.dev/mcp` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent
-- **Agent skill**: `npx skills add solcreek/skills` — installs the full Creek skill into Claude Code
+- **MCP server**: `https://mcp.creek.dev/mcp` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent. Exposes `get_build_log` tool AND `creek://skill/*` resources (8 reference docs covering commands, diagnosis, observability, resources, etc.) so agents that can't load filesystem skills still get structured guidance.
+- **Agent skill**: `npx skills add solcreek/creek/skills` — installs the full Creek skill into Claude Code / Cursor / Codex / OpenCode. Same content as the MCP resources. The legacy `npx skills add solcreek/skills` URL still works via a CI mirror.
 - **Raw CLI**: `npx creek deploy --json --yes` — any AI agent with bash access can call this
 
 ## Source code and license
 
 - [GitHub](https://github.com/solcreek/creek) — Apache 2.0
 - [npm](https://www.npmjs.com/package/creek) — `creek@alpha`
-- [Agent skill](https://github.com/solcreek/skills) — Apache 2.0
+- [Agent skill](https://github.com/solcreek/creek/tree/main/skills) — Apache 2.0 (legacy mirror: [solcreek/skills](https://github.com/solcreek/skills))

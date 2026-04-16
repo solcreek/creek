@@ -127,20 +127,23 @@ Creek ships [Agent Skills](https://agentskills.io) following the open
 standard. Install with:
 
 ```bash
-npx skills add solcreek/skills
+npx skills add solcreek/creek/skills
 ```
 
 | Skill | What it teaches |
 |---|---|
-| [`creek`](https://github.com/solcreek/skills/blob/main/skills/creek/SKILL.md) | Deploy, configure, troubleshoot Creek projects via the CLI — full command reference, deployment modes, rollback flow, creek.toml schema, cron + queue triggers, GitHub auto-deploy |
+| [`creek`](skills/creek/SKILL.md) | Deploy, configure, troubleshoot Creek projects via the CLI + MCP — command reference, deployment modes, resources v2 (`creek db`), observability (logs + build logs), failure diagnosis workflow with CK-codes, creek.toml schema, cron + queue triggers, GitHub auto-deploy |
 
-Skills live in the standalone [`solcreek/skills`](https://github.com/solcreek/skills)
-repo (separate from this monorepo on purpose — it's the install
-target for `npx skills add` and is intentionally maintained apart so
-consumers can pin and fork it without pulling the full Creek
-monorepo). When you ship a CLI / MCP / dashboard change that affects
-how agents should use Creek, update `solcreek/skills` in the same
-work-stream — there's no automated sync.
+Skills live at `skills/creek/` in this monorepo. The same `.md` files
+drive both the filesystem skill (installed via `npx skills add`) and
+the MCP resources exposed by `mcp.creek.dev` — wrangler's Text loader
+bundles them at build time, so there's no sync step. Editing a
+reference file and running `wrangler deploy` updates both surfaces.
+
+The legacy install URL `npx skills add solcreek/skills` keeps working
+via a CI mirror that pushes `skills/` to the standalone
+[`solcreek/skills`](https://github.com/solcreek/skills) repo on every
+merge to main.
 
 ---
 
