@@ -238,6 +238,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
               errorStep: log.metadata.errorStep,
               lines: log.metadata.lines,
               truncated: log.metadata.truncated,
+              // One-line fix hint for known CK-* codes. Same mapping
+              // the skill's diagnosis reference uses; keeps these two
+              // surfaces saying the same thing. Null when the error
+              // code isn't in the mapped set — agent should fall back
+              // to the errorStep + log entries in that case.
+              suggestedFix: suggestFixForCkCode(log.metadata.errorCode),
+              nextResource: log.metadata.errorCode
+                ? "creek://skill/diagnosis"
+                : null,
             };
 
       // Show only error / fatal lines + the failing-step lines in the
@@ -261,6 +270,37 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       };
     },
   );
+}
+
+// ================================================================
+// CK-code → fix hint
+// ================================================================
+//
+// Mirrors the table in skills/creek/references/diagnosis.md. Keep in
+// sync — both surfaces should suggest the same fix for the same code.
+// When adding a new CK-* in creek doctor rules, add the hint here
+// and in diagnosis.md in the same commit.
+
+const CK_FIX_HINTS: Record<string, string> = {
+  "CK-NO-CONFIG":
+    "Run `creek init` to scaffold a creek.toml, or cd to a directory that contains creek.toml / wrangler.* / package.json / index.html.",
+  "CK-NOTHING-TO-DEPLOY":
+    "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one.",
+  "CK-DB-DUAL-DRIVER-SPLIT":
+    "Consolidate the split db.local.ts + db.prod.ts files. Share schema.ts and routes.ts; keep only thin boot files (server/local.ts for dev, server/worker.ts for prod) that differ in driver setup. See examples/vite-react-drizzle.",
+  "CK-SYNC-SQLITE":
+    "better-sqlite3 is synchronous and won't run on Workers. Migrate to an async ORM with a D1 adapter — Drizzle or Kysely are the drop-in paths.",
+  "CK-PRISMA-SQLITE":
+    "Prisma's SQLite datasource isn't supported on Cloudflare Workers. Switch to Drizzle or Kysely with a D1 adapter.",
+  "CK-RUNTIME-LOCKIN":
+    "The project imports from @solcreek/* runtime packages. For a portable build that can deploy outside Creek, replace those with driver-level imports (e.g. drizzle-orm/d1 instead of creek's db re-export).",
+  "CK-CONFIG-OVERLAP":
+    "Both creek.toml and wrangler.* are present. Pick one as the source of truth — creek.toml is preferred; remove wrangler.* or update any shared fields to match.",
+};
+
+function suggestFixForCkCode(code: string | null): string | null {
+  if (!code) return null;
+  return CK_FIX_HINTS[code] ?? null;
 }
 
 // ================================================================
