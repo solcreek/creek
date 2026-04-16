@@ -22,10 +22,13 @@ interface PackageJson {
   devDependencies?: Record<string, string>;
   scripts?: Record<string, string>;
 }
+import { CreekClient } from "@solcreek/sdk";
+import { getToken, getApiUrl } from "../utils/config.js";
 import {
   globalArgs,
   resolveJsonMode,
   jsonOutput,
+  AUTH_BREADCRUMBS,
 } from "../utils/output.js";
 
 /**
@@ -51,12 +54,32 @@ export const doctorCommand = defineCommand({
       description: "Project directory to analyze. Defaults to cwd.",
       required: false,
     },
+    last: {
+      type: "boolean",
+      description:
+        "Diagnose the most recent FAILED deployment instead of running pre-deploy checks. Fetches the build log and matches errorCode against the CK-* fix table.",
+      default: false,
+    },
+    project: {
+      type: "string",
+      description: "Project slug for --last (default: read from creek.toml in cwd)",
+      required: false,
+    },
     ...globalArgs,
   },
   async run({ args }) {
-    const cwd = resolve((args.path as string | undefined) ?? process.cwd());
     const jsonMode = resolveJsonMode(args);
 
+    if (args.last) {
+      await runLastFailureDiagnosis({
+        project: args.project,
+        cwd: resolve((args.path as string | undefined) ?? process.cwd()),
+        jsonMode,
+      });
+      return;
+    }
+
+    const cwd = resolve((args.path as string | undefined) ?? process.cwd());
     const ctx = buildContext(cwd);
     const report = runDoctor(ctx);
 
@@ -209,4 +232,180 @@ function groupBy<T, K>(arr: T[], key: (v: T) => K): Map<K, T[]> {
 
 function s(n: number): string {
   return n === 1 ? "" : "s";
+}
+
+// ─── `--last` failure diagnosis ─────────────────────────────────────────
+//
+// CK-code → one-line fix hint. Source of truth in product terms is
+// skills/creek/references/diagnosis.md; the MCP server's get_build_log
+// tool carries the same mapping (packages/mcp-server/src/tools.ts
+// CK_FIX_HINTS). Keep all three in sync when adding a new CK-* rule.
+
+const CK_FIX_HINTS: Record<string, string> = {
+  "CK-NO-CONFIG":
+    "Run `creek init` to scaffold a creek.toml, or cd to a directory that contains creek.toml / wrangler.* / package.json / index.html.",
+  "CK-NOTHING-TO-DEPLOY":
+    "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one.",
+  "CK-DB-DUAL-DRIVER-SPLIT":
+    "Consolidate the split db.local.ts + db.prod.ts files. Share schema.ts and routes.ts; keep only thin boot files (server/local.ts for dev, server/worker.ts for prod) that differ in driver setup. See examples/vite-react-drizzle.",
+  "CK-SYNC-SQLITE":
+    "better-sqlite3 is synchronous and won't run on Workers. Migrate to an async ORM with a D1 adapter — Drizzle or Kysely are the drop-in paths.",
+  "CK-PRISMA-SQLITE":
+    "Prisma's SQLite datasource isn't supported on Cloudflare Workers. Switch to Drizzle or Kysely with a D1 adapter.",
+  "CK-RUNTIME-LOCKIN":
+    "The project imports from @solcreek/* runtime packages. For a portable build that can deploy outside Creek, replace those with driver-level imports (e.g. drizzle-orm/d1 instead of creek's db re-export).",
+  "CK-CONFIG-OVERLAP":
+    "Both creek.toml and wrangler.* are present. Pick one as the source of truth — creek.toml is preferred; remove wrangler.* or update any shared fields to match.",
+};
+
+function suggestFix(code: string | null): string | null {
+  if (!code) return null;
+  return CK_FIX_HINTS[code] ?? null;
+}
+
+async function runLastFailureDiagnosis(opts: {
+  project: string | undefined;
+  cwd: string;
+  jsonMode: boolean;
+}): Promise<void> {
+  const token = getToken();
+  if (!token) {
+    if (opts.jsonMode) {
+      jsonOutput(
+        { ok: false, error: "not_authenticated" },
+        1,
+        AUTH_BREADCRUMBS,
+      );
+    }
+    consola.error("Not authenticated. Run `creek login` first.");
+    process.exit(1);
+  }
+
+  // Resolve project slug — prefer --project, fall back to creek.toml
+  let slug = opts.project;
+  if (!slug) {
+    const creekToml = join(opts.cwd, "creek.toml");
+    if (existsSync(creekToml)) {
+      const raw = safeRead(creekToml);
+      const match = raw?.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
+      if (match) slug = match[1];
+    }
+  }
+  if (!slug) {
+    const msg =
+      "No project slug. Pass --project <slug> or run from a directory with creek.toml.";
+    if (opts.jsonMode) jsonOutput({ ok: false, error: "no_project", message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+
+  const client = new CreekClient(getApiUrl(), token);
+
+  // Find the most recent failed deployment.
+  let deployments;
+  try {
+    deployments = await client.listDeployments(slug);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to list deployments";
+    if (opts.jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+
+  const failed = deployments.find((d) => d.status === "failed");
+  if (!failed) {
+    const msg = `No failed deployments for ${slug}. Last ${deployments.length} deploys succeeded.`;
+    if (opts.jsonMode) jsonOutput({ ok: true, project: slug, failed: null, message: msg }, 0);
+    consola.log("");
+    consola.log(`  ${c("⬡ creek doctor --last", "bold")}  ${c(slug, "dim")}`);
+    consola.log(`  ${c("✓", "green")} ${msg}`);
+    consola.log("");
+    return;
+  }
+
+  // Pull the build log.
+  let log;
+  try {
+    log = await client.getBuildLog(slug, failed.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to read build log";
+    if (opts.jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+
+  const meta = log.metadata;
+  const errorCode = meta?.errorCode ?? null;
+  const errorStep = meta?.errorStep ?? null;
+  const fix = suggestFix(errorCode);
+
+  if (opts.jsonMode) {
+    jsonOutput(
+      {
+        ok: true,
+        project: slug,
+        failed: {
+          id: failed.id,
+          version: (failed as unknown as { version?: number }).version,
+          branch: failed.branch,
+          commitSha: failed.commit_sha,
+          errorCode,
+          errorStep,
+          suggestedFix: fix,
+          failedStep: failed.failed_step,
+          errorMessage: failed.error_message,
+        },
+      },
+      0,
+      [
+        {
+          command: `creek deployments logs ${failed.id.slice(0, 8)} --json`,
+          description: "Read the full build log",
+        },
+        { command: `creek deploy --json`, description: "Redeploy after fixing" },
+      ],
+    );
+    return;
+  }
+
+  // Human output.
+  consola.log("");
+  consola.log(`  ${c("⬡ creek doctor --last", "bold")}  ${c(slug, "dim")}`);
+  consola.log(
+    `  ${c("failed deploy:", "dim")} ${failed.id.slice(0, 8)}${failed.branch ? ` (${failed.branch})` : ""}`,
+  );
+  consola.log("");
+
+  if (errorCode) {
+    consola.log(`  ${c("✗", "red")} ${c(errorCode, "bold")}  ${c(`at step: ${errorStep ?? "unknown"}`, "gray")}`);
+  } else if (errorStep) {
+    consola.log(`  ${c("✗", "red")} Failed at step: ${c(errorStep, "bold")}`);
+  } else {
+    consola.log(`  ${c("✗", "red")} Deploy failed — no structured errorCode available.`);
+  }
+  consola.log("");
+
+  if (fix) {
+    consola.log(`  ${c("→ fix:", "cyan")}`);
+    for (const line of fix.split("\n")) consola.log(`    ${line}`);
+    consola.log("");
+  } else if (errorCode) {
+    consola.log(
+      `  ${c("→ no mapped fix for", "dim")} ${c(errorCode, "bold")}${c(". Inspect the full log:", "dim")}`,
+    );
+    consola.log(`    creek deployments logs ${failed.id.slice(0, 8)}`);
+    consola.log("");
+  } else {
+    consola.log(`  ${c("→ inspect the full log:", "cyan")}`);
+    consola.log(`    creek deployments logs ${failed.id.slice(0, 8)}`);
+    consola.log("");
+  }
+
+  if (failed.error_message) {
+    consola.log(`  ${c("error message:", "dim")}`);
+    for (const line of failed.error_message.split("\n").slice(0, 8)) {
+      consola.log(`    ${c(line, "gray")}`);
+    }
+    consola.log("");
+  }
 }
