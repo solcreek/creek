@@ -30,10 +30,14 @@
     "react.d.ts",
     "hono.js",
     "hono.d.ts",
+    "skills",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
+  "scripts": {
+    "prepack": "node scripts/bundle-skills.mjs"
+  },
   "keywords": [
     "creek",
     "cli",
