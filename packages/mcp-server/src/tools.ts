@@ -411,6 +411,30 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       return { content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }] };
     },
   );
+
+  server.tool(
+    "query_database",
+    "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
+      sql: z.string().describe("SQL query to execute"),
+      params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+    },
+    async ({ apiKey, resourceId, sql, params }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/resources/${resourceId}/query`, {
+        method: "POST",
+        headers: cpHeaders(apiKey),
+        body: JSON.stringify({ sql, params: params ?? [] }),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `Query failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  );
 }
 
 // ================================================================
