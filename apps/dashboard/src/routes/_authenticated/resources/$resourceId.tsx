@@ -204,30 +204,141 @@ function MetricsSection({ resourceId, kind }: { resourceId: string; kind: string
 }
 
 function BindingsSection({ resource }: { resource: ResourceDetail }) {
+  const qc = useQueryClient();
+  const [attaching, setAttaching] = useState(false);
+  const [selectedProject, setSelectedProject] = useState("");
+  const [bindingName, setBindingName] = useState(
+    resource.kind === "database" ? "DB"
+    : resource.kind === "storage" ? "STORAGE"
+    : resource.kind === "cache" ? "KV"
+    : resource.kind === "ai" ? "AI"
+    : "BINDING",
+  );
+  const [attachError, setAttachError] = useState<string | null>(null);
+
+  const BINDING_NAME_RE = /^[A-Z][A-Z0-9_]{0,62}$/;
+
+  const { data: projects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Array<{ id: string; slug: string }>>("/projects"),
+    enabled: attaching,
+  });
+
+  // Filter out projects that already have this resource attached
+  const boundSlugs = new Set(resource.bindings.map((b) => b.projectSlug));
+  const availableProjects = (projects ?? []).filter((p) => !boundSlugs.has(p.slug));
+
+  const attach = useMutation({
+    mutationFn: (input: { projectSlug: string; resourceId: string; bindingName: string }) =>
+      api(`/projects/${input.projectSlug}/bindings`, {
+        method: "POST",
+        body: JSON.stringify({ resourceId: input.resourceId, bindingName: input.bindingName }),
+      }),
+    onSuccess: () => {
+      setAttaching(false);
+      setSelectedProject("");
+      setAttachError(null);
+      qc.invalidateQueries({ queryKey: ["resource", resource.id] });
+    },
+    onError: (err) => setAttachError((err as Error).message),
+  });
+
+  const detach = useMutation({
+    mutationFn: (input: { projectSlug: string; bindingName: string }) =>
+      api(`/projects/${input.projectSlug}/bindings/${input.bindingName}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resource", resource.id] });
+    },
+  });
+
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        Attached Projects
-      </h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Attached Projects
+        </h2>
+        {!attaching && (
+          <Button size="sm" variant="ghost" onClick={() => setAttaching(true)}>
+            Attach
+          </Button>
+        )}
+      </div>
+
+      {attaching && (
+        <div className="mb-3 rounded-lg border border-border p-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+            >
+              <option value="">Choose project...</option>
+              {availableProjects.map((p) => (
+                <option key={p.id} value={p.slug}>{p.slug}</option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">as env.</span>
+            <Input
+              value={bindingName}
+              onChange={(e) => setBindingName(e.target.value.toUpperCase())}
+              className="h-8 w-28 text-sm font-mono"
+            />
+            <Button
+              size="sm"
+              disabled={!selectedProject || !BINDING_NAME_RE.test(bindingName) || attach.isPending}
+              onClick={() => attach.mutate({
+                projectSlug: selectedProject,
+                resourceId: resource.id,
+                bindingName,
+              })}
+            >
+              {attach.isPending ? "Attaching..." : "Attach"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setAttaching(false); setAttachError(null); }}>
+              Cancel
+            </Button>
+          </div>
+          {attachError && <p className="text-xs text-destructive">{attachError}</p>}
+          {bindingName && !BINDING_NAME_RE.test(bindingName) && (
+            <p className="text-xs text-amber-400">Uppercase, start with letter, &le;63 chars.</p>
+          )}
+        </div>
+      )}
+
       {resource.bindings.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-xs text-muted-foreground">
-            Not attached to any project. Go to a project's Settings to attach it.
+            Not attached to any project. Click Attach above or use{" "}
+            <code className="font-mono">creek db attach {resource.name} --to &lt;project&gt;</code>.
           </p>
         </div>
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">
           {resource.bindings.map((b) => (
             <div key={`${b.projectId}-${b.bindingName}`} className="flex items-center justify-between px-4 py-2.5">
-              <Link
-                to={`/projects/${b.projectSlug}/settings`}
-                className="text-sm font-mono hover:underline"
+              <div className="flex items-center gap-2">
+                <Link
+                  to={`/projects/${b.projectSlug}/settings`}
+                  className="text-sm font-mono hover:underline"
+                >
+                  {b.projectSlug}
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  env.{b.bindingName}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={detach.isPending}
+                onClick={() => {
+                  if (confirm(`Detach env.${b.bindingName} from ${b.projectSlug}?`)) {
+                    detach.mutate({ projectSlug: b.projectSlug, bindingName: b.bindingName });
+                  }
+                }}
               >
-                {b.projectSlug}
-              </Link>
-              <span className="text-xs text-muted-foreground">
-                env.{b.bindingName}
-              </span>
+                Detach
+              </Button>
             </div>
           ))}
         </div>
