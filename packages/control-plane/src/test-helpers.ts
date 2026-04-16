@@ -6,9 +6,9 @@ import { domains } from "./modules/domains/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
 import {
-  resources as resourcesV2,
+  resources,
   resourceBindings,
-} from "./modules/resources-v2/routes.js";
+} from "./modules/resources/routes.js";
 import type { Env } from "./types.js";
 import type { AuthUser } from "./modules/tenant/types.js";
 import type { AuditRequestContext } from "./modules/audit/types.js";
@@ -215,7 +215,7 @@ export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) 
   app.route("/projects", domains);
   app.route("/projects", envVars);
   app.route("/projects", resourceBindings);
-  app.route("/resources", resourcesV2);
+  app.route("/resources", resources);
   app.route("/instant-deploy", instantDeploy);
 
   return app;

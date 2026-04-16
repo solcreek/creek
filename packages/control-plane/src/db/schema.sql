@@ -72,15 +72,6 @@ CREATE TABLE IF NOT EXISTS custom_domains (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS project_resources (
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  resource_type TEXT NOT NULL,  -- 'd1' | 'r2' | 'kv'
-  cf_resource_id TEXT NOT NULL, -- CF-returned ID (database uuid / bucket name / namespace id)
-  cf_resource_name TEXT NOT NULL, -- Name we used when creating
-  status TEXT NOT NULL DEFAULT 'provisioning', -- 'provisioning' | 'active' | 'failed' | 'deleting' | 'deleted'
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (project_id, resource_type)
-);
 
 CREATE INDEX IF NOT EXISTS idx_teams_slug ON teams(slug);
 CREATE INDEX IF NOT EXISTS idx_projects_team_slug ON projects(team_id, slug);
@@ -89,8 +80,6 @@ CREATE INDEX IF NOT EXISTS idx_deployments_branch ON deployments(project_id, bra
 CREATE INDEX IF NOT EXISTS idx_auth_tokens_token_hash ON auth_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_hostname ON custom_domains(hostname);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_project_id ON custom_domains(project_id);
-CREATE INDEX IF NOT EXISTS idx_project_resources_status ON project_resources(status);
-
 -- Audit log — permanent record of all write operations
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,

@@ -1,6 +1,5 @@
 import type { Env } from "../../types.js";
-import type { ResourceRequirements } from "@solcreek/sdk";
-import { ensureResources, ensureQueue, buildBindings } from "../resources/service.js";
+import { ensureProjectBindings, ensureQueue, buildBindings, type BundleBindingRequirement } from "../resources/service.js";
 import { setQueueConsumer } from "../resources/cloudflare.js";
 import { deployWithAssets } from "./deploy.js";
 import { decrypt } from "../env/crypto.js";
@@ -9,12 +8,6 @@ import { deriveRealtimeSecret } from "../realtime/hmac.js";
 /**
  * Bundle as stored in R2 staging.
  */
-/** Binding requirement from the new CLI (binding name + type) */
-interface BundleBindingRequirement {
-  type: "d1" | "r2" | "kv" | "ai";
-  bindingName: string;
-}
-
 export interface StagedBundle {
   manifest: {
     assets: string[];
@@ -24,9 +17,7 @@ export interface StagedBundle {
   };
   assets: Record<string, string>; // path -> base64
   serverFiles?: Record<string, string>;
-  // Legacy: boolean flags (old CLI)
-  resources?: { d1?: boolean; r2?: boolean; kv?: boolean; ai?: boolean };
-  // New: typed binding declarations with user-defined names (new CLI)
+  // Typed binding declarations with user-defined names
   bindings?: BundleBindingRequirement[];
   // Wrangler [vars] passthrough
   vars?: Record<string, string>;
@@ -94,34 +85,11 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     // --- Step 2: Provision resources ---
     await setDeploymentStatus(env, deploymentId, "provisioning");
 
-    // Derive requirements + binding name overrides from new or legacy format
-    let requirements: ResourceRequirements;
-    let bindingNameOverrides: Map<string, string> | undefined;
+    const requirements = bundle.bindings ?? [];
 
-    if (bundle.bindings && bundle.bindings.length > 0) {
-      // New path: typed binding declarations with user-defined names
-      requirements = { d1: false, r2: false, kv: false, ai: false };
-      bindingNameOverrides = new Map();
-      for (const b of bundle.bindings) {
-        if (b.type === "d1" || b.type === "r2" || b.type === "kv") {
-          requirements[b.type] = true;
-          bindingNameOverrides.set(b.type, b.bindingName);
-        }
-        if (b.type === "ai") requirements.ai = true;
-      }
-    } else {
-      // Legacy path: boolean flags
-      requirements = {
-        d1: bundle.resources?.d1 ?? false,
-        r2: bundle.resources?.r2 ?? false,
-        kv: bundle.resources?.kv ?? false,
-        ai: bundle.resources?.ai ?? false,
-      };
-    }
-
-    let resources;
+    let resolvedBindings;
     try {
-      resources = await ensureResources(env, projectId, requirements);
+      resolvedBindings = await ensureProjectBindings(env, projectId, teamId, requirements);
     } catch (err) {
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
     }
@@ -130,7 +98,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     let queueResource;
     if (bundle.queue) {
       try {
-        queueResource = await ensureQueue(env, projectId);
+        queueResource = await ensureQueue(env, projectId, teamId);
       } catch (err) {
         throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
       }
@@ -167,13 +135,14 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       ? await deriveRealtimeSecret(env.REALTIME_MASTER_KEY, projectSlug)
       : undefined;
 
-    const bindings = buildBindings(resources, projectId, envVars, {
+    const needsAi = requirements.some((r) => r.type === "ai");
+
+    const bindings = buildBindings(resolvedBindings, envVars, {
       projectSlug,
       realtimeUrl: env.CREEK_REALTIME_URL ?? `https://realtime.${env.CREEK_DOMAIN}`,
       realtimeSecret,
-      needsAi: requirements.ai,
+      needsAi,
       queueName: queueResource?.cfResourceName,
-      bindingNameOverrides,
     });
 
     // --- Step 3: Deploy to WfP ---

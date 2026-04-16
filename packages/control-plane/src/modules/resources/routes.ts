@@ -1,16 +1,13 @@
 /**
- * Resources v2 routes — team-owned resources + project-level bindings.
+ * Resources routes — team-owned resources + project-level bindings.
  *
- * See product-planning/creek-resources-v2.md for the full design.
+ * Resources are first-class team-scoped entities with stable UUIDs and
+ * mutable names. They are attached to projects via bindings (env var
+ * name → resource ID). One resource can be bound to many projects.
  *
- * Phase 1 scope (this file):
- *   - Plain CRUD on the `resource` + `project_resource_binding` tables.
- *   - NO CF provisioning yet. Callers set cfResourceId/Type directly or
- *     leave them null — the provisioner is wired in a later phase so
- *     existing deploys keep using the old project_resource path
- *     untouched.
- *   - All routes tenant-scoped; resources belong to the authenticated
- *     team. Bindings require the project to also be in that team.
+ * CF provisioning (D1/R2/KV) happens eagerly on POST /resources. The
+ * deploy pipeline reads `project_resource_binding` to resolve which
+ * CF resources a project needs at deploy time.
  *
  * Two Hono sub-apps, mounted separately in index.ts:
  *   - `resources` at /resources        team-scoped resource CRUD
@@ -21,6 +18,7 @@ import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { requirePermission } from "../tenant/permissions.js";
+import { provisionCFResource, findExistingCFResource } from "./cloudflare.js";
 
 type ResourcesEnv = {
   Bindings: Env;
@@ -77,12 +75,40 @@ resources.post("/", requirePermission("project:create"), async (c) => {
 
   const id = crypto.randomUUID();
   const now = Date.now();
+
+  // Map semantic kind → CF resource type for provisionable resources
+  const KIND_TO_CF: Record<string, string> = {
+    database: "d1",
+    storage: "r2",
+    cache: "kv",
+  };
+  const cfType = KIND_TO_CF[body.kind] ?? null;
+
+  // Auto-provision the CF resource if it's a provisionable type.
+  // Use the resource UUID prefix as the CF resource name for uniqueness.
+  let cfResourceId = body.cfResourceId ?? null;
+  if (!cfResourceId && cfType) {
+    const cfName = `creek-${id.slice(0, 8)}`;
+    try {
+      cfResourceId = await findExistingCFResource(c.env, cfType, cfName)
+        ?? await provisionCFResource(c.env, cfType, cfName);
+    } catch (err) {
+      return c.json(
+        {
+          error: "provisioning_failed",
+          message: `Failed to provision ${body.kind}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        502,
+      );
+    }
+  }
+
   try {
     await c.env.DB.prepare(
       `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
-      .bind(id, teamId, body.kind, body.name, body.cfResourceId ?? null, body.cfResourceType ?? null, now, now)
+      .bind(id, teamId, body.kind, body.name, cfResourceId, cfType ?? body.cfResourceType ?? null, now, now)
       .run();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -101,8 +127,8 @@ resources.post("/", requirePermission("project:create"), async (c) => {
       teamId,
       kind: body.kind,
       name: body.name,
-      cfResourceId: body.cfResourceId ?? null,
-      cfResourceType: body.cfResourceType ?? null,
+      cfResourceId,
+      cfResourceType: cfType ?? body.cfResourceType ?? null,
       status: "active",
       createdAt: now,
       updatedAt: now,

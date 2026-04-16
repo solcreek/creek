@@ -1,32 +1,31 @@
+/**
+ * Resource provisioning + binding assembly for the deploy pipeline.
+ *
+ * Operates on the `resource` + `project_resource_binding` tables.
+ * Resources are team-owned; projects reference them via bindings.
+ *
+ * The deploy pipeline calls `ensureProjectBindings()` which:
+ *   1. Reads existing bindings from `project_resource_binding`
+ *   2. For any binding requirement from the CLI bundle that has no
+ *      matching row, auto-creates a team-owned resource + binding
+ *   3. Provisions CF resources (D1/R2/KV) if `cfResourceId` is null
+ *   4. Returns `WfPBinding[]` ready for the Workers for Platforms API
+ */
+
 import type { Env } from "../../types.js";
 import {
   BINDING_NAMES,
   INTERNAL_VARS,
-  PROVISIONABLE_RESOURCES,
-  type ProvisionableResource,
-  type ResourceRequirements,
 } from "@solcreek/sdk";
 import {
-  createD1Database,
-  createR2Bucket,
-  createKVNamespace,
+  provisionCFResource,
+  findExistingCFResource,
   createQueue,
-  getD1Database,
-  getR2Bucket,
-  getKVNamespace,
   getQueue,
   setQueueConsumer,
 } from "./cloudflare.js";
 
 // --- Types ---
-
-export interface ProjectResource {
-  projectId: string;
-  resourceType: ProvisionableResource;
-  cfResourceId: string;
-  cfResourceName: string;
-  status: string;
-}
 
 export interface WfPBinding {
   type: string;
@@ -34,256 +33,261 @@ export interface WfPBinding {
   [key: string]: unknown;
 }
 
-// --- Resource name generation ---
-
-function resourceName(projectId: string): string {
-  // Use first 8 chars of UUID — 4B+ combinations, collision-safe
-  return `creek-${projectId.slice(0, 8)}`;
+/** Binding requirement from the CLI bundle */
+export interface BundleBindingRequirement {
+  type: "d1" | "r2" | "kv" | "ai";
+  bindingName: string;
 }
 
-// --- Provisioning ---
+/** A resolved resource row from the `resource` table */
+interface ResourceRow {
+  id: string;
+  teamId: string;
+  kind: string;
+  name: string;
+  cfResourceId: string | null;
+  cfResourceType: string | null;
+  status: string;
+}
+
+/** A resolved binding from `project_resource_binding` joined with `resource` */
+interface ResolvedBinding {
+  bindingName: string;
+  resourceId: string;
+  kind: string;
+  cfResourceId: string | null;
+  cfResourceType: string | null;
+}
+
+// --- Kind / CF type mapping ---
+
+const KIND_TO_CF: Record<string, string> = {
+  database: "d1",
+  storage: "r2",
+  cache: "kv",
+};
+
+const CF_TO_KIND: Record<string, string> = {
+  d1: "database",
+  r2: "storage",
+  kv: "cache",
+};
+
+// --- Core: ensure bindings for deploy ---
 
 /**
- * Ensure all required resources exist for a project.
- * Idempotent: existing resources are not recreated.
- * Failed resources are retried on next deploy.
+ * Ensure all binding requirements are satisfied for a project deploy.
+ *
+ * For each requirement from the CLI bundle:
+ *   - If a `project_resource_binding` already exists for that bindingName,
+ *     use the linked resource (provision CF if needed)
+ *   - Otherwise, auto-create a resource + binding
+ *
+ * Returns resolved resource rows keyed by binding name.
  */
-export async function ensureResources(
+export async function ensureProjectBindings(
   env: Env,
   projectId: string,
-  requirements: ResourceRequirements,
-): Promise<ProjectResource[]> {
-  // Fetch existing resources for this project
-  const existing = await env.DB.prepare(
-    "SELECT projectId, resourceType, cfResourceId, cfResourceName, status FROM project_resource WHERE projectId = ?",
+  teamId: string,
+  requirements: BundleBindingRequirement[],
+): Promise<Map<string, { bindingName: string; cfResourceId: string; cfType: string }>> {
+  if (requirements.length === 0) return new Map();
+
+  // Fetch existing bindings for this project
+  const existingRows = await env.DB.prepare(
+    `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
+     FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ?`,
   )
     .bind(projectId)
-    .all<ProjectResource>();
+    .all<ResolvedBinding>();
 
-  const existingMap = new Map(
-    existing.results.map((r) => [r.resourceType, r]),
+  const existingByName = new Map(
+    existingRows.results.map((b) => [b.bindingName, b]),
   );
 
-  const results: ProjectResource[] = [];
+  const result = new Map<string, { bindingName: string; cfResourceId: string; cfType: string }>();
 
-  for (const type of PROVISIONABLE_RESOURCES) {
-    if (!requirements[type]) continue;
+  for (const req of requirements) {
+    const existing = existingByName.get(req.bindingName);
 
-    const current = existingMap.get(type);
-
-    // Already active — skip
-    if (current?.status === "active") {
-      results.push(current);
+    if (existing && existing.cfResourceId) {
+      // Binding exists with a provisioned CF resource — use it
+      result.set(req.bindingName, {
+        bindingName: req.bindingName,
+        cfResourceId: existing.cfResourceId,
+        cfType: existing.cfResourceType ?? req.type,
+      });
       continue;
     }
 
-    // Provision (or retry if previous attempt failed)
-    const name = resourceName(projectId);
-    const resource = await provisionResource(env, projectId, type, name, current);
-    results.push(resource);
+    if (existing && !existing.cfResourceId) {
+      // Binding exists but CF resource not yet provisioned — provision now
+      const cfName = `creek-${existing.resourceId.slice(0, 8)}`;
+      const cfType = KIND_TO_CF[existing.kind] ?? req.type;
+      const cfId = await findExistingCFResource(env, cfType, cfName)
+        ?? await provisionCFResource(env, cfType, cfName);
+
+      await env.DB.prepare(
+        `UPDATE resource SET cfResourceId = ?, cfResourceType = ?, status = 'active', updatedAt = ?
+         WHERE id = ?`,
+      )
+        .bind(cfId, cfType, Date.now(), existing.resourceId)
+        .run();
+
+      result.set(req.bindingName, {
+        bindingName: req.bindingName,
+        cfResourceId: cfId,
+        cfType,
+      });
+      continue;
+    }
+
+    // No binding exists — auto-create resource + binding
+    const resourceId = crypto.randomUUID();
+    const cfName = `creek-${resourceId.slice(0, 8)}`;
+    const kind = CF_TO_KIND[req.type] ?? req.type;
+    const cfType = req.type;
+    const now = Date.now();
+
+    // Provision CF resource
+    let cfId: string | null = null;
+    if (cfType === "d1" || cfType === "r2" || cfType === "kv") {
+      cfId = await findExistingCFResource(env, cfType, cfName)
+        ?? await provisionCFResource(env, cfType, cfName);
+    }
+
+    // Insert resource row
+    await env.DB.prepare(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+    )
+      .bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now)
+      .run();
+
+    // Insert binding
+    await env.DB.prepare(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind(projectId, req.bindingName, resourceId, now)
+      .run();
+
+    if (cfId) {
+      result.set(req.bindingName, {
+        bindingName: req.bindingName,
+        cfResourceId: cfId,
+        cfType,
+      });
+    }
   }
 
-  return results;
+  return result;
 }
 
+// --- Queue provisioning ---
+
 /**
- * Ensure a queue exists for a project. Returns the queue ID.
- * Idempotent: adopts existing queue or creates a new one.
+ * Ensure a queue resource exists for a project.
+ * Returns the CF queue ID + name.
  */
 export async function ensureQueue(
   env: Env,
   projectId: string,
-): Promise<ProjectResource> {
-  const type = "queue";
+  teamId: string,
+): Promise<{ cfResourceId: string; cfResourceName: string }> {
+  // Check for existing queue binding
   const existing = await env.DB.prepare(
-    "SELECT projectId, resourceType, cfResourceId, cfResourceName, status FROM project_resource WHERE projectId = ? AND resourceType = ?",
+    `SELECT b.resourceId, r.cfResourceId, r.cfResourceType
+     FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ? AND b.bindingName = ?`,
   )
-    .bind(projectId, type)
-    .first<ProjectResource>();
+    .bind(projectId, BINDING_NAMES.queue)
+    .first<{ resourceId: string; cfResourceId: string | null; cfResourceType: string | null }>();
 
-  if (existing?.status === "active") return existing;
+  if (existing?.cfResourceId) {
+    const name = `creek-q-${existing.resourceId.slice(0, 8)}`;
+    return { cfResourceId: existing.cfResourceId, cfResourceName: name };
+  }
 
-  const name = `creek-q-${projectId.slice(0, 8)}`;
+  // Create queue resource
+  const resourceId = existing?.resourceId ?? crypto.randomUUID();
+  const queueName = `creek-q-${resourceId.slice(0, 8)}`;
+  const now = Date.now();
+
+  let queueId = await getQueue(env, queueName);
+  if (!queueId) {
+    queueId = await createQueue(env, queueName);
+  }
 
   if (!existing) {
+    // Insert resource + binding
     await env.DB.prepare(
-      `INSERT INTO project_resource (projectId, resourceType, cfResourceId, cfResourceName, status, createdAt)
-       VALUES (?, ?, '', ?, 'provisioning', ?)`,
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
     )
-      .bind(projectId, type, name, Date.now())
+      .bind(resourceId, teamId, queueName, queueId, now, now)
+      .run();
+
+    await env.DB.prepare(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind(projectId, BINDING_NAMES.queue, resourceId, now)
+      .run();
+  } else {
+    // Update existing resource with CF ID
+    await env.DB.prepare(
+      `UPDATE resource SET cfResourceId = ?, status = 'active', updatedAt = ? WHERE id = ?`,
+    )
+      .bind(queueId, now, existing.resourceId)
       .run();
   }
 
-  try {
-    let queueId = await getQueue(env, name);
-    if (!queueId) {
-      queueId = await createQueue(env, name);
-    }
-
-    await env.DB.prepare(
-      `UPDATE project_resource SET cfResourceId = ?, status = 'active' WHERE projectId = ? AND resourceType = ?`,
-    )
-      .bind(queueId, projectId, type)
-      .run();
-
-    return { projectId, resourceType: type as any, cfResourceId: queueId, cfResourceName: name, status: "active" };
-  } catch (err) {
-    await env.DB.prepare(
-      `UPDATE project_resource SET status = 'failed' WHERE projectId = ? AND resourceType = ?`,
-    )
-      .bind(projectId, type)
-      .run();
-    throw new Error(`Failed to provision queue for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-async function provisionResource(
-  env: Env,
-  projectId: string,
-  type: ProvisionableResource,
-  name: string,
-  existing: ProjectResource | undefined,
-): Promise<ProjectResource> {
-  // If no record exists, insert as provisioning
-  if (!existing) {
-    await env.DB.prepare(
-      `INSERT INTO project_resource (projectId, resourceType, cfResourceId, cfResourceName, status, createdAt)
-       VALUES (?, ?, '', ?, 'provisioning', ?)`,
-    )
-      .bind(projectId, type, name, Date.now())
-      .run();
-  }
-
-  try {
-    // Try to adopt existing CF resource first (handles retry after partial failure)
-    let cfResourceId = await findExistingCFResource(env, type, name);
-
-    if (!cfResourceId) {
-      cfResourceId = await createCFResource(env, type, name);
-    }
-
-    // Mark active
-    await env.DB.prepare(
-      `UPDATE project_resource SET cfResourceId = ?, status = 'active' WHERE projectId = ? AND resourceType = ?`,
-    )
-      .bind(cfResourceId, projectId, type)
-      .run();
-
-    return {
-      projectId,
-      resourceType: type,
-      cfResourceId,
-      cfResourceName: name,
-      status: "active",
-    };
-  } catch (err) {
-    // Mark failed — will retry on next deploy
-    await env.DB.prepare(
-      `UPDATE project_resource SET status = 'failed' WHERE projectId = ? AND resourceType = ?`,
-    )
-      .bind(projectId, type)
-      .run();
-
-    throw new Error(
-      `Failed to provision ${type} for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-async function findExistingCFResource(
-  env: Env,
-  type: ProvisionableResource,
-  name: string,
-): Promise<string | null> {
-  switch (type) {
-    case "d1":
-      return getD1Database(env, name);
-    case "r2":
-      return (await getR2Bucket(env, name)) ? name : null;
-    case "kv":
-      return getKVNamespace(env, name);
-    default:
-      return null;
-  }
-}
-
-async function createCFResource(
-  env: Env,
-  type: ProvisionableResource,
-  name: string,
-): Promise<string> {
-  switch (type) {
-    case "d1":
-      return createD1Database(env, name);
-    case "r2":
-      await createR2Bucket(env, name);
-      return name; // R2 bucket ID = its name
-    case "kv":
-      return createKVNamespace(env, name);
-    default:
-      throw new Error(`Unknown resource type: ${type}`);
-  }
+  return { cfResourceId: queueId, cfResourceName: queueName };
 }
 
 // --- Binding assembly ---
 
 /**
- * Build WfP bindings array from project resources.
- * Asserts all resources belong to the specified project.
+ * Build WfP bindings array from resolved resources.
  */
 export function buildBindings(
-  resources: ProjectResource[],
-  projectId: string,
+  resolvedBindings: Map<string, { bindingName: string; cfResourceId: string; cfType: string }>,
   envVars: { key: string; value: string }[],
   options: {
     projectSlug: string;
     realtimeUrl: string;
     realtimeSecret?: string;
     needsAi: boolean;
-    /** Queue name for producer binding (if project uses queue) */
     queueName?: string;
-    /** Override canonical binding names (e.g., wrangler declares binding = "MY_DB" instead of "DB") */
-    bindingNameOverrides?: Map<string, string>;
   },
 ): WfPBinding[] {
   const bindings: WfPBinding[] = [];
-  const nameFor = (type: string) =>
-    options.bindingNameOverrides?.get(type) ?? BINDING_NAMES[type as keyof typeof BINDING_NAMES];
 
-  for (const resource of resources) {
-    // Critical safety assertion
-    if (resource.projectId !== projectId) {
-      throw new Error(
-        `Binding safety violation: resource ${resource.resourceType} (${resource.cfResourceId}) belongs to project ${resource.projectId}, not ${projectId}`,
-      );
-    }
-
-    if (resource.status !== "active") {
-      throw new Error(
-        `Cannot bind ${resource.resourceType}: status is '${resource.status}', expected 'active'`,
-      );
-    }
-
-    switch (resource.resourceType) {
+  for (const [, resolved] of resolvedBindings) {
+    switch (resolved.cfType) {
       case "d1":
         bindings.push({
           type: "d1",
-          name: nameFor("d1"),
-          id: resource.cfResourceId,
+          name: resolved.bindingName,
+          id: resolved.cfResourceId,
         });
         break;
       case "r2":
         bindings.push({
           type: "r2_bucket",
-          name: nameFor("r2"),
-          bucket_name: resource.cfResourceName,
+          name: resolved.bindingName,
+          bucket_name: resolved.cfResourceId,
         });
         break;
       case "kv":
         bindings.push({
           type: "kv_namespace",
-          name: nameFor("kv"),
-          namespace_id: resource.cfResourceId,
+          name: resolved.bindingName,
+          namespace_id: resolved.cfResourceId,
         });
         break;
     }
@@ -293,14 +297,14 @@ export function buildBindings(
   if (options.queueName) {
     bindings.push({
       type: "queue",
-      name: nameFor("queue"),
+      name: BINDING_NAMES.queue,
       queue_name: options.queueName,
     });
   }
 
   // AI binding (account-level, no per-tenant resource)
   if (options.needsAi) {
-    bindings.push({ type: "ai", name: nameFor("ai") });
+    bindings.push({ type: "ai", name: BINDING_NAMES.ai });
   }
 
   // Internal vars
@@ -339,26 +343,22 @@ export function buildBindings(
 // --- Cleanup ---
 
 /**
- * Copy active resources into resource_cleanup_queue before the project is deleted.
- * project_resources has ON DELETE CASCADE, so it will be wiped when the project row
- * is removed — the cleanup queue is the durable record that drives async deletion
- * of the actual Cloudflare resources (D1 databases, R2 buckets, KV namespaces).
+ * Schedule resource deletion when a project is deleted.
+ *
+ * Copies resource info into `resource_cleanup_queue` for async CF
+ * resource deletion. The actual `project_resource_binding` rows are
+ * deleted via ON DELETE CASCADE when the project row is removed.
+ *
+ * Note: resources themselves are NOT deleted — they're team-owned and
+ * may be bound to other projects. Only the bindings are removed. If the
+ * resource has no remaining bindings after project deletion, it becomes
+ * "unattached" but stays alive until explicitly deleted via the API.
  */
-export async function scheduleResourceDeletion(
+export async function scheduleResourceCleanup(
   env: Env,
   projectId: string,
 ): Promise<void> {
-  // Snapshot active resources into the cleanup queue
-  await env.DB.prepare(
-    `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason)
-     SELECT resourceType, cfResourceId, cfResourceName, 'pending', 'project_deleted'
-     FROM project_resource
-     WHERE projectId = ? AND status IN ('active', 'provisioning')`,
-  )
-    .bind(projectId)
-    .run();
-
-  // Also queue custom domain hostnames for CF cleanup
+  // Queue custom domain hostnames for CF cleanup
   await env.DB.prepare(
     `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason)
      SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted'
@@ -367,4 +367,25 @@ export async function scheduleResourceDeletion(
   )
     .bind(projectId)
     .run();
+}
+
+// --- Queue lookup ---
+
+/**
+ * Look up the queue CF resource ID for a project. Used by the queue
+ * send endpoint in deployments/routes.ts.
+ */
+export async function getProjectQueueId(
+  env: Env,
+  projectId: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    `SELECT r.cfResourceId
+     FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ? AND r.cfResourceType = 'queue' AND r.status = 'active'`,
+  )
+    .bind(projectId)
+    .first<{ cfResourceId: string }>();
+  return row?.cfResourceId ?? null;
 }

@@ -3,7 +3,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
-import { scheduleResourceDeletion } from "../resources/service.js";
+import { scheduleResourceCleanup } from "../resources/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 
 type ProjectEnv = {
@@ -161,7 +161,7 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
   }
 
   // Mark resources for async cleanup before deleting the project
-  await scheduleResourceDeletion(c.env, project.id);
+  await scheduleResourceCleanup(c.env, project.id);
 
   await c.env.DB.prepare("DELETE FROM project WHERE id = ?")
     .bind(project.id)

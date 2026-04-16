@@ -218,8 +218,8 @@ describe("POST /projects/:id/queue/send", () => {
   test("returns 400 when project has no queue provisioned", async () => {
     db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
     db.seedFirst(
-      "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status",
-      ["p-1", "queue"],
+      "SELECT r.cfResourceId",
+      ["p-1"],
       null,
     );
 
@@ -232,8 +232,8 @@ describe("POST /projects/:id/queue/send", () => {
   test("returns 400 when message field is missing", async () => {
     db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
     db.seedFirst(
-      "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status",
-      ["p-1", "queue"],
+      "SELECT r.cfResourceId",
+      ["p-1"],
       { cfResourceId: "queue-id-123" },
     );
 
@@ -246,8 +246,8 @@ describe("POST /projects/:id/queue/send", () => {
   test("sends message to CF Queues API on success", async () => {
     db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
     db.seedFirst(
-      "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status",
-      ["p-1", "queue"],
+      "SELECT r.cfResourceId",
+      ["p-1"],
       { cfResourceId: "queue-id-123" },
     );
 
@@ -273,8 +273,8 @@ describe("POST /projects/:id/queue/send", () => {
   test("sends string message as text content type", async () => {
     db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
     db.seedFirst(
-      "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status",
-      ["p-1", "queue"],
+      "SELECT r.cfResourceId",
+      ["p-1"],
       { cfResourceId: "queue-id-123" },
     );
 
@@ -294,8 +294,8 @@ describe("POST /projects/:id/queue/send", () => {
   test("returns 500 when CF API fails", async () => {
     db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
     db.seedFirst(
-      "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status",
-      ["p-1", "queue"],
+      "SELECT r.cfResourceId",
+      ["p-1"],
       { cfResourceId: "queue-id-123" },
     );
 

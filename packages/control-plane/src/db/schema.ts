@@ -173,17 +173,6 @@ export const customDomain = sqliteTable("custom_domain", {
   index("idx_custom_domain_project").on(table.projectId),
 ]);
 
-export const projectResource = sqliteTable("project_resource", {
-  projectId: text("projectId").notNull().references(() => project.id),
-  resourceType: text("resourceType").notNull(),
-  cfResourceId: text("cfResourceId").notNull(),
-  cfResourceName: text("cfResourceName").notNull(),
-  status: text("status").notNull().default("provisioning"),
-  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.projectId, table.resourceType] }),
-]);
-
 // ============================================================================
 // GitHub App Integration
 // ============================================================================
@@ -267,15 +256,11 @@ export const auditIpLog = sqliteTable("audit_ip_log", {
 ]);
 
 // ============================================================================
-// Resources v2 — team-owned resources + project-level bindings
+// Resources — team-owned resources + project-level bindings
 // ============================================================================
 //
-// See product-planning/creek-resources-v2.md.
-//
 // - `resource` is a team-scoped first-class entity (DB, storage bucket, ...)
-//   with a stable UUID and a mutable semantic name. Replaces the
-//   `project_resource` row-per-type model, which stays alive in parallel
-//   during the phased migration.
+//   with a stable UUID and a mutable semantic name.
 // - `project_resource_binding` is the project-side alias: "in this project,
 //   the env var DB points to resource X." One resource can be bound to
 //   many projects under many names; renaming the resource never breaks
