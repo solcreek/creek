@@ -56,12 +56,14 @@ guidance. They drive:
 
 Edit the `.md` file once — both surfaces update on next deploy.
 
-## Legacy install URL
+## Legacy install URL (deprecated)
 
-The legacy URL `npx skills add solcreek/skills` is still maintained
-via a CI mirror that pushes this directory to the standalone
-[`solcreek/skills`](https://github.com/solcreek/skills) repo on every
-merge to main. New work should use the monorepo subpath form.
+The old URL `npx skills add solcreek/skills` is **deprecated**. The
+standalone [`solcreek/skills`](https://github.com/solcreek/skills)
+repo is frozen at its last pre-consolidation snapshot and will be
+archived. Update any install scripts, docs, or READMEs to the
+`solcreek/creek/skills` form above — the content lives here
+alongside the code it describes, so it stays in sync by construction.
 
 ## Requires
 

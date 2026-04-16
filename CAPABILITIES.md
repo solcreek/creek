@@ -140,10 +140,9 @@ the MCP resources exposed by `mcp.creek.dev` — wrangler's Text loader
 bundles them at build time, so there's no sync step. Editing a
 reference file and running `wrangler deploy` updates both surfaces.
 
-The legacy install URL `npx skills add solcreek/skills` keeps working
-via a CI mirror that pushes `skills/` to the standalone
-[`solcreek/skills`](https://github.com/solcreek/skills) repo on every
-merge to main.
+The legacy URL `npx skills add solcreek/skills` is deprecated — that
+standalone repo is frozen and slated for archive. Use the monorepo
+subpath above for all new installs.
 
 ---
 
