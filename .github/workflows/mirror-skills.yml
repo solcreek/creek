@@ -1,0 +1,83 @@
+name: Mirror skills to solcreek/skills
+
+# Keeps the legacy install URL `npx skills add solcreek/skills`
+# working by mirroring this monorepo's skills/ directory to the
+# standalone solcreek/skills repo on every merge to main that
+# touches skill content.
+#
+# Source of truth is ALWAYS this monorepo. Pushes to the mirror
+# repo are discarded by the next force-push from here.
+#
+# Requires: SKILLS_MIRROR_TOKEN secret — a PAT (or fine-grained
+# token) with `contents: write` permission on solcreek/skills.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-skills
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restructure for legacy layout
+        run: |
+          # Legacy layout expects skills/<name>/SKILL.md at the repo
+          # root. Monorepo has the same shape but under `skills/`, so
+          # we copy the `skills/creek` subtree into `<mirror>/skills/`
+          # and promote README.md / LICENSE to the mirror root.
+          MIRROR="${RUNNER_TEMP}/skills-mirror"
+          mkdir -p "$MIRROR/skills"
+          cp -R skills/creek "$MIRROR/skills/creek"
+
+          if [ -f skills/README.md ]; then
+            cp skills/README.md "$MIRROR/README.md"
+          fi
+          if [ -f LICENSE ]; then
+            cp LICENSE "$MIRROR/LICENSE"
+          fi
+
+          # Stamp a marker file so anyone landing on the mirror repo
+          # knows it's generated and not the place to edit.
+          cat > "$MIRROR/.mirror-source" <<EOF
+          This repository is auto-generated from:
+            https://github.com/solcreek/creek/tree/main/skills
+
+          Do not edit directly — changes will be overwritten on the
+          next mirror push. File issues and PRs against the monorepo.
+
+          Last mirror from: ${GITHUB_SHA}
+          EOF
+
+          # Copy back to workspace so the next step can find it.
+          echo "MIRROR_PATH=$MIRROR" >> "$GITHUB_ENV"
+
+      - name: Push to solcreek/skills
+        env:
+          TOKEN: ${{ secrets.SKILLS_MIRROR_TOKEN }}
+        run: |
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::SKILLS_MIRROR_TOKEN secret not set. Add a PAT with contents:write on solcreek/skills."
+            exit 1
+          fi
+
+          cd "$MIRROR_PATH"
+          git init -b main
+          git config user.email "bot@creek.dev"
+          git config user.name "Creek Skills Mirror"
+          git add .
+          git commit -m "Mirror from creek@${GITHUB_SHA::7}
+
+          Source: https://github.com/solcreek/creek/commit/${GITHUB_SHA}"
+
+          git push --force \
+            "https://x-access-token:${TOKEN}@github.com/solcreek/skills.git" \
+            HEAD:main
