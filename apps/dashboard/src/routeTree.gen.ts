@@ -14,10 +14,15 @@ import { Route as CliAuthRouteImport } from './routes/cli-auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedResourcesRouteImport } from './routes/_authenticated/resources'
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
 import { Route as AuthenticatedApiKeysRouteImport } from './routes/_authenticated/api-keys'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedNewIndexRouteImport } from './routes/_authenticated/new.index'
+import { Route as AuthenticatedResourcesStorageRouteImport } from './routes/_authenticated/resources/storage'
+import { Route as AuthenticatedResourcesDatabaseRouteImport } from './routes/_authenticated/resources/database'
+import { Route as AuthenticatedResourcesCacheRouteImport } from './routes/_authenticated/resources/cache'
+import { Route as AuthenticatedResourcesAiRouteImport } from './routes/_authenticated/resources/ai'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
 import { Route as AuthenticatedNewConfigureRouteImport } from './routes/_authenticated/new/configure'
 import { Route as AuthenticatedGithubSetupRouteImport } from './routes/_authenticated/github.setup'
@@ -51,6 +56,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedResourcesRoute = AuthenticatedResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -72,6 +82,30 @@ const AuthenticatedNewIndexRoute = AuthenticatedNewIndexRouteImport.update({
   path: '/new/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedResourcesStorageRoute =
+  AuthenticatedResourcesStorageRouteImport.update({
+    id: '/storage',
+    path: '/storage',
+    getParentRoute: () => AuthenticatedResourcesRoute,
+  } as any)
+const AuthenticatedResourcesDatabaseRoute =
+  AuthenticatedResourcesDatabaseRouteImport.update({
+    id: '/database',
+    path: '/database',
+    getParentRoute: () => AuthenticatedResourcesRoute,
+  } as any)
+const AuthenticatedResourcesCacheRoute =
+  AuthenticatedResourcesCacheRouteImport.update({
+    id: '/cache',
+    path: '/cache',
+    getParentRoute: () => AuthenticatedResourcesRoute,
+  } as any)
+const AuthenticatedResourcesAiRoute =
+  AuthenticatedResourcesAiRouteImport.update({
+    id: '/ai',
+    path: '/ai',
+    getParentRoute: () => AuthenticatedResourcesRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdRoute =
   AuthenticatedProjectsProjectIdRouteImport.update({
     id: '/$projectId',
@@ -127,10 +161,15 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/api-keys': typeof AuthenticatedApiKeysRoute
   '/projects': typeof AuthenticatedProjectsRouteWithChildren
+  '/resources': typeof AuthenticatedResourcesRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/resources/ai': typeof AuthenticatedResourcesAiRoute
+  '/resources/cache': typeof AuthenticatedResourcesCacheRoute
+  '/resources/database': typeof AuthenticatedResourcesDatabaseRoute
+  '/resources/storage': typeof AuthenticatedResourcesStorageRoute
   '/new/': typeof AuthenticatedNewIndexRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
@@ -144,9 +183,14 @@ export interface FileRoutesByTo {
   '/cli-auth': typeof CliAuthRoute
   '/login': typeof LoginRoute
   '/api-keys': typeof AuthenticatedApiKeysRoute
+  '/resources': typeof AuthenticatedResourcesRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/github/setup': typeof AuthenticatedGithubSetupRoute
   '/new/configure': typeof AuthenticatedNewConfigureRoute
+  '/resources/ai': typeof AuthenticatedResourcesAiRoute
+  '/resources/cache': typeof AuthenticatedResourcesCacheRoute
+  '/resources/database': typeof AuthenticatedResourcesDatabaseRoute
+  '/resources/storage': typeof AuthenticatedResourcesStorageRoute
   '/new': typeof AuthenticatedNewIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
@@ -163,10 +207,15 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_authenticated/api-keys': typeof AuthenticatedApiKeysRoute
   '/_authenticated/projects': typeof AuthenticatedProjectsRouteWithChildren
+  '/_authenticated/resources': typeof AuthenticatedResourcesRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/github/setup': typeof AuthenticatedGithubSetupRoute
   '/_authenticated/new/configure': typeof AuthenticatedNewConfigureRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
+  '/_authenticated/resources/ai': typeof AuthenticatedResourcesAiRoute
+  '/_authenticated/resources/cache': typeof AuthenticatedResourcesCacheRoute
+  '/_authenticated/resources/database': typeof AuthenticatedResourcesDatabaseRoute
+  '/_authenticated/resources/storage': typeof AuthenticatedResourcesStorageRoute
   '/_authenticated/new/': typeof AuthenticatedNewIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
@@ -183,10 +232,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/api-keys'
     | '/projects'
+    | '/resources'
     | '/settings'
     | '/github/setup'
     | '/new/configure'
     | '/projects/$projectId'
+    | '/resources/ai'
+    | '/resources/cache'
+    | '/resources/database'
+    | '/resources/storage'
     | '/new/'
     | '/projects/'
     | '/projects/$projectId/analytics'
@@ -200,9 +254,14 @@ export interface FileRouteTypes {
     | '/cli-auth'
     | '/login'
     | '/api-keys'
+    | '/resources'
     | '/settings'
     | '/github/setup'
     | '/new/configure'
+    | '/resources/ai'
+    | '/resources/cache'
+    | '/resources/database'
+    | '/resources/storage'
     | '/new'
     | '/projects'
     | '/projects/$projectId/analytics'
@@ -218,10 +277,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/_authenticated/api-keys'
     | '/_authenticated/projects'
+    | '/_authenticated/resources'
     | '/_authenticated/settings'
     | '/_authenticated/github/setup'
     | '/_authenticated/new/configure'
     | '/_authenticated/projects/$projectId'
+    | '/_authenticated/resources/ai'
+    | '/_authenticated/resources/cache'
+    | '/_authenticated/resources/database'
+    | '/_authenticated/resources/storage'
     | '/_authenticated/new/'
     | '/_authenticated/projects/'
     | '/_authenticated/projects/$projectId/analytics'
@@ -275,6 +339,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/resources': {
+      id: '/_authenticated/resources'
+      path: '/resources'
+      fullPath: '/resources'
+      preLoaderRoute: typeof AuthenticatedResourcesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/projects': {
       id: '/_authenticated/projects'
       path: '/projects'
@@ -302,6 +373,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/new/'
       preLoaderRoute: typeof AuthenticatedNewIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/resources/storage': {
+      id: '/_authenticated/resources/storage'
+      path: '/storage'
+      fullPath: '/resources/storage'
+      preLoaderRoute: typeof AuthenticatedResourcesStorageRouteImport
+      parentRoute: typeof AuthenticatedResourcesRoute
+    }
+    '/_authenticated/resources/database': {
+      id: '/_authenticated/resources/database'
+      path: '/database'
+      fullPath: '/resources/database'
+      preLoaderRoute: typeof AuthenticatedResourcesDatabaseRouteImport
+      parentRoute: typeof AuthenticatedResourcesRoute
+    }
+    '/_authenticated/resources/cache': {
+      id: '/_authenticated/resources/cache'
+      path: '/cache'
+      fullPath: '/resources/cache'
+      preLoaderRoute: typeof AuthenticatedResourcesCacheRouteImport
+      parentRoute: typeof AuthenticatedResourcesRoute
+    }
+    '/_authenticated/resources/ai': {
+      id: '/_authenticated/resources/ai'
+      path: '/ai'
+      fullPath: '/resources/ai'
+      preLoaderRoute: typeof AuthenticatedResourcesAiRouteImport
+      parentRoute: typeof AuthenticatedResourcesRoute
     }
     '/_authenticated/projects/$projectId': {
       id: '/_authenticated/projects/$projectId'
@@ -405,9 +504,30 @@ const AuthenticatedProjectsRouteWithChildren =
     AuthenticatedProjectsRouteChildren,
   )
 
+interface AuthenticatedResourcesRouteChildren {
+  AuthenticatedResourcesAiRoute: typeof AuthenticatedResourcesAiRoute
+  AuthenticatedResourcesCacheRoute: typeof AuthenticatedResourcesCacheRoute
+  AuthenticatedResourcesDatabaseRoute: typeof AuthenticatedResourcesDatabaseRoute
+  AuthenticatedResourcesStorageRoute: typeof AuthenticatedResourcesStorageRoute
+}
+
+const AuthenticatedResourcesRouteChildren: AuthenticatedResourcesRouteChildren =
+  {
+    AuthenticatedResourcesAiRoute: AuthenticatedResourcesAiRoute,
+    AuthenticatedResourcesCacheRoute: AuthenticatedResourcesCacheRoute,
+    AuthenticatedResourcesDatabaseRoute: AuthenticatedResourcesDatabaseRoute,
+    AuthenticatedResourcesStorageRoute: AuthenticatedResourcesStorageRoute,
+  }
+
+const AuthenticatedResourcesRouteWithChildren =
+  AuthenticatedResourcesRoute._addFileChildren(
+    AuthenticatedResourcesRouteChildren,
+  )
+
 interface AuthenticatedRouteChildren {
   AuthenticatedApiKeysRoute: typeof AuthenticatedApiKeysRoute
   AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRouteWithChildren
+  AuthenticatedResourcesRoute: typeof AuthenticatedResourcesRouteWithChildren
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedGithubSetupRoute: typeof AuthenticatedGithubSetupRoute
   AuthenticatedNewConfigureRoute: typeof AuthenticatedNewConfigureRoute
@@ -417,6 +537,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedApiKeysRoute: AuthenticatedApiKeysRoute,
   AuthenticatedProjectsRoute: AuthenticatedProjectsRouteWithChildren,
+  AuthenticatedResourcesRoute: AuthenticatedResourcesRouteWithChildren,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedGithubSetupRoute: AuthenticatedGithubSetupRoute,
   AuthenticatedNewConfigureRoute: AuthenticatedNewConfigureRoute,

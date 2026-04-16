@@ -4,8 +4,6 @@ import { useMutation } from "@tanstack/react-query";
 import { authClient, useActiveOrganization } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
-import { ResourcesPanel } from "./-components/ResourcesPanel";
-
 export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
@@ -15,14 +13,9 @@ function SettingsPage() {
     <div className="p-6">
       <h1 className="mb-6 text-xl font-semibold">Settings</h1>
 
-      <div className="space-y-10">
-        <div className="max-w-lg space-y-8">
-          <TeamSettings />
-          <MembersList />
-        </div>
-        <div className="max-w-3xl">
-          <ResourcesPanel />
-        </div>
+      <div className="max-w-lg space-y-8">
+        <TeamSettings />
+        <MembersList />
       </div>
     </div>
   );
