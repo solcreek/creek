@@ -281,6 +281,88 @@ resources.post("/:id/query", requirePermission("project:create"), async (c) => {
   });
 });
 
+/**
+ * GET /resources/:id/metrics — fetch usage metrics from Cloudflare.
+ * D1: database size + table count via D1 info API.
+ * R2: object count via R2 bucket listing.
+ * KV: key count via KV list API.
+ */
+resources.get("/:id/metrics", requirePermission("project:read"), async (c) => {
+  const teamId = c.get("teamId");
+  const id = c.req.param("id");
+
+  const resource = await c.env.DB.prepare(
+    `SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE id = ? AND teamId = ?`,
+  )
+    .bind(id, teamId)
+    .first<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>();
+
+  if (!resource) return c.json({ error: "not_found" }, 404);
+  if (!resource.cfResourceId || resource.status !== "active") {
+    return c.json({ error: "not_provisioned" }, 400);
+  }
+
+  const accountId = c.env.CLOUDFLARE_ACCOUNT_ID;
+  const token = c.env.CLOUDFLARE_API_TOKEN;
+  const headers = { Authorization: `Bearer ${token}` };
+
+  try {
+    switch (resource.cfResourceType) {
+      case "d1": {
+        // D1 database info
+        const res = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${resource.cfResourceId}`,
+          { headers },
+        );
+        const data = (await res.json()) as any;
+        if (!data.success) throw new Error(data.errors?.[0]?.message ?? "D1 info failed");
+        return c.json({
+          kind: "database",
+          size: data.result?.file_size ?? null,
+          tables: data.result?.num_tables ?? null,
+          version: data.result?.version ?? null,
+        });
+      }
+      case "r2": {
+        // R2 object count (list first page only for speed)
+        const res = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${resource.cfResourceId}/objects?per_page=1`,
+          { headers },
+        );
+        const data = (await res.json()) as any;
+        // R2 list doesn't return total count directly — use truncated + count as signal
+        const objects = data.result ?? [];
+        const truncated = data.result_info?.truncated ?? false;
+        return c.json({
+          kind: "storage",
+          objects: truncated ? "1000+" : objects.length,
+          truncated,
+        });
+      }
+      case "kv": {
+        // KV key count (list first page)
+        const res = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${resource.cfResourceId}/keys?per_page=1&limit=1`,
+          { headers },
+        );
+        const data = (await res.json()) as any;
+        const count = data.result_info?.count ?? data.result?.length ?? 0;
+        return c.json({
+          kind: "cache",
+          keys: count,
+        });
+      }
+      default:
+        return c.json({ kind: resource.kind, message: "Metrics not available for this resource type" });
+    }
+  } catch (err) {
+    return c.json({
+      error: "metrics_failed",
+      message: err instanceof Error ? err.message : String(err),
+    }, 502);
+  }
+});
+
 // ---------------------------------------------------------------------
 // /projects/:slug/bindings — per-project
 // ---------------------------------------------------------------------

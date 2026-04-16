@@ -96,6 +96,7 @@ function ResourceDetailPage() {
 
       <div className="max-w-2xl space-y-8">
         <MetadataSection resource={data} />
+        <MetricsSection resourceId={resourceId} kind={data.kind} />
         <BindingsSection resource={data} />
         <RenameSection resource={data} />
         <DeleteSection resource={data} />
@@ -141,6 +142,60 @@ function MetadataSection({ resource }: { resource: ResourceDetail }) {
             <span className={`text-xs ${row.mono ? "font-mono" : ""} text-foreground`}>
               {row.value}
             </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MetricsSection({ resourceId, kind }: { resourceId: string; kind: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["resource-metrics", resourceId],
+    queryFn: () => api<Record<string, unknown>>(`/resources/${resourceId}/metrics`),
+    refetchInterval: 60_000, // refresh every minute
+  });
+
+  if (isLoading) {
+    return (
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Usage
+        </h2>
+        <p className="text-xs text-muted-foreground">Loading metrics...</p>
+      </section>
+    );
+  }
+
+  if (error || !data) return null;
+
+  const metrics: { label: string; value: string }[] = [];
+
+  if (kind === "database") {
+    if (data.size != null) {
+      const sizeMb = Number(data.size) / (1024 * 1024);
+      metrics.push({ label: "Database Size", value: sizeMb < 1 ? `${(Number(data.size) / 1024).toFixed(1)} KB` : `${sizeMb.toFixed(2)} MB` });
+    }
+    if (data.tables != null) metrics.push({ label: "Tables", value: String(data.tables) });
+    if (data.version != null) metrics.push({ label: "Version", value: String(data.version) });
+  } else if (kind === "storage") {
+    if (data.objects != null) metrics.push({ label: "Objects", value: String(data.objects) });
+  } else if (kind === "cache") {
+    if (data.keys != null) metrics.push({ label: "Keys", value: String(data.keys) });
+  }
+
+  if (metrics.length === 0) return null;
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        Usage
+      </h2>
+      <div className="grid grid-cols-3 gap-3">
+        {metrics.map((m) => (
+          <div key={m.label} className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">{m.label}</p>
+            <p className="mt-1 text-lg font-semibold font-mono">{m.value}</p>
           </div>
         ))}
       </div>
