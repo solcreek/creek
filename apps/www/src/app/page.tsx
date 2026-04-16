@@ -363,7 +363,7 @@ function AgentFirstDemo() {
         </div>
         <div className="bg-code-bg p-5 font-mono text-[13px] leading-7 grid gap-4 sm:grid-cols-[1fr_1fr]">
           <div>
-            <pre className="text-foreground whitespace-pre">{`$ npx skills add solcreek/skills`}</pre>
+            <pre className="text-foreground whitespace-pre">{`$ npx skills add solcreek/creek/skills`}</pre>
             <pre className="mt-3 text-muted-foreground whitespace-pre text-[12px]">{`# Installs the "creek" skill into
 # Claude Code, Cursor, Copilot,
 # Gemini CLI, OpenCode, …`}</pre>
@@ -385,12 +385,12 @@ function AgentFirstDemo() {
             <p className="mt-3 text-[11px] text-muted-foreground/60">
               Apache 2.0 · maintained at{" "}
               <a
-                href="https://github.com/solcreek/skills"
+                href="https://github.com/solcreek/creek/tree/main/skills"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-accent/80 transition-colors"
               >
-                solcreek/skills
+                solcreek/creek/skills
               </a>
             </p>
           </div>
