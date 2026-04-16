@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { CreekClient } from "@solcreek/sdk";
@@ -349,6 +349,115 @@ const migrateCommand = defineCommand({
   },
 });
 
+const SEED_CANDIDATES = [
+  "drizzle/seed.sql",
+  "drizzle/migrations/seed.sql",
+  "migrations/seed.sql",
+  "sql/seed.sql",
+  "seed.sql",
+];
+
+const seedCommand = defineCommand({
+  meta: {
+    name: "seed",
+    description: "Execute a seed SQL file against a team database. Looks for seed.sql in common locations or use --file to specify.",
+  },
+  args: {
+    name: {
+      type: "positional",
+      description: "Database name (as shown by `creek db ls`)",
+      required: true,
+    },
+    file: {
+      type: "string",
+      description: "Path to seed SQL file. Default: auto-detect seed.sql in drizzle/, migrations/, sql/, or project root.",
+      required: false,
+    },
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const token = getToken();
+    if (!token) {
+      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      consola.error("Not authenticated. Run `creek login` first.");
+      process.exit(1);
+    }
+    const client = new CreekClient(getApiUrl(), token);
+
+    // Resolve database
+    const { resources } = await client.listResources();
+    const db = resources.find((r) => r.name === args.name && r.kind === "database");
+    if (!db) {
+      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${args.name}"` }, 1);
+      consola.error(`No database named "${args.name}"`);
+      process.exit(1);
+    }
+
+    // Find seed file
+    const cwd = process.cwd();
+    let seedPath: string | null = null;
+
+    if (args.file) {
+      seedPath = resolve(cwd, args.file);
+      if (!existsSync(seedPath)) {
+        if (jsonMode) jsonOutput({ ok: false, error: "file_not_found", message: `Seed file not found: ${args.file}` }, 1);
+        consola.error(`Seed file not found: ${args.file}`);
+        process.exit(1);
+      }
+    } else {
+      for (const candidate of SEED_CANDIDATES) {
+        const abs = resolve(cwd, candidate);
+        if (existsSync(abs)) {
+          seedPath = abs;
+          break;
+        }
+      }
+      if (!seedPath) {
+        const msg = "No seed file found. Looked for: " + SEED_CANDIDATES.join(", ") + ". Use --file to specify.";
+        if (jsonMode) jsonOutput({ ok: false, error: "no_seed_file", message: msg }, 1);
+        consola.error(msg);
+        process.exit(1);
+      }
+    }
+
+    // Read and execute
+    const sql = readFileSync(seedPath, "utf-8");
+    const statements = splitStatements(sql);
+
+    if (statements.length === 0) {
+      if (jsonMode) jsonOutput({ ok: true, message: "Seed file is empty", executed: 0 }, 0);
+      consola.info("Seed file is empty — nothing to execute.");
+      return;
+    }
+
+    consola.info(`Seeding "${args.name}" from ${seedPath.replace(cwd + "/", "")}`);
+    consola.info(`${statements.length} statement(s)\n`);
+
+    for (let i = 0; i < statements.length; i++) {
+      try {
+        await client.queryDatabase(db.id, statements[i]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonMode) {
+          jsonOutput({
+            ok: false,
+            error: "seed_failed",
+            statement: i + 1,
+            totalStatements: statements.length,
+            message: msg,
+          }, 1);
+        }
+        consola.error(`Statement ${i + 1}/${statements.length} failed: ${msg}`);
+        process.exit(1);
+      }
+    }
+
+    if (jsonMode) jsonOutput({ ok: true, executed: statements.length }, 0);
+    consola.success(`Seed complete (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
+  },
+});
+
 // Merge subcommands into the base resource command
 export const dbCommand = defineCommand({
   meta: base.meta!,
@@ -356,5 +465,6 @@ export const dbCommand = defineCommand({
     ...base.subCommands,
     shell: shellCommand,
     migrate: migrateCommand,
+    seed: seedCommand,
   },
 });
