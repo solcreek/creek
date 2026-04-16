@@ -307,17 +307,38 @@ export function formatPreviewComment(
   const parts = [framework, `${assetCount} assets`];
   if (serverFileCount > 0) parts.push(`${serverFileCount} server files`);
 
+  const displayUrl = previewUrl.replace(/^https?:\/\//, "");
+  const fullUrl = previewUrl.startsWith("http") ? previewUrl : `https://${previewUrl}`;
+
   return [
-    `### Creek Preview`,
+    `### ⬡ Creek Preview`,
     "",
     `| Status | URL |`,
     `|--------|-----|`,
-    `| Ready | [${previewUrl}](https://${previewUrl}) |`,
+    `| ✅ Ready | [${displayUrl}](${fullUrl}) |`,
     "",
-    `**Built in ${buildTime}s** · ${parts.join(" · ")}`,
+    buildTime > 0 ? `**Built in ${buildTime}s** · ${parts.join(" · ")}` : parts.join(" · "),
     "",
     `<sub>Deployed by [Creek](https://creek.dev)</sub>`,
   ].join("\n");
+}
+
+/**
+ * Find the open PR number for a given branch. Returns null if no open PR.
+ */
+export async function findPRForBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<number | null> {
+  const res = await githubFetch(
+    token,
+    `/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open&per_page=1`,
+  );
+  if (!res.ok) return null;
+  const prs = await res.json() as Array<{ number: number }>;
+  return prs.length > 0 ? prs[0].number : null;
 }
 
 // --- Helpers ---
