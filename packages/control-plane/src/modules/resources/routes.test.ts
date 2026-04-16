@@ -30,7 +30,7 @@ function req(method: string, path: string, body?: unknown) {
   return app.request(path, init, env);
 }
 
-describe("resources-v2 input validation", () => {
+describe("resources input validation", () => {
   test("POST /resources rejects unknown kind", async () => {
     const res = await req("POST", "/resources", { kind: "wat", name: "x" });
     expect(res.status).toBe(400);
@@ -48,18 +48,21 @@ describe("resources-v2 input validation", () => {
     expect(res.status).toBe(400);
   });
 
-  test("POST /resources accepts valid database kind + hyphen name", async () => {
-    const res = await req("POST", "/resources", { kind: "database", name: "my-db" });
+  test("POST /resources accepts valid database kind + hyphen name (pre-provisioned)", async () => {
+    // Pass cfResourceId to skip auto-provision (no CF API in tests)
+    const res = await req("POST", "/resources", { kind: "database", name: "my-db", cfResourceId: "test-d1-uuid" });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       id: string;
       teamId: string;
       kind: string;
       name: string;
+      cfResourceId: string;
       status: string;
     };
     expect(body.kind).toBe("database");
     expect(body.name).toBe("my-db");
+    expect(body.cfResourceId).toBe("test-d1-uuid");
     expect(body.status).toBe("active");
     expect(body.teamId).toBe(teamId);
     // UUIDs are 36-char
@@ -68,7 +71,9 @@ describe("resources-v2 input validation", () => {
 
   test("POST /resources accepts storage / cache / ai kinds", async () => {
     for (const kind of ["storage", "cache", "ai"]) {
-      const res = await req("POST", "/resources", { kind, name: `r-${kind}` });
+      // Pass cfResourceId for provisionable kinds; ai has no CF resource
+      const extra = kind === "ai" ? {} : { cfResourceId: `test-${kind}-id` };
+      const res = await req("POST", "/resources", { kind, name: `r-${kind}`, ...extra });
       expect(res.status).toBe(201);
     }
   });

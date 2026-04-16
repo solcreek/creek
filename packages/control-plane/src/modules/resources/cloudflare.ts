@@ -90,6 +90,44 @@ export async function deleteCustomHostname(
   );
 }
 
+// --- Generic provision helpers ---
+
+/**
+ * Find an existing CF resource by type + name. Returns the CF resource
+ * ID if found, null otherwise. Used for idempotent provisioning.
+ */
+export async function findExistingCFResource(
+  env: Env,
+  cfType: string,
+  name: string,
+): Promise<string | null> {
+  switch (cfType) {
+    case "d1": return getD1Database(env, name);
+    case "r2": return (await getR2Bucket(env, name)) ? name : null;
+    case "kv": return getKVNamespace(env, name);
+    default: return null;
+  }
+}
+
+/**
+ * Create a new CF resource. Returns the CF resource ID.
+ */
+export async function provisionCFResource(
+  env: Env,
+  cfType: string,
+  name: string,
+): Promise<string> {
+  switch (cfType) {
+    case "d1": return createD1Database(env, name);
+    case "r2": {
+      await createR2Bucket(env, name);
+      return name; // R2 bucket ID = its name
+    }
+    case "kv": return createKVNamespace(env, name);
+    default: throw new Error(`Unknown CF resource type: ${cfType}`);
+  }
+}
+
 // --- D1 ---
 
 export async function createD1Database(

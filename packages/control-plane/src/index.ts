@@ -17,7 +17,7 @@ import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstal
 import { webDeploy } from "./modules/web-deploy/routes.js";
 import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
 import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
-import { resources as resourcesV2, resourceBindings } from "./modules/resources-v2/routes.js";
+import { resources, resourceBindings } from "./modules/resources/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 
@@ -116,7 +116,7 @@ app.use("/projects/*", auditContextMiddleware);
 app.use("/instant-deploy/*", tenantMiddleware);
 app.use("/instant-deploy/*", auditContextMiddleware);
 app.use("/github/*", tenantMiddleware);
-// Resources v2: team-scoped resource CRUD. Needs tenantMiddleware the
+// Resources: team-scoped resource CRUD. Needs tenantMiddleware the
 // same way /projects does. Separate mount point keeps the semantic clean
 // — these are team-level entities, not project children.
 app.use("/resources/*", tenantMiddleware);
@@ -128,7 +128,7 @@ app.route("/projects", logs);
 app.route("/projects", metrics);
 app.route("/projects", buildLogsRead);
 app.route("/projects", resourceBindings);
-app.route("/resources", resourcesV2);
+app.route("/resources", resources);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
 

@@ -16,7 +16,6 @@ import {
   detectFramework,
   resolveConfig,
   formatDetectionSummary,
-  resolvedConfigToResources,
   resolvedConfigToBindingRequirements,
   ConfigNotFoundError,
   getSSRServerDir,
@@ -1141,9 +1140,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       workerScript: null,
       assets: clientAssets,
       serverFiles,
-      // Backward compat: boolean flags
-      resources: resolvedConfigToResources(resolved),
-      // New: binding declarations with user-defined names
+      // Binding declarations with user-defined names
       bindings: resolvedConfigToBindingRequirements(resolved),
       // Pass through wrangler vars and compat settings
       ...(Object.keys(resolved.vars).length > 0 ? { vars: resolved.vars } : {}),

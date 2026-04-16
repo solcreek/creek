@@ -824,14 +824,11 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  // Look up the project's queue
-  const queueRow = await c.env.DB.prepare(
-    "SELECT cfResourceId FROM project_resource WHERE projectId = ? AND resourceType = ? AND status = 'active'",
-  )
-    .bind(project.id, "queue")
-    .first<{ cfResourceId: string }>();
+  // Look up the project's queue via resource bindings
+  const { getProjectQueueId } = await import("../resources/service.js");
+  const queueId = await getProjectQueueId(c.env, project.id);
 
-  if (!queueRow) {
+  if (!queueId) {
     return c.json({
       error: "queue_not_provisioned",
       message: "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
@@ -846,8 +843,8 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
 
   try {
     const { sendQueueMessage } = await import("../resources/cloudflare.js");
-    await sendQueueMessage(c.env, queueRow.cfResourceId, messageBody);
-    return c.json({ ok: true, queueId: queueRow.cfResourceId });
+    await sendQueueMessage(c.env, queueId, messageBody);
+    return c.json({ ok: true, queueId });
   } catch (err) {
     return c.json({
       error: "send_failed",
