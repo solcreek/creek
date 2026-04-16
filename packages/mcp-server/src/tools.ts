@@ -388,6 +388,29 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
     },
   );
+
+  server.tool(
+    "rename_resource",
+    "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      resourceId: z.string().describe("Resource ID"),
+      name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
+    },
+    async ({ apiKey, resourceId, name }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/resources/${resourceId}`, {
+        method: "PATCH",
+        headers: cpHeaders(apiKey),
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }] };
+    },
+  );
 }
 
 // ================================================================
