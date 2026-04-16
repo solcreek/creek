@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
@@ -220,7 +221,7 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
             autoFocus
           />
         ) : (
-          <span className="font-mono truncate">{resource.name}</span>
+          <Link to={`/resources/${resource.id}`} className="font-mono truncate hover:underline">{resource.name}</Link>
         )}
         {attachedTo.length > 0 ? (
           <span className="text-muted-foreground truncate">
