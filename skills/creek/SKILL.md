@@ -85,7 +85,8 @@ Map user phrasing to the right workflow before doing anything else.
 | "deploy this" (no context) | `creek deploy --dry-run --json` first, then `creek deploy --json` |
 | "deploy failed" / "something broke" | See `references/diagnosis.md` |
 | "can't see logs" | Is it missing because edge-cached? See `references/observability.md` |
-| "add a database" / "need a DB" | `creek db create <name>` + `creek db attach` (see `references/resources.md`) |
+| "add a database" / "need a DB" (no account) | Sandbox auto-provisions: add `[resources] database = true` to creek.toml. See "Sandbox with DB" below. |
+| "add a database" / "need a DB" (signed in) | `creek db create <name>` + `creek db attach` (see `references/resources.md`) |
 | "how do I run this locally" | `creek dev` |
 | "rollback the last deploy" | `creek rollback --json` |
 | "add a domain" | `creek domains add <host>` + DNS CNAME → `creek domains activate` |
@@ -95,6 +96,55 @@ Map user phrasing to the right workflow before doing anything else.
 
 If the phrasing doesn't match any row, default to `creek doctor --json`
 — it surfaces the most likely misconfiguration.
+
+## Sandbox with DB (no account, 60 min preview)
+
+Sandbox mode auto-provisions a D1 database when `creek.toml` declares
+`[resources] database = true` — no `creek login`, no `creek db create`
+required. The binding name is `DB`. This makes it safe to build a
+DB-backed CRUD demo (e.g. TODO list) and ship a live URL in one step.
+
+```toml
+# creek.toml
+[project]
+name = "todo-app"
+
+[build]
+worker = "worker.ts"      # required for API routes
+output = "public"         # static assets dir (at minimum: index.html)
+
+[resources]
+database = true           # NOT d1 = true — doctor flags that as error
+```
+
+```ts
+// worker.ts
+import { define } from "d1-schema";
+
+export interface Env { DB: D1Database }
+
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    await define(env.DB, {
+      todos: { id: "text primary key", text: "text not null", completed: "integer default 0" },
+    });
+    // ...env.DB.prepare("SELECT * FROM todos").all()
+  },
+};
+```
+
+Constraints to know before starting:
+
+- **`public/index.html` is required.** Sandbox rejects worker-only
+  bundles with `No assets in bundle`. Serve your UI as static + use
+  the worker for `/api/*`.
+- **`creek deploy --dry-run --json` first.** It runs the full
+  doctor check and surfaces `[resources]` typos (e.g. the `d1/kv/r2`
+  vs `database/cache/storage` split) before you burn a deploy.
+- **`creek logs` and `creek doctor --last` need auth**, so runtime
+  errors in sandbox are hard to diagnose. Return JSON errors with a
+  meaningful `message` from your handlers so failures surface via the
+  HTTP response instead.
 
 ## Agent Rules
 
