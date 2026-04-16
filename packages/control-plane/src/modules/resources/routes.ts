@@ -211,6 +211,76 @@ resources.delete("/:id", requirePermission("project:create"), async (c) => {
   return c.json({ id, status: "deleted" });
 });
 
+/**
+ * POST /resources/:id/query — execute SQL against a D1 database resource.
+ * Proxies to the CF D1 HTTP API. Only works for kind=database resources.
+ */
+resources.post("/:id/query", requirePermission("project:create"), async (c) => {
+  const teamId = c.get("teamId");
+  const id = c.req.param("id");
+
+  const resource = await c.env.DB.prepare(
+    `SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE id = ? AND teamId = ?`,
+  )
+    .bind(id, teamId)
+    .first<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>();
+
+  if (!resource) return c.json({ error: "not_found" }, 404);
+  if (resource.kind !== "database" || resource.cfResourceType !== "d1") {
+    return c.json({ error: "invalid_kind", message: "Query is only supported for database resources" }, 400);
+  }
+  if (!resource.cfResourceId) {
+    return c.json({ error: "not_provisioned", message: "Database not yet provisioned" }, 400);
+  }
+
+  const body = await c.req.json<{ sql?: string; params?: unknown[] }>();
+  if (!body.sql || typeof body.sql !== "string") {
+    return c.json({ error: "validation", message: "sql field required" }, 400);
+  }
+  if (body.sql.length > 100_000) {
+    return c.json({ error: "validation", message: "SQL query too large (max 100KB)" }, 400);
+  }
+  if (body.params && !Array.isArray(body.params)) {
+    return c.json({ error: "validation", message: "params must be an array" }, 400);
+  }
+  if (resource.status !== "active") {
+    return c.json({ error: "not_active", message: `Resource status is '${resource.status}'` }, 400);
+  }
+
+  // Proxy to CF D1 HTTP API
+  const d1Url = `https://api.cloudflare.com/client/v4/accounts/${c.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${resource.cfResourceId}/query`;
+  const d1Res = await fetch(d1Url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${c.env.CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ sql: body.sql, params: body.params ?? [] }),
+  });
+
+  const d1Data = await d1Res.json() as any;
+  if (!d1Data.success) {
+    return c.json({
+      error: "query_failed",
+      message: d1Data.errors?.[0]?.message ?? "Query failed",
+      errors: d1Data.errors,
+    }, 400);
+  }
+
+  // D1 API returns result[0] for single queries
+  const result = d1Data.result?.[0] ?? d1Data.result;
+  return c.json({
+    columns: result?.results?.length > 0 ? Object.keys(result.results[0]) : [],
+    rows: result?.results ?? [],
+    meta: {
+      changes: result?.meta?.changes ?? 0,
+      duration: result?.meta?.duration ?? 0,
+      rows_read: result?.meta?.rows_read ?? 0,
+      rows_written: result?.meta?.rows_written ?? 0,
+    },
+  });
+});
+
 // ---------------------------------------------------------------------
 // /projects/:slug/bindings — per-project
 // ---------------------------------------------------------------------
