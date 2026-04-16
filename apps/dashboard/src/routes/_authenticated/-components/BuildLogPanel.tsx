@@ -9,7 +9,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type Step =
   | "clone"
@@ -62,6 +62,17 @@ const STEP_ORDER: Step[] = [
   "cleanup",
 ];
 
+type LevelFilter = "all" | "warn-up" | "error-only";
+type Level = LogLine["level"];
+
+const LEVEL_RANK: Record<Level, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+  fatal: 4,
+};
+
 export function BuildLogPanel({
   projectId,
   deploymentId,
@@ -70,11 +81,30 @@ export function BuildLogPanel({
   deploymentId: string;
 }) {
   const [showRaw, setShowRaw] = useState(false);
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
+  const [hiddenSteps, setHiddenSteps] = useState<Set<Step>>(new Set());
+  const [search, setSearch] = useState("");
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["build-log", projectId, deploymentId],
     queryFn: () =>
       api<LogResponse>(`/projects/${projectId}/deployments/${deploymentId}/logs`),
   });
+
+  const filteredEntries = useMemo(() => {
+    if (!data?.entries) return [] as LogLine[];
+    const needle = search.trim().toLowerCase();
+    const levelMin =
+      levelFilter === "error-only" ? LEVEL_RANK.error :
+      levelFilter === "warn-up" ? LEVEL_RANK.warn :
+      0;
+    return data.entries.filter((e) => {
+      if (hiddenSteps.has(e.step)) return false;
+      if (LEVEL_RANK[e.level] < levelMin) return false;
+      if (needle && !e.msg.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [data?.entries, hiddenSteps, levelFilter, search]);
 
   if (isLoading) {
     return (
@@ -101,23 +131,106 @@ export function BuildLogPanel({
   }
 
   const meta = data.metadata;
-  const byStep = groupByStep(data.entries);
+  // Step timeline uses filtered entries but keeps step-status intact
+  // (based on full data — filtering shouldn't turn a failed step green).
+  const byStepFiltered = groupByStep(filteredEntries);
+  const byStepAll = groupByStep(data.entries);
+  const allSteps = STEP_ORDER.filter((s) => byStepAll.has(s));
+  const filterActive =
+    levelFilter !== "all" || hiddenSteps.size > 0 || search.trim().length > 0;
+
+  function toggleStep(step: Step): void {
+    setHiddenSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(step)) next.delete(step);
+      else next.add(step);
+      return next;
+    });
+  }
+
+  function clearFilters(): void {
+    setLevelFilter("all");
+    setHiddenSteps(new Set());
+    setSearch("");
+  }
 
   return (
     <div className="mt-3 rounded border border-border bg-background/40">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
+        <div className="flex items-center gap-0.5 rounded border border-border p-0.5">
+          {(["all", "warn-up", "error-only"] as const).map((level) => (
+            <button
+              key={level}
+              type="button"
+              onClick={() => setLevelFilter(level)}
+              className={`rounded px-1.5 py-0.5 font-mono ${
+                levelFilter === level
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {level === "all" ? "all" : level === "warn-up" ? "warn+" : "err"}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-0.5 rounded border border-border p-0.5">
+          {allSteps.map((step) => {
+            const hidden = hiddenSteps.has(step);
+            return (
+              <button
+                key={step}
+                type="button"
+                onClick={() => toggleStep(step)}
+                className={`rounded px-1.5 py-0.5 font-mono ${
+                  hidden
+                    ? "text-muted-foreground/40 line-through"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title={hidden ? `Show ${step}` : `Hide ${step}`}
+              >
+                {step}
+              </button>
+            );
+          })}
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="search in log…"
+          className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
+        />
+        {filterActive && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            clear
+          </button>
+        )}
+      </div>
+
       {/* Step timeline */}
       <ul className="divide-y divide-border">
-        {STEP_ORDER.filter((s) => byStep.has(s)).map((step) => {
-          const lines = byStep.get(step)!;
-          const info = stepStatus(lines, meta, step);
+        {allSteps.map((step) => {
+          const allLines = byStepAll.get(step)!;
+          const visibleLines = byStepFiltered.get(step) ?? [];
+          const info = stepStatus(allLines, meta, step);
+          // If filters hide everything in this step, keep the row so
+          // the user sees the step exists — just empty. Shows "no
+          // matches" visually via the expanded body.
           return (
             <StepRow
               key={step}
               step={step}
-              lines={lines}
+              lines={visibleLines}
+              allLinesCount={allLines.length}
               status={info.status}
               duration={info.duration}
               errorCode={info.errorCode}
+              filterActive={filterActive}
             />
           );
         })}
@@ -126,7 +239,10 @@ export function BuildLogPanel({
       {/* Metadata footer */}
       <div className="flex flex-wrap items-center gap-3 border-t border-border px-3 py-2 text-xs text-muted-foreground">
         <span>
-          {data.entries.length} lines · {formatBytes(meta.bytes)} compressed
+          {filterActive
+            ? `${filteredEntries.length} / ${data.entries.length} lines`
+            : `${data.entries.length} lines`}{" "}
+          · {formatBytes(meta.bytes)} compressed
         </span>
         {meta.truncated && (
           <span className="text-amber-400">truncated</span>
@@ -145,7 +261,7 @@ export function BuildLogPanel({
 
       {showRaw && (
         <pre className="max-h-96 overflow-auto border-t border-border bg-code-bg px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/80">
-          {data.entries
+          {(filterActive ? filteredEntries : data.entries)
             .map((l) => `${formatTs(l.ts)} [${l.step}] ${l.level.toUpperCase()} ${l.msg}`)
             .join("\n")}
         </pre>
@@ -157,17 +273,22 @@ export function BuildLogPanel({
 function StepRow({
   step,
   lines,
+  allLinesCount,
   status,
   duration,
   errorCode,
+  filterActive,
 }: {
   step: Step;
   lines: LogLine[];
+  allLinesCount: number;
   status: "success" | "failed" | "running" | "unknown";
   duration: number | null;
   errorCode: string | null;
+  filterActive: boolean;
 }) {
   const [expanded, setExpanded] = useState(status === "failed");
+  const hiddenByFilter = filterActive && lines.length === 0 && allLinesCount > 0;
 
   const statusIcon =
     status === "success" ? (
@@ -207,7 +328,12 @@ function StepRow({
       </button>
       {expanded && (
         <div className="border-t border-border bg-code-bg/60 px-3 py-2 font-mono">
-          {(expanded ? lines : preview).map((l, i) => (
+          {hiddenByFilter ? (
+            <div className="text-muted-foreground italic">
+              {allLinesCount} line{allLinesCount === 1 ? "" : "s"} hidden by filters
+            </div>
+          ) : (
+            (expanded ? lines : preview).map((l, i) => (
             <div
               key={i}
               className={`whitespace-pre-wrap break-words ${
@@ -220,7 +346,7 @@ function StepRow({
             >
               {l.msg}
             </div>
-          ))}
+          )))}
         </div>
       )}
     </li>
