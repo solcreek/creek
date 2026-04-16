@@ -30,7 +30,7 @@ Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d
 | Package | npm name | Purpose |
 |---------|----------|---------|
 | `packages/sdk` | `@solcreek/sdk` | Config detection, framework detection, wrangler parsing, bindings extraction |
-| `packages/cli` | `@solcreek/cli` | CLI implementation: deploy, dev, init, login, claim, domains, env, status, deployments, ops, projects, rollback, whoami |
+| `packages/cli` | `@solcreek/cli` | CLI implementation: deploy, dev, init, login, claim, domains, env, db, storage, cache, queue, status, deployments, logs, doctor, ops, projects, rollback, whoami |
 | `packages/creek` | `creek` | User-facing umbrella package — re-exports `@solcreek/cli` (binaries: `creek`, `ck`, `crk`) and `@solcreek/runtime` (subpaths: `/react`, `/hono`) |
 | `packages/runtime` | `@solcreek/runtime` | Runtime bindings (db, kv, storage, ai). Subpath exports: `/react`, `/hono` |
 | `packages/ui` | `@solcreek/ui` | Shared UI components (shadcn + Tailwind 4) |
@@ -51,12 +51,12 @@ Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d
 | `packages/realtime-worker` | creek-realtime | (WebSocket DO) |
 | `packages/deploy-api` | creek-deploy-api | |
 | `packages/remote-builder` | creek-remote-builder | |
-| `packages/mcp-server` | creek-mcp-server | mcp.creek.dev |
+| `packages/mcp-server` | creek-mcp-server | mcp.creek.dev (deploy, status, build logs, resource CRUD) |
 
 ### Apps
 - `apps/www` — creek.dev marketing site (Next.js 16.2 on CF Workers).
   Currently deployed via OpenNextJS (`apps/www/scripts/deploy.sh`) **as an interim workaround** — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1). The end state is `creek deploy --yes` driven by `@solcreek/adapter-creek`. OpenNextJS dependency, the standalone symlink, and the middleware-manifest patch are all temporary; do not invest in OpenNextJS-side fixes here, fix them in adapter-creek instead.
-- `apps/dashboard` — app.creek.dev admin dashboard (Vite + React 19 + TanStack Router)
+- `apps/dashboard` — app.creek.dev admin dashboard (Vite + React 19 + TanStack Router). Sidebar: Platform (Projects) / Resources (Database, Storage, Cache, AI) / Account (Settings, API Keys)
 
 ### Internal Packages
 - `packages/deploy-core` — CF Static Assets API deployment logic (exports raw TS, not compiled)
@@ -81,7 +81,7 @@ Output is `ResolvedConfig` — the canonical representation used by CLI, build-c
 - **L5 Intelligence** — repo profiling, auto-instance selection (private)
 
 ### Control-Plane Modules
-`packages/control-plane/src/modules/` contains 11 domain modules: audit, deployments, domains, env, github, projects, realtime, resources, templates, tenant, web-deploy. Each module has routes, services, and types. Framework: Hono + Better Auth + Drizzle ORM + D1.
+`packages/control-plane/src/modules/` contains domain modules: audit, build-logs, deployments, domains, env, github, logs, metrics, projects, realtime, resources, tenant, web-deploy. Each module has routes, services, and types. Framework: Hono + Better Auth + Drizzle ORM + D1.
 
 ### Tenant Routing
 - Production: `{project}-{team}.bycreek.com` — handled by dispatch-worker
@@ -92,6 +92,21 @@ Output is `ResolvedConfig` — the canonical representation used by CLI, build-c
 2. **CLI template**: `creek deploy --template landing --data '{...}'` — fetch template → validate schema → build → deploy
 3. **Web deploy**: creek.dev/new → API route → remote-builder (service binding) → build-container (CF Container) → sandbox-api
 4. **GitHub push**: webhook → control-plane → remote-builder → container build → deploy
+
+### Resources Model
+Resources (D1, R2, KV) are **team-owned** first-class entities in the `resource` table, attached to projects via `project_resource_binding`. One resource can be bound to many projects under different env var names.
+
+- **Tables**: `resource` (team-scoped, stable UUID, mutable name) + `project_resource_binding` (projectId + bindingName → resourceId)
+- **Auto-provision**: `POST /resources` and deploy-time `ensureProjectBindings()` both call CF API to create the backing resource (D1/R2/KV) eagerly
+- **Deploy pipeline**: `deploy-job.ts` reads `project_resource_binding` for existing bindings; auto-creates resource + binding if the CLI bundle declares a requirement not yet bound
+- **CLI**: `creek db`, `creek storage`, `creek cache` — all share `resource-cmd.ts` factory (ls, create, attach, detach, rename, delete)
+- **MCP**: `list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`
+- **Dashboard**: sidebar Resources group (Database, Storage, Cache, AI) with per-kind pages; BindingsPanel on project Settings
+
+There is no legacy `project_resource` table — it was removed in a hard cut.
+
+### GitHub PR Previews
+On push to a non-production branch, `handlePush` deploys a preview and posts a comment on the associated PR (via `findPRForBranch` + `createOrUpdatePRComment`) with the preview URL, build time, and framework info. Uses `<!-- creek-preview -->` marker for idempotent updates.
 
 ## Key Conventions
 
