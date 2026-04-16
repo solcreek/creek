@@ -139,6 +139,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
 
     const bindings = buildBindings(resolvedBindings, envVars, {
       projectSlug,
+      projectId,
       realtimeUrl: env.CREEK_REALTIME_URL ?? `https://realtime.${env.CREEK_DOMAIN}`,
       realtimeSecret,
       needsAi,

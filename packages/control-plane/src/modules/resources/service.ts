@@ -259,6 +259,7 @@ export function buildBindings(
   envVars: { key: string; value: string }[],
   options: {
     projectSlug: string;
+    projectId: string;
     realtimeUrl: string;
     realtimeSecret?: string;
     needsAi: boolean;
@@ -312,6 +313,16 @@ export function buildBindings(
     type: "plain_text",
     name: INTERNAL_VARS.projectSlug,
     text: options.projectSlug,
+  });
+
+  // Stable UUID — adapter-creek uses this to derive per-tenant DO IDs
+  // for ISR cache isolation across projects sharing Creek's WfP dispatch
+  // namespace. Without this, two projects' cache entries could collide
+  // via DO idFromName().
+  bindings.push({
+    type: "plain_text",
+    name: INTERNAL_VARS.projectId,
+    text: options.projectId,
   });
 
   bindings.push({

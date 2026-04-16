@@ -18,6 +18,10 @@ export const BINDING_NAMES = {
 /** Internal env vars injected into every user worker */
 export const INTERNAL_VARS = {
   projectSlug: "CREEK_PROJECT_SLUG",
+  /** Stable UUID for the project — used by adapter-creek to derive
+   *  per-tenant Durable Object IDs so ISR cache entries don't collide
+   *  across projects sharing Creek's WfP dispatch namespace. */
+  projectId: "CREEK_PROJECT_ID",
   realtimeUrl: "CREEK_REALTIME_URL",
   realtimeSecret: "CREEK_REALTIME_SECRET",
 } as const;
