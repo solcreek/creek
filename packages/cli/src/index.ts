@@ -21,6 +21,8 @@ import { queueCommand } from "./commands/queue.js";
 import { logsCommand } from "./commands/logs.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { dbCommand } from "./commands/db.js";
+import { storageCommand } from "./commands/storage.js";
+import { cacheCommand } from "./commands/cache.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -57,6 +59,8 @@ const main = defineCommand({
     env: envCommand,
     queue: queueCommand,
     db: dbCommand,
+    storage: storageCommand,
+    cache: cacheCommand,
     domains: domainsCommand,
     rollback: rollbackCommand,
     ops: opsCommand,
