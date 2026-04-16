@@ -367,6 +367,18 @@ export class CreekClient {
     return this.request("DELETE", `/resources/${id}`);
   }
 
+  async queryDatabase(
+    resourceId: string,
+    sql: string,
+    params?: unknown[],
+  ): Promise<{
+    columns: string[];
+    rows: Record<string, unknown>[];
+    meta: { changes: number; duration: number; rows_read: number; rows_written: number };
+  }> {
+    return this.request("POST", `/resources/${resourceId}/query`, { sql, params });
+  }
+
   async listBindings(projectSlug: string): Promise<{
     bindings: Array<{
       bindingName: string;

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   createMockD1,
   createTestEnv,
@@ -120,5 +120,119 @@ describe("resources input validation", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("has_bindings");
+  });
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+describe("POST /resources/:id/query", () => {
+  const resourceId = "res-db-1";
+
+  function seedDatabase(overrides?: Partial<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>) {
+    db.seedFirst("SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE", [resourceId, TEST_TEAM.id], {
+      kind: "database",
+      cfResourceId: "d1-uuid-abc",
+      cfResourceType: "d1",
+      status: "active",
+      ...overrides,
+    });
+  }
+
+  test("returns 404 for unknown resource", async () => {
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1" });
+    expect(res.status).toBe(404);
+  });
+
+  test("rejects non-database resource", async () => {
+    seedDatabase({ kind: "storage", cfResourceType: "r2" });
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_kind");
+  });
+
+  test("rejects unprovisioned database", async () => {
+    seedDatabase({ cfResourceId: null });
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("not_provisioned");
+  });
+
+  test("rejects inactive resource", async () => {
+    seedDatabase({ status: "deleted" });
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("not_active");
+  });
+
+  test("rejects missing sql field", async () => {
+    seedDatabase();
+    const res = await req("POST", `/resources/${resourceId}/query`, {});
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("validation");
+  });
+
+  test("rejects sql exceeding 100KB", async () => {
+    seedDatabase();
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "X".repeat(100_001) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("100KB");
+  });
+
+  test("rejects non-array params", async () => {
+    seedDatabase();
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1", params: "bad" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("validation");
+  });
+
+  test("proxies query and returns structured result", async () => {
+    seedDatabase();
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        success: true,
+        result: [{
+          results: [{ id: 1, name: "hello" }],
+          meta: { changes: 0, duration: 1.5, rows_read: 1, rows_written: 0 },
+        }],
+      })),
+    );
+
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT * FROM test" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.columns).toEqual(["id", "name"]);
+    expect(body.rows).toEqual([{ id: 1, name: "hello" }]);
+    expect(body.meta.duration).toBe(1.5);
+
+    // Verify the CF D1 API was called correctly
+    const call = (globalThis.fetch as any).mock.calls[0];
+    expect(call[0]).toContain("/d1/database/d1-uuid-abc/query");
+    const reqBody = JSON.parse(call[1].body);
+    expect(reqBody.sql).toBe("SELECT * FROM test");
+  });
+
+  test("returns error when CF D1 query fails", async () => {
+    seedDatabase();
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        success: false,
+        errors: [{ message: "SQLITE_ERROR: no such table: foo" }],
+      })),
+    );
+
+    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT * FROM foo" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("query_failed");
+    expect(body.message).toContain("no such table");
   });
 });
