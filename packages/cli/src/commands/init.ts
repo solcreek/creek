@@ -63,11 +63,7 @@ export const initCommand = defineCommand({
         output: "dist",
         ...(useDb ? { worker: "worker/index.ts" } : {}),
       },
-      resources: {
-        d1: useDb,
-        kv: false,
-        r2: false,
-      },
+      ...(useDb ? { resources: { database: true } } : {}),
     };
 
     writeFileSync(configPath, stringify(config));
