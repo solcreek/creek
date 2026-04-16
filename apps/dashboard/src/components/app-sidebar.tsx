@@ -21,6 +21,10 @@ import {
 } from "@solcreek/ui/components/dropdown-menu";
 import {
   Folder,
+  Database,
+  HardDrive,
+  Archive,
+  Sparkles,
   Rocket,
   Settings,
   Key,
@@ -31,10 +35,20 @@ import {
 } from "lucide-react";
 import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
 
-const NAV_ITEMS = [
+const PLATFORM_ITEMS = [
   { to: "/projects" as const, label: "Projects", icon: Folder },
+];
+
+const SETTINGS_ITEMS = [
   { to: "/settings" as const, label: "Settings", icon: Settings },
   { to: "/api-keys" as const, label: "API Keys", icon: Key },
+];
+
+const RESOURCE_ITEMS = [
+  { to: "/resources/database" as const, label: "Database", icon: Database },
+  { to: "/resources/storage" as const, label: "Storage", icon: HardDrive },
+  { to: "/resources/cache" as const, label: "Cache", icon: Archive },
+  { to: "/resources/ai" as const, label: "AI", icon: Sparkles },
 ];
 
 export function AppSidebar() {
@@ -65,7 +79,29 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
           <SidebarMenu>
-            {NAV_ITEMS.map((item) => {
+            {PLATFORM_ITEMS.map((item) => {
+              const isActive = location.pathname.startsWith(item.to);
+              return (
+                <SidebarMenuItem key={item.to}>
+                  <SidebarMenuButton isActive={isActive} render={<Link to={item.to} />}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Resources</SidebarGroupLabel>
+          <SidebarMenu>
+            <ResourcesNav pathname={location.pathname} />
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Account</SidebarGroupLabel>
+          <SidebarMenu>
+            {SETTINGS_ITEMS.map((item) => {
               const isActive = location.pathname.startsWith(item.to);
               return (
                 <SidebarMenuItem key={item.to}>
@@ -139,6 +175,24 @@ export function AppSidebar() {
 
       <SidebarRail />
     </Sidebar>
+  );
+}
+
+function ResourcesNav({ pathname }: { pathname: string }) {
+  return (
+    <>
+      {RESOURCE_ITEMS.map((item) => {
+        const isActive = pathname === item.to || pathname.startsWith(item.to + "/");
+        return (
+          <SidebarMenuItem key={item.to}>
+            <SidebarMenuButton isActive={isActive} render={<Link to={item.to} />}>
+              <item.icon />
+              <span>{item.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </>
   );
 }
 
