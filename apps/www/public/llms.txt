@@ -69,6 +69,75 @@ When in doubt, assume Creek abstracts the CF primitive. If you're
 about to write CF-specific glue code, check whether the `creek` CLI
 or the `@solcreek/runtime` package already covers the concern.
 
+## Quick Triage (phrase → first command)
+
+When the user's request is ambiguous, map their phrasing to an
+initial command before doing anything else:
+
+| User says / implies | First command |
+|---|---|
+| "deploy this" (no context) | `creek deploy --dry-run --json`, then `creek deploy --json` |
+| "deploy failed" / "something broke" | See Failure Diagnosis below |
+| "add a database" / "need a DB" | `creek db create <name>` then `creek db attach <name> --to <project> --as DB` |
+| "how do I run this locally" | `creek dev` |
+| "rollback the last deploy" | `creek rollback --json` |
+| "add a domain" | `creek domains add <host>`, DNS CNAME → `cname.creek.dev`, then `creek domains activate` |
+| "why isn't my push deploying" | Check project Settings → GitHub Connection in the dashboard |
+| "what env vars does it see" | `creek env ls --json` (add `--show` for values) |
+| "is my cron running" | `creek status --json` shows cron schedules |
+| "can't see a request in logs" | It was probably edge-cached; see the Observability note below |
+
+If nothing matches, default to `creek doctor --json` — it surfaces
+the most likely misconfiguration with CK-* diagnostic codes.
+
+## Failure Diagnosis Workflow
+
+When a deploy fails, follow this sequence. Don't guess — each step
+returns structured data you can act on.
+
+1. **Pre-deploy check** (if they haven't run one yet) —
+   `creek doctor --json` returns findings with CK-* codes,
+   severities, and concrete fixes. Common fires: `CK-NO-CONFIG`,
+   `CK-NOTHING-TO-DEPLOY`, `CK-DB-DUAL-DRIVER-SPLIT`,
+   `CK-SYNC-SQLITE`, `CK-PRISMA-SQLITE`.
+
+2. **Find the failed deployment** —
+   `creek deployments --json` lists deployments newest-first.
+   Scan for `status: "failed"` and note the `id`.
+
+3. **Read the build log** —
+   `creek deployments logs <id-prefix> --json`. Look at
+   `metadata.errorCode` and `metadata.errorStep`. Lines with
+   `level: "error"` or from the failing step are the signal.
+
+4. **Apply the fix** — match `errorCode` to the CK-* table:
+
+   | Code | Fix |
+   |---|---|
+   | `CK-NO-CONFIG` | `creek init` or cd to a project root |
+   | `CK-NOTHING-TO-DEPLOY` | Run the build, or set `[build].command` in creek.toml |
+   | `CK-DB-DUAL-DRIVER-SPLIT` | Consolidate to shared schema.ts + routes.ts + thin boot split (see vite-react-drizzle example) |
+   | `CK-SYNC-SQLITE` | Move to async ORM (Drizzle/Kysely) with D1 adapter |
+   | `CK-PRISMA-SQLITE` | Prisma+SQLite not supported on Workers; switch to Drizzle/Kysely |
+   | `CK-RUNTIME-LOCKIN` | Drop `@solcreek/*` runtime imports for a portable build |
+   | `CK-CONFIG-OVERLAP` | Keep either creek.toml or wrangler.*, not both |
+
+5. **Redeploy** — `creek deploy --json`. If the fix was config-side,
+   `creek doctor --json` should now be clean.
+
+## Observability (three streams)
+
+| Question | Tool |
+|---|---|
+| "What happened during my last deploy?" | `creek deployments logs <id>` |
+| "What's my worker doing in production?" | `creek logs --follow` |
+| "Why did my deploy fail, and can an agent fix it autonomously?" | MCP `get_build_log` tool (needs Creek API key) |
+
+**Edge-cache caveat**: HTML served from the CF edge cache never
+invokes the worker, so no log event fires for those requests. They
+won't appear in `creek logs`. Check the Analytics tab in the
+dashboard for total HTTP traffic including cache hits.
+
 ## Quick Start
 
 ```
