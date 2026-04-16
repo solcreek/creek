@@ -270,6 +270,124 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       };
     },
   );
+
+  // ================================================================
+  // Tier 2: Resource management
+  // ================================================================
+
+  function cpHeaders(apiKey: string): Record<string, string> {
+    return { "x-api-key": apiKey, "Content-Type": "application/json" };
+  }
+
+  server.tool(
+    "list_resources",
+    "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      kind: z.enum(["database", "storage", "cache", "ai"]).optional().describe("Filter by resource kind"),
+    },
+    async ({ apiKey, kind }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/resources`, { headers: cpHeaders(apiKey) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText })) as any;
+        return { content: [{ type: "text" as const, text: `Failed: ${err.message ?? res.statusText}` }], isError: true };
+      }
+      const data = await res.json() as { resources: any[] };
+      const filtered = kind ? data.resources.filter((r: any) => r.kind === kind) : data.resources;
+      return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "create_resource",
+    "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
+      name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
+    },
+    async ({ apiKey, kind, name }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/resources`, {
+        method: "POST",
+        headers: cpHeaders(apiKey),
+        body: JSON.stringify({ kind, name }),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "attach_resource",
+    "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      projectSlug: z.string().describe("Project slug"),
+      resourceId: z.string().describe("Resource ID (from list_resources)"),
+      bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
+    },
+    async ({ apiKey, projectSlug, resourceId, bindingName }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/projects/${projectSlug}/bindings`, {
+        method: "POST",
+        headers: cpHeaders(apiKey),
+        body: JSON.stringify({ resourceId, bindingName }),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: `Attached resource ${resourceId} → ${projectSlug} as env.${bindingName}` }] };
+    },
+  );
+
+  server.tool(
+    "detach_resource",
+    "Remove a resource binding from a project. The resource itself is not deleted. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      projectSlug: z.string().describe("Project slug"),
+      bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
+    },
+    async ({ apiKey, projectSlug, bindingName }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/projects/${projectSlug}/bindings/${bindingName}`, {
+        method: "DELETE",
+        headers: cpHeaders(apiKey),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ message: res.statusText })) as any;
+        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` }] };
+    },
+  );
+
+  server.tool(
+    "delete_resource",
+    "Delete a team-owned resource. Fails if any project still has a binding to it — detach first. Requires a Creek API key.",
+    {
+      apiKey: z.string().describe("Creek API key"),
+      resourceId: z.string().describe("Resource ID"),
+    },
+    async ({ apiKey, resourceId }) => {
+      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/resources/${resourceId}`, {
+        method: "DELETE",
+        headers: cpHeaders(apiKey),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
+    },
+  );
 }
 
 // ================================================================
