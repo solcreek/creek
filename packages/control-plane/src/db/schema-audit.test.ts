@@ -172,6 +172,8 @@ describe("schema audit", () => {
     "_d1schema_meta",
     // Analytics Engine dataset (not D1) — tail-worker writes, metrics reads
     "creek_tenant_requests",
+    // Creek migration tracking — lives in user D1 databases, not control-plane
+    "_creek_migrations",
   ]);
 
   // Walk all package source dirs
