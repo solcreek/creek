@@ -5,6 +5,22 @@ import { Footer } from "@/components/footer";
 
 const entries = [
   {
+    date: "2026-04-16",
+    version: "sdk@0.4.7 · cli@0.4.15 · creek@0.4.15",
+    title: "Team-owned resources, creek db toolchain, PR preview comments",
+    items: [
+      "**Resources are now team-owned, not project-owned.** Databases, storage buckets, KV namespaces, and AI bindings are first-class entities with stable UUIDs and mutable names. One database can be attached to many projects; deleting a project no longer destroys its data. The old `project_resource` model has been hard-cut — no migration, no legacy path, just the clean model. This is the shape Heroku addons and Fly.io volumes have had for years; Creek now joins them from day one.",
+      "**`creek db` is now a complete database toolchain.** Nine subcommands: `ls`, `create`, `attach`, `detach`, `rename`, `delete`, `shell` (interactive SQL REPL with `.tables` and `.schema`), `migrate` (apply pending `.sql` files with tracking + dry-run), and `seed` (execute a seed file). The migrate command auto-detects Drizzle's `drizzle/` directory, splits by `--> statement-breakpoint` markers, tracks applied state in a `_creek_migrations` table, and stops on first failure with exact position reporting.",
+      "**`creek storage` and `creek cache` CLI commands.** Same CRUD shape as `creek db` — ls, create, attach, detach, rename, delete. All three resource CLIs share a single factory (`resource-cmd.ts`), so behavior and flags are identical across resource types.",
+      "**PR preview comments.** When a GitHub push deploys a preview for a non-production branch, Creek now posts (or updates) a comment on the associated PR with the preview URL, build time, framework, and asset count. Uses a `<!-- creek-preview -->` marker for idempotent updates across force-pushes. Preview URL and build metadata are real deployment data, not placeholders.",
+      "**MCP resource management — all 6 operations.** `list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `rename_resource`, `delete_resource`. AI agents can now provision and wire databases without touching the CLI or dashboard.",
+      "**Dashboard restructured.** Sidebar is now three groups: Platform (Projects), Resources (Database, Storage, Cache, AI), Account (Settings, API Keys). Each resource kind has its own page. Clicking a resource name opens a detail page showing CF metadata, attached projects, usage metrics, rename, and delete.",
+      "**Resource usage metrics.** `GET /resources/:id/metrics` proxies to CF APIs — D1 returns database size + table count, R2 returns object count, KV returns key count. The dashboard detail page renders these as live metric cards with 60-second auto-refresh.",
+      "**deploy-core test coverage: 0 to 38.** The deployment pipeline core (`hashAsset`, `sanitizeBranch`, `cfApi`, `deployScriptWithAssets`, D1/R2/KV resource operations) now has comprehensive unit tests. Previously untested.",
+      "**Query API for team databases.** `POST /resources/:id/query` proxies SQL to the CF D1 HTTP API with team ownership validation, kind checking, provisioning status verification, and a 100KB query size limit. 9 endpoint tests covering all edge cases.",
+    ],
+  },
+  {
     date: "2026-04-15",
     version: "Build logs · Resources v2 · Agent surface consolidation",
     title: "Close the loop on failed deploys — and stop agents from working around Creek",
