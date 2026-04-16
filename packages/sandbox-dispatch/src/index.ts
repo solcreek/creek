@@ -334,6 +334,26 @@ export default {
       );
       let response = await userWorker.fetch(request);
 
+      // Null-body statuses (101/204/205/304) cannot carry a body per
+      // the Fetch spec. Reconstructing the response with `new Response(body, ...)`
+      // throws, and banner injection would corrupt the contract anyway.
+      // Pass these through unchanged.
+      const nullBodyStatus =
+        response.status === 101 ||
+        response.status === 204 ||
+        response.status === 205 ||
+        response.status === 304;
+
+      if (nullBodyStatus) {
+        const headers = new Headers(response.headers);
+        headers.set("X-Sandbox-Id", sandboxId);
+        return new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      }
+
       // Infer Content-Type if missing
       if (response.ok && !response.headers.get("Content-Type")) {
         const lastSegment = url.pathname.split("/").pop() ?? "";

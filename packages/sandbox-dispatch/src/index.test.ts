@@ -136,6 +136,42 @@ describe("sandbox-dispatch worker", () => {
     expect(body).toContain("creek-sb-");
   });
 
+  // 101 is WebSocket Upgrade only — user Workers can't emit it via
+  // `new Response(null, { status: 101 })` (the Response constructor
+  // itself throws). Test 204/205/304 which agents do hit.
+  test.each([204, 205, 304])(
+    "null-body status %i passes through without banner injection",
+    async (status) => {
+      const sandboxId = "abc12345";
+      const { env } = createEnv({
+        d1Rows: {
+          [sandboxId]: {
+            id: sandboxId,
+            status: "active",
+            expiresAt: Date.now() + 60_000,
+            previewHost: `${sandboxId}.creeksandbox.com`,
+            deployDurationMs: 9000,
+          },
+        },
+        scriptHandlers: {
+          [`${sandboxId}-sandbox`]: async () =>
+            new Response(null, { status }),
+        },
+      });
+
+      const res = await worker.fetch(
+        new Request(`https://${sandboxId}.creeksandbox.com/api/x`, { method: "DELETE" }),
+        env,
+      );
+      expect(res.status).toBe(status);
+      expect(res.headers.get("X-Sandbox-Id")).toBe(sandboxId);
+      // Body must be empty — constructing `new Response(anything, { status: 204 })`
+      // with a body would throw, so this confirms pass-through.
+      const body = await res.text();
+      expect(body).toBe("");
+    },
+  );
+
   test("returns 410 when sandbox is expired", async () => {
     const sandboxId = "expired1";
     const { env } = createEnv({
