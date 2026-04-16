@@ -25,9 +25,11 @@ import {
   detectNextjsMode,
   detectMonorepo,
   planDeploy,
+  runDoctor,
   type Framework,
   type ResolvedConfig,
 } from "@solcreek/sdk";
+import { buildDoctorContext } from "../utils/doctor-context.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { collectAssets } from "../utils/bundle.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
@@ -134,6 +136,16 @@ async function dryRunPlan(
       }))
     : [];
 
+  // Run the same rule engine as `creek doctor` so dry-run surfaces
+  // config errors (e.g. CK-RESOURCES-KEYS) that would otherwise only
+  // reveal themselves at runtime when the missing binding crashes the
+  // worker. Agents following the SKILL.md "dry-run first" rule need
+  // these findings here, not after a 500.
+  const doctorReport = runDoctor(buildDoctorContext(cwd));
+  const blockingFindings = doctorReport.findings.filter(
+    (f) => f.severity === "error",
+  );
+
   const plan = {
     mode: "dry-run" as const,
     supported: true,
@@ -159,6 +171,7 @@ async function dryRunPlan(
       : null,
     buildOutputFallback,
     bindings,
+    findings: doctorReport.findings,
     wouldDeploy,
     sideEffects: {
       networkCalls: false,
@@ -166,7 +179,9 @@ async function dryRunPlan(
       buildExecuted: false,
       tosPromptShown: false,
     },
-    nextStep: wouldDeploy
+    nextStep: blockingFindings.length > 0
+      ? `Fix ${blockingFindings.length} blocking issue${blockingFindings.length === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`
+      : wouldDeploy
       ? "Run without --dry-run to execute: npx creek deploy"
       : "No project config or build output found. Run `creek init` or `npm create vite@latest` first.",
   };
@@ -212,6 +227,21 @@ async function dryRunPlan(
           .map((b) => `${b.name} (${b.type})`)
           .join(", ")} — would be skipped`,
       );
+    }
+    if (doctorReport.findings.length > 0) {
+      const errCount = doctorReport.summary.error;
+      const warnCount = doctorReport.summary.warn;
+      const infoCount = doctorReport.summary.info;
+      const parts: string[] = [];
+      if (errCount) parts.push(`${errCount} error${errCount === 1 ? "" : "s"}`);
+      if (warnCount) parts.push(`${warnCount} warning${warnCount === 1 ? "" : "s"}`);
+      if (infoCount) parts.push(`${infoCount} info`);
+      consola.log(
+        `  Doctor findings:  ${parts.join(", ")} — run \`creek doctor\` for details`,
+      );
+      for (const f of doctorReport.findings.filter((f) => f.severity === "error")) {
+        consola.log(`    \x1b[31m✗\x1b[0m [${f.code}] ${f.title}`);
+      }
     }
   } else if (buildOutputFallback) {
     consola.log(

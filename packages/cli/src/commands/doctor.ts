@@ -4,24 +4,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   runDoctor,
-  resolveConfig,
-  ConfigNotFoundError,
-  type DoctorContext,
   type DoctorReport,
   type Finding,
-  type ResolvedConfig,
 } from "@solcreek/sdk";
-
-// Local shape — matches the SDK doctor's PackageJson. Duplicated
-// instead of re-exported because the SDK's types/index.ts uses a
-// different (richer) Package shape we don't need here.
-interface PackageJson {
-  name?: string;
-  version?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  scripts?: Record<string, string>;
-}
+import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import {
@@ -80,7 +66,7 @@ export const doctorCommand = defineCommand({
     }
 
     const cwd = resolve((args.path as string | undefined) ?? process.cwd());
-    const ctx = buildContext(cwd);
+    const ctx = buildDoctorContext(cwd);
     const report = runDoctor(ctx);
 
     if (jsonMode) {
@@ -102,49 +88,9 @@ export const doctorCommand = defineCommand({
   },
 });
 
-function buildContext(cwd: string): DoctorContext {
-  const fileExists = (relPath: string): boolean =>
-    existsSync(join(cwd, relPath));
-  const creekTomlPath = join(cwd, "creek.toml");
-  const creekTomlRaw = existsSync(creekTomlPath)
-    ? safeRead(creekTomlPath)
-    : null;
-  const pkgPath = join(cwd, "package.json");
-  const packageJson: PackageJson | null = existsSync(pkgPath)
-    ? safeParseJson<PackageJson>(pkgPath)
-    : null;
-  const resolved: ResolvedConfig | null = resolveConfigSafely(cwd);
-  const allDeps = {
-    ...(packageJson?.dependencies ?? {}),
-    ...(packageJson?.devDependencies ?? {}),
-  };
-  return { cwd, resolved, packageJson, creekTomlRaw, fileExists, allDeps };
-}
-
-function resolveConfigSafely(cwd: string): ResolvedConfig | null {
-  try {
-    return resolveConfig(cwd);
-  } catch (err) {
-    if (err instanceof ConfigNotFoundError) return null;
-    // Other errors (parse failures) bubble as null — the rules will
-    // still pick up partial info from creekTomlRaw + packageJson.
-    return null;
-  }
-}
-
 function safeRead(path: string): string | null {
   try {
     return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-function safeParseJson<T>(path: string): T | null {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
