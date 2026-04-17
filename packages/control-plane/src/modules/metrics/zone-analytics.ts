@@ -235,6 +235,14 @@ export async function queryZoneHttpAnalytics(
     return null;
   }
 
+  console.log(
+    "zone-analytics: raw response for",
+    hostname,
+    "/",
+    zoneName,
+    ":",
+    JSON.stringify(json.data?.viewer?.zones?.[0] ?? null).slice(0, 500),
+  );
   const zone = json.data?.viewer?.zones?.[0];
   if (!zone) return null;
 
