@@ -8,6 +8,12 @@ workers_dev = true
 binding = "DB"
 database_name = "creek-db"
 database_id = "b9fe9847-fbed-48a9-8c4d-a895289be631"
+# drizzle-kit writes schema.ts migrations here; point wrangler at the
+# same directory so `pnpm db:migrate:{local,remote}` picks them up
+# without the default `./migrations/` fallback. Prior to this, applying
+# a new migration required `wrangler d1 execute --file=drizzle/NNNN_*.sql`
+# by hand.
+migrations_dir = "./drizzle"
 
 [[r2_buckets]]
 binding = "ASSETS"
