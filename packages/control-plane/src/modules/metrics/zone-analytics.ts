@@ -127,15 +127,6 @@ export async function queryZoneHttpAnalytics(
     query {
       viewer {
         zones(filter: { zoneTag: "${zoneId}" }) {
-          zoneTotals: httpRequestsAdaptiveGroups(
-            filter: {
-              ${timeFilterKey}: "${timeFilterValue}"
-            }
-            limit: 5
-          ) {
-            count
-            dimensions { clientRequestHTTPHost }
-          }
           totals: httpRequestsAdaptiveGroups(
             filter: {
               clientRequestHTTPHost: "${hostname}"
@@ -244,14 +235,6 @@ export async function queryZoneHttpAnalytics(
     return null;
   }
 
-  console.log(
-    "zone-analytics: raw response for",
-    hostname,
-    "/",
-    zoneName,
-    ":",
-    JSON.stringify(json.data?.viewer?.zones?.[0] ?? null).slice(0, 500),
-  );
   const zone = json.data?.viewer?.zones?.[0];
   if (!zone) return null;
 
@@ -289,25 +272,44 @@ export async function queryZoneHttpAnalytics(
  * default `{slug}-{team}.bycreek.com` plus any active custom domains)
  * and merge totals + series.
  *
- * Each hostname's zone is inferred from its last two labels. Hostnames
- * on zones we don't control (external user-owned domains) silently
- * return null from the per-hostname helper; remaining hostnames still
- * contribute. If every hostname fails, the merged result is null.
+ * CF for SaaS quirk: custom hostname traffic is recorded against the
+ * FALLBACK ORIGIN's zone (bycreek.com here), not the custom domain's
+ * own parent zone. Empirically verified against creek.dev — apex
+ * requests show up in the bycreek.com zone, while subdomain www.creek.dev
+ * shows up in the creek.dev zone. So for each hostname we query BOTH
+ * `extractZoneName(hostname)` and the provided `fallbackZone`; the
+ * traffic appears in exactly one of the two and the sum is the total.
  *
- * Series merging: bucket timestamps are aligned (same `bucketDimension`
- * is used per periodHours across all hostnames), so we group by `t`
- * and sum requests + cachedRequests into a single series.
+ * Each query's zone is looked up via CLOUDFLARE_API_TOKEN; zones
+ * outside the account return null from getZoneId and don't contribute.
+ * If every query fails, the merged result is null.
  */
 export async function queryZoneHttpAnalyticsMerged(
   env: Env,
   hostnames: string[],
   periodHours: number,
+  fallbackZone: string,
 ): Promise<ZoneHttpAnalytics | null> {
   if (hostnames.length === 0) return null;
 
+  // Expand each hostname into up to 2 (hostname, zone) queries —
+  // its own parent zone and the CF for SaaS fallback origin zone.
+  // Deduplicate via a Set so apex-in-fallback-zone doesn't double-query.
+  const queries: Array<{ host: string; zone: string }> = [];
+  for (const h of hostnames) {
+    const ownZone = extractZoneName(h);
+    const seen = new Set<string>();
+    for (const z of [ownZone, fallbackZone]) {
+      if (!seen.has(z)) {
+        seen.add(z);
+        queries.push({ host: h, zone: z });
+      }
+    }
+  }
+
   const results = await Promise.all(
-    hostnames.map((h) =>
-      queryZoneHttpAnalytics(env, h, periodHours, extractZoneName(h)),
+    queries.map((q) =>
+      queryZoneHttpAnalytics(env, q.host, periodHours, q.zone),
     ),
   );
   const ok = results.filter((r): r is ZoneHttpAnalytics => r !== null);

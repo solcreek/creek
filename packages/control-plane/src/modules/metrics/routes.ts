@@ -116,7 +116,12 @@ metrics.get(
           c.env,
           timeseriesSql(scope),
         ),
-        queryZoneHttpAnalyticsMerged(c.env, allHostnames, periodHours),
+        queryZoneHttpAnalyticsMerged(
+          c.env,
+          allHostnames,
+          periodHours,
+          c.env.CREEK_DOMAIN,
+        ),
         ...dimensions.map((d) =>
           querySql<{ label: string; reqs: number; errs: number }>(
             c.env,
