@@ -6,6 +6,19 @@ import { Footer } from "@/components/footer";
 const entries = [
   {
     date: "2026-04-16",
+    version: "cli@0.4.16 · creek@0.4.16",
+    title: "Agent-first polish: five fixes for sandbox DB-backed deploys",
+    items: [
+      "**`creek init` now writes semantic resource keys.** Previously scaffolded `[resources] d1 = false / kv = false / r2 = false` — exactly the CF-native keys `creek doctor` flags as `CK-RESOURCES-KEYS` (silently dropped at deploy). Agents following the scaffolded output hit a wall at runtime with `env.DB` undefined. Now `init` omits `[resources]` entirely unless the user opts into a database, in which case it writes `database = true`. One less internal inconsistency between what the CLI generates and what it validates.",
+      "**`creek deploy --dry-run` runs the full doctor rule set.** SKILL.md tells agents \"dry-run first,\" but the old dry-run silently returned `bindings: []` when the user wrote `d1 = true` instead of `database = true` — no warning, no blocker. Dry-run now runs the same SDK rule engine as `creek doctor`, surfacing `findings[]` (including `CK-RESOURCES-KEYS`, `CK-WORKER-MISSING`, etc.) in the JSON output and a concise error summary in human mode. The `nextStep` field changes to \"Fix N blocking issues first\" when any error-severity finding fires. Agents get the full pre-deploy picture in one call instead of discovering problems at runtime.",
+      "**`sandbox-dispatch` passes through null-body statuses (204 / 205 / 304).** Worker handlers that returned `new Response(null, { status: 204 })` on PATCH/DELETE were hitting 500s: the dispatch layer's response-reconstruction path tried `new Response(body, ...)` on a null-body status, which the Fetch spec rejects. Banner injection would also corrupt the contract. Null-body statuses now short-circuit before any header mutation or body touch — only `X-Sandbox-Id` is added and the response returns as-is. Covered by three new regression tests.",
+      "**SKILL.md adds a \"Sandbox with DB\" recipe.** Sandbox auto-provisions a D1 binding named `DB` when `creek.toml` declares `[resources] database = true` — no login, no `creek db create` required. The skill never said so, so agents building DB-backed demos hit a dead end at `creek db create`'s `not_authenticated` error and either abandoned DB or asked the user to log in. The recipe now lives near the top of the skill with a minimal `creek.toml` + `worker.ts` skeleton and three constraints (public/index.html required, dry-run first, `creek logs` needs auth). Triage table splits \"add a database\" into no-account vs signed-in rows.",
+      "**The `creek` npm package now bundles the skill references.** SKILL.md told agents to `cat references/*.md` for deeper detail, but those files only lived in the monorepo — `npm install creek` gave you ENOENT on every documented lookup. A `prepack` script now copies the skill content into `packages/creek/skills/` before publish, so `node_modules/creek/skills/creek/SKILL.md` and the eight reference files (commands, creek-toml, deployment-modes, diagnosis, github-setup, observability, resources, workflows) ship with the package. Adds ~29KB to the tarball. The filesystem skill, MCP resources, and `llms.txt` now all resolve to the same files — one source of truth, bundled into every distribution channel.",
+      "**Agent e2e validation.** Two rounds of end-to-end testing simulated a naive agent building a DB-backed TODO CRUD for sandbox. Before the five fixes, the path took ~8 steps of trial-and-error through config errors, missing scaffolding, and 500s with no log access. After: 3 steps from SKILL.md recipe to a live URL. The fixes above are what the delta pointed at.",
+    ],
+  },
+  {
+    date: "2026-04-16",
     version: "sdk@0.4.7 · cli@0.4.15 · creek@0.4.15",
     title: "Team-owned resources, creek db toolchain, PR preview comments",
     items: [
