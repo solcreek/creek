@@ -86,7 +86,10 @@ export async function queryZoneHttpAnalytics(
   zoneName: string,
 ): Promise<ZoneHttpAnalytics | null> {
   const zoneId = await getZoneId(env, zoneName);
-  if (!zoneId) return null;
+  if (!zoneId) {
+    console.log("zone-analytics: getZoneId returned null for", zoneName);
+    return null;
+  }
 
   const since = new Date(
     Date.now() - periodHours * 60 * 60 * 1000,
@@ -156,14 +159,27 @@ export async function queryZoneHttpAnalytics(
       },
       body: JSON.stringify({ query }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.log("zone-analytics: graphql HTTP", res.status, "for", hostname, "in", zoneName);
+      return null;
+    }
     json = await res.json();
-  } catch {
+  } catch (err) {
+    console.log("zone-analytics: graphql threw for", hostname, err);
     return null;
   }
 
+  // Log error info — CF GraphQL returns 200 even on permission errors.
+  const anyJson = json as unknown as { errors?: Array<{ message: string }> };
+  if (anyJson.errors && anyJson.errors.length > 0) {
+    console.log("zone-analytics: graphql errors for", hostname, "/", zoneName, ":", JSON.stringify(anyJson.errors));
+  }
+
   const zone = json.data?.viewer?.zones?.[0];
-  if (!zone) return null;
+  if (!zone) {
+    console.log("zone-analytics: no zone in response for", hostname, "/", zoneName);
+    return null;
+  }
 
   const totals = zone.totals?.[0]?.sum ?? { requests: 0, cachedRequests: 0 };
   const errs = zone.errors?.[0]?.sum.requests ?? 0;
