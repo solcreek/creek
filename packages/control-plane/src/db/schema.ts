@@ -332,3 +332,26 @@ export const resourceCleanupQueue = sqliteTable("resource_cleanup_queue", {
 }, (table) => [
   index("idx_cleanup_status").on(table.status),
 ]);
+
+// ============================================================================
+// Usage metering — daily rollup of AE creek_tenant_requests per team+project.
+// Populated by the metering aggregator cron in control-plane's scheduled()
+// handler. Billing / usage dashboards read from here instead of hitting AE
+// directly on every request.
+// ============================================================================
+
+export const usageDaily = sqliteTable("usage_daily", {
+  teamSlug: text("teamSlug").notNull(),
+  projectSlug: text("projectSlug").notNull(),
+  // ISO date (YYYY-MM-DD, UTC) that this row aggregates
+  date: text("date").notNull(),
+  // Worker invocations = AE row count for the day
+  requests: integer("requests").notNull().default(0),
+  // Invocations flagged isError = 1 in tail event
+  errors: integer("errors").notNull().default(0),
+  // When this row was last written / upserted
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.teamSlug, table.projectSlug, table.date] }),
+  index("idx_usage_daily_date").on(table.date),
+]);
