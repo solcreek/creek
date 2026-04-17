@@ -78,11 +78,11 @@ describe("queryZoneHttpAnalyticsMerged", () => {
                   totals: [{ sum: { requests: 100, cachedRequests: 40 } }],
                   series: [
                     {
-                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:00:00Z" },
+                      dimensions: { datetime: "2026-04-17T12:00:00Z" },
                       sum: { requests: 50, cachedRequests: 20 },
                     },
                     {
-                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:15:00Z" },
+                      dimensions: { datetime: "2026-04-17T12:15:00Z" },
                       sum: { requests: 50, cachedRequests: 20 },
                     },
                   ],

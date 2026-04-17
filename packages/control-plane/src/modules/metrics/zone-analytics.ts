@@ -68,10 +68,29 @@ async function getZoneId(env: Env, zoneName: string): Promise<string | null> {
   return id;
 }
 
-function bucketDimension(periodHours: number): string {
-  if (periodHours <= 1) return "datetimeFiveMinutes";
-  if (periodHours <= 24) return "datetimeFifteenMinutes";
-  return "datetimeHour";
+/**
+ * Pick the CF GraphQL dataset + bucket dimension for the window.
+ *
+ * CF has three adjacent shapes:
+ *  - httpRequestsAdaptiveGroups exposes request count via `count`
+ *    (no sum.requests / sum.cachedRequests). Adaptive datetime
+ *    dimensions (datetimeFifteenMinutes etc.) live here.
+ *  - httpRequests1hGroups / httpRequests1dGroups expose
+ *    sum.requests + sum.cachedRequests — what we need for cache-hit
+ *    split. Fixed-granularity buckets keyed by `datetime`.
+ *
+ * Prior code used httpRequestsAdaptiveGroups with sum.requests which
+ * CF rejects with "unknown field requests". Use the 1h/1d dataset
+ * instead so cache-hit numbers are actually populated.
+ */
+function pickDataset(periodHours: number): {
+  dataset: "httpRequests1hGroups" | "httpRequests1dGroups";
+  dim: string;
+} {
+  // 1d buckets for 30d windows (30 rows) — 1h gives 720, too chatty.
+  if (periodHours > 24 * 7) return { dataset: "httpRequests1dGroups", dim: "date" };
+  // Everything ≤ 7d (≤ 168 rows) stays at 1h granularity.
+  return { dataset: "httpRequests1hGroups", dim: "datetime" };
 }
 
 /**
@@ -94,26 +113,29 @@ export async function queryZoneHttpAnalytics(
   const since = new Date(
     Date.now() - periodHours * 60 * 60 * 1000,
   ).toISOString();
-  const dim = bucketDimension(periodHours);
+  const { dataset, dim } = pickDataset(periodHours);
+  // 1dGroups uses date_geq (YYYY-MM-DD); 1hGroups uses datetime_geq.
+  const timeFilterKey = dim === "date" ? "date_geq" : "datetime_geq";
+  const timeFilterValue =
+    dim === "date" ? since.slice(0, 10) : since;
 
   const query = `
     query {
       viewer {
         zones(filter: { zoneTag: "${zoneId}" }) {
-          totals: httpRequestsAdaptiveGroups(
+          totals: ${dataset}(
             filter: {
               clientRequestHTTPHost: "${hostname}"
-              datetime_gt: "${since}"
+              ${timeFilterKey}: "${timeFilterValue}"
             }
             limit: 1
           ) {
             sum { requests, cachedRequests }
-            count
           }
-          series: httpRequestsAdaptiveGroups(
+          series: ${dataset}(
             filter: {
               clientRequestHTTPHost: "${hostname}"
-              datetime_gt: "${since}"
+              ${timeFilterKey}: "${timeFilterValue}"
             }
             limit: 1000
             orderBy: [${dim}_ASC]
@@ -121,10 +143,10 @@ export async function queryZoneHttpAnalytics(
             dimensions { ${dim} }
             sum { requests, cachedRequests }
           }
-          errors: httpRequestsAdaptiveGroups(
+          errors: ${dataset}(
             filter: {
               clientRequestHTTPHost: "${hostname}"
-              datetime_gt: "${since}"
+              ${timeFilterKey}: "${timeFilterValue}"
               edgeResponseStatus_gt: 499
             }
             limit: 1
