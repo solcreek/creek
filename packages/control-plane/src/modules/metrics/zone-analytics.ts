@@ -101,10 +101,7 @@ export async function queryZoneHttpAnalytics(
   zoneName: string,
 ): Promise<ZoneHttpAnalytics | null> {
   const zoneId = await getZoneId(env, zoneName);
-  if (!zoneId) {
-    console.log("zone-analytics: getZoneId returned null for", zoneName);
-    return null;
-  }
+  if (!zoneId) return null;
 
   const since = new Date(
     Date.now() - periodHours * 60 * 60 * 1000,
@@ -202,27 +199,31 @@ export async function queryZoneHttpAnalytics(
       },
       body: JSON.stringify({ query }),
     });
-    if (!res.ok) {
-      console.log("zone-analytics: graphql HTTP", res.status, "for", hostname, "in", zoneName);
-      return null;
-    }
+    if (!res.ok) return null;
     json = await res.json();
-  } catch (err) {
-    console.log("zone-analytics: graphql threw for", hostname, err);
+  } catch {
     return null;
   }
 
-  // Log error info — CF GraphQL returns 200 even on permission errors.
+  // CF GraphQL returns HTTP 200 on permission/query errors — check the
+  // `errors` array and log once per failing zone so wrangler tail makes
+  // misconfig (e.g. token missing Zone Analytics:Read) diagnosable
+  // without hand-instrumenting the route.
   const anyJson = json as unknown as { errors?: Array<{ message: string }> };
   if (anyJson.errors && anyJson.errors.length > 0) {
-    console.log("zone-analytics: graphql errors for", hostname, "/", zoneName, ":", JSON.stringify(anyJson.errors));
+    console.log(
+      "zone-analytics: graphql errors for",
+      hostname,
+      "/",
+      zoneName,
+      ":",
+      JSON.stringify(anyJson.errors),
+    );
+    return null;
   }
 
   const zone = json.data?.viewer?.zones?.[0];
-  if (!zone) {
-    console.log("zone-analytics: no zone in response for", hostname, "/", zoneName);
-    return null;
-  }
+  if (!zone) return null;
 
   const totalCount = zone.totals?.[0]?.count ?? 0;
   const cachedCount = zone.cached?.[0]?.count ?? 0;
@@ -274,16 +275,11 @@ export async function queryZoneHttpAnalyticsMerged(
 ): Promise<ZoneHttpAnalytics | null> {
   if (hostnames.length === 0) return null;
 
-  const diag: Array<{ host: string; zone: string; ok: boolean; reqs?: number }> = [];
   const results = await Promise.all(
-    hostnames.map(async (h) => {
-      const zone = extractZoneName(h);
-      const r = await queryZoneHttpAnalytics(env, h, periodHours, zone);
-      diag.push({ host: h, zone, ok: r !== null, reqs: r?.totals.reqs });
-      return r;
-    }),
+    hostnames.map((h) =>
+      queryZoneHttpAnalytics(env, h, periodHours, extractZoneName(h)),
+    ),
   );
-  console.log("zone-analytics diag:", JSON.stringify(diag));
   const ok = results.filter((r): r is ZoneHttpAnalytics => r !== null);
   if (ok.length === 0) return null;
 
