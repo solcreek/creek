@@ -1,27 +1,25 @@
 ---
 name: creek
 description: |
-  Deploy and manage apps on Creek — the Cloudflare Workers deployment
-  platform. Ship, diagnose failed deploys, read runtime + build logs,
-  manage team-owned databases (creek db), handle custom domains, cron,
-  queues, GitHub push deploys, and local dev. Skill also corrects the
-  CF-native reflexes that look right but break on Creek (do NOT swap
-  better-sqlite3 → D1 manually, do NOT hand-edit wrangler.toml, do NOT
-  maintain separate sandbox/prod code paths).
+  Deploy and manage full-stack apps to the edge with Creek — one
+  command from local code to a live URL. Ship, diagnose failed deploys,
+  read runtime + build logs, manage team-owned databases (creek db),
+  handle custom domains, cron, queues, GitHub push deploys, and local
+  dev. Skill covers Creek's conventions (semantic resource keys,
+  shared schema + split boot pattern, unified sandbox/production code
+  path) plus CK-error code fix hints.
 when_to_use: |
   Use when the user mentions creek, creek.dev, creek.toml, creek deploy,
-  creek db, creek logs, creek doctor, `npx creek`, deploying to
-  Cloudflare, or asks about Workers for Platforms tenancy. Also use
-  when a user says "my deploy failed" / "deploy to creek didn't work"
-  / "add a database to my creek project" / "why isn't my push
-  deploying" / "can I share a database across projects" / "is my
-  cron running". Pre-emptively load when editing creek.toml,
-  wrangler.jsonc, or code that imports from @solcreek/*.
+  creek db, creek logs, creek doctor, `npx creek`, or "deploy to the
+  edge". Also use when a user says "my deploy failed" / "deploy to creek
+  didn't work" / "add a database to my creek project" / "why isn't my
+  push deploying" / "can I share a database across projects" / "is my
+  cron running". Pre-emptively load when editing creek.toml or code
+  that imports from @solcreek/*.
 license: Apache-2.0
 compatibility: Requires Creek CLI (npm install -g creek)
 paths:
   - "**/creek.toml"
-  - "**/wrangler.{json,jsonc,toml}"
   - "**/examples/vite-react-drizzle/**"
   - "**/server/{local,worker,routes,schema}.ts"
 metadata:
@@ -32,49 +30,55 @@ metadata:
 
 # Creek CLI — Agent Skill
 
-Creek deploys web apps to Cloudflare Workers with a single command.
+Creek deploys full-stack web apps to the edge with a single command.
 Auto-detects framework, determines render mode (SPA/SSR/Worker),
 provisions infrastructure.
 
 ## Mental Model
 
-Creek runs on Cloudflare Workers, but **it is not raw Cloudflare**. The
-resource model, deploy flow, and runtime are abstracted. An agent
-reaching for CF-native workarounds (wrangler.toml edits, manual D1
-creation, driver rewrites) is almost always wrong on Creek.
+Creek manages the deploy target, bindings, and runtime for you. You
+work with semantic concepts — `database`, `cache`, `storage`, `ai` —
+not infrastructure primitives. The CLI and `@solcreek/runtime` cover
+the concerns you'd normally write glue code for.
 
-The rule of thumb: if you're about to write CF-specific glue code, check
-whether the `creek` CLI or `@solcreek/runtime` already covers the concern.
-If yes — use the Creek path.
+Rule of thumb: if you're about to write platform-level glue (editing
+generated config, manually provisioning infra, swapping drivers across
+local/production), check whether `creek` or `@solcreek/runtime` already
+handles it. It almost always does.
 
-## What you DON'T need to do on Creek
+## Conventions that matter on first pass
 
-Because Creek visibly runs on CF, it's tempting to apply CF reasoning.
-Don't. These five shortcuts are all counterproductive:
+Creek deviates from common deployment heuristics in a few specific
+ways. Getting these right up front avoids dead-end rewrites.
 
-- **Do NOT swap `better-sqlite3` → D1 manually before deploy.** The
-  recommended pattern keeps one shared schema + one shared query/routes
-  file, driver-agnostic. Only the thin boot files differ
-  (`server/local.ts` uses `better-sqlite3`, `server/worker.ts` uses
-  D1). See `references/resources.md` and `examples/vite-react-drizzle`.
+- **Semantic resource keys.** In `creek.toml [resources]`, use
+  `database`, `cache`, `storage`, `ai`. These map to infrastructure
+  automatically. Other names are silently dropped — `creek doctor`
+  flags this with `CK-RESOURCES-KEYS`.
 
-- **Do NOT maintain separate sandbox/production code paths.** Env var
-  behavior is identical. Sandbox just runs without user-set secrets.
-  Gate on `env.MY_KEY` being present; deploy to production via
-  `creek deploy` when the full env is needed.
+- **Provision via `creek db create <name>`, not platform-specific
+  tooling.** Creates a team-owned resource with a stable UUID that
+  can be renamed, shared across projects, and detached without
+  dropping data. Provisioning outside Creek creates orphaned
+  infrastructure the platform can't track.
 
-- **Do NOT hand-edit `wrangler.toml`.** Creek reads `creek.toml` and
-  generates wrangler config at build time. Bindings are declared in the
-  dashboard or via `creek db attach` — not in wrangler.toml.
+- **One code path for sandbox and production.** Env var behavior is
+  identical. Sandbox just runs without user-set secrets. Gate on
+  `env.MY_KEY` being present; don't fork code paths.
 
-- **Do NOT create a D1 via `wrangler d1 create`.** Use `creek db create
-  <name>` — it creates a team-owned resource that can be renamed, shared
-  across projects, and detached without dropping data.
+- **Shared schema + split boot files for portable DB code.** The
+  recommended shape: one `schema.ts` + one `routes.ts` (driver-agnostic)
+  + thin boot files (`server/local.ts` for local dev, `server/worker.ts`
+  for production) that differ only in driver setup. Never duplicate
+  the schema across local and production files — `creek doctor` flags
+  this with `CK-DB-DUAL-DRIVER-SPLIT`. See `references/resources.md`
+  and `examples/vite-react-drizzle`.
 
-- **Do NOT duplicate schema or queries across `db.local.ts` +
-  `db.prod.ts` files.** Use the shared-routes + split-boot pattern
-  from `references/resources.md`. `creek doctor` flags the split with
-  `CK-DB-DUAL-DRIVER-SPLIT`.
+- **`creek.toml` is the source of truth for config.** Creek generates
+  its deploy-target config at build time. Hand-edits to generated
+  files get reverted on next deploy. If an existing project has a
+  legacy config file from another tool, `creek doctor` flags it with
+  `CK-CONFIG-OVERLAP` and guides the reconciliation.
 
 ## Quick Triage
 
@@ -99,7 +103,7 @@ If the phrasing doesn't match any row, default to `creek doctor --json`
 
 ## Sandbox with DB (no account, 60 min preview)
 
-Sandbox mode auto-provisions a D1 database when `creek.toml` declares
+Sandbox mode auto-provisions a database when `creek.toml` declares
 `[resources] database = true` — no `creek login`, no `creek db create`
 required. The binding name is `DB`. This makes it safe to build a
 DB-backed CRUD demo (e.g. TODO list) and ship a live URL in one step.

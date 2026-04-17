@@ -88,7 +88,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   });
 
   const create = defineCommand({
-    meta: { name: "create", description: `Create a new team ${label}. Backing CF resource is auto-provisioned.` },
+    meta: { name: "create", description: `Create a new team ${label}. Backing infrastructure is auto-provisioned.` },
     args: {
       name: { type: "positional", description: `${label} name (lowercase, dash/underscore, ≤63 chars)`, required: true },
       ...globalArgs,

@@ -1,8 +1,8 @@
 # Agent Skills for Creek
 
 [Agent Skills](https://agentskills.io/) for [Creek](https://creek.dev) —
-the deployment platform that reduces Cloudflare's 200+ API primitives
-to a single command.
+the deployment platform that ships full-stack apps to the edge with a
+single command and a single semantic resource model.
 
 ## Install
 
@@ -50,9 +50,8 @@ guidance. They drive:
    Claude Code / Cursor / Codex / OpenCode.
 2. **MCP resources** — `mcp.creek.dev` exposes each reference file
    as `creek://skill/<name>` via `resources/list` + `resources/read`.
-   Bundled into the MCP worker at deploy time via wrangler's Text
-   module loader. Serves claude.ai users + API agents that can't
-   load filesystem skills.
+   Bundled into the MCP worker at deploy time. Serves claude.ai users
+   + API agents that can't load filesystem skills.
 
 Edit the `.md` file once — both surfaces update on next deploy.
 
