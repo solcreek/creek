@@ -184,3 +184,35 @@ export interface LogQueryResponse {
   truncated: boolean;
   query: { sinceMs: number; untilMs: number; limit: number };
 }
+
+/**
+ * Shape of GET /projects/:slug/metrics?period=24h. Mirrors
+ * packages/control-plane/src/modules/metrics/routes.ts. Zone-level
+ * totals (including edge-cache hits) and AE-level invocation totals
+ * are both surfaced so the caller can distinguish total traffic from
+ * worker-executed traffic.
+ */
+export interface MetricsResponse {
+  period: string;
+  totals: {
+    /** Total requests including edge cache hits (zone GraphQL). */
+    reqs: number;
+    /** Subset of reqs served from edge cache without invoking the worker. */
+    cachedReqs: number;
+    /** Worker invocations only (AE event count). */
+    invocations: number;
+    /** Errors from worker-level exceptions + 5xx (AE). */
+    errs: number;
+  };
+  /** Time series bucketed by period — {t} is ms epoch. */
+  series: Array<{ t: number; reqs: number; errs: number }>;
+  /** Zone-level time series including cached traffic — null if zone query failed. */
+  httpSeries:
+    | Array<{ t: number; reqs: number; cachedReqs: number }>
+    | null;
+  breakdowns: {
+    method: Array<{ label: string; reqs: number; errs: number }>;
+    scriptType: Array<{ label: string; reqs: number; errs: number }>;
+    statusBucket: Array<{ label: string; reqs: number; errs: number }>;
+  };
+}

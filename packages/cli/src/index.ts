@@ -19,6 +19,7 @@ import { rollbackCommand } from "./commands/rollback.js";
 import { opsCommand } from "./commands/ops.js";
 import { queueCommand } from "./commands/queue.js";
 import { logsCommand } from "./commands/logs.js";
+import { metricsCommand } from "./commands/metrics.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { dbCommand } from "./commands/db.js";
 import { storageCommand } from "./commands/storage.js";
@@ -51,6 +52,7 @@ const main = defineCommand({
     projects: projectsCommand,
     deployments: deploymentsCommand,
     logs: logsCommand,
+    metrics: metricsCommand,
     doctor: doctorCommand,
     login: loginCommand,
     whoami: whoamiCommand,

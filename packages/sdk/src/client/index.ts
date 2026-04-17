@@ -10,6 +10,7 @@ import type {
   LogEntry,
   LogQueryFilters,
   LogQueryResponse,
+  MetricsResponse,
 } from "../types/index.js";
 
 export class CreekClient {
@@ -234,6 +235,28 @@ export class CreekClient {
     wsUrl: string;
   }> {
     return this.request("GET", `/projects/${projectSlug}/logs/ws-token`);
+  }
+
+  // --- Metrics ---
+
+  /**
+   * Read aggregated metrics for a project — totals, time series, and
+   * categorical breakdowns. Server enforces tenant isolation from the
+   * authenticated session; callers pass only the project slug.
+   *
+   * `period` is one of 1h / 6h / 24h / 7d / 30d. Server returns both
+   * zone-level request counts (including edge-cache hits) and AE-level
+   * invocation counts so the caller can distinguish total traffic from
+   * worker-executed traffic.
+   */
+  async getMetrics(
+    projectSlug: string,
+    period: "1h" | "6h" | "24h" | "7d" | "30d" = "24h",
+  ): Promise<MetricsResponse> {
+    return this.request(
+      "GET",
+      `/projects/${projectSlug}/metrics?period=${period}`,
+    );
   }
 
   // --- Build Logs ---
