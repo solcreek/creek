@@ -13,6 +13,7 @@ const IGNORED_DIRS = new Set([
 const IGNORED_FILES = new Set([
   ".DS_Store", "Thumbs.db", ".env", ".env.local", ".env.production",
   ".gitignore", ".npmrc", ".eslintcache",
+  "creek.toml", "wrangler.toml", "wrangler.json", "wrangler.jsonc",
 ]);
 
 function isIgnored(name: string): boolean {

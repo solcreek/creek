@@ -825,6 +825,21 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   // so we fail with a helpful message instead of an ENOENT stack trace.
   const pkgJsonPath = join(cwd, "package.json");
   if (!existsSync(pkgJsonPath)) {
+    // Static fallback: if there's no package.json but the cwd looks like a
+    // static site (index.html at root or under public/), treat as static
+    // and skip the build step. Covers the common "ran `creek init` in an
+    // empty dir, then added only index.html" journey — creek.toml's
+    // [build].command = "npm run build" default would otherwise trigger
+    // no_package_json here.
+    const cwdIndex = existsSync(join(cwd, "index.html"));
+    const publicIndex = existsSync(join(cwd, "public/index.html"));
+    if (cwdIndex || publicIndex) {
+      const staticDir = cwdIndex ? cwd : join(cwd, "public");
+      if (!jsonMode) {
+        consola.info("  No package.json found — deploying as static site (no build step).");
+      }
+      return deployDirectory(staticDir, jsonMode, tos);
+    }
     const message = `Expected package.json in ${cwd} but none found.`;
     if (jsonMode) {
       jsonOutput(
@@ -832,7 +847,7 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
           ok: false,
           error: "no_package_json",
           message,
-          hint: "Run `npx creek deploy ./dist` to deploy a prebuilt directory, or `npx creek deploy --template landing` to start from a template.",
+          hint: "Add an index.html to deploy as a static site, run `npx creek deploy ./dist` for a prebuilt directory, or `npx creek deploy --template landing` to start from a template.",
         },
         1,
         NO_PROJECT_BREADCRUMBS,
@@ -840,7 +855,8 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
       return;
     }
     consola.error(message);
-    consola.info("  Run `npx creek deploy ./dist` to deploy a prebuilt directory instead,");
+    consola.info("  Add an index.html to deploy as a static site,");
+    consola.info("  run `npx creek deploy ./dist` to deploy a prebuilt directory,");
     consola.info("  or `npx creek deploy --template landing` to start from a template.");
     process.exit(1);
   }

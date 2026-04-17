@@ -51,4 +51,19 @@ describe("collectAssets", () => {
     const result = collectAssets(tmpDir);
     expect(result.assets["image.bin"]).toBe(binary.toString("base64"));
   });
+
+  test("excludes creek.toml and wrangler.* from deployed assets", () => {
+    writeFileSync(join(tmpDir, "index.html"), "<h1>hi</h1>");
+    writeFileSync(join(tmpDir, "creek.toml"), "[project]");
+    writeFileSync(join(tmpDir, "wrangler.toml"), "name = 'x'");
+    writeFileSync(join(tmpDir, "wrangler.json"), "{}");
+    writeFileSync(join(tmpDir, "wrangler.jsonc"), "{}");
+
+    const result = collectAssets(tmpDir);
+    expect(result.fileList).toContain("index.html");
+    expect(result.fileList).not.toContain("creek.toml");
+    expect(result.fileList).not.toContain("wrangler.toml");
+    expect(result.fileList).not.toContain("wrangler.json");
+    expect(result.fileList).not.toContain("wrangler.jsonc");
+  });
 });
