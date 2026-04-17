@@ -1,6 +1,6 @@
 {
   "name": "@solcreek/sdk",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "TypeScript SDK for the Creek deployment platform",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,8 +43,8 @@
   "keywords": [
     "creek",
     "deployment",
-    "cloudflare",
-    "workers",
+    "edge",
+    "full-stack",
     "sdk"
   ],
   "author": "SolCreek",
