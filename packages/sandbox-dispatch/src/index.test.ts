@@ -134,6 +134,10 @@ describe("sandbox-dispatch worker", () => {
     expect(body).toContain("<body>hi");
     // Banner should be injected
     expect(body).toContain("creek-sb-");
+    // Banner embeds expiresAt as E and computes remainingText() on render
+    expect(body).toContain("E=");
+    expect(body).toContain("remainingText");
+    expect(body).toContain("Expires in ");
   });
 
   // 101 is WebSocket Upgrade only — user Workers can't emit it via

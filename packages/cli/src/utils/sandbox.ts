@@ -115,11 +115,32 @@ export async function pollSandboxStatus(statusUrl: string): Promise<SandboxStatu
 }
 
 /**
+ * Compute minutes-remaining until expiresAt (ISO string). Clamps at 0.
+ * Returned integer is ceiling, so a sandbox with 60:01 left reports 61.
+ */
+export function expiresInMinutes(expiresAt: string): number {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 60_000));
+}
+
+/**
+ * Format expiresAt as a local-clock wall time ("HH:MM") for users who
+ * don't want to mentally parse ISO timestamps in UTC.
+ */
+export function expiresAtLocal(expiresAt: string): string {
+  const d = new Date(expiresAt);
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/**
  * Print sandbox success message with claim instructions.
  */
 export function printSandboxSuccess(previewUrl: string, expiresAt: string, sandboxId: string) {
+  const mins = expiresInMinutes(expiresAt);
   consola.success(`  Live → ${previewUrl}`);
   consola.info("");
-  consola.info("  Free preview — available for 60 minutes.");
+  consola.info(`  Expires in ${mins} minutes (local ${expiresAtLocal(expiresAt)}).`);
   consola.info("  Make it permanent: creek login && creek claim " + sandboxId);
 }

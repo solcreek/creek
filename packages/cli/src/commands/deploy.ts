@@ -34,7 +34,7 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { collectAssets } from "../utils/bundle.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
-import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess } from "../utils/sandbox.js";
+import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
 import { prepareDeployBundle } from "../utils/prepare-bundle.js";
 import { BuildLogEmitter } from "../utils/build-log.js";
 import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
@@ -785,6 +785,7 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
         url: status.previewUrl,
         deployDurationMs: status.deployDurationMs,
         expiresAt: result.expiresAt,
+        expiresInMinutes: expiresInMinutes(result.expiresAt),
         assetCount: fileList.length,
         mode: "sandbox",
       }, 0, [
@@ -925,6 +926,7 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
         url: status.previewUrl,
         deployDurationMs: status.deployDurationMs,
         expiresAt: result.expiresAt,
+        expiresInMinutes: expiresInMinutes(result.expiresAt),
         framework: framework ?? null,
         assetCount: fileList.length,
         mode: "sandbox",

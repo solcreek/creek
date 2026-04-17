@@ -142,7 +142,12 @@ import { generateQrSvg } from "./qr.js";
 
 // --- Banner HTML ---
 
-function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewUrl: string): string {
+function bannerHtml(
+  sandboxId: string,
+  deployDurationMs: number | null,
+  previewUrl: string,
+  expiresAt: number,
+): string {
   const durationText = deployDurationMs
     ? `Deployed in ${(deployDurationMs / 1000).toFixed(1)}s`
     : "Deployed in seconds";
@@ -159,7 +164,14 @@ function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewU
   return `
 <script>
 (function(){
-  var T="${tag}",S="${sandboxId}",D="${durationText}";
+  var T="${tag}",S="${sandboxId}",D="${durationText}",E=${expiresAt};
+
+  // Minutes remaining, computed client-side so shared URLs show a
+  // countdown that's accurate at the moment the visitor loads the page.
+  function remainingText(){
+    var m=Math.max(0,Math.ceil((E-Date.now())/60000));
+    return m>0?"Expires in "+m+"m":"Expired";
+  }
 
   function mk(){
     if(document.querySelector(T))return;
@@ -177,7 +189,7 @@ function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewU
       '.logo span{font-weight:700;font-size:14px;letter-spacing:-0.02em}'+
       '.sep{color:rgba(255,255,255,0.15)}'+
       '.dur{color:#888;font-size:12px}'+
-      '.fp{color:#666;font-size:12px}'+
+      '.exp{color:#888;font-size:12px}'+
       '.lm{color:#888;font-size:12px;transition:color 0.15s}'+
       '.lm:hover{color:#fff}'+
       '.cta{color:#fff;background:linear-gradient(135deg,#2563eb,#3b82f6);padding:5px 14px;border-radius:7px;font-weight:600;font-size:12px;transition:opacity 0.15s;box-shadow:0 1px 3px rgba(37,99,235,0.3)}'+
@@ -194,10 +206,10 @@ function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewU
         '.l{flex:1 1 100%;justify-content:center}'+
         '.r{flex:1 1 100%;justify-content:center}'+
         '.sep{display:none}'+
-        '.fp{display:none}'+
+        '.dur{display:none}'+
         '.qr-wrap{display:none}'+
         '.logo span{font-size:13px}'+
-        '.dur{font-size:11px}'+
+        '.exp{font-size:11px}'+
         '.lm{font-size:11px}'+
         '.cta{font-size:11px;padding:4px 12px}'+
       '}'+
@@ -211,7 +223,7 @@ function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewU
       '<span class="sep">|</span>'+
       '<span class="dur">'+D+'</span>'+
       '<span class="sep">·</span>'+
-      '<span class="fp">Free preview</span>'+
+      '<span class="exp">'+remainingText()+'</span>'+
       '</div>'+
       '<div class="r">'+
       '<div class="qr-wrap">'+
@@ -223,6 +235,15 @@ function bannerHtml(sandboxId: string, deployDurationMs: number | null, previewU
       '</div>'+
       '</div>';
     document.body.appendChild(el);
+
+    // Live-update the expiry text. setInterval in this closure holds sh
+    // until the banner is replaced (integrity check runs mk() again and
+    // a new closure/interval takes over); old interval targets a
+    // detached shadow root and is GC'd with it.
+    setInterval(function(){
+      var e=sh.querySelector(".exp");
+      if(e)e.textContent=remainingText();
+    },30000);
   }
 
   // Create banner
@@ -414,7 +435,7 @@ export default {
       const ct = response.headers.get("Content-Type") ?? "";
       if (ct.includes("text/html") && response.ok) {
         const html = await response.text();
-        const banner = bannerHtml(sandboxId, sandbox.deployDurationMs, `https://${sandbox.previewHost}`);
+        const banner = bannerHtml(sandboxId, sandbox.deployDurationMs, `https://${sandbox.previewHost}`, sandbox.expiresAt);
         // Try </body> first, fall back to </html>, fall back to append
         const injected = html.includes("</body>")
           ? html.replace("</body>", `${banner}</body>`)
