@@ -69,28 +69,24 @@ async function getZoneId(env: Env, zoneName: string): Promise<string | null> {
 }
 
 /**
- * Pick the CF GraphQL dataset + bucket dimension for the window.
+ * httpRequestsAdaptiveGroups is the only zone dataset that supports
+ * per-host filtering (clientRequestHTTPHost). Its request count lives
+ * on the top-level `count` field — NOT `sum.requests`, which only
+ * exists on httpRequests1h/1dGroups (which in turn don't support host
+ * filters). Cache-hit split comes from issuing a second query with
+ * cacheStatus="hit".
  *
- * CF has three adjacent shapes:
- *  - httpRequestsAdaptiveGroups exposes request count via `count`
- *    (no sum.requests / sum.cachedRequests). Adaptive datetime
- *    dimensions (datetimeFifteenMinutes etc.) live here.
- *  - httpRequests1hGroups / httpRequests1dGroups expose
- *    sum.requests + sum.cachedRequests — what we need for cache-hit
- *    split. Fixed-granularity buckets keyed by `datetime`.
- *
- * Prior code used httpRequestsAdaptiveGroups with sum.requests which
- * CF rejects with "unknown field requests". Use the 1h/1d dataset
- * instead so cache-hit numbers are actually populated.
+ * Bucket dimension is picked so series rows stay under ~720:
+ *   ≤ 1h   → 5-minute buckets  (up to 12)
+ *   ≤ 24h  → 15-minute buckets (up to 96)
+ *   ≤ 7d   → 1-hour buckets    (up to 168)
+ *   > 7d   → 1-day buckets     (up to 30)
  */
-function pickDataset(periodHours: number): {
-  dataset: "httpRequests1hGroups" | "httpRequests1dGroups";
-  dim: string;
-} {
-  // 1d buckets for 30d windows (30 rows) — 1h gives 720, too chatty.
-  if (periodHours > 24 * 7) return { dataset: "httpRequests1dGroups", dim: "date" };
-  // Everything ≤ 7d (≤ 168 rows) stays at 1h granularity.
-  return { dataset: "httpRequests1hGroups", dim: "datetime" };
+function bucketDimension(periodHours: number): string {
+  if (periodHours <= 1) return "datetimeFiveMinutes";
+  if (periodHours <= 24) return "datetimeFifteenMinutes";
+  if (periodHours <= 24 * 7) return "datetimeHour";
+  return "date";
 }
 
 /**
@@ -113,26 +109,34 @@ export async function queryZoneHttpAnalytics(
   const since = new Date(
     Date.now() - periodHours * 60 * 60 * 1000,
   ).toISOString();
-  const { dataset, dim } = pickDataset(periodHours);
-  // 1dGroups uses date_geq (YYYY-MM-DD); 1hGroups uses datetime_geq.
+  const dim = bucketDimension(periodHours);
   const timeFilterKey = dim === "date" ? "date_geq" : "datetime_geq";
-  const timeFilterValue =
-    dim === "date" ? since.slice(0, 10) : since;
+  const timeFilterValue = dim === "date" ? since.slice(0, 10) : since;
 
   const query = `
     query {
       viewer {
         zones(filter: { zoneTag: "${zoneId}" }) {
-          totals: ${dataset}(
+          totals: httpRequestsAdaptiveGroups(
             filter: {
               clientRequestHTTPHost: "${hostname}"
               ${timeFilterKey}: "${timeFilterValue}"
             }
             limit: 1
           ) {
-            sum { requests, cachedRequests }
+            count
           }
-          series: ${dataset}(
+          cached: httpRequestsAdaptiveGroups(
+            filter: {
+              clientRequestHTTPHost: "${hostname}"
+              ${timeFilterKey}: "${timeFilterValue}"
+              cacheStatus: "hit"
+            }
+            limit: 1
+          ) {
+            count
+          }
+          series: httpRequestsAdaptiveGroups(
             filter: {
               clientRequestHTTPHost: "${hostname}"
               ${timeFilterKey}: "${timeFilterValue}"
@@ -141,9 +145,21 @@ export async function queryZoneHttpAnalytics(
             orderBy: [${dim}_ASC]
           ) {
             dimensions { ${dim} }
-            sum { requests, cachedRequests }
+            count
           }
-          errors: ${dataset}(
+          cachedSeries: httpRequestsAdaptiveGroups(
+            filter: {
+              clientRequestHTTPHost: "${hostname}"
+              ${timeFilterKey}: "${timeFilterValue}"
+              cacheStatus: "hit"
+            }
+            limit: 1000
+            orderBy: [${dim}_ASC]
+          ) {
+            dimensions { ${dim} }
+            count
+          }
+          errors: httpRequestsAdaptiveGroups(
             filter: {
               clientRequestHTTPHost: "${hostname}"
               ${timeFilterKey}: "${timeFilterValue}"
@@ -151,7 +167,7 @@ export async function queryZoneHttpAnalytics(
             }
             limit: 1
           ) {
-            sum { requests }
+            count
           }
         }
       }
@@ -162,12 +178,17 @@ export async function queryZoneHttpAnalytics(
     data?: {
       viewer?: {
         zones?: Array<{
-          totals?: Array<{ sum: { requests: number; cachedRequests: number } }>;
+          totals?: Array<{ count: number }>;
+          cached?: Array<{ count: number }>;
           series?: Array<{
             dimensions: Record<string, string>;
-            sum: { requests: number; cachedRequests: number };
+            count: number;
           }>;
-          errors?: Array<{ sum: { requests: number } }>;
+          cachedSeries?: Array<{
+            dimensions: Record<string, string>;
+            count: number;
+          }>;
+          errors?: Array<{ count: number }>;
         }>;
       };
     };
@@ -203,19 +224,29 @@ export async function queryZoneHttpAnalytics(
     return null;
   }
 
-  const totals = zone.totals?.[0]?.sum ?? { requests: 0, cachedRequests: 0 };
-  const errs = zone.errors?.[0]?.sum.requests ?? 0;
+  const totalCount = zone.totals?.[0]?.count ?? 0;
+  const cachedCount = zone.cached?.[0]?.count ?? 0;
+  const errs = zone.errors?.[0]?.count ?? 0;
 
-  const series: ZoneSeriesPoint[] = (zone.series ?? []).map((s) => ({
-    t: Date.parse(s.dimensions[dim]),
-    reqs: s.sum.requests,
-    cachedReqs: s.sum.cachedRequests,
-  }));
+  // Index cached series by bucket timestamp so we can line up with
+  // the full series and compute cachedReqs per-bucket.
+  const cachedByT = new Map<string, number>();
+  for (const cs of zone.cachedSeries ?? []) {
+    cachedByT.set(cs.dimensions[dim], cs.count);
+  }
+  const series: ZoneSeriesPoint[] = (zone.series ?? []).map((s) => {
+    const key = s.dimensions[dim];
+    return {
+      t: Date.parse(key),
+      reqs: s.count,
+      cachedReqs: cachedByT.get(key) ?? 0,
+    };
+  });
 
   return {
     totals: {
-      reqs: totals.requests,
-      cachedReqs: totals.cachedRequests,
+      reqs: totalCount,
+      cachedReqs: cachedCount,
       errs,
     },
     series,

@@ -75,18 +75,29 @@ describe("queryZoneHttpAnalyticsMerged", () => {
             viewer: {
               zones: [
                 {
-                  totals: [{ sum: { requests: 100, cachedRequests: 40 } }],
+                  totals: [{ count: 100 }],
+                  cached: [{ count: 40 }],
                   series: [
                     {
-                      dimensions: { datetime: "2026-04-17T12:00:00Z" },
-                      sum: { requests: 50, cachedRequests: 20 },
+                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:00:00Z" },
+                      count: 50,
                     },
                     {
-                      dimensions: { datetime: "2026-04-17T12:15:00Z" },
-                      sum: { requests: 50, cachedRequests: 20 },
+                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:15:00Z" },
+                      count: 50,
                     },
                   ],
-                  errors: [{ sum: { requests: 5 } }],
+                  cachedSeries: [
+                    {
+                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:00:00Z" },
+                      count: 20,
+                    },
+                    {
+                      dimensions: { datetimeFifteenMinutes: "2026-04-17T12:15:00Z" },
+                      count: 20,
+                    },
+                  ],
+                  errors: [{ count: 5 }],
                 },
               ],
             },
@@ -131,9 +142,11 @@ describe("queryZoneHttpAnalyticsMerged", () => {
             viewer: {
               zones: [
                 {
-                  totals: [{ sum: { requests: 7, cachedRequests: 2 } }],
+                  totals: [{ count: 7 }],
+                  cached: [{ count: 2 }],
                   series: [],
-                  errors: [{ sum: { requests: 0 } }],
+                  cachedSeries: [],
+                  errors: [{ count: 0 }],
                 },
               ],
             },
