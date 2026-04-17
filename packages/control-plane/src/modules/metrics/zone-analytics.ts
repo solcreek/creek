@@ -103,8 +103,21 @@ export async function queryZoneHttpAnalytics(
   const zoneId = await getZoneId(env, zoneName);
   if (!zoneId) return null;
 
+  // CF GraphQL `httpRequestsAdaptiveGroups` has a per-plan time-range
+  // cap. Free-tier zones cap at 1 day, so any query with a wider
+  // window fails with a `quota` error. Skip the zone query entirely
+  // for periods > 24h rather than 502-ing the whole metrics endpoint;
+  // the caller falls back to AE-only totals (which cover full period
+  // because tail events write to our own dataset, not CF's).
+  if (periodHours > 24) return null;
+
+  // Even for ≤ 24h, subtract a 60s safety buffer: we compute `since`
+  // in JS then CF evaluates it against its own clock a few hundred
+  // ms later, which pushes `now − since` just over 1 day and CF
+  // rejects with "time range wider than 1d". 60s is well within
+  // error-tolerance for "last 24 hours" observability.
   const since = new Date(
-    Date.now() - periodHours * 60 * 60 * 1000,
+    Date.now() - periodHours * 60 * 60 * 1000 + 60_000,
   ).toISOString();
   const dim = bucketDimension(periodHours);
   const timeFilterKey = dim === "date" ? "date_geq" : "datetime_geq";
