@@ -37,6 +37,19 @@ export interface ZoneHttpAnalytics {
   series: ZoneSeriesPoint[];
 }
 
+/**
+ * Extract the registrable zone name from a fully-qualified hostname.
+ * Heuristic: take the last two labels. Works for .com / .dev / .io /
+ * most TLDs we see in practice. Multi-level TLDs (.co.uk, .com.tw)
+ * would need PSL-aware parsing — zone lookup just fails for those
+ * and the caller degrades gracefully, so no wrong-zone damage.
+ */
+export function extractZoneName(hostname: string): string {
+  const labels = hostname.split(".").filter(Boolean);
+  if (labels.length <= 2) return hostname;
+  return labels.slice(-2).join(".");
+}
+
 // --- Zone ID cache (one lookup per isolate, per zone name) ---
 const zoneIdCache = new Map<string, string>();
 
@@ -169,4 +182,57 @@ export async function queryZoneHttpAnalytics(
     },
     series,
   };
+}
+
+/**
+ * Query zone analytics across multiple hostnames (e.g. a project's
+ * default `{slug}-{team}.bycreek.com` plus any active custom domains)
+ * and merge totals + series.
+ *
+ * Each hostname's zone is inferred from its last two labels. Hostnames
+ * on zones we don't control (external user-owned domains) silently
+ * return null from the per-hostname helper; remaining hostnames still
+ * contribute. If every hostname fails, the merged result is null.
+ *
+ * Series merging: bucket timestamps are aligned (same `bucketDimension`
+ * is used per periodHours across all hostnames), so we group by `t`
+ * and sum requests + cachedRequests into a single series.
+ */
+export async function queryZoneHttpAnalyticsMerged(
+  env: Env,
+  hostnames: string[],
+  periodHours: number,
+): Promise<ZoneHttpAnalytics | null> {
+  if (hostnames.length === 0) return null;
+
+  const results = await Promise.all(
+    hostnames.map((h) =>
+      queryZoneHttpAnalytics(env, h, periodHours, extractZoneName(h)),
+    ),
+  );
+  const ok = results.filter((r): r is ZoneHttpAnalytics => r !== null);
+  if (ok.length === 0) return null;
+
+  const totals: ZoneTotals = { reqs: 0, cachedReqs: 0, errs: 0 };
+  for (const r of ok) {
+    totals.reqs += r.totals.reqs;
+    totals.cachedReqs += r.totals.cachedReqs;
+    totals.errs += r.totals.errs;
+  }
+
+  const byT = new Map<number, ZoneSeriesPoint>();
+  for (const r of ok) {
+    for (const p of r.series) {
+      const existing = byT.get(p.t);
+      if (existing) {
+        existing.reqs += p.reqs;
+        existing.cachedReqs += p.cachedReqs;
+      } else {
+        byT.set(p.t, { t: p.t, reqs: p.reqs, cachedReqs: p.cachedReqs });
+      }
+    }
+  }
+  const series = [...byT.values()].sort((a, b) => a.t - b.t);
+
+  return { totals, series };
 }

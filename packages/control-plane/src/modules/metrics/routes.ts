@@ -25,7 +25,7 @@ import {
   breakdownSql,
   type BreakdownDimension,
 } from "./queries.js";
-import { queryZoneHttpAnalytics } from "./zone-analytics.js";
+import { queryZoneHttpAnalyticsMerged } from "./zone-analytics.js";
 
 type MetricsEnv = {
   Bindings: Env;
@@ -54,16 +54,29 @@ metrics.get(
     }
 
     const project = await c.env.DB.prepare(
-      "SELECT slug FROM project WHERE slug = ? AND organizationId = ?",
+      "SELECT id, slug FROM project WHERE slug = ? AND organizationId = ?",
     )
       .bind(projectSlug, teamId)
-      .first<{ slug: string }>();
+      .first<{ id: string; slug: string }>();
     if (!project) {
       return c.json(
         { error: "not_found", message: "Project not found in this team" },
         404,
       );
     }
+
+    // Active custom domains — each may be on a different CF zone.
+    // Zone analytics is queried per-hostname and results are merged so
+    // a project with `www.creek.dev` + `creeksite.com` sees true
+    // visitor counts instead of only its default bycreek.com hostname.
+    const customDomainRows = await c.env.DB.prepare(
+      "SELECT hostname FROM custom_domain WHERE projectId = ? AND status = 'active'",
+    )
+      .bind(project.id)
+      .all<{ hostname: string }>();
+    const customHostnames = (customDomainRows.results ?? []).map(
+      (r) => r.hostname,
+    );
 
     if (!c.env.CLOUDFLARE_API_TOKEN || !c.env.CLOUDFLARE_ACCOUNT_ID) {
       return c.json(
@@ -85,11 +98,13 @@ metrics.get(
       "statusBucket",
     ];
 
-    // Production hostname — what real visitors hit. Zone analytics
-    // covers edge-cached HTML that AE (worker invocation events) can't
-    // see. Branch/deployment preview + custom domains are not included
-    // in the zone query for now — they're minor signals anyway.
+    // Production hostname — what real visitors hit on the default
+    // bycreek.com zone. Zone analytics covers edge-cached HTML that
+    // AE (worker invocation events) can't see. We also merge in zone
+    // data for every active custom domain so projects like apps.www
+    // with a custom creek.dev hostname see true visitor counts.
     const prodHostname = `${projectSlug}-${teamSlug}.${c.env.CREEK_DOMAIN}`;
+    const allHostnames = [prodHostname, ...customHostnames];
 
     try {
       const [totals, series, zone, ...breakdowns] = await Promise.all([
@@ -101,12 +116,7 @@ metrics.get(
           c.env,
           timeseriesSql(scope),
         ),
-        queryZoneHttpAnalytics(
-          c.env,
-          prodHostname,
-          periodHours,
-          c.env.CREEK_DOMAIN,
-        ),
+        queryZoneHttpAnalyticsMerged(c.env, allHostnames, periodHours),
         ...dimensions.map((d) =>
           querySql<{ label: string; reqs: number; errs: number }>(
             c.env,
