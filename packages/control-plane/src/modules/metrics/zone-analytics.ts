@@ -205,11 +205,16 @@ export async function queryZoneHttpAnalyticsMerged(
 ): Promise<ZoneHttpAnalytics | null> {
   if (hostnames.length === 0) return null;
 
+  const diag: Array<{ host: string; zone: string; ok: boolean; reqs?: number }> = [];
   const results = await Promise.all(
-    hostnames.map((h) =>
-      queryZoneHttpAnalytics(env, h, periodHours, extractZoneName(h)),
-    ),
+    hostnames.map(async (h) => {
+      const zone = extractZoneName(h);
+      const r = await queryZoneHttpAnalytics(env, h, periodHours, zone);
+      diag.push({ host: h, zone, ok: r !== null, reqs: r?.totals.reqs });
+      return r;
+    }),
   );
+  console.log("zone-analytics diag:", JSON.stringify(diag));
   const ok = results.filter((r): r is ZoneHttpAnalytics => r !== null);
   if (ok.length === 0) return null;
 
