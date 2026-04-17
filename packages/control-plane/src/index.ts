@@ -18,6 +18,7 @@ import { webDeploy } from "./modules/web-deploy/routes.js";
 import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
 import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
 import { resources, resourceBindings } from "./modules/resources/routes.js";
+import { aggregateYesterday } from "./modules/metering/aggregate.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 
@@ -312,7 +313,23 @@ export default {
         syncPendingDomains(env),
         purgeAuditIpLogs(env.DB),
         purgeExpiredBuildLogs(env),
+        aggregateUsageSafe(env),
       ]),
     );
   },
 };
+
+/**
+ * Wrap the metering aggregator so a transient AE / D1 failure on one
+ * cron tick doesn't kill the rest of the scheduled handler. Idempotent
+ * upsert means the next tick can catch up without double-counting, and
+ * a structural failure surfaces in Workers traces rather than silently
+ * dropping the daily rollup.
+ */
+async function aggregateUsageSafe(env: Env): Promise<void> {
+  try {
+    await aggregateYesterday(env);
+  } catch (err) {
+    console.error("metering.aggregateYesterday failed:", err);
+  }
+}
