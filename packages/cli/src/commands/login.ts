@@ -68,7 +68,7 @@ export const loginCommand = defineCommand({
  * Default login: open browser → dashboard creates API key → redirect to localhost callback.
  */
 async function browserLogin() {
-  const { port, state, waitForCallback, close } = startAuthServer();
+  const { port, state, waitForCallback, close } = await startAuthServer();
   const dashboardUrl = getDashboardUrl();
   const authUrl = `${dashboardUrl}/cli-auth?port=${port}&state=${state}`;
 

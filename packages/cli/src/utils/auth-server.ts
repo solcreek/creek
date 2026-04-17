@@ -17,12 +17,12 @@ export interface AuthCallbackResult {
  * 4. This server receives the callback, validates state, resolves the promise
  * 5. Server auto-closes
  */
-export function startAuthServer(): {
+export async function startAuthServer(): Promise<{
   port: number;
   state: string;
   waitForCallback: () => Promise<string>;
   close: () => void;
-} {
+}> {
   const state = randomBytes(16).toString("hex");
   let resolveCallback: (key: string) => void;
   let rejectCallback: (err: Error) => void;
@@ -68,10 +68,26 @@ export function startAuthServer(): {
     res.end("Not found");
   });
 
-  // Listen on port 0 = OS picks a random available port
-  server.listen(0, "localhost");
+  // Listen on port 0 = OS picks a random available port.
+  // server.listen() is async — we MUST await the 'listening' event before
+  // reading server.address(), otherwise address() returns null and the
+  // callback URL ships ?port=0 to the dashboard (which correctly rejects
+  // with "Missing port or state parameter"). Regression seen in the wild
+  // on macOS — Node's behavior here is timing-dependent.
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", () => resolve());
+    server.once("error", (err) => reject(err));
+    server.listen(0, "localhost");
+  });
+
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
+  if (port === 0) {
+    server.close();
+    throw new Error(
+      "Could not determine local port for auth callback — server.address() returned null after listening.",
+    );
+  }
 
   // Timeout after 2 minutes
   const timeout = setTimeout(() => {

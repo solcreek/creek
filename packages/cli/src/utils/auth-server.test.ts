@@ -19,7 +19,7 @@ describe("auth-server state generation", () => {
 describe.skipIf(!process.env.TEST_NETWORK)("auth-server loopback", () => {
   test("starts, receives callback, validates state", async () => {
     const { startAuthServer } = await import("./auth-server.js");
-    const { port, state, waitForCallback, close } = startAuthServer();
+    const { port, state, waitForCallback, close } = await startAuthServer();
 
     try {
       expect(port).toBeGreaterThan(0);
@@ -38,7 +38,7 @@ describe.skipIf(!process.env.TEST_NETWORK)("auth-server loopback", () => {
 
   test("rejects callback with mismatched state", async () => {
     const { startAuthServer } = await import("./auth-server.js");
-    const { port, waitForCallback, close } = startAuthServer();
+    const { port, waitForCallback, close } = await startAuthServer();
 
     // Observe the rejection to prevent unhandled-rejection warning —
     // state mismatch rejects the waitForCallback promise.
