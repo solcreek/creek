@@ -127,6 +127,15 @@ export async function queryZoneHttpAnalytics(
     query {
       viewer {
         zones(filter: { zoneTag: "${zoneId}" }) {
+          zoneTotals: httpRequestsAdaptiveGroups(
+            filter: {
+              ${timeFilterKey}: "${timeFilterValue}"
+            }
+            limit: 5
+          ) {
+            count
+            dimensions { clientRequestHTTPHost }
+          }
           totals: httpRequestsAdaptiveGroups(
             filter: {
               clientRequestHTTPHost: "${hostname}"
