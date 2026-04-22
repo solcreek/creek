@@ -27,7 +27,7 @@ for Vite apps and meta-frameworks built on top of Vite.
 | React Router (v7 / Remix) | ✓ | |
 | Hono | ✓ | |
 | Static site (`index.html`) | ✓ | fallback detection |
-| Next.js | 🚧 WIP | via [`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek), currently routed through an OpenNextJS workaround — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1) |
+| Next.js | ✓ SSR + static | via [`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek) — custom adapter with Node.js API shims, streaming SSR, embedded manifests. Requires Next.js >= 16.2.3. |
 
 The two "experimental SSR" entries (SvelteKit, Nuxt) work for SPA /
 islands mode today; full server build is WIP. Vite SPA detection is

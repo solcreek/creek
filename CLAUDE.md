@@ -54,8 +54,7 @@ Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d
 | `packages/mcp-server` | creek-mcp-server | mcp.creek.dev (deploy, status, build logs, resource CRUD) |
 
 ### Apps
-- `apps/www` — creek.dev marketing site (Next.js 16.2 on CF Workers).
-  Currently deployed via OpenNextJS (`apps/www/scripts/deploy.sh`) **as an interim workaround** — see [solcreek/creek#1](https://github.com/solcreek/creek/issues/1). The end state is `creek deploy --yes` driven by `@solcreek/adapter-creek`. OpenNextJS dependency, the standalone symlink, and the middleware-manifest patch are all temporary; do not invest in OpenNextJS-side fixes here, fix them in adapter-creek instead.
+- `apps/www` — creek.dev marketing site (Next.js 16.2.3 on CF Workers via `@solcreek/adapter-creek`). Deployed with `creek deploy --yes` — no custom scripts, no OpenNextJS. See [`solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek).
 - `apps/dashboard` — app.creek.dev admin dashboard (Vite + React 19 + TanStack Router). Sidebar: Platform (Projects) / Resources (Database, Storage, Cache, AI) / Account (Settings, API Keys)
 
 ### Internal Packages
@@ -118,8 +117,8 @@ On push to a non-production branch, `handlePush` deploys a preview and posts a c
 ## Important Caveats
 
 - `apps/www` uses **Next.js 16.2** which has breaking changes from training data. Always read `node_modules/next/dist/docs/` before modifying Next.js code.
-- **Next.js >= 16.2.3** is required by `@solcreek/adapter-creek` (CVE-2026-23869). When `apps/www` switches off OpenNextJS, bump its `next` dep to `^16.2.3`.
-- `packages/cli/src/utils/nextjs.ts` has stale comments referring to `@solcreek/adapter-nextjs`; the resolved package is `@solcreek/adapter-creek`. Code is correct, comments are not — update when touched.
+- **Next.js >= 16.2.3** is required by `@solcreek/adapter-creek` (CVE-2026-23869). `apps/www` already runs 16.2.3.
+- `packages/cli/src/utils/nextjs.ts` retains a legacy build path via `@opennextjs/cloudflare` for Next.js < 16.2.3. The adapter path (`buildWithAdapter`) is the primary flow for >= 16.2.3.
 - `packages/deploy-core` exports raw TypeScript (no build step) — consumers bundle it themselves.
 - `packages/build-container` bundles to a single `dist/server.mjs` via esbuild. The `@solcreek/sdk` dependency is inlined; `ajv` is also inlined. Only `node:*` builtins are external.
 - `turbo build` runs dependency builds first (`^build`). Tests also depend on `^build`. Dev and test tasks are not cached.
