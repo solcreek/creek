@@ -39,8 +39,8 @@ npx creek deploy
 
 Creek detects your framework, provisions resources, builds, and deploys.
 
-**Supported:** React · Vue · Svelte · Solid · Astro · VitePress · Hono · TanStack Start · React Router · static HTML
-**WIP:** Next.js · Nuxt · Remix · SvelteKit
+**Supported:** React · Vue · Svelte · Solid · Astro · VitePress · Hono · TanStack Start · React Router · Next.js · static HTML
+**WIP:** Nuxt · SvelteKit
 
 ---
 
@@ -259,7 +259,7 @@ creek claim <sandboxId>     Convert sandbox preview to permanent project
 creek/
   apps/
     dashboard/              Vite + React + TanStack Router (app.creek.dev)
-    www/                    Next.js marketing site (creek.dev)
+    www/                    Next.js marketing site via adapter-creek (creek.dev)
   packages/
     cli/                    CLI — npm: creek
     sdk/                    TypeScript SDK — npm: @solcreek/sdk
@@ -330,6 +330,27 @@ pnpm dev             # Start all dev servers
 ```
 
 ---
+
+## Next.js Adapter
+
+Creek ships its own Next.js adapter — **[`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek)** — purpose-built for Cloudflare Workers for Platforms.
+
+```bash
+npm install @solcreek/adapter-creek
+creek deploy
+```
+
+The CLI auto-detects Next.js >= 16.2.3 and invokes the adapter. No config needed.
+
+**What it does differently from generic adapters:**
+
+- **Streaming SSR** via `TransformStream` — compatible with Workers' request lifecycle (no `node:http` server dependency)
+- **Embedded manifests** — all Next.js route/build/prerender manifests are inlined into the worker bundle via a custom `fs` shim, so no filesystem reads at runtime
+- **Node.js API shims** — `http`, `https`, `net`, `inspector`, `fs`, `vm`, `process` EventEmitter stubs — purpose-built for the APIs Next.js actually touches, not generic polyfills
+- **Turbopack runtime patching** — replaces dynamic `R.c()` chunk loading with a static `requireChunk()` switch for Workers' no-filesystem constraint
+- **Zero config** — the adapter hooks into Next.js's `onBuildComplete` lifecycle and produces a `.creek/adapter-output/` bundle the CLI uploads directly
+
+creek.dev itself is deployed via this adapter (`apps/www`).
 
 ## Ecosystem
 
