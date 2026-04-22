@@ -62,7 +62,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {/*
           esbuild __name helper polyfill.
-          Some bundled chunks emitted by the Next.js 16 / OpenNextJS /
+          Some bundled chunks emitted by the Next.js 16 / adapter-creek /
           Turbopack pipeline reference `__name` (esbuild's --keep-names
           wrapper that preserves function .name in minified output)
           without inlining the helper itself, causing the whole inline

@@ -143,7 +143,7 @@ export default function Home() {
         <SectionHeader
           label="04"
           title="Your framework is supported"
-          description="Vite, React, Vue, Svelte, Astro, TanStack Start, React Router, Hono, static sites — zero config. Next.js via our adapter (WIP). Every framework written up honestly below."
+          description="Vite, React, Vue, Svelte, Astro, Next.js, TanStack Start, React Router, Hono, static sites — zero config. This site is a Next.js app deployed on Creek. Every framework written up honestly below."
         />
         <FrameworksSection />
       </LineworkSection>
@@ -509,7 +509,7 @@ function MigrationSection() {
       lines: [
         "Vite, Astro, SvelteKit, Nuxt.",
         "Every Vite meta-framework, auto-detected.",
-        "Next.js via adapter-creek (WIP).",
+        "Next.js SSR via adapter-creek.",
         "Static sites with one index.html.",
       ],
       note: "See the Frameworks section below for the full maturity tiers.",
@@ -571,9 +571,8 @@ function FrameworksSection() {
   // Three honest tiers mirroring getting-started.mdx and CAPABILITIES.md.
   // "Zero-config" is what resolveConfig was designed against first —
   // Vite-based SPAs + Astro (Vite under the hood) + TanStack Start.
-  // "Supported" is the next tier: works, may need minor config, server
-  // builds still stabilizing for the Vite meta-frameworks. "Work in
-  // progress" is just Next.js, routed through adapter-creek.
+  // "Supported" is the next tier: works, may need minor config or an
+  // adapter. "Experimental" is SvelteKit/Nuxt SSR still stabilizing.
   const tiers: Array<{
     label: string;
     tint: "accent" | "muted" | "dim";
@@ -589,14 +588,14 @@ function FrameworksSection() {
     {
       label: "Supported",
       tint: "muted",
-      caption: "Works today. Server build for SvelteKit / Nuxt is experimental.",
-      frameworks: ["SvelteKit", "Nuxt", "React Router (v7 / Remix)", "Hono", "Static site"],
+      caption: "Works today. Next.js SSR via our own adapter — this site runs on it.",
+      frameworks: ["Next.js", "React Router (v7 / Remix)", "Hono", "Static site"],
     },
     {
-      label: "Work in progress",
+      label: "Experimental",
       tint: "dim",
-      caption: "Routed through @solcreek/adapter-creek, currently via an OpenNextJS workaround.",
-      frameworks: ["Next.js"],
+      caption: "Server build for SvelteKit / Nuxt is stabilizing.",
+      frameworks: ["SvelteKit", "Nuxt"],
     },
   ];
 
