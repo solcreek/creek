@@ -350,7 +350,7 @@ The CLI auto-detects Next.js >= 16.2.3 and invokes the adapter. No config needed
 - **Turbopack runtime patching** — replaces dynamic `R.c()` chunk loading with a static `requireChunk()` switch for Workers' no-filesystem constraint
 - **Zero config** — the adapter hooks into Next.js's `onBuildComplete` lifecycle and produces a `.creek/adapter-output/` bundle the CLI uploads directly
 
-creek.dev itself is deployed via this adapter (`apps/www`).
+**Dogfooding:** [creek.dev](https://creek.dev) is a Next.js app — its source lives in [`apps/www`](apps/www) in this repo — and it's deployed on Creek's own infrastructure via `creek deploy --yes`. Same platform, same adapter, same pipeline that every other Creek user gets. If the adapter breaks, our own marketing site breaks first.
 
 ## Ecosystem
 
