@@ -33,8 +33,8 @@ creek domains ls --json                       # Verify status
 
 Not every SSR framework has equal support yet — check
 [creek.dev/docs/getting-started](https://creek.dev/docs/getting-started)
-for the current compatibility matrix. Next.js in particular requires
-`@solcreek/adapter-creek` or Creek's OpenNextJS workaround.
+for the current compatibility matrix. Next.js >= 16.2.3 is fully
+supported via `@solcreek/adapter-creek` (`npm install` + `creek deploy`).
 
 ## Config Detection Order
 

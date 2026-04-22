@@ -1,6 +1,6 @@
 ---
 title: Next.js
-description: Deploy a Next.js static site to Creek.
+description: Deploy Next.js apps to Creek — static export or full SSR.
 ---
 
 ## Quick Start
@@ -8,12 +8,15 @@ description: Deploy a Next.js static site to Creek.
 ```bash
 npx create-next-app my-app
 cd my-app
+npm install @solcreek/adapter-creek
 npx creek deploy
 ```
 
-## Static Export (Recommended)
+Creek auto-detects Next.js >= 16.2.3, invokes the adapter, and deploys. No configuration needed.
 
-For static sites, add `output: "export"` to your Next.js config:
+## Static Export
+
+For pure static sites, add `output: "export"` to your Next.js config:
 
 ```ts title="next.config.ts"
 const nextConfig = {
@@ -22,9 +25,41 @@ const nextConfig = {
 export default nextConfig;
 ```
 
-Creek deploys the `out/` directory as a static site.
+Creek deploys the `out/` directory as a static site. Do **not** set `framework = "nextjs"` in creek.toml for static export — Creek treats it as a standard static site, which is correct.
 
-## Monorepo Setup
+## SSR (Server-Side Rendering)
+
+Install the adapter and deploy:
+
+```bash
+npm install @solcreek/adapter-creek
+npx creek deploy
+```
+
+That's it. The CLI detects Next.js >= 16.2.3 + the adapter package, then:
+
+1. Runs `next build --webpack` with the adapter's `NEXT_ADAPTER_PATH`
+2. The adapter's `onBuildComplete` hook bundles the worker output
+3. CLI uploads `.creek/adapter-output/` (worker + static assets)
+
+### creek.toml (optional)
+
+```toml title="creek.toml"
+[project]
+name = "my-nextjs-app"
+framework = "nextjs"
+```
+
+Setting `framework = "nextjs"` is optional — the CLI auto-detects from `package.json`. Useful when you want to pin the project name.
+
+### What the adapter handles
+
+- **Streaming SSR** via `TransformStream` — no `node:http` server dependency
+- **Embedded manifests** — route, build, and prerender manifests inlined into the bundle via a custom `fs` shim
+- **Node.js API shims** — `http`, `https`, `net`, `inspector`, `fs`, `vm`, `process` EventEmitter stubs
+- **Turbopack runtime patching** — dynamic chunk loading replaced with static `requireChunk()` switch
+
+### Monorepo Setup
 
 In a pnpm/npm/yarn monorepo, Next.js 16+ requires `turbopack.root`:
 
@@ -32,7 +67,6 @@ In a pnpm/npm/yarn monorepo, Next.js 16+ requires `turbopack.root`:
 import { resolve } from "node:path";
 
 const nextConfig = {
-  output: "export",
   turbopack: {
     root: resolve(process.cwd(), "../.."),
   },
@@ -40,38 +74,15 @@ const nextConfig = {
 export default nextConfig;
 ```
 
-## Configuration
-
-```toml title="creek.toml"
-[project]
-name = "my-nextjs-app"
-
-[build]
-command = "npm run build"
-output = "out"
-```
-
-Note: Do **not** set `framework = "nextjs"` for static export — Creek treats it as a standard static site, which is correct.
-
-## SSR (Experimental)
-
-Next.js SSR on Cloudflare Workers is possible via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare). This is experimental and requires additional setup:
-
-```toml title="creek.toml"
-[project]
-name = "my-ssr-app"
-framework = "nextjs"
-
-[build]
-command = "npm run build:worker"
-output = ".open-next"
-```
-
-See the [Next.js on Cloudflare docs](https://developers.cloudflare.com/pages/framework-guides/nextjs/) for details.
-
 ## Known Limitations
 
-- **SSR requires `@opennextjs/cloudflare`** — not built into Creek
-- **Bundle size** — large Next.js apps may exceed Workers limits
-- **ISR/Revalidation** — requires cache adapter (not yet supported)
-- **Image Optimization** — use `unoptimized: true` or a custom loader
+- **Requires Next.js >= 16.2.3** — older versions fall back to a legacy build path
+- **`--webpack` flag is mandatory** — Turbopack's chunked output format can't be bundled by esbuild (the adapter sets this automatically)
+- **ISR / on-demand revalidation** — cache handler is in-memory only; Durable Object-backed cache is planned
+- **Image Optimization** — use `unoptimized: true` or a custom loader; `sharp` is shimmed to no-op (falls back to `resvg.wasm` for `@vercel/og`)
+- **Bundle size** — large Next.js apps produce 5-7MB workers; within Workers limits but worth monitoring
+
+## Links
+
+- [`@solcreek/adapter-creek`](https://github.com/solcreek/adapter-creek) — adapter source + changelog
+- [creek.dev](https://creek.dev) — deployed via this adapter as dogfood
