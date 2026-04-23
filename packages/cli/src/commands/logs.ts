@@ -40,7 +40,7 @@ import { matchesClientSide, describeFilters, safeStringify as ssExport } from ".
 export const logsCommand = defineCommand({
   meta: {
     name: "logs",
-    description: "Read recent log entries for a project",
+    description: "Read recent log entries for a project. Only worker invocations appear — edge-cached requests don't invoke the worker and won't show here. Use `creek metrics` for total traffic including cache hits.",
   },
   args: {
     project: {
