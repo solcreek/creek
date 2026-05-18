@@ -1,0 +1,22 @@
+{
+  "name": "@solcreek/host-runtime",
+  "version": "0.1.0",
+  "description": "Bun-side host runtime: D1/KV/R2/Assets bindings and Worker module runner",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./d1": "./src/d1.ts",
+    "./kv": "./src/kv.ts",
+    "./r2": "./src/r2.ts",
+    "./assets": "./src/assets.ts",
+    "./env": "./src/env.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}
