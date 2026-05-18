@@ -1,0 +1,24 @@
+{
+  "name": "@solcreek/vite-plugin",
+  "version": "0.1.0",
+  "description": "Vite plugin that runs a Creek Worker module as dev middleware",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "dependencies": {
+    "@solcreek/host-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^8.0.13"
+  }
+}
