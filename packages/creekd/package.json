@@ -1,0 +1,23 @@
+{
+  "name": "@solcreek/creekd",
+  "version": "0.1.0",
+  "description": "Multi-app daemon: process supervisor and HTTP dispatcher for Creek Bun runtime",
+  "type": "module",
+  "bin": {
+    "creekd": "./src/daemon.ts"
+  },
+  "exports": {
+    ".": "./src/daemon.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "bun src/daemon.ts"
+  },
+  "dependencies": {
+    "@solcreek/host-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}
