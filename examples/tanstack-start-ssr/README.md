@@ -9,15 +9,22 @@ npm install
 npm run dev
 ```
 
-> **About `.npmrc`**: this template ships an `.npmrc` that sets
-> `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. It's there because `sharp` is
-> pulled in transitively by miniflare/wrangler, and its install
-> script mistakenly prefers a globally-installed libvips (e.g.
-> from `brew install vips`) over its own prebuilt binary —
-> causing `npm install` to fail with a `node-gyp` / `node-addon-api`
-> error on developer machines that have libvips installed. The
-> `.npmrc` forces sharp to use its bundled prebuild instead.
-> Safe to delete if you don't have global libvips on your system.
+> **If `npm install` fails on sharp**: this template's dependency
+> chain pulls in `sharp` (via wrangler → miniflare). On developer
+> machines with libvips installed globally (e.g. `brew install vips`
+> or `apt install libvips-dev`), sharp's install script mistakenly
+> prefers the system libvips and tries to build from source — which
+> fails with a `node-gyp` / `node-addon-api` error.
+>
+> `create-creek-app` sets `SHARP_IGNORE_GLOBAL_LIBVIPS=1` during
+> the initial scaffold install for you. For later installs (adding
+> new deps, clean reinstall) prepend the same var:
+>
+> ```bash
+> SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install
+> ```
+>
+> Tracking upstream: https://github.com/lovell/sharp/issues (TBD).
 
 # Building For Production
 

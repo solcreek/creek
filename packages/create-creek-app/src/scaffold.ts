@@ -78,6 +78,18 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
         execSync("npm install", {
           cwd: dir,
           stdio: opts.silent ? "pipe" : "inherit",
+          // SHARP_IGNORE_GLOBAL_LIBVIPS=1 forces sharp@0.34 (pulled in
+          // transitively by wrangler → miniflare → @cloudflare/vite-plugin
+          // in several templates) to use its bundled prebuilt binary
+          // instead of trying to link against a globally-installed libvips.
+          // Without this, dev machines with `brew install vips` or
+          // `apt install libvips-dev` see `npm install` fail with a
+          // node-gyp / node-addon-api error during sharp's install-time
+          // build-from-source fallback. Clean machines + CI runners
+          // ignore this var. Only applied at scaffold time; users adding
+          // deps later may hit the same issue and need to set it in
+          // their shell — README note covers that.
+          env: { ...process.env, SHARP_IGNORE_GLOBAL_LIBVIPS: "1" },
         });
         if (!opts.silent) consola.success("Dependencies installed");
       } catch {
