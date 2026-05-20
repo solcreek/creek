@@ -56,15 +56,34 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
   }
 
   // 6. Install dependencies
+  //
+  // Stream npm output (stdio: inherit) so users see the real error
+  // in real time when install fails — sharp prebuilds, peer-dep
+  // conflicts, network drops all surface here. Silent mode (tests)
+  // pipes. On non-zero exit we throw, which:
+  //   - stops the "Next steps" success block below from printing
+  //   - propagates a non-zero process exit code to the caller
+  //   - leaves the scaffold dir on disk so the user can `cd` in
+  //     and retry `npm install` to see the same error
+  //
+  // Previously stdio was `"pipe"` and the catch was `consola.warn`
+  // + continue. Install failures landed silently and users got a
+  // "Created successfully" message immediately followed by a
+  // broken `creek dev`. That class of UX bug is what this fixes.
   if (opts.install !== false) {
     const pkgPath = resolve(dir, "package.json");
     if (existsSync(pkgPath)) {
       if (!opts.silent) consola.start("Installing dependencies...");
       try {
-        execSync("npm install", { cwd: dir, stdio: "pipe" });
+        execSync("npm install", {
+          cwd: dir,
+          stdio: opts.silent ? "pipe" : "inherit",
+        });
         if (!opts.silent) consola.success("Dependencies installed");
       } catch {
-        consola.warn("Failed to install dependencies. Run `npm install` manually.");
+        consola.error("Dependency install failed.");
+        consola.error(`  cd ${projectName} && npm install   # to see the error and retry`);
+        throw new Error("Dependency install failed");
       }
     }
   }

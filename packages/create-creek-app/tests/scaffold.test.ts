@@ -194,6 +194,40 @@ describe("scaffold", () => {
     ).rejects.toThrow("Template data validation failed");
   });
 
+  it("throws on npm install failure and does not print success", async () => {
+    // Trigger a real npm install against a package.json with a
+    // nonexistent dep. Faster than spinning up a mock for child_process
+    // and exercises the actual failure-mode path users hit (the
+    // bug that this guard was added to prevent: silent-fail +
+    // "Created successfully").
+    const dest = join(baseDir, "broken");
+    mockedDownload.mockImplementation(async (_src, opts) => {
+      mkdirSync(opts!.dir!, { recursive: true });
+      writeFileSync(join(opts!.dir!, "creek-data.json"), JSON.stringify({ name: "broken" }));
+      writeFileSync(
+        join(opts!.dir!, "package.json"),
+        JSON.stringify({
+          name: "broken",
+          version: "0.0.0",
+          dependencies: {
+            "@solcreek/this-package-deliberately-does-not-exist": "0.0.0",
+          },
+        }),
+      );
+      return { dir: opts!.dir! } as any;
+    });
+
+    await expect(
+      scaffold({
+        template: "broken",
+        dir: dest,
+        install: true, // exercise the install path
+        git: false,
+        silent: true,
+      }),
+    ).rejects.toThrow("Dependency install failed");
+  }, 60000);
+
   it("returns result with dir, template, name", async () => {
     const dest = join(baseDir, "cool-app");
     mockedDownload.mockImplementation(async (_src, opts) => {
