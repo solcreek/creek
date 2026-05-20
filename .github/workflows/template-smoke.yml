@@ -1,0 +1,103 @@
+name: template-smoke
+
+# Per-template scaffold + build smoke test. Catches the class of
+# regression that surfaced in the 2026-05-20 audit:
+# tanstack-start-ssr scaffolded successfully but `npm run build`
+# failed because dependency install silently broke (sharp prebuild
+# miss). The audit-time fix (28d3876) made create-creek-app throw
+# on install failure; this workflow runs the full path end-to-end
+# so we catch the next instance before users do.
+#
+# Triggers:
+#   - push to main: catch regressions immediately after merge
+#   - schedule (weekly): catch template-dep drift even when nobody
+#     touches the templates (transitive deps update, base images
+#     change, sharp ships a new version)
+#   - workflow_dispatch: run on demand after fixing an upstream
+#     template issue
+#
+# NOT triggered on pull_request: giget fetches templates from
+# github main, so PR-time runs would test the OLD templates and
+# the changed code in the PR wouldn't be exercised. Catch
+# regressions post-merge instead.
+#
+# Runs on ubuntu-latest only. macOS / Windows have known platform-
+# specific dep issues (sharp prebuilds, node-gyp setup) that are
+# real but out of scope here — Phase 1 audience is Linux/CI-class
+# hosts. Add a macOS matrix entry when user reports surface those
+# issues.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/create-creek-app/**'
+      - 'examples/vite-react/**'
+      - 'examples/vite-react-drizzle/**'
+      - 'examples/tanstack-start-ssr/**'
+      - '.github/workflows/template-smoke.yml'
+  schedule:
+    - cron: '0 7 * * 1'   # Mondays 07:00 UTC (1 hr after vuln scans)
+  workflow_dispatch:
+
+concurrency:
+  group: template-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: ${{ matrix.template }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        template:
+          - vite-react
+          - vite-react-drizzle
+          - tanstack-start-ssr
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: install monorepo deps
+        run: pnpm install --frozen-lockfile
+
+      - name: build create-creek-app
+        run: pnpm --filter create-creek-app build
+
+      - name: scaffold ${{ matrix.template }}
+        # The scaffold throws on npm install failure (28d3876), so a
+        # non-zero exit here is the right signal — sharp prebuild
+        # misses, peer-dep conflicts, network drops all fail the
+        # workflow before we even get to the build step.
+        run: |
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          node "$GITHUB_WORKSPACE/packages/create-creek-app/dist/index.js" \
+            test-${{ matrix.template }} \
+            --template ${{ matrix.template }} \
+            --yes
+
+      - name: build scaffolded project
+        run: |
+          cd /tmp/smoke/test-${{ matrix.template }}
+          npm run build
+
+      - name: verify build output
+        run: |
+          DIST="/tmp/smoke/test-${{ matrix.template }}/dist"
+          if [ ! -d "$DIST" ]; then
+            echo "::error::dist/ missing after build — template is broken"
+            exit 1
+          fi
+          DIST_SIZE=$(du -sk "$DIST" | cut -f1)
+          if [ "$DIST_SIZE" -lt 10 ]; then
+            echo "::error::dist/ is suspiciously small (${DIST_SIZE}KB) — build likely failed mid-way"
+            exit 1
+          fi
+          echo "::notice::dist/ size: ${DIST_SIZE}KB"
