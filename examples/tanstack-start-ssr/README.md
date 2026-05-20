@@ -9,6 +9,16 @@ npm install
 npm run dev
 ```
 
+> **About `.npmrc`**: this template ships an `.npmrc` that sets
+> `SHARP_IGNORE_GLOBAL_LIBVIPS=1`. It's there because `sharp` is
+> pulled in transitively by miniflare/wrangler, and its install
+> script mistakenly prefers a globally-installed libvips (e.g.
+> from `brew install vips`) over its own prebuilt binary —
+> causing `npm install` to fail with a `node-gyp` / `node-addon-api`
+> error on developer machines that have libvips installed. The
+> `.npmrc` forces sharp to use its bundled prebuild instead.
+> Safe to delete if you don't have global libvips on your system.
+
 # Building For Production
 
 To build this application for production:
