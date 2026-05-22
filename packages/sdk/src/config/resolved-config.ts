@@ -3,7 +3,7 @@ import { join, basename } from "node:path";
 import type { Framework } from "../types/index.js";
 import { BINDING_NAMES, type ResourceRequirements } from "../bindings/index.js";
 import { detectFramework, getDefaultBuildOutput } from "../framework/index.js";
-import { parseConfig } from "./index.js";
+import { parseConfig, detectTarget, validateTargetDrivers, type DeployTarget } from "./index.js";
 import { parseWranglerConfig, type WranglerConfig, type WranglerFormat } from "./wrangler.js";
 
 // --- Types ---
@@ -26,6 +26,8 @@ export type ConfigSource =
 export interface ResolvedConfig {
   source: ConfigSource;
   projectName: string;
+  /** Deploy target: "cf" (CF Workers) or "creekd" (VPS). */
+  target: DeployTarget;
   framework: Framework | null;
   buildCommand: string;
   buildOutput: string;
@@ -103,17 +105,28 @@ export function resolveConfig(cwd: string): ResolvedConfig {
 
 function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
   const config = parseConfig(toml);
+  validateTargetDrivers(config);
+
+  const target = detectTarget(config);
   const bindings: BindingDeclaration[] = [];
 
-  // Semantic config names → CF-native binding types
-  if (config.resources.database) bindings.push({ type: "d1", name: BINDING_NAMES.d1 });
-  if (config.resources.storage)  bindings.push({ type: "r2", name: BINDING_NAMES.r2 });
-  if (config.resources.cache)    bindings.push({ type: "kv", name: BINDING_NAMES.kv });
-  if (config.resources.ai)       bindings.push({ type: "ai", name: BINDING_NAMES.ai });
+  if (target === "cf") {
+    // CF path: v1 boolean resources OR v2 sqlite→D1 mapping
+    const useDb = config.resources.database || config.database?.driver === "sqlite";
+    const useStorage = config.resources.storage || config.storage?.driver === "s3";
+    const useCache = config.resources.cache || config.cache?.driver === "sqlite";
+
+    if (useDb) bindings.push({ type: "d1", name: BINDING_NAMES.d1 });
+    if (useStorage) bindings.push({ type: "r2", name: BINDING_NAMES.r2 });
+    if (useCache) bindings.push({ type: "kv", name: BINDING_NAMES.kv });
+    if (config.resources.ai) bindings.push({ type: "ai", name: BINDING_NAMES.ai });
+  }
+  // creekd path: no CF bindings — env vars injected by creekd at runtime
 
   return {
     source: "creek.toml",
     projectName: config.project.name,
+    target,
     framework: config.project.framework ?? null,
     buildCommand: config.build.command,
     buildOutput: config.build.output,
@@ -196,6 +209,7 @@ function fromWranglerConfig(
   return {
     source,
     projectName: wrangler.name ?? dirName,
+    target: "cf",
     framework,
     // Pure Worker: no traditional build step — entry IS the app
     buildCommand: isPureWorker ? "" : "npm run build",
@@ -226,6 +240,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
   return {
     source: "package.json",
     projectName,
+    target: "cf",
     framework,
     buildCommand: "npm run build",
     buildOutput: getDefaultBuildOutput(framework),
@@ -247,6 +262,7 @@ function fromStaticSite(cwd: string): ResolvedConfig {
   return {
     source: "index.html",
     projectName: dirName,
+    target: "cf",
     framework: null,
     buildCommand: "",
     buildOutput: hasPublicDir ? "public" : ".",
