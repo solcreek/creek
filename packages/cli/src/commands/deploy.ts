@@ -399,6 +399,11 @@ export const deployCommand = defineCommand({
         }
       }
 
+      // creekd target → deploy to local creekd via admin API
+      if (resolved.target === "creekd") {
+        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode);
+      }
+
       if (token) {
         return await deployAuthenticated(cwd, resolved, token, args["skip-build"], jsonMode, args["no-cache"]);
       }
@@ -425,6 +430,121 @@ export const deployCommand = defineCommand({
     process.exit(1);
   },
 });
+
+// ============================================================================
+// Deploy to local creekd — build + creekctl ensure/deploy
+// ============================================================================
+
+async function deployCreekd(
+  cwd: string,
+  resolved: ResolvedConfig,
+  skipBuild: boolean,
+  jsonMode: boolean,
+): Promise<void> {
+  const { execSync: exec, execFileSync: execFile } = await import("node:child_process");
+
+  // 1. Check creekd/creekctl available
+  try {
+    exec("creekctl --version", { stdio: "pipe" });
+  } catch {
+    const msg = "creekctl not found. Install with: curl -fsSL https://install.creek.dev | sh";
+    if (jsonMode) jsonOutput({ error: "creekctl_not_found", message: msg }, 1, []);
+    consola.error(msg);
+    process.exit(1);
+  }
+
+  if (!jsonMode) {
+    section("Detect");
+    consola.info(`  Target: creekd (local)`);
+    consola.info(`  Project: ${resolved.projectName}`);
+    if (resolved.framework) consola.info(`  Framework: ${resolved.framework}`);
+  }
+
+  // 2. Build (unless skipped)
+  if (!skipBuild && resolved.buildCommand) {
+    if (!jsonMode) {
+      section("Build");
+      consola.start(`  ${resolved.buildCommand}`);
+    }
+    try {
+      exec(resolved.buildCommand, { cwd, stdio: jsonMode ? "pipe" : "inherit" });
+      if (!jsonMode) consola.success("  Build complete");
+    } catch (e: any) {
+      const msg = `Build failed: ${resolved.buildCommand}`;
+      if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: msg }, 1, []);
+      consola.error(msg);
+      process.exit(1);
+    }
+  }
+
+  // 3. Detect entry point
+  const entryPoint = resolved.workerEntry
+    ?? resolved.buildOutput + "/index.js"
+    ;
+  const runtime = "bun"; // default for creekd; could read from creek.toml [app].runtime
+
+  // 4. Build creekctl spawn request
+  const port = 3000; // TODO: auto-assign or read from config
+  const spawnRequest = JSON.stringify({
+    runtime,
+    entry: entryPoint,
+    port,
+  });
+
+  // 5. Deploy via creekctl ensure (idempotent)
+  if (!jsonMode) {
+    section("Deploy");
+    consola.start("  Deploying to creekd...");
+  }
+
+  const startTime = Date.now();
+  try {
+    const result = exec(
+      `creekctl ensure ${resolved.projectName} --json-input '${spawnRequest}' --json`,
+      { encoding: "utf-8", stdio: "pipe" },
+    );
+
+    let app: Record<string, unknown> = {};
+    try {
+      app = JSON.parse(result.trim());
+    } catch {
+      // non-JSON output, still succeeded
+    }
+
+    const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (jsonMode) {
+      jsonOutput({
+        ok: true,
+        url: `http://localhost:${port}`,
+        appId: resolved.projectName,
+        port,
+        runtime,
+        target: "creekd",
+        buildTimeS: parseFloat(elapsedS),
+        mode: "creekd-local",
+      }, 0, [
+        { command: `creekctl get ${resolved.projectName}`, description: "Check app status" },
+        { command: `creekctl logs ${resolved.projectName}`, description: "View app logs" },
+        { command: `creekctl exec -- bun run seed.ts`, description: "Run one-off command" },
+      ]);
+    } else {
+      consola.success(`  Deployed to creekd (${elapsedS}s)`);
+      consola.info(`  http://localhost:${port}`);
+      console.log("");
+      consola.info("  Next steps:");
+      consola.info(`    creekctl get ${resolved.projectName}      Check status`);
+      consola.info(`    creekctl logs ${resolved.projectName}     View logs`);
+      consola.info(`    creekctl events ${resolved.projectName}   Stream events`);
+    }
+  } catch (e: any) {
+    const output = e.stdout?.toString() || e.stderr?.toString() || e.message;
+    const msg = `creekctl deploy failed: ${output}`;
+    if (jsonMode) jsonOutput({ ok: false, error: "creekd_deploy_failed", message: msg }, 1, []);
+    consola.error(msg);
+    process.exit(1);
+  }
+}
 
 // ============================================================================
 // Deploy from GitHub connection — no local build, server fetches latest commit
