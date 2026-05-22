@@ -54,11 +54,25 @@ export const devCommand = defineCommand({
     consola.info(`Target: ${target}${args.target ? " (--target override)" : " (from config)"}`);
 
     if (target === "creekd") {
-      consola.info("creekd target: starting sandbox VM with real primitives...");
-      consola.info("  This requires creekd installed: curl -fsSL https://install.creek.dev | sh");
-      // TODO: implement CreekdDevServer that orchestrates creekd sandbox
-      consola.error("creek dev --target creekd is not yet implemented. Use 'creekd sandbox .' directly.");
-      process.exit(1);
+      const { CreekdDevServer } = await import("../dev/creekd-runner.js");
+      const server = new CreekdDevServer({ cwd, port, config, reset: !!args.reset });
+
+      const shutdown = async () => {
+        consola.info("Shutting down...");
+        await server.stop();
+        process.exit(0);
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+
+      try {
+        await server.start();
+      } catch (e: any) {
+        consola.error(`Failed to start creekd dev server: ${e.message}`);
+        await server.stop();
+        process.exit(1);
+      }
+      return;
     }
 
     // CF Workers path (existing)
