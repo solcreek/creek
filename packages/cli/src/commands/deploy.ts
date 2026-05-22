@@ -624,6 +624,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   // Report the outcome
   if (targetDeployment.status === "active") {
     if (jsonMode) {
+      const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
       jsonOutput(
         {
           ok: true,
@@ -631,6 +632,11 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
           version: targetDeployment.version,
           status: "active",
           url: targetDeployment.url,
+          branch: targetDeployment.branch,
+          buildTimeS: parseFloat(elapsedS),
+          mode: "production",
+          source: "github",
+          rollbackCommand: `creek rollback --project ${projectSlug}`,
         },
         0,
         NO_PROJECT_BREADCRUMBS,
@@ -925,9 +931,11 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
         sandboxId: result.sandboxId,
         url: status.previewUrl,
         deployDurationMs: status.deployDurationMs,
+        buildTimeS: status.deployDurationMs ? parseFloat((status.deployDurationMs / 1000).toFixed(1)) : null,
         expiresAt: result.expiresAt,
         expiresInMinutes: expiresInMinutes(result.expiresAt),
         framework: framework ?? null,
+        renderMode: effectiveRenderMode,
         assetCount: fileList.length,
         mode: "sandbox",
       }, 0, [
@@ -1256,13 +1264,20 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
           });
 
         if (jsonMode) {
+          const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
           jsonOutput({
             ok: true,
             url: res.url ?? res.previewUrl,
             previewUrl: res.previewUrl,
             deploymentId: deployment.id,
+            version: res.deployment?.version ?? null,
             project: project.slug,
+            framework: framework ?? null,
+            renderMode: effectiveRenderMode,
+            assetCount: fileList.length,
+            buildTimeS: parseFloat(elapsedS),
             mode: "production",
+            rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },
