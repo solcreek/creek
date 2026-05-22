@@ -1,13 +1,13 @@
 import { defineCommand } from "citty";
 import { consola } from "consola";
-import { resolveConfig, formatDetectionSummary } from "@solcreek/sdk";
+import { resolveConfig, formatDetectionSummary, type DeployTarget, DEPLOY_TARGETS } from "@solcreek/sdk";
 import { globalArgs } from "../utils/output.js";
 import { DevServer } from "../dev/server.js";
 
 export const devCommand = defineCommand({
   meta: {
     name: "dev",
-    description: "Start local development server",
+    description: "Start local development server. Auto-detects target from creek.toml (cf = Miniflare, creekd = sandbox VM with real Postgres/Redis).",
   },
   args: {
     ...globalArgs,
@@ -15,6 +15,11 @@ export const devCommand = defineCommand({
       type: "string",
       description: "Port number (default: 3000)",
       default: "3000",
+    },
+    target: {
+      type: "string",
+      description: "Deploy target override: cf (Miniflare) or creekd (sandbox VM)",
+      required: false,
     },
     reset: {
       type: "boolean",
@@ -38,8 +43,25 @@ export const devCommand = defineCommand({
       process.exit(1);
     }
 
-    consola.info(`Detected: ${formatDetectionSummary(config)}`);
+    // Target: CLI flag > creek.toml > auto-detect (already resolved)
+    const target: DeployTarget = (args.target as DeployTarget) ?? config.target;
+    if (args.target && !DEPLOY_TARGETS.includes(args.target as DeployTarget)) {
+      consola.error(`Invalid target "${args.target}". Valid: ${DEPLOY_TARGETS.join(", ")}`);
+      process.exit(1);
+    }
 
+    consola.info(`Detected: ${formatDetectionSummary(config)}`);
+    consola.info(`Target: ${target}${args.target ? " (--target override)" : " (from config)"}`);
+
+    if (target === "creekd") {
+      consola.info("creekd target: starting sandbox VM with real primitives...");
+      consola.info("  This requires creekd installed: curl -fsSL https://install.creek.dev | sh");
+      // TODO: implement CreekdDevServer that orchestrates creekd sandbox
+      consola.error("creek dev --target creekd is not yet implemented. Use 'creekd sandbox .' directly.");
+      process.exit(1);
+    }
+
+    // CF Workers path (existing)
     const server = new DevServer({
       cwd,
       port,
