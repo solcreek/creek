@@ -8,6 +8,7 @@ import {
   type AppView,
   type StatsView,
 } from "../utils/creekd-client.js";
+import { fmtBytes, fmtDuration, calcCpuPercent } from "../utils/top-format.js";
 
 export const topCommand = defineCommand({
   meta: {
@@ -94,12 +95,8 @@ async function collectSnapshot(client: CreekdClient): Promise<Snapshot> {
     if (stats?.cgroup_enabled && stats.cpu_usage_usec != null) {
       const prev = prevCpu.get(app.id);
       if (prev) {
-        const dtUs = (stats.cpu_usage_usec - prev.usec);
-        const dtMs = now - prev.ts;
-        if (dtMs > 0) {
-          const pct = (dtUs / 1000 / dtMs) * 100;
-          cpuStr = pct.toFixed(1) + "%";
-        }
+        const pct = calcCpuPercent(prev.usec, prev.ts, stats.cpu_usage_usec, now);
+        if (pct !== null) cpuStr = pct.toFixed(1) + "%";
       }
       prevCpu.set(app.id, { usec: stats.cpu_usage_usec, ts: now });
     }
@@ -216,25 +213,6 @@ function cellValue(row: AppRow, col: number): string | number {
     case 7: return row.uptime;
     default: return "";
   }
-}
-
-function fmtBytes(bytes: number): string {
-  if (bytes < 1024) return bytes + "B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "K";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + "M";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + "G";
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return "0s";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return s + "s";
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + "m" + (s % 60 > 0 ? (s % 60) + "s" : "");
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + "h" + (m % 60 > 0 ? (m % 60) + "m" : "");
-  const d = Math.floor(h / 24);
-  return d + "d" + (h % 24 > 0 ? (h % 24) + "h" : "");
 }
 
 function sleep(ms: number): Promise<void> {
