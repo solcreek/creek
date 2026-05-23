@@ -511,6 +511,31 @@ async function deployCreekd(
       // non-JSON output, still succeeded
     }
 
+    // 6. Release phase (run before traffic swap)
+    const releaseCmd = resolved.releaseCommand;
+    if (releaseCmd) {
+      if (!jsonMode) {
+        section("Release");
+        consola.start(`  ${releaseCmd}`);
+      }
+      try {
+        const releaseOutput = exec(
+          `creekctl exec --app ${resolved.projectName} -- ${releaseCmd}`,
+          { encoding: "utf-8", stdio: jsonMode ? "pipe" : "inherit", timeout: resolved.releaseTimeout * 1000 },
+        );
+        if (!jsonMode) consola.success("  Release complete");
+      } catch (e: any) {
+        const msg = e.killed
+          ? `Release command timed out after ${resolved.releaseTimeout}s`
+          : `Release command failed: ${e.stderr?.toString() || e.message}`;
+        if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg, releaseCommand: releaseCmd }, 1, []);
+        consola.error(msg);
+        // Kill the newly deployed app — v1 stays
+        try { exec(`creekctl rm ${resolved.projectName} --json`, { stdio: "pipe" }); } catch {}
+        process.exit(1);
+      }
+    }
+
     const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
 
     if (jsonMode) {

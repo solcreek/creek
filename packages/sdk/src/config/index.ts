@@ -45,6 +45,10 @@ export const CreekConfigSchema = z.object({
   email: z.object({
     enabled: z.boolean().default(false),
   }).optional(),
+  release: z.object({
+    command: z.string(),
+    timeout: z.number().default(60),
+  }).optional(),
   triggers: z.object({
     cron: z.array(z.string()).default([]),
     queue: z.boolean().default(false),

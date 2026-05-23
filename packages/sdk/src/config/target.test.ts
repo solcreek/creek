@@ -1,4 +1,4 @@
-import { detectTarget, validateTargetDrivers, parseConfig } from "./index.js";
+import { detectTarget, validateTargetDrivers, parseConfig, type CreekConfig } from "./index.js";
 
 describe("detectTarget", () => {
   it("returns explicit target when set", () => {
@@ -174,5 +174,52 @@ describe("validateTargetDrivers", () => {
       enabled = true
     `);
     expect(() => validateTargetDrivers(config)).not.toThrow();
+  });
+});
+
+describe("release phase config", () => {
+  it("parses release command", () => {
+    const config = parseConfig(`
+      [project]
+      name = "test"
+      [release]
+      command = "bun run db:migrate"
+    `);
+    expect(config.release?.command).toBe("bun run db:migrate");
+    expect(config.release?.timeout).toBe(60);
+  });
+
+  it("parses custom timeout", () => {
+    const config = parseConfig(`
+      [project]
+      name = "test"
+      [release]
+      command = "npx prisma migrate deploy"
+      timeout = 120
+    `);
+    expect(config.release?.command).toBe("npx prisma migrate deploy");
+    expect(config.release?.timeout).toBe(120);
+  });
+
+  it("release is optional", () => {
+    const config = parseConfig(`
+      [project]
+      name = "test"
+    `);
+    expect(config.release).toBeUndefined();
+  });
+
+  it("release works with creekd target", () => {
+    const config = parseConfig(`
+      [project]
+      name = "test"
+      target = "creekd"
+      [database]
+      driver = "postgres"
+      [release]
+      command = "bun run db:migrate"
+    `);
+    expect(detectTarget(config)).toBe("creekd");
+    expect(config.release?.command).toBe("bun run db:migrate");
   });
 });

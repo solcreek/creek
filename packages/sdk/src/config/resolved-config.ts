@@ -41,6 +41,10 @@ export interface ResolvedConfig {
   cron: string[];
   /** Whether this project uses a Queue (consumer + producer) */
   queue: boolean;
+  /** Release command to run before traffic swap (e.g., db:migrate) */
+  releaseCommand: string | null;
+  /** Release command timeout in seconds */
+  releaseTimeout: number;
 }
 
 /** Binding requirements sent to the control plane (new API path) */
@@ -138,6 +142,8 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
     compatibilityFlags: [],
     cron: config.triggers.cron,
     queue: config.triggers.queue,
+    releaseCommand: config.release?.command ?? null,
+    releaseTimeout: config.release?.timeout ?? 60,
   };
 }
 
@@ -222,6 +228,8 @@ function fromWranglerConfig(
     compatibilityFlags: wrangler.compatibility_flags ?? [],
     cron: wrangler.triggers?.crons ?? [],
     queue: !!wrangler.queues,
+    releaseCommand: null,
+    releaseTimeout: 60,
   };
 }
 
@@ -252,6 +260,8 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     compatibilityFlags: [],
     cron: [],
     queue: false,
+    releaseCommand: null,
+    releaseTimeout: 60,
   };
 }
 
@@ -274,6 +284,8 @@ function fromStaticSite(cwd: string): ResolvedConfig {
     compatibilityFlags: [],
     cron: [],
     queue: false,
+    releaseCommand: null,
+    releaseTimeout: 60,
   };
 }
 

@@ -165,4 +165,38 @@ describe("target integration: resolveConfig → target", () => {
       cleanup(dir);
     }
   });
+
+  test("release command flows through resolveConfig", () => {
+    const dir = makeTestDir(`
+      [project]
+      name = "release-app"
+      target = "creekd"
+      [database]
+      driver = "postgres"
+      [release]
+      command = "bun run db:migrate"
+      timeout = 90
+    `);
+    try {
+      const config = resolveConfig(dir);
+      expect(config.releaseCommand).toBe("bun run db:migrate");
+      expect(config.releaseTimeout).toBe(90);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  test("no release section → null releaseCommand", () => {
+    const dir = makeTestDir(`
+      [project]
+      name = "no-release"
+    `);
+    try {
+      const config = resolveConfig(dir);
+      expect(config.releaseCommand).toBeNull();
+      expect(config.releaseTimeout).toBe(60);
+    } finally {
+      cleanup(dir);
+    }
+  });
 });
