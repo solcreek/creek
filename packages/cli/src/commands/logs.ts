@@ -341,8 +341,7 @@ async function creekdLogs(args: Record<string, unknown>, jsonMode: boolean): Pro
         { command: `creek logs --server ${(args.server as string) || getCreekdUrl()} --project ${id} --follow`, description: "Stream live logs" },
       ]);
     }
-    process.stdout.write(text);
-    if (text.length > 0 && !text.endsWith("\n")) process.stdout.write("\n");
+    printCreekdLogs(text);
   } catch (err) {
     if (err instanceof CreekdApiError) {
       if (jsonMode) jsonOutput({ ok: false, error: err.code, message: err.message }, 1);
@@ -458,3 +457,23 @@ function printEntry(entry: LogEntry): void {
 // safeStringify lives in logs-filter.js (re-exported for nested
 // console.log message rendering in printEntry below).
 const safeStringify = ssExport;
+
+function printCreekdLogs(text: string): void {
+  const lines = text.split("\n").filter(Boolean);
+  for (const line of lines) {
+    let rec: { ts?: string; stream?: string; msg?: string };
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      process.stdout.write(line + "\n");
+      continue;
+    }
+    const ts = rec.ts
+      ? color(new Date(rec.ts).toISOString().replace("T", " ").slice(0, 23), "dim")
+      : "";
+    const stream = rec.stream === "stderr"
+      ? color("err", "red")
+      : color("out", "cyan");
+    process.stdout.write(`${ts} ${stream} ${rec.msg ?? ""}\n`);
+  }
+}
