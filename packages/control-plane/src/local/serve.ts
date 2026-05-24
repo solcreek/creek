@@ -68,7 +68,7 @@ async function main() {
 
   const assets = new LocalR2Bucket(join(DATA_DIR, "assets"));
   const logsBucket = new LocalR2Bucket(join(DATA_DIR, "logs"));
-  const buildStatus = new LocalKVNamespace();
+  const buildStatus = new LocalKVNamespace(join(DATA_DIR, "kv.db"));
 
   const env: Env = {
     DB: db as any,

@@ -1,25 +1,53 @@
 /**
- * Local KVNamespace adapter backed by an in-memory Map with
- * optional TTL expiration. Sufficient for dev — build status
- * is ephemeral anyway.
+ * Local KVNamespace adapter backed by SQLite.
+ *
+ * Uses a single table with lazy TTL expiration. Accepts a bun:sqlite
+ * Database instance so it can share the same DB file as the D1 adapter.
  */
 
-interface KVEntry {
-  value: string;
-  expiresAt: number | null;
-}
+import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
+const CREATE_TABLE = `
+  CREATE TABLE IF NOT EXISTS kv_store (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    expires_at INTEGER
+  )
+`;
+
+const CREATE_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_kv_expires ON kv_store(expires_at)
+    WHERE expires_at IS NOT NULL
+`;
 
 export class LocalKVNamespace {
-  private store = new Map<string, KVEntry>();
+  private db: Database;
 
-  async get(key: string, options?: { type?: string }): Promise<string | null> {
-    const entry = this.store.get(key);
-    if (!entry) return null;
-    if (entry.expiresAt && Date.now() > entry.expiresAt) {
-      this.store.delete(key);
+  constructor(dbOrPath: Database | string) {
+    if (typeof dbOrPath === "string") {
+      mkdirSync(dirname(dbOrPath), { recursive: true });
+      this.db = new Database(dbOrPath);
+      this.db.exec("PRAGMA journal_mode = WAL");
+    } else {
+      this.db = dbOrPath;
+    }
+    this.db.exec(CREATE_TABLE);
+    this.db.exec(CREATE_INDEX);
+  }
+
+  async get(key: string, _options?: { type?: string }): Promise<string | null> {
+    const row = this.db
+      .query("SELECT value, expires_at FROM kv_store WHERE key = ?")
+      .get(key) as { value: string; expires_at: number | null } | null;
+
+    if (!row) return null;
+    if (row.expires_at !== null && Date.now() >= row.expires_at) {
+      this.db.run("DELETE FROM kv_store WHERE key = ?", key);
       return null;
     }
-    return entry.value;
+    return row.value;
   }
 
   async getWithMetadata<T = unknown>(key: string): Promise<{ value: string | null; metadata: T | null }> {
@@ -28,14 +56,17 @@ export class LocalKVNamespace {
   }
 
   async put(key: string, value: string, options?: { expirationTtl?: number; metadata?: unknown }): Promise<void> {
-    const expiresAt = options?.expirationTtl
+    const expiresAt = options?.expirationTtl != null
       ? Date.now() + options.expirationTtl * 1000
       : null;
-    this.store.set(key, { value, expiresAt });
+    this.db.run(
+      "INSERT OR REPLACE INTO kv_store (key, value, expires_at) VALUES (?, ?, ?)",
+      key, value, expiresAt,
+    );
   }
 
   async delete(key: string): Promise<void> {
-    this.store.delete(key);
+    this.db.run("DELETE FROM kv_store WHERE key = ?", key);
   }
 
   async list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
@@ -45,22 +76,23 @@ export class LocalKVNamespace {
   }> {
     const prefix = options?.prefix ?? "";
     const limit = options?.limit ?? 1000;
-    const keys: Array<{ name: string; expiration?: number }> = [];
     const now = Date.now();
 
-    for (const [key, entry] of this.store) {
-      if (!key.startsWith(prefix)) continue;
-      if (entry.expiresAt && now > entry.expiresAt) {
-        this.store.delete(key);
-        continue;
-      }
-      keys.push({
-        name: key,
-        ...(entry.expiresAt ? { expiration: Math.floor(entry.expiresAt / 1000) } : {}),
-      });
-      if (keys.length >= limit) break;
-    }
+    // Lazy cleanup: purge expired entries on list
+    this.db.run("DELETE FROM kv_store WHERE expires_at IS NOT NULL AND expires_at < ?", now + 1);
 
-    return { keys, list_complete: keys.length < limit };
+    const rows = this.db
+      .query(
+        "SELECT key, expires_at FROM kv_store WHERE key LIKE ? ORDER BY key LIMIT ?",
+      )
+      .all(prefix + "%", limit + 1) as Array<{ key: string; expires_at: number | null }>;
+
+    const truncated = rows.length > limit;
+    const keys = rows.slice(0, limit).map((r) => ({
+      name: r.key,
+      ...(r.expires_at ? { expiration: Math.floor(r.expires_at / 1000) } : {}),
+    }));
+
+    return { keys, list_complete: !truncated };
   }
 }
