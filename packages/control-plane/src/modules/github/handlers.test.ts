@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   handleInstallation,
   handlePush,
@@ -7,7 +7,8 @@ import {
   type InstallationPayload,
   type RepositoryEventPayload,
 } from "./handlers.js";
-import { createMockD1, createTestEnv, type MockD1 } from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, type LocalTestEnv } from "../../local/test-env.js";
+import { TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 // Mock external modules
 vi.mock("./api.js", () => ({
@@ -27,13 +28,16 @@ vi.mock("./scan.js", () => ({
   }),
 }));
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 // --- Installation handler ---
@@ -46,28 +50,33 @@ describe("handleInstallation", () => {
       repositories: [{ name: "my-app", full_name: "myorg/my-app" }],
     };
 
-    await handleInstallation(env, payload);
+    await handleInstallation(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    const insertQuery = queries.find((q) => q.sql.includes("INSERT INTO github_installation"));
-    expect(insertQuery).toBeDefined();
-    expect(insertQuery!.args[0]).toBe(12345); // installation ID
-    expect(insertQuery!.args[1]).toBe("myorg");
+    const row = testEnv.db.db.prepare("SELECT * FROM github_installation WHERE id = 12345").get() as any;
+    expect(row).toBeDefined();
+    expect(row.id).toBe(12345);
+    expect(row.accountLogin).toBe("myorg");
   });
 
   test("deleted action removes installation and related data", async () => {
+    // Seed installation + project (FK target) + connection + scan
+    const now = Date.now();
+    testEnv.db.db.exec(`INSERT INTO github_installation (id, accountLogin, accountType, appId, createdAt, updatedAt) VALUES (12345, 'myorg', 'Organization', 999, ${now}, ${now})`);
+    testEnv.db.db.exec(`INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('proj-test', 'test-app', '${TEST_TEAM.id}', ${now}, ${now})`);
+    testEnv.db.db.exec(`INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt) VALUES ('conn-1', 'proj-test', 12345, 'myorg', 'my-app', 'main', 1, 1, ${now})`);
+    testEnv.db.db.exec(`INSERT INTO repo_scan (repoOwner, repoName, installationId, deployable, scannedAt) VALUES ('myorg', 'my-app', 12345, 0, ${now})`);
+
     const payload: InstallationPayload = {
       action: "deleted",
       installation: { id: 12345, account: { login: "myorg", type: "Organization" }, app_id: 999 },
     };
 
-    await handleInstallation(env, payload);
+    await handleInstallation(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    // Should batch-delete connections, scans, and installation
-    expect(queries.some((q) => q.sql.includes("DELETE FROM github_connection"))).toBe(true);
-    expect(queries.some((q) => q.sql.includes("DELETE FROM repo_scan"))).toBe(true);
-    expect(queries.some((q) => q.sql.includes("DELETE FROM github_installation"))).toBe(true);
+    // Should have deleted connections, scans, and installation
+    expect(testEnv.db.db.prepare("SELECT * FROM github_connection WHERE installationId = 12345").get()).toBeUndefined();
+    expect(testEnv.db.db.prepare("SELECT * FROM repo_scan WHERE installationId = 12345").get()).toBeUndefined();
+    expect(testEnv.db.db.prepare("SELECT * FROM github_installation WHERE id = 12345").get()).toBeUndefined();
   });
 });
 
@@ -83,110 +92,84 @@ describe("handlePush", () => {
   };
 
   test("no-op when repo is not connected", async () => {
-    // No github_connection seeded → first() returns null
-    await handlePush(env, basePushPayload);
+    // No github_connection seeded
+    await handlePush(testEnv.env, basePushPayload);
 
     // Should NOT create a deployment
-    const queries = db.getExecuted();
-    expect(queries.some((q) => q.sql.includes("INSERT INTO deployment"))).toBe(false);
+    const row = testEnv.db.db.prepare("SELECT * FROM deployment").get();
+    expect(row).toBeUndefined();
   });
 
   test("no-op when autoDeployEnabled is false", async () => {
-    db.seedFirst("SELECT * FROM github_connection WHERE", ["myorg", "my-app"], {
-      id: "conn-1",
-      projectId: "proj-1",
-      installationId: 12345,
-      productionBranch: "main",
-      autoDeployEnabled: 0,
-      previewEnabled: 1,
-    });
+    seedConnection({ autoDeployEnabled: 0 });
 
-    await handlePush(env, basePushPayload);
+    await handlePush(testEnv.env, basePushPayload);
 
-    const queries = db.getExecuted();
-    expect(queries.some((q) => q.sql.includes("INSERT INTO deployment"))).toBe(false);
+    const row = testEnv.db.db.prepare("SELECT * FROM deployment").get();
+    expect(row).toBeUndefined();
   });
 
   test("creates deployment for production push", async () => {
-    db.seedFirst("SELECT * FROM github_connection WHERE", ["myorg", "my-app"], {
-      id: "conn-1",
-      projectId: "proj-1",
-      installationId: 12345,
-      productionBranch: "main",
-      autoDeployEnabled: 1,
-      previewEnabled: 1,
-    });
+    seedConnection();
+    seedProjectForPush();
 
-    db.seedFirst("SELECT p.slug", ["proj-1"], {
-      slug: "my-app",
-      teamSlug: "myorg",
-      teamId: "team-1",
-      plan: "free",
-    });
+    await handlePush(testEnv.env, basePushPayload).catch(() => {});
 
-    db.seedFirst("SELECT MAX(version)", ["proj-1"], { v: 3 });
-
-    await handlePush(env, basePushPayload).catch(() => {});
-
-    const queries = db.getExecuted();
-    const deployInsert = queries.find((q) => q.sql.includes("INSERT INTO deployment"));
-    expect(deployInsert).toBeDefined();
-    expect(deployInsert!.args).toContain("main");        // branch
-    expect(deployInsert!.args).toContain("abc123def456"); // commitSha
-    // triggerType "github" is hardcoded in SQL, not a bind param
-    expect(deployInsert!.sql).toContain("'github'");
+    const row = testEnv.db.db.prepare("SELECT * FROM deployment WHERE projectId = 'proj-1'").get() as any;
+    expect(row).toBeDefined();
+    expect(row.branch).toBe("main");
+    expect(row.commitSha).toBe("abc123def456");
+    expect(row.triggerType).toBe("github");
   });
 
   test("calls remote-builder via service binding with internal secret", async () => {
-    db.seedFirst("SELECT * FROM github_connection WHERE", ["myorg", "my-app"], {
-      id: "conn-1",
-      projectId: "proj-1",
-      installationId: 12345,
-      productionBranch: "main",
-      autoDeployEnabled: 1,
-      previewEnabled: 1,
-    });
-    db.seedFirst("SELECT p.slug", ["proj-1"], {
-      slug: "my-app",
-      teamSlug: "myorg",
-      teamId: "team-1",
-      plan: "free",
-    });
-    db.seedFirst("SELECT MAX(version)", ["proj-1"], { v: 0 });
+    seedConnection();
+    seedProjectForPush();
 
     const builderFetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: false, error: "stop here" })),
     );
-    env.REMOTE_BUILDER = { fetch: builderFetch } as unknown as Fetcher;
+    testEnv.env.REMOTE_BUILDER = { fetch: builderFetch } as unknown as Fetcher;
 
-    await handlePush(env, basePushPayload).catch(() => {});
+    await handlePush(testEnv.env, basePushPayload).catch(() => {});
 
     expect(builderFetch).toHaveBeenCalledTimes(1);
     const [url, init] = builderFetch.mock.calls[0];
     expect(url).toBe("http://remote-builder/build");
     expect(init.method).toBe("POST");
-    expect(init.headers["X-Internal-Secret"]).toBe(env.INTERNAL_SECRET);
+    expect(init.headers["X-Internal-Secret"]).toBe(testEnv.env.INTERNAL_SECRET);
     const body = JSON.parse(init.body);
     expect(body.branch).toBe("main");
     expect(body.repoUrl).toContain("x-access-token:mock-token@github.com/myorg/my-app.git");
   });
 
   test("skips non-production branch when previewEnabled is false", async () => {
-    db.seedFirst("SELECT * FROM github_connection WHERE", ["myorg", "my-app"], {
-      id: "conn-1",
-      projectId: "proj-1",
-      installationId: 12345,
-      productionBranch: "main",
-      autoDeployEnabled: 1,
-      previewEnabled: 0,
-    });
+    seedConnection({ previewEnabled: 0 });
 
     const featurePush = { ...basePushPayload, ref: "refs/heads/feature/auth" };
-    await handlePush(env, featurePush);
+    await handlePush(testEnv.env, featurePush);
 
-    const queries = db.getExecuted();
-    expect(queries.some((q) => q.sql.includes("INSERT INTO deployment"))).toBe(false);
+    const row = testEnv.db.db.prepare("SELECT * FROM deployment").get();
+    expect(row).toBeUndefined();
   });
+
+  function seedConnection(overrides?: { autoDeployEnabled?: number; previewEnabled?: number }) {
+    const now = Date.now();
+    // Project must exist before github_connection (FK constraint)
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+       VALUES ('proj-1', 'my-app', '${TEST_TEAM.id}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES ('conn-1', 'proj-1', 12345, 'myorg', 'my-app', 'main', ${overrides?.autoDeployEnabled ?? 1}, ${overrides?.previewEnabled ?? 1}, ${now})`,
+    );
+  }
+
+  function seedProjectForPush() {
+    // Project already seeded in seedConnection; this is a no-op but kept
+    // for clarity that handlePush joins project with organization.
+  }
 });
 
 // --- Repository event handler (rename + transfer) ---
@@ -199,20 +182,23 @@ describe("handleRepository", () => {
       installation: { id: 1 },
     };
 
-    await handleRepository(env, payload);
+    await handleRepository(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    expect(queries.some((q) => q.sql.includes("UPDATE github_connection"))).toBe(false);
+    // No updates should have occurred
+    const row = testEnv.db.db.prepare("SELECT * FROM github_connection").get();
+    expect(row).toBeUndefined();
   });
 
   test("renamed: updates connection when matching row exists by repoId", async () => {
-    db.seedFirst("WHERE repoId", [12345], {
-      id: "conn-1",
-      projectId: "proj-1",
-      repoId: 12345,
-      repoOwner: "linyiru",
-      repoName: "old-name",
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt)
+       VALUES ('proj-1', 'my-app', '${TEST_TEAM.id}', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES ('conn-1', 'proj-1', 1, 12345, 'linyiru', 'old-name', 'main', 1, 1, ${now})`,
+    );
 
     const payload: RepositoryEventPayload = {
       action: "renamed",
@@ -221,35 +207,28 @@ describe("handleRepository", () => {
       installation: { id: 1 },
     };
 
-    await handleRepository(env, payload);
+    await handleRepository(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
-    expect(updateConn).toBeDefined();
-    expect(updateConn!.args).toContain("linyiru");
-    expect(updateConn!.args).toContain("new-name");
-    expect(updateConn!.args).toContain(12345);
-    expect(updateConn!.args).toContain("conn-1");
+    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-1'").get() as any;
+    expect(conn.repoOwner).toBe("linyiru");
+    expect(conn.repoName).toBe("new-name");
+    expect(conn.repoId).toBe(12345);
 
-    const updateProj = queries.find(
-      (q) => q.sql.includes("UPDATE project SET githubRepo"),
-    );
-    expect(updateProj).toBeDefined();
-    expect(updateProj!.args).toContain("linyiru/new-name");
-    expect(updateProj!.args).toContain("proj-1");
+    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    expect(proj.githubRepo).toBe("linyiru/new-name");
   });
 
   test("renamed: falls back to (owner, old name) lookup for legacy rows with null repoId, backfills repoId", async () => {
-    // First query (by repoId) returns null — simulate "no row with repoId"
-    db.seedFirst("WHERE repoId", [12345], null);
-    // Second query (by owner + old name) returns the legacy row
-    db.seedFirst("WHERE repoOwner = ? AND repoName", ["linyiru", "old-name"], {
-      id: "conn-legacy",
-      projectId: "proj-legacy",
-      repoId: null,
-      repoOwner: "linyiru",
-      repoName: "old-name",
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt)
+       VALUES ('proj-legacy', 'legacy-app', '${TEST_TEAM.id}', ${now}, ${now})`,
+    );
+    // Legacy row with null repoId
+    testEnv.db.db.exec(
+      `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES ('conn-legacy', 'proj-legacy', 1, 'linyiru', 'old-name', 'main', 1, 1, ${now})`,
+    );
 
     const payload: RepositoryEventPayload = {
       action: "renamed",
@@ -258,22 +237,15 @@ describe("handleRepository", () => {
       installation: { id: 1 },
     };
 
-    await handleRepository(env, payload);
+    await handleRepository(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
-    expect(updateConn).toBeDefined();
+    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-legacy'").get() as any;
+    expect(conn.repoName).toBe("new-name");
     // Backfills the previously-null repoId
-    expect(updateConn!.args).toContain(12345);
-    expect(updateConn!.args).toContain("new-name");
-    expect(updateConn!.args).toContain("conn-legacy");
+    expect(conn.repoId).toBe(12345);
   });
 
   test("renamed: no-op when no connection matches by either path", async () => {
-    // Neither the repoId lookup nor the (owner, old name) lookup finds a row
-    db.seedFirst("WHERE repoId", [99999], null);
-    db.seedFirst("WHERE repoOwner = ? AND repoName", ["linyiru", "ghost"], null);
-
     const payload: RepositoryEventPayload = {
       action: "renamed",
       repository: { id: 99999, name: "phantom", owner: { login: "linyiru" } },
@@ -281,21 +253,22 @@ describe("handleRepository", () => {
       installation: { id: 1 },
     };
 
-    await handleRepository(env, payload);
+    await handleRepository(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    expect(queries.some((q) => q.sql.includes("UPDATE github_connection"))).toBe(false);
-    expect(queries.some((q) => q.sql.includes("UPDATE project SET githubRepo"))).toBe(false);
+    const row = testEnv.db.db.prepare("SELECT * FROM github_connection").get();
+    expect(row).toBeUndefined();
   });
 
   test("transferred: updates connection when repoId matches (no fallback for transfers)", async () => {
-    db.seedFirst("WHERE repoId", [55555], {
-      id: "conn-xfer",
-      projectId: "proj-xfer",
-      repoId: 55555,
-      repoOwner: "old-org",
-      repoName: "my-app",
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt)
+       VALUES ('proj-xfer', 'xfer-app', '${TEST_TEAM.id}', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES ('conn-xfer', 'proj-xfer', 1, 55555, 'old-org', 'my-app', 'main', 1, 1, ${now})`,
+    );
 
     const payload: RepositoryEventPayload = {
       action: "transferred",
@@ -303,16 +276,13 @@ describe("handleRepository", () => {
       installation: { id: 1 },
     };
 
-    await handleRepository(env, payload);
+    await handleRepository(testEnv.env, payload);
 
-    const queries = db.getExecuted();
-    const updateConn = queries.find((q) => q.sql.includes("UPDATE github_connection"));
-    expect(updateConn).toBeDefined();
-    expect(updateConn!.args).toContain("new-org");
-    expect(updateConn!.args).toContain("my-app");
-    expect(updateConn!.args).toContain("conn-xfer");
+    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-xfer'").get() as any;
+    expect(conn.repoOwner).toBe("new-org");
+    expect(conn.repoName).toBe("my-app");
 
-    const updateProj = queries.find((q) => q.sql.includes("UPDATE project SET githubRepo"));
-    expect(updateProj!.args).toContain("new-org/my-app");
+    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-xfer'").get() as any;
+    expect(proj.githubRepo).toBe("new-org/my-app");
   });
 });
