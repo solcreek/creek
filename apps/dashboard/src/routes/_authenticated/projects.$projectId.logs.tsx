@@ -30,9 +30,41 @@ function LogsPage() {
   return <LogsTab />;
 }
 
+interface LogRecord {
+  ts: string;
+  app: string;
+  stream: "stdout" | "stderr";
+  msg: string;
+}
+
+function parseLogLines(raw: string): LogRecord[] {
+  return raw
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as LogRecord;
+      } catch {
+        return { ts: "", app: "", stream: "stdout" as const, msg: line };
+      }
+    });
+}
+
+function formatLogTime(ts: string): string {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-GB", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      + "." + String(d.getMilliseconds()).padStart(3, "0");
+  } catch {
+    return ts.slice(11, 23);
+  }
+}
+
 function CreekdLogsTab() {
   const { projectId } = Route.useParams();
   const [tail, setTail] = useState(100);
+  const [showRaw, setShowRaw] = useState(false);
 
   const { data: logs, error, refetch, isLoading } = useQuery({
     queryKey: ["creekd-logs", projectId, tail],
@@ -40,6 +72,8 @@ function CreekdLogsTab() {
     refetchInterval: 3000,
     retry: 2,
   });
+
+  const parsed = useMemo(() => logs ? parseLogLines(logs) : [], [logs]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -63,20 +97,53 @@ function CreekdLogsTab() {
             </Button>
           ))}
         </div>
+        <Button
+          variant={showRaw ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setShowRaw((v) => !v)}
+        >
+          Raw
+        </Button>
         <p className="text-xs text-muted-foreground">Auto-refresh every 3s</p>
       </div>
 
       {isLoading && !logs ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
-      ) : !logs?.trim() ? (
+      ) : parsed.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="text-sm text-muted-foreground">No log output yet.</p>
         </div>
-      ) : (
+      ) : showRaw ? (
         <pre className="max-h-[600px] overflow-auto rounded-md bg-code-bg p-4 font-mono text-xs leading-relaxed">
           {logs}
           <div ref={bottomRef} />
         </pre>
+      ) : (
+        <div className="max-h-[600px] overflow-auto rounded-md bg-code-bg font-mono text-xs">
+          {parsed.map((rec, i) => (
+            <div
+              key={i}
+              className={`flex gap-2 px-3 py-0.5 hover:bg-accent/10 ${
+                rec.stream === "stderr" ? "bg-red-500/5" : ""
+              }`}
+            >
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {formatLogTime(rec.ts)}
+              </span>
+              <span
+                className={`shrink-0 w-10 ${
+                  rec.stream === "stderr"
+                    ? "text-red-400"
+                    : "text-cyan-400"
+                }`}
+              >
+                {rec.stream === "stderr" ? "err" : "out"}
+              </span>
+              <span className="whitespace-pre-wrap break-all">{rec.msg}</span>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
       )}
     </div>
   );
