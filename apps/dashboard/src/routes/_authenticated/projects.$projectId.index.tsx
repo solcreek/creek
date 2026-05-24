@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { getApp, getAppStats, restartApp, stopApp, type AppView, type StatsView } from "@/lib/adapter";
+import { useApiMode } from "@/lib/api-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,14 +11,20 @@ import {
   DropdownMenuTrigger,
 } from "@solcreek/ui/components/dropdown-menu";
 import { Button } from "@solcreek/ui/components/button";
-import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink, ScrollText } from "lucide-react";
+import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink, ScrollText, RotateCw, Square } from "lucide-react";
 import { BuildLogPanel } from "./-components/BuildLogPanel";
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/",
 )({
-  component: DeploymentsTab,
+  component: ProjectIndexTab,
 });
+
+function ProjectIndexTab() {
+  const mode = useApiMode();
+  if (mode === "creekd") return <AppOverviewTab />;
+  return <DeploymentsTab />;
+}
 
 interface Deployment {
   id: string;
@@ -315,6 +323,151 @@ function DeploymentsTab() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// --- creekd mode: App Overview ---
+
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return bytes + "B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "K";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + "M";
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + "G";
+}
+
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return "—";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m " + (s % 60) + "s";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h " + (m % 60) + "m";
+  return Math.floor(h / 24) + "d " + (h % 24) + "h";
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  running: "bg-green-500/10 text-green-400 border-green-500/30",
+  starting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  crash_loop: "bg-red-500/10 text-red-400 border-red-500/30",
+  stopping: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  stopped: "bg-gray-500/10 text-gray-400 border-gray-500/30",
+};
+
+function AppOverviewTab() {
+  const { projectId } = Route.useParams();
+  const queryClient = useQueryClient();
+
+  const { data: app } = useQuery({
+    queryKey: ["app", projectId],
+    queryFn: () => getApp(projectId),
+    refetchInterval: 2000,
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ["app-stats", projectId],
+    queryFn: () => getAppStats(projectId),
+    refetchInterval: 2000,
+  });
+
+  const restart = useMutation({
+    mutationFn: () => restartApp(projectId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["app-stats", projectId] });
+    },
+  });
+
+  const stop = useMutation({
+    mutationFn: () => stopApp(projectId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app", projectId] });
+    },
+  });
+
+  if (!app) return <p className="text-muted-foreground">Loading...</p>;
+
+  const status = String(app.status);
+
+  return (
+    <div className="space-y-6">
+      {/* Status + Actions */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className={`rounded border px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[status] ?? ""}`}>
+            {status.replace("_", " ")}
+          </span>
+          <span className="text-sm text-muted-foreground">
+            pid {app.pid} &middot; port {app.port}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => restart.mutate()}
+            disabled={restart.isPending || status !== "running"}
+          >
+            {restart.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RotateCw className="mr-2 size-4" />}
+            Restart
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => stop.mutate()}
+            disabled={stop.isPending || status === "stopped"}
+          >
+            {stop.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Square className="mr-2 size-4" />}
+            Stop
+          </Button>
+        </div>
+      </div>
+
+      {/* Info grid */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatCard label="Uptime" value={fmtDuration(app.uptime_ms)} />
+        <StatCard label="Restarts" value={String(app.restart_count)} alert={app.restart_count > 0} />
+        <StatCard label="Health failures" value={String(app.health_failures)} alert={app.health_failures > 0} />
+        <StatCard label="Runtime" value={app.runtime ?? "—"} />
+      </div>
+
+      {/* cgroup stats */}
+      {stats?.cgroup_enabled && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatCard
+            label="Memory"
+            value={stats.memory_current_bytes != null ? fmtBytes(stats.memory_current_bytes) : "—"}
+            sub={stats.memory_max_bytes != null && stats.memory_max_bytes > 0 ? `/ ${fmtBytes(stats.memory_max_bytes)}` : undefined}
+          />
+          <StatCard label="PIDs" value={stats.pids_current != null ? String(stats.pids_current) : "—"} />
+          <StatCard label="OOM kills" value={stats.oom_kills != null ? String(stats.oom_kills) : "0"} alert={(stats.oom_kills ?? 0) > 0} />
+          <StatCard
+            label="CPU time"
+            value={stats.cpu_usage_usec != null ? (stats.cpu_usage_usec / 1_000_000).toFixed(1) + "s" : "—"}
+          />
+        </div>
+      )}
+
+      {/* Command */}
+      <div>
+        <h3 className="mb-2 text-sm font-medium text-muted-foreground">Command</h3>
+        <div className="rounded-md bg-code-bg px-3 py-2 font-mono text-xs">
+          {app.command}{app.args && app.args.length > 0 ? " " + app.args.join(" ") : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, alert }: { label: string; value: string; sub?: string; alert?: boolean }) {
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-lg font-semibold ${alert ? "text-amber-400" : ""}`}>
+        {value}
+        {sub && <span className="text-sm font-normal text-muted-foreground"> {sub}</span>}
+      </p>
     </div>
   );
 }
