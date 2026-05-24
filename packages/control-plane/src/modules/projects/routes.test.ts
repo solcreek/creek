@@ -1,25 +1,20 @@
-import { describe, test, expect, beforeEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 let teamId: string;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
   teamId = TEST_TEAM.id;
-  seedMemberRole(db); // owner role for RBAC guards
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 function req(method: string, path: string, body?: unknown) {
@@ -28,19 +23,24 @@ function req(method: string, path: string, body?: unknown) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  return app.request(path, init, env);
+  return app.request(path, init, testEnv.env);
 }
 
 // --- Projects CRUD ---
 
 describe("POST /projects", () => {
   test("creates project with valid slug", async () => {
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], null);
-
     const res = await req("POST", "/projects", { slug: "my-app" });
     expect(res.status).toBe(201);
     const json = await res.json() as any;
     expect(json.project).toBeDefined();
+
+    // Verify project actually exists in DB
+    const row = testEnv.db.db.prepare(
+      "SELECT slug FROM project WHERE organizationId = ? AND slug = ?",
+    ).get(teamId, "my-app") as any;
+    expect(row).toBeDefined();
+    expect(row.slug).toBe("my-app");
   });
 
   test("rejects invalid slug (uppercase)", async () => {
@@ -56,19 +56,13 @@ describe("POST /projects", () => {
   });
 
   test("rejects duplicate slug in same team (strict mode, default)", async () => {
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], {
-      id: "existing-id",
-    });
+    seedProject(testEnv, "my-app");
     const res = await req("POST", "/projects", { slug: "my-app" });
     expect(res.status).toBe(409);
   });
 
   test("autoResolveSlug falls back to slug-2 when base is taken", async () => {
-    // Seed: "my-app" is taken, "my-app-2" is free.
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], {
-      id: "existing-id",
-    });
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-2", teamId], null);
+    seedProject(testEnv, "my-app");
 
     const res = await req("POST", "/projects", {
       slug: "my-app",
@@ -76,20 +70,21 @@ describe("POST /projects", () => {
     });
     expect(res.status).toBe(201);
 
-    const executed = db.getExecuted();
-    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
-    expect(insert).toBeDefined();
-    // The INSERT should use the resolved slug, not the original request
-    expect(insert!.args).toContain("my-app-2");
-    expect(insert!.args).not.toContain("my-app");
+    // Verify the resolved slug is "my-app-2"
+    const json = await res.json() as any;
+    expect(json.project.slug).toBe("my-app-2");
+
+    // Verify in DB
+    const row = testEnv.db.db.prepare(
+      "SELECT slug FROM project WHERE organizationId = ? AND slug = ?",
+    ).get(teamId, "my-app-2") as any;
+    expect(row).toBeDefined();
   });
 
   test("autoResolveSlug walks past multiple collisions to find a free suffix", async () => {
-    // Seed: my-app, my-app-2, my-app-3 taken; my-app-4 free.
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], { id: "p1" });
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-2", teamId], { id: "p2" });
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-3", teamId], { id: "p3" });
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app-4", teamId], null);
+    seedProject(testEnv, "my-app");
+    seedProject(testEnv, "my-app-2");
+    seedProject(testEnv, "my-app-3");
 
     const res = await req("POST", "/projects", {
       slug: "my-app",
@@ -97,49 +92,41 @@ describe("POST /projects", () => {
     });
     expect(res.status).toBe(201);
 
-    const executed = db.getExecuted();
-    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
-    expect(insert!.args).toContain("my-app-4");
+    const json = await res.json() as any;
+    expect(json.project.slug).toBe("my-app-4");
   });
 
   test("autoResolveSlug does not append suffix when base is already free", async () => {
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], null);
-
     const res = await req("POST", "/projects", {
       slug: "my-app",
       autoResolveSlug: true,
     });
     expect(res.status).toBe(201);
 
-    const executed = db.getExecuted();
-    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
-    expect(insert!.args).toContain("my-app");
-    expect(insert!.args).not.toContain("my-app-2");
+    const json = await res.json() as any;
+    expect(json.project.slug).toBe("my-app");
   });
 
   test("persists githubRepo field when provided", async () => {
-    db.seedFirst("SELECT id FROM project WHERE slug", ["my-app", teamId], null);
-
     const res = await req("POST", "/projects", {
       slug: "my-app",
       githubRepo: "linyiru/my-app",
     });
     expect(res.status).toBe(201);
 
-    const executed = db.getExecuted();
-    const insert = executed.find((q) => q.sql.includes("INSERT INTO project"));
-    expect(insert!.args).toContain("linyiru/my-app");
+    // Verify githubRepo in DB
+    const row = testEnv.db.db.prepare(
+      "SELECT githubRepo FROM project WHERE slug = ? AND organizationId = ?",
+    ).get("my-app", teamId) as any;
+    expect(row).toBeDefined();
+    expect(row.githubRepo).toBe("linyiru/my-app");
   });
 });
 
 describe("GET /projects", () => {
   test("lists projects for team", async () => {
-    db.seedAll("SELECT * FROM project WHERE organizationId", [teamId], {
-      results: [
-        { id: "p1", slug: "app-one", organization_id: teamId },
-        { id: "p2", slug: "app-two", organization_id: teamId },
-      ],
-    });
+    seedProject(testEnv, "app-one");
+    seedProject(testEnv, "app-two");
 
     const res = await req("GET", "/projects");
     expect(res.status).toBe(200);
@@ -157,11 +144,7 @@ describe("GET /projects", () => {
 
 describe("GET /projects/:idOrSlug", () => {
   test("returns project by slug", async () => {
-    db.seedFirst("SELECT * FROM project WHERE", ["my-app", "my-app", teamId], {
-      id: "p1",
-      slug: "my-app",
-      organization_id: teamId,
-    });
+    seedProject(testEnv, "my-app");
 
     const res = await req("GET", "/projects/my-app");
     expect(res.status).toBe(200);
@@ -177,14 +160,18 @@ describe("GET /projects/:idOrSlug", () => {
 
 describe("DELETE /projects/:idOrSlug", () => {
   test("deletes existing project", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", teamId], {
-      id: "p1",
-    });
+    seedProject(testEnv, "my-app");
 
     const res = await req("DELETE", "/projects/my-app");
     expect(res.status).toBe(200);
     const json = await res.json() as any;
     expect(json.ok).toBe(true);
+
+    // Verify it's actually gone
+    const row = testEnv.db.db.prepare(
+      "SELECT id FROM project WHERE slug = ? AND organizationId = ?",
+    ).get("my-app", teamId);
+    expect(row).toBeUndefined();
   });
 
   test("returns 404 for non-existent project", async () => {
@@ -197,7 +184,7 @@ describe("DELETE /projects/:idOrSlug", () => {
 
 describe("GET /health", () => {
   test("returns ok", async () => {
-    const res = await app.request("/health", { method: "GET" }, env);
+    const res = await app.request("/health", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(200);
     const json = await res.json() as any;
     expect(json.status).toBe("ok");
@@ -208,8 +195,12 @@ describe("GET /health", () => {
 
 describe("RBAC", () => {
   test("member role cannot create project (403)", async () => {
-    db.reset();
-    seedMemberRole(db, "member");
+    // Re-seed with member role
+    testEnv.db.db.exec("DELETE FROM member");
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-2', '${TEST_USER.id}', '${teamId}', 'member', ${now})`,
+    );
 
     const res = await req("POST", "/projects", { slug: "new-app" });
     expect(res.status).toBe(403);
@@ -218,8 +209,11 @@ describe("RBAC", () => {
   });
 
   test("member role cannot delete project (403)", async () => {
-    db.reset();
-    seedMemberRole(db, "member");
+    testEnv.db.db.exec("DELETE FROM member");
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-2', '${TEST_USER.id}', '${teamId}', 'member', ${now})`,
+    );
 
     const res = await req("DELETE", "/projects/some-app");
     expect(res.status).toBe(403);
@@ -227,32 +221,29 @@ describe("RBAC", () => {
 
   test("admin role can create project but cannot delete", async () => {
     // Admin can create
-    db.reset();
-    seedMemberRole(db, "admin");
-    db.seedFirst("SELECT id FROM project WHERE slug", ["new-app", teamId], null);
+    testEnv.db.db.exec("DELETE FROM member");
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-2', '${TEST_USER.id}', '${teamId}', 'admin', ${now})`,
+    );
 
     const createRes = await req("POST", "/projects", { slug: "new-app" });
     expect(createRes.status).toBe(201);
 
     // Admin cannot delete
-    db.reset();
-    seedMemberRole(db, "admin");
-
     const deleteRes = await req("DELETE", "/projects/some-app");
     expect(deleteRes.status).toBe(403);
   });
 
   test("owner role can do everything", async () => {
-    // seedMemberRole defaults to owner — already tested by all other tests
-    db.seedFirst("SELECT id FROM project WHERE slug", ["new-app", teamId], null);
-
+    // seedTestData defaults to owner — already tested by all other tests
     const res = await req("POST", "/projects", { slug: "new-app" });
     expect(res.status).toBe(201);
   });
 
   test("non-member gets 403", async () => {
-    db.reset();
-    // Don't seed any member role
+    // Remove all member records
+    testEnv.db.db.exec("DELETE FROM member");
 
     const res = await req("POST", "/projects", { slug: "new-app" });
     expect(res.status).toBe(403);
