@@ -1,25 +1,20 @@
-import { describe, test, expect, beforeEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 let teamId: string;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
   teamId = TEST_TEAM.id;
-  seedMemberRole(db);
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 function req(method: string, path: string, body?: unknown) {
@@ -28,48 +23,34 @@ function req(method: string, path: string, body?: unknown) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  return app.request(path, init, env);
+  return app.request(path, init, testEnv.env);
 }
 
 const PROJECT_ID = "proj-1";
 const CURRENT_DEPLOY = "deploy-current";
 const PREVIOUS_DEPLOY = "deploy-previous";
 
-function seedProject(productionDeploymentId: string | null = CURRENT_DEPLOY) {
-  db.seedFirst("SELECT * FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-    id: PROJECT_ID,
-    slug: "my-app",
-    productionDeploymentId,
-    organizationId: teamId,
-  });
+function setupProject(productionDeploymentId: string | null = CURRENT_DEPLOY) {
+  const now = Date.now();
+  testEnv.db.db.exec(
+    `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, createdAt, updatedAt)
+     VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', ${productionDeploymentId === null ? "NULL" : `'${productionDeploymentId}'`}, ${now}, ${now})`,
+  );
 }
 
-function seedDeployment(id: string, status = "active", version = 1) {
-  db.seedFirst("SELECT * FROM deployment WHERE id = ?", [id, PROJECT_ID], {
-    id,
-    projectId: PROJECT_ID,
-    status,
-    version,
-  });
-}
-
-function seedMaxVersion(v: number) {
-  db.seedFirst("SELECT MAX(version)", [PROJECT_ID], { v });
-}
-
-function seedPreviousDeploy() {
-  db.seedFirst(
-    "SELECT id FROM deployment WHERE projectId = ?",
-    [PROJECT_ID, CURRENT_DEPLOY],
-    { id: PREVIOUS_DEPLOY },
+function setupDeployment(id: string, status = "active", version = 1) {
+  const now = Date.now();
+  testEnv.db.db.exec(
+    `INSERT OR IGNORE INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+     VALUES ('${id}', '${PROJECT_ID}', ${version}, '${status}', 'cli', ${now}, ${now})`,
   );
 }
 
 describe("POST /projects/:id/rollback", () => {
   test("rolls back to specified deployment", async () => {
-    seedProject();
-    seedDeployment(PREVIOUS_DEPLOY, "active", 2);
-    seedMaxVersion(3);
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 2);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
       deploymentId: PREVIOUS_DEPLOY,
@@ -84,10 +65,9 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rolls back to previous deployment when no ID specified", async () => {
-    seedProject();
-    seedPreviousDeploy();
-    seedDeployment(PREVIOUS_DEPLOY, "active", 2);
-    seedMaxVersion(3);
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 2);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
 
@@ -98,9 +78,9 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("stores rollback message", async () => {
-    seedProject();
-    seedDeployment(PREVIOUS_DEPLOY, "active", 2);
-    seedMaxVersion(3);
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 2);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
       deploymentId: PREVIOUS_DEPLOY,
@@ -108,27 +88,28 @@ describe("POST /projects/:id/rollback", () => {
     });
 
     expect(res.status).toBe(200);
-    // Verify the INSERT was called with the message
-    const inserts = db.getExecuted().filter((e) => e.sql.includes("INSERT INTO deployment"));
-    expect(inserts.length).toBeGreaterThan(0);
-    expect(inserts[0].args).toContain("revert bad deploy");
+    // Verify the rollback deployment record was created with the message
+    const row = testEnv.db.db.prepare(
+      "SELECT commitMessage FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
+    ).get(PROJECT_ID) as { commitMessage: string | null } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.commitMessage).toBe("revert bad deploy");
   });
 
   test("creates deployment record with rollback trigger type", async () => {
-    seedProject();
-    seedDeployment(PREVIOUS_DEPLOY, "active", 2);
-    seedMaxVersion(3);
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 2);
 
     await req("POST", `/projects/${PROJECT_ID}/rollback`, {
       deploymentId: PREVIOUS_DEPLOY,
     });
 
-    // batch() executes multiple statements — find the INSERT
-    const allExec = db.getExecuted();
-    const inserts = allExec.filter((e) => e.sql.includes("INSERT INTO deployment"));
-    expect(inserts.length).toBeGreaterThan(0);
-    // The SQL itself contains 'rollback' as a literal value
-    expect(inserts[0].sql).toContain("'rollback'");
+    const row = testEnv.db.db.prepare(
+      "SELECT triggerType FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
+    ).get(PROJECT_ID) as { triggerType: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.triggerType).toBe("rollback");
   });
 
   test("rejects when project not found", async () => {
@@ -137,7 +118,7 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rejects when no production deployment exists", async () => {
-    seedProject(null);
+    setupProject(null);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
     expect(res.status).toBe(400);
@@ -146,8 +127,9 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rejects when no previous deployment available", async () => {
-    seedProject();
-    // Don't seed any previous deploy
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    // Only the current deploy exists — no previous
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
     expect(res.status).toBe(400);
@@ -156,9 +138,9 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rejects rollback to non-active deployment", async () => {
-    seedProject();
-    // Don't seed the deployment — the query filters by status = 'active',
-    // so a "failed" deployment won't be found
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment("deploy-failed", "failed", 2);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
       deploymentId: "deploy-failed",
@@ -169,8 +151,8 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rejects rollback to current production (no-op)", async () => {
-    seedProject();
-    seedDeployment(CURRENT_DEPLOY, "active", 1);
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
       deploymentId: CURRENT_DEPLOY,
@@ -181,7 +163,8 @@ describe("POST /projects/:id/rollback", () => {
   });
 
   test("rejects rollback to non-existent deployment", async () => {
-    seedProject();
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
     // Don't seed the target deployment
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
