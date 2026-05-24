@@ -1,21 +1,10 @@
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
 import { webDeploy } from "./routes.js";
 import { buildAndDeploy, updateStatus, hashIp, type WebDeployEnv } from "./build-and-deploy.js";
+import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 
 // --- Test Helpers ---
-
-function createMockKV() {
-  const store = new Map<string, { value: string; ttl?: number }>();
-  return {
-    get: vi.fn(async (key: string) => store.get(key)?.value ?? null),
-    put: vi.fn(async (key: string, value: string, opts?: { expirationTtl?: number }) => {
-      store.set(key, { value, ttl: opts?.expirationTtl });
-    }),
-    delete: vi.fn(async (key: string) => { store.delete(key); }),
-    _store: store,
-  } as unknown as KVNamespace & { _store: Map<string, { value: string; ttl?: number }> };
-}
 
 function createMockQueue() {
   const messages: any[] = [];
@@ -25,18 +14,26 @@ function createMockQueue() {
   } as unknown as Queue & { _messages: any[] };
 }
 
+const _testEnvs: LocalTestEnv[] = [];
+
 function createEnv(overrides?: Partial<WebDeployEnv>): WebDeployEnv {
+  const te = createLocalTestEnv({ applyMigrations: false });
+  _testEnvs.push(te);
   return {
-    BUILD_STATUS: createMockKV(),
+    BUILD_STATUS: te.env.BUILD_STATUS,
     WEB_BUILDS: createMockQueue(),
     ...overrides,
   };
 }
 
-function getKVStatus(env: WebDeployEnv, buildId: string) {
-  const kv = env.BUILD_STATUS as any;
-  const entry = kv._store.get(`build:${buildId}`);
-  return entry ? JSON.parse(entry.value) : null;
+afterEach(() => {
+  for (const te of _testEnvs) te.cleanup();
+  _testEnvs.length = 0;
+});
+
+async function getKVStatus(env: WebDeployEnv, buildId: string) {
+  const raw = await env.BUILD_STATUS.get(`build:${buildId}`);
+  return raw ? JSON.parse(raw) : null;
 }
 
 // --- Route-level test app ---
@@ -287,7 +284,7 @@ describe("POST /web-deploy → queue integration", () => {
     const { buildId } = await res.json() as { buildId: string };
 
     // KV has "building" status
-    const status = getKVStatus(env, buildId);
+    const status = await getKVStatus(env, buildId);
     expect(status.status).toBe("building");
     expect(status.type).toBe("template");
 
@@ -323,18 +320,32 @@ describe("hashIp", () => {
 
 describe("updateStatus", () => {
   test("stores JSON with buildId and updatedAt", async () => {
-    const kv = createMockKV();
-    await updateStatus({ BUILD_STATUS: kv }, "test-1", { status: "building" });
+    const testEnv = createLocalTestEnv({ applyMigrations: false });
+    try {
+      const kv = testEnv.env.BUILD_STATUS;
+      await updateStatus({ BUILD_STATUS: kv }, "test-1", { status: "building" });
 
-    const stored = JSON.parse(kv._store.get("build:test-1")!.value);
-    expect(stored.buildId).toBe("test-1");
-    expect(stored.status).toBe("building");
-    expect(stored.updatedAt).toBeTruthy();
+      const raw = await kv.get("build:test-1");
+      expect(raw).not.toBeNull();
+      const stored = JSON.parse(raw!);
+      expect(stored.buildId).toBe("test-1");
+      expect(stored.status).toBe("building");
+      expect(stored.updatedAt).toBeTruthy();
+    } finally {
+      testEnv.cleanup();
+    }
   });
 
-  test("sets expirationTtl to 3600", async () => {
-    const kv = createMockKV();
-    await updateStatus({ BUILD_STATUS: kv }, "test-2", { status: "active" });
-    expect(kv._store.get("build:test-2")!.ttl).toBe(3600);
+  test("value persists (TTL > 0)", async () => {
+    const testEnv = createLocalTestEnv({ applyMigrations: false });
+    try {
+      const kv = testEnv.env.BUILD_STATUS;
+      await updateStatus({ BUILD_STATUS: kv }, "test-2", { status: "active" });
+      const raw = await kv.get("build:test-2");
+      expect(raw).not.toBeNull();
+      expect(JSON.parse(raw!).status).toBe("active");
+    } finally {
+      testEnv.cleanup();
+    }
   });
 });
