@@ -1,55 +1,57 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { app } from "../../index.js";
-import { createMockD1, createTestEnv, type MockD1 } from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 describe("GET /preview/:slug/*", () => {
   test("uses productionDeploymentId", async () => {
-    db.seedFirst("SELECT id, productionDeploymentId FROM project WHERE slug", ["my-app"], {
-      id: "proj-1",
-      productionDeploymentId: "deploy-1",
-    });
+    const projId = seedProject(testEnv, "my-app");
+    // Set productionDeploymentId on the project
+    testEnv.db.db.exec(
+      `UPDATE project SET productionDeploymentId = 'deploy-1' WHERE id = '${projId}'`,
+    );
 
-    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, env);
+    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(404);
     const text = await res.text();
     expect(text).toBe("Not Found");
   });
 
   test("returns 404 when no production deployment", async () => {
-    db.seedFirst("SELECT id, productionDeploymentId FROM project WHERE slug", ["my-app"], {
-      id: "proj-1",
-      productionDeploymentId: null,
-    });
+    seedProject(testEnv, "my-app");
+    // productionDeploymentId is NULL by default
 
-    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, env);
+    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(404);
     const text = await res.text();
     expect(text).toContain("no production deployment");
   });
 
   test("returns 404 for non-existent project", async () => {
-    const res = await app.request("/preview/nonexistent/index.html", { method: "GET" }, env);
+    const res = await app.request("/preview/nonexistent/index.html", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(404);
   });
 
   test("serves asset from R2 when found", async () => {
-    db.seedFirst("SELECT id, productionDeploymentId FROM project WHERE slug", ["my-app"], {
-      id: "proj-1",
-      productionDeploymentId: "deploy-1",
-    });
+    const projId = seedProject(testEnv, "my-app");
+    testEnv.db.db.exec(
+      `UPDATE project SET productionDeploymentId = 'deploy-1' WHERE id = '${projId}'`,
+    );
 
-    const r2 = env.ASSETS as any;
-    await r2.put("proj-1/deploy-1/index.html", "<h1>Hello</h1>");
+    const r2 = testEnv.env.ASSETS as any;
+    await r2.put(`${projId}/deploy-1/index.html`, "<h1>Hello</h1>");
 
-    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, env);
+    const res = await app.request("/preview/my-app/index.html", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
   });
