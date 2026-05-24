@@ -14,6 +14,7 @@ export function ConnectionError({
     error.message.includes("fetch") ||
     error.message.includes("network") ||
     error.message.includes("Failed") ||
+    error.message.includes("Cannot connect") ||
     error.message.includes("ECONNREFUSED");
 
   const title = isNetworkError

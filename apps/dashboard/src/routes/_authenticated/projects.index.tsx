@@ -16,11 +16,13 @@ function ProjectsListPage() {
   const features = useFeatures();
   const queryClient = useQueryClient();
 
-  const { data: apps, isLoading, error, refetch } = useQuery({
+  const { data: apps, isLoading, error, refetch, isError } = useQuery({
     queryKey: ["apps"],
     queryFn: listApps,
     refetchInterval: mode === "creekd" ? 5000 : false,
-    retry: 2,
+    retry: 1,
+    retryDelay: 1000,
+    refetchOnWindowFocus: false,
   });
 
   const restart = useMutation({
@@ -42,9 +44,9 @@ function ProjectsListPage() {
         {features.deployments && <NewProjectDialog />}
       </div>
 
-      {error ? (
+      {!isLoading && error && !apps ? (
         <ConnectionError error={error} onRetry={() => refetch()} />
-      ) : isLoading ? (
+      ) : isLoading && !apps ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : !apps?.length ? (
         <EmptyState mode={mode} />

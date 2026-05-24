@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { createCreekdClient, type AppView, type StatsView, type CreekdClient } from "./creekd-client";
+import type { AppView, StatsView } from "./creekd-client";
 
 // --- Mode detection ---
 
@@ -19,28 +19,49 @@ export function detectApiMode(): ApiMode {
 
 const MODE = detectApiMode();
 
-// --- creekd typed client (spec-generated) ---
+// --- creekd plain fetch client ---
 
-let _creekdClient: CreekdClient | null = null;
+const CREEKD_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+const CREEKD_TOKEN = import.meta.env.VITE_CREEKD_TOKEN || "";
 
-function creekd(): CreekdClient {
-  if (!_creekdClient) {
-    // In dev, Vite proxies /v1/* to creekd — use page origin.
-    // In production, VITE_API_URL points to the actual creekd address.
-    const url = import.meta.env.VITE_API_URL || window.location.origin;
-    const token = import.meta.env.VITE_CREEKD_TOKEN || "";
-    _creekdClient = createCreekdClient(url, token || undefined);
+async function creekdFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (CREEKD_TOKEN) headers["Authorization"] = `Bearer ${CREEKD_TOKEN}`;
+  if (options?.body) headers["Content-Type"] = "application/json";
+
+  let res: Response;
+  try {
+    res = await fetch(`${CREEKD_BASE}${path}`, { ...options, headers: { ...headers, ...(options?.headers as Record<string, string>) } });
+  } catch {
+    throw new Error("Cannot connect to creekd");
   }
-  return _creekdClient;
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (text) {
+      try {
+        const body = JSON.parse(text);
+        throw new Error(body.error || `creekd: ${res.status}`);
+      } catch (e) {
+        if (e instanceof Error && e.message !== text) throw e;
+      }
+    }
+    throw new Error(`Cannot connect to creekd (${res.status})`);
+  }
+
+  const text = await res.text();
+  if (!text) return {} as T;
+  return JSON.parse(text) as T;
 }
 
-// --- Unified API (thin wrappers over spec-generated client) ---
+// --- Unified API ---
+
+interface ListAppsResponse { apps: AppView[] }
 
 export async function listApps(): Promise<AppView[]> {
   if (MODE === "creekd") {
-    const { data, error } = await creekd().GET("/v1/apps");
-    if (error) throw new Error(error.error);
-    return data.apps;
+    const resp = await creekdFetch<ListAppsResponse>("/v1/apps");
+    return resp.apps ?? [];
   }
   const projects = await api<Array<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>>("/projects");
   return projects.map((p) => ({
@@ -58,9 +79,7 @@ export async function listApps(): Promise<AppView[]> {
 
 export async function getApp(id: string): Promise<AppView> {
   if (MODE === "creekd") {
-    const { data, error } = await creekd().GET("/v1/apps/{id}", { params: { path: { id } } });
-    if (error) throw new Error(error.error);
-    return data;
+    return creekdFetch<AppView>(`/v1/apps/${encodeURIComponent(id)}`);
   }
   const p = await api<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>(`/projects/${id}`);
   return {
@@ -78,20 +97,22 @@ export async function getApp(id: string): Promise<AppView> {
 
 export async function getAppStats(id: string): Promise<StatsView> {
   if (MODE === "creekd") {
-    const { data, error } = await creekd().GET("/v1/apps/{id}/stats", { params: { path: { id } } });
-    if (error) throw new Error(error.error);
-    return data;
+    return creekdFetch<StatsView>(`/v1/apps/${encodeURIComponent(id)}/stats`);
   }
   return { id, cgroup_enabled: false };
 }
 
 export async function getAppLogs(id: string, tail = 100): Promise<string> {
   if (MODE === "creekd") {
-    const url = import.meta.env.VITE_API_URL || window.location.origin;
-    const token = import.meta.env.VITE_CREEKD_TOKEN || "";
-    const res = await fetch(`${url}/v1/apps/${id}/logs?tail=${tail}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    let res: Response;
+    try {
+      const headers: Record<string, string> = {};
+      if (CREEKD_TOKEN) headers["Authorization"] = `Bearer ${CREEKD_TOKEN}`;
+      res = await fetch(`${CREEKD_BASE}/v1/apps/${encodeURIComponent(id)}/logs?tail=${tail}`, { headers });
+    } catch {
+      throw new Error("Cannot connect to creekd");
+    }
+    if (!res.ok) throw new Error(`Cannot connect to creekd (${res.status})`);
     return res.text();
   }
   const data = await api<{ lines: string[] }>(`/projects/${id}/logs`);
@@ -100,8 +121,7 @@ export async function getAppLogs(id: string, tail = 100): Promise<string> {
 
 export async function stopApp(id: string): Promise<void> {
   if (MODE === "creekd") {
-    const { error } = await creekd().DELETE("/v1/apps/{id}", { params: { path: { id } } });
-    if (error) throw new Error(error.error);
+    await creekdFetch(`/v1/apps/${encodeURIComponent(id)}`, { method: "DELETE" });
     return;
   }
   await api(`/projects/${id}`, { method: "DELETE" });
@@ -109,9 +129,10 @@ export async function stopApp(id: string): Promise<void> {
 
 export async function restartApp(id: string): Promise<AppView> {
   if (MODE === "creekd") {
-    const { data, error } = await creekd().POST("/v1/apps/{id}/restart", { params: { path: { id } } });
-    if (error) throw new Error(error.error);
-    return data;
+    return creekdFetch<AppView>(`/v1/apps/${encodeURIComponent(id)}/restart`, {
+      method: "POST",
+      body: "{}",
+    });
   }
   await api(`/projects/${id}/restart`, { method: "POST" });
   return getApp(id);

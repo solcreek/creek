@@ -360,11 +360,12 @@ function AppOverviewTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
 
-  const { data: app, error, refetch } = useQuery({
+  const { data: app, error, refetch, isLoading: appLoading } = useQuery({
     queryKey: ["app", projectId],
     queryFn: () => getApp(projectId),
     refetchInterval: 2000,
-    retry: 2,
+    retry: 1,
+    retryDelay: 1000,
   });
 
   const { data: stats } = useQuery({
@@ -389,7 +390,7 @@ function AppOverviewTab() {
     },
   });
 
-  if (error) return <ConnectionError error={error} onRetry={() => refetch()} />;
+  if (!appLoading && error && !app) return <ConnectionError error={error} onRetry={() => refetch()} />;
   if (!app) return <p className="text-muted-foreground">Loading...</p>;
 
   const status = String(app.status);
