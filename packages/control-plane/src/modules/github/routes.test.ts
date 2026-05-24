@@ -1,15 +1,10 @@
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { github } from "./routes.js";
-import {
-  createMockD1,
-  createTestEnv,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 // Mock the external collaborators so we can assert on the synthesized
 // PushPayload without actually calling GitHub, remote-builder, or runDeployJob.
@@ -65,19 +60,22 @@ function buildApp(env: Env) {
 // Hono's app.request() requires an ExecutionContext for c.executionCtx.waitUntil
 // to work. Minimal stub that just swallows the promises.
 const mockExecutionCtx = {
-  waitUntil: (_p: Promise<unknown>) => {},
+  waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
   passThroughOnException: () => {},
 } as unknown as ExecutionContext;
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof buildApp>;
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  db = createMockD1();
-  env = createTestEnv(db);
-  app = buildApp(env);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
+  app = buildApp(testEnv.env);
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 describe("POST /github/deploy-latest", () => {
@@ -86,7 +84,7 @@ describe("POST /github/deploy-latest", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
@@ -94,12 +92,11 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("returns 404 when project does not exist", async () => {
-    // No seeded project → first() returns null
     const res = await app.request("/github/deploy-latest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId: "nope" }),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string; message: string };
@@ -108,16 +105,13 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("returns 404 when project has no github_connection", async () => {
-    // Project exists but no github_connection
-    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
+    seedProject(testEnv, "my-app", { id: "proj-1" });
 
     const res = await app.request("/github/deploy-latest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId: "proj-1" }),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string; message: string };
@@ -126,10 +120,8 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("returns 404 when GitHub has no commit on production branch", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    db.seedFirst("SELECT gc.installationId", ["proj-1", TEST_TEAM.id], {
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    seedGithubConnection("proj-1", {
       installationId: 12345,
       repoOwner: "myorg",
       repoName: "my-app",
@@ -143,7 +135,7 @@ describe("POST /github/deploy-latest", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId: "proj-1" }),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string; message: string };
@@ -152,10 +144,8 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("happy path: dispatches handlePush with synthesized payload", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    db.seedFirst("SELECT gc.installationId", ["proj-1", TEST_TEAM.id], {
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    seedGithubConnection("proj-1", {
       installationId: 12345,
       repoOwner: "myorg",
       repoName: "my-app",
@@ -174,7 +164,7 @@ describe("POST /github/deploy-latest", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId: "proj-1" }),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(200);
     const body = await res.json() as { ok: boolean; commitSha: string; branch: string };
@@ -196,13 +186,8 @@ describe("POST /github/deploy-latest", () => {
   });
 
   test("accepts project slug and resolves it to the UUID before connection lookup", async () => {
-    // Client sends the slug (dashboard's /projects/:slug route); the endpoint
-    // should resolve it to the UUID via (id = ? OR slug = ?) first, then use
-    // that UUID to look up github_connection.
-    db.seedFirst("SELECT id FROM project", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "proj-uuid-xyz",
-    });
-    db.seedFirst("SELECT gc.installationId", ["proj-uuid-xyz", TEST_TEAM.id], {
+    seedProject(testEnv, "my-app", { id: "proj-uuid-xyz" });
+    seedGithubConnection("proj-uuid-xyz", {
       installationId: 999,
       repoOwner: "linyiru",
       repoName: "my-app",
@@ -219,7 +204,7 @@ describe("POST /github/deploy-latest", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectId: "my-app" }),
-    }, env, mockExecutionCtx);
+    }, testEnv.env, mockExecutionCtx);
 
     expect(res.status).toBe(200);
     const body = await res.json() as { ok: boolean };
@@ -232,7 +217,7 @@ describe("GET /github/connections/by-project/:projectId", () => {
     const res = await app.request(
       "/github/connections/by-project/nope",
       { method: "GET" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -242,15 +227,12 @@ describe("GET /github/connections/by-project/:projectId", () => {
   });
 
   test("returns { connection: null } when project has no connection", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    // No github_connection row seeded → first() returns null
+    seedProject(testEnv, "my-app", { id: "proj-1" });
 
     const res = await app.request(
       "/github/connections/by-project/proj-1",
       { method: "GET" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -260,25 +242,19 @@ describe("GET /github/connections/by-project/:projectId", () => {
   });
 
   test("returns the connection row when it exists", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", "proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    db.seedFirst("FROM github_connection", ["proj-1"], {
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    seedGithubConnection("proj-1", {
       id: "conn-1",
-      projectId: "proj-1",
       installationId: 12345,
       repoOwner: "linyiru",
       repoName: "subs-landing-page",
       productionBranch: "main",
-      autoDeployEnabled: 1,
-      previewEnabled: 1,
-      createdAt: 1775867000671,
     });
 
     const res = await app.request(
       "/github/connections/by-project/proj-1",
       { method: "GET" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -299,25 +275,19 @@ describe("GET /github/connections/by-project/:projectId", () => {
   });
 
   test("accepts project slug (matches dashboard /projects/:slug route)", async () => {
-    db.seedFirst("SELECT id FROM project", ["subs-landing-page", "subs-landing-page", TEST_TEAM.id], {
-      id: "proj-uuid",
-    });
-    db.seedFirst("FROM github_connection", ["proj-uuid"], {
+    seedProject(testEnv, "subs-landing-page", { id: "proj-uuid" });
+    seedGithubConnection("proj-uuid", {
       id: "conn-slug",
-      projectId: "proj-uuid",
       installationId: 1,
       repoOwner: "linyiru",
       repoName: "subs-landing-page",
       productionBranch: "main",
-      autoDeployEnabled: 1,
-      previewEnabled: 1,
-      createdAt: 1,
     });
 
     const res = await app.request(
       "/github/connections/by-project/subs-landing-page",
       { method: "GET" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -336,7 +306,7 @@ describe("POST /github/connect", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: "proj-1" }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -346,7 +316,7 @@ describe("POST /github/connect", () => {
   });
 
   test("returns 404 when project is not owned by caller's team", async () => {
-    // No seeded project → first() returns null
+    // No project seeded -> not found
     const res = await app.request(
       "/github/connect",
       {
@@ -359,7 +329,7 @@ describe("POST /github/connect", () => {
           repoName: "test-repo",
         }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -369,12 +339,13 @@ describe("POST /github/connect", () => {
   });
 
   test("returns 409 when project already has a github_connection", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    // First lookup: existing connection for this project — must return a row
-    db.seedFirst("SELECT id FROM github_connection WHERE projectId", ["proj-1"], {
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    seedGithubConnection("proj-1", {
       id: "existing-conn",
+      installationId: 999,
+      repoOwner: "linyiru",
+      repoName: "other-repo",
+      productionBranch: "main",
     });
 
     const res = await app.request(
@@ -389,7 +360,7 @@ describe("POST /github/connect", () => {
           repoName: "test-repo",
         }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -400,13 +371,14 @@ describe("POST /github/connect", () => {
   });
 
   test("returns 409 when the target repo is already connected to another project", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
-    // No existing connection for this project
-    // But the target repo is taken by a different project
-    db.seedFirst("SELECT projectId FROM github_connection WHERE repoOwner", ["linyiru", "shared-repo"], {
-      projectId: "other-proj",
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    // Another project owns the target repo
+    seedProject(testEnv, "other-app", { id: "other-proj" });
+    seedGithubConnection("other-proj", {
+      installationId: 999,
+      repoOwner: "linyiru",
+      repoName: "shared-repo",
+      productionBranch: "main",
     });
 
     const res = await app.request(
@@ -421,7 +393,7 @@ describe("POST /github/connect", () => {
           repoName: "shared-repo",
         }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -432,9 +404,7 @@ describe("POST /github/connect", () => {
   });
 
   test("happy path: inserts connection row with repoId and updates project.githubRepo", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
+    seedProject(testEnv, "my-app", { id: "proj-1" });
 
     const res = await app.request(
       "/github/connect",
@@ -449,7 +419,7 @@ describe("POST /github/connect", () => {
           productionBranch: "dev",
         }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -460,26 +430,22 @@ describe("POST /github/connect", () => {
     // repoId comes from the mocked getRepoInfo
     expect(body.repoId).toBe(987654321);
 
-    const executed = db.getExecuted();
-    const insertQ = executed.find((q) => q.sql.includes("INSERT INTO github_connection"));
-    expect(insertQ).toBeDefined();
-    expect(insertQ!.args).toContain("proj-1");
-    expect(insertQ!.args).toContain(123);
-    expect(insertQ!.args).toContain(987654321); // repoId
-    expect(insertQ!.args).toContain("linyiru");
-    expect(insertQ!.args).toContain("my-app");
-    expect(insertQ!.args).toContain("dev");
+    // Verify DB: github_connection row
+    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE projectId = 'proj-1'").get() as any;
+    expect(conn).toBeDefined();
+    expect(conn.installationId).toBe(123);
+    expect(conn.repoId).toBe(987654321);
+    expect(conn.repoOwner).toBe("linyiru");
+    expect(conn.repoName).toBe("my-app");
+    expect(conn.productionBranch).toBe("dev");
 
-    const updateQ = executed.find((q) => q.sql.includes("UPDATE project SET githubRepo"));
-    expect(updateQ).toBeDefined();
-    expect(updateQ!.args).toContain("linyiru/my-app");
-    expect(updateQ!.args).toContain("proj-1");
+    // Verify DB: project.githubRepo updated
+    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    expect(proj.githubRepo).toBe("linyiru/my-app");
   });
 
   test("still creates connection when getRepoInfo fails (repoId = null)", async () => {
-    db.seedFirst("SELECT id FROM project", ["proj-1", TEST_TEAM.id], {
-      id: "proj-1",
-    });
+    seedProject(testEnv, "my-app", { id: "proj-1" });
 
     const { getRepoInfo } = await import("./api.js");
     (getRepoInfo as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
@@ -496,7 +462,7 @@ describe("POST /github/connect", () => {
           repoName: "my-app",
         }),
       },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -504,20 +470,18 @@ describe("POST /github/connect", () => {
     const body = await res.json() as { repoId: number | null };
     expect(body.repoId).toBeNull();
 
-    const executed = db.getExecuted();
-    const insertQ = executed.find((q) => q.sql.includes("INSERT INTO github_connection"));
-    expect(insertQ).toBeDefined();
-    expect(insertQ!.args).toContain(null);
+    const conn = testEnv.db.db.prepare("SELECT repoId FROM github_connection WHERE projectId = 'proj-1'").get() as any;
+    expect(conn.repoId).toBeNull();
   });
 });
 
 describe("DELETE /github/connections/:id", () => {
   test("returns 404 when the connection does not belong to the caller's team", async () => {
-    // No seeded row → team ownership join returns null
+    // No connection seeded -> not found
     const res = await app.request(
       "/github/connections/conn-nope",
       { method: "DELETE" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -527,21 +491,21 @@ describe("DELETE /github/connections/:id", () => {
   });
 
   test("deletes the connection and clears project.githubRepo when owned", async () => {
-    // The DELETE handler does a join lookup first:
-    //   SELECT gc.id, gc.projectId FROM github_connection gc
-    //   JOIN project p ON gc.projectId = p.id
-    //   WHERE gc.id = ? AND p.organizationId = ?
-    db.seedFirst("FROM github_connection gc", ["conn-1", TEST_TEAM.id], {
+    seedProject(testEnv, "my-app", { id: "proj-1" });
+    // Set githubRepo so we can verify it gets cleared
+    testEnv.db.db.prepare("UPDATE project SET githubRepo = ? WHERE id = ?").run("linyiru/my-app", "proj-1");
+    seedGithubConnection("proj-1", {
       id: "conn-1",
-      projectId: "proj-1",
+      installationId: 123,
+      repoOwner: "linyiru",
+      repoName: "my-app",
+      productionBranch: "main",
     });
-    db.seedRun("DELETE FROM github_connection", ["conn-1"]);
-    db.seedRun("UPDATE project SET githubRepo = NULL", []);
 
     const res = await app.request(
       "/github/connections/conn-1",
       { method: "DELETE" },
-      env,
+      testEnv.env,
       mockExecutionCtx,
     );
 
@@ -549,10 +513,30 @@ describe("DELETE /github/connections/:id", () => {
     const body = await res.json() as { ok: boolean };
     expect(body.ok).toBe(true);
 
-    const executed = db.getExecuted();
-    expect(executed.some((q) => q.sql.includes("DELETE FROM github_connection"))).toBe(true);
-    expect(
-      executed.some((q) => q.sql.includes("UPDATE project SET githubRepo = NULL")),
-    ).toBe(true);
+    // Connection deleted
+    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-1'").get();
+    expect(conn).toBeUndefined();
+
+    // githubRepo cleared
+    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    expect(proj.githubRepo).toBeNull();
   });
 });
+
+/**
+ * Helper: seed a github_connection row.
+ */
+function seedGithubConnection(projectId: string, opts: {
+  id?: string;
+  installationId: number;
+  repoOwner: string;
+  repoName: string;
+  productionBranch: string;
+}) {
+  const id = opts.id ?? crypto.randomUUID();
+  const now = Date.now();
+  testEnv.db.db.prepare(
+    `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+  ).run(id, projectId, opts.installationId, opts.repoOwner, opts.repoName, opts.productionBranch, now);
+}
