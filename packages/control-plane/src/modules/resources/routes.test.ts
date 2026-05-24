@@ -1,24 +1,21 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 const teamId = TEST_TEAM.id;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
-  seedMemberRole(db);
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  testEnv.cleanup();
+  globalThis.fetch = originalFetch;
 });
 
 function req(method: string, path: string, body?: unknown) {
@@ -27,7 +24,7 @@ function req(method: string, path: string, body?: unknown) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  return app.request(path, init, env);
+  return app.request(path, init, testEnv.env);
 }
 
 describe("resources input validation", () => {
@@ -67,6 +64,11 @@ describe("resources input validation", () => {
     expect(body.teamId).toBe(teamId);
     // UUIDs are 36-char
     expect(body.id).toHaveLength(36);
+
+    // Verify the resource is actually in the DB
+    const row = testEnv.db.db.prepare("SELECT * FROM resource WHERE name = ?").get("my-db") as any;
+    expect(row).toBeDefined();
+    expect(row.kind).toBe("database");
   });
 
   test("POST /resources accepts storage / cache / ai kinds", async () => {
@@ -79,7 +81,7 @@ describe("resources input validation", () => {
   });
 
   test("POST bindings rejects lowercase binding name", async () => {
-    db.seedFirst("FROM project WHERE slug = ?", ["p1", teamId], { id: "proj-1" });
+    seedProject(testEnv, "p1");
     const res = await req("POST", "/projects/p1/bindings", {
       resourceId: crypto.randomUUID(),
       bindingName: "lowercase",
@@ -89,7 +91,7 @@ describe("resources input validation", () => {
   });
 
   test("POST bindings rejects binding name starting with digit", async () => {
-    db.seedFirst("FROM project WHERE slug = ?", ["p1", teamId], { id: "proj-1" });
+    seedProject(testEnv, "p1");
     const res = await req("POST", "/projects/p1/bindings", {
       resourceId: crypto.randomUUID(),
       bindingName: "1BAD",
@@ -98,7 +100,7 @@ describe("resources input validation", () => {
   });
 
   test("POST bindings returns 404 when project not in team", async () => {
-    db.seedFirst("FROM project WHERE slug = ?", ["nope", teamId], null);
+    // Don't seed a project named "nope" — it shouldn't exist
     const res = await req("POST", "/projects/nope/bindings", {
       resourceId: crypto.randomUUID(),
       bindingName: "DB",
@@ -114,31 +116,39 @@ describe("resources input validation", () => {
   });
 
   test("DELETE /resources/:id returns 409 when bindings exist", async () => {
-    const id = "res-abc";
-    db.seedFirst("FROM project_resource_binding WHERE resourceId = ?", [id], { n: 1 });
-    const res = await req("DELETE", `/resources/${id}`);
+    // Create a resource and a binding to it
+    const resourceId = "res-abc";
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt) VALUES ('${resourceId}', '${teamId}', 'database', 'test-db', 'd1-uuid', 'd1', 'active', ${now}, ${now})`,
+    );
+    const projId = seedProject(testEnv, "bound-proj");
+    testEnv.db.db.exec(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('${projId}', 'DB', '${resourceId}', ${now})`,
+    );
+
+    const res = await req("DELETE", `/resources/${resourceId}`);
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("has_bindings");
   });
 });
 
-const originalFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
 describe("POST /resources/:id/query", () => {
   const resourceId = "res-db-1";
 
   function seedDatabase(overrides?: Partial<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>) {
-    db.seedFirst("SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE", [resourceId, TEST_TEAM.id], {
+    const defaults = {
       kind: "database",
       cfResourceId: "d1-uuid-abc",
       cfResourceType: "d1",
       status: "active",
       ...overrides,
-    });
+    };
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR REPLACE INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt) VALUES ('${resourceId}', '${teamId}', '${defaults.kind}', 'test-db', ${defaults.cfResourceId ? `'${defaults.cfResourceId}'` : "NULL"}, ${defaults.cfResourceType ? `'${defaults.cfResourceType}'` : "NULL"}, '${defaults.status}', ${now}, ${now})`,
+    );
   }
 
   test("returns 404 for unknown resource", async () => {
