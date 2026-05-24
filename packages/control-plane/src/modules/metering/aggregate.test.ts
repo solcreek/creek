@@ -1,10 +1,11 @@
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   utcDateString,
   yesterdayUTC,
   buildAggregateSql,
   aggregateYesterday,
 } from "./aggregate.js";
+import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 
 describe("utcDateString", () => {
   test("formats UTC date as YYYY-MM-DD", () => {
@@ -13,8 +14,6 @@ describe("utcDateString", () => {
   });
 
   test("ignores local timezone — always UTC", () => {
-    // 2026-04-17T00:30:00Z is 2026-04-16 20:30 in US/Eastern. We want
-    // "2026-04-17" regardless of where the Worker happens to run.
     expect(utcDateString(new Date("2026-04-17T00:30:00Z"))).toBe("2026-04-17");
   });
 });
@@ -40,7 +39,7 @@ describe("buildAggregateSql", () => {
     expect(sql).toContain("INTERVAL '1' DAY");
   });
 
-  test("excludes empty team/project blobs — dispatch-worker traces", () => {
+  test("excludes empty team/project blobs", () => {
     const sql = buildAggregateSql("2026-04-16");
     expect(sql).toContain("blob1 != ''");
     expect(sql).toContain("blob2 != ''");
@@ -53,91 +52,91 @@ describe("buildAggregateSql", () => {
 });
 
 describe("aggregateYesterday", () => {
-  let batched: unknown[][];
+  let testEnv: LocalTestEnv;
   let fetchMock: ReturnType<typeof vi.fn>;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
-    batched = [];
+    testEnv = createLocalTestEnv();
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
 
+  afterEach(() => {
+    testEnv.cleanup();
+    globalThis.fetch = originalFetch;
+  });
+
   function makeEnv(aeData: Array<Record<string, unknown>>) {
-    const stmt = {
-      bind: (...args: unknown[]) => {
-        batched.push(args);
-        return { /* D1PreparedStatement */ };
-      },
-    };
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ meta: [], data: aeData, rows: aeData.length }),
+    });
     return {
-      DB: {
-        prepare: () => stmt,
-        batch: async (list: unknown[]) => ({ list }),
-      } as unknown as D1Database,
+      ...testEnv.env,
       CLOUDFLARE_API_TOKEN: "tok",
       CLOUDFLARE_ACCOUNT_ID: "acct",
-      __setAe(data: Array<Record<string, unknown>>) {
-        fetchMock.mockResolvedValue({
-          ok: true,
-          json: async () => ({
-            meta: [],
-            data,
-            rows: data.length,
-          }),
-        });
-      },
     };
   }
 
-  test("writes one upsert per team+project row", async () => {
-    const env = makeEnv([]);
-    env.__setAe([
+  test("writes one upsert per team+project row into usage_daily", async () => {
+    const env = makeEnv([
       { team: "acme", project: "site", requests: 1234, errors: 5 },
       { team: "acme", project: "api", requests: 777, errors: 0 },
       { team: "other-team", project: "landing", requests: 12, errors: 0 },
     ]);
 
-    const res = await aggregateYesterday(env, new Date("2026-04-17T00:05:00Z"));
+    const res = await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
     expect(res.date).toBe("2026-04-16");
     expect(res.rows).toBe(3);
-    expect(batched).toHaveLength(3);
 
-    const [row0] = batched;
-    expect(row0[0]).toBe("acme");
-    expect(row0[1]).toBe("site");
-    expect(row0[2]).toBe("2026-04-16");
-    expect(row0[3]).toBe(1234);
-    expect(row0[4]).toBe(5);
+    // Verify data in real SQLite
+    const rows = await testEnv.env.DB.prepare(
+      "SELECT * FROM usage_daily ORDER BY teamSlug, projectSlug",
+    ).all() as any;
+    expect(rows.results).toHaveLength(3);
+    expect(rows.results[0].teamSlug).toBe("acme");
+    expect(rows.results[0].projectSlug).toBe("api");
+    expect(rows.results[0].requests).toBe(777);
   });
 
-  test("rounds fractional AE values — _sample_interval can push non-integers", async () => {
-    const env = makeEnv([]);
-    env.__setAe([
+  test("rounds fractional AE values", async () => {
+    const env = makeEnv([
       { team: "t", project: "p", requests: 1023.7, errors: 0.3 },
     ]);
 
-    await aggregateYesterday(env, new Date("2026-04-17T00:05:00Z"));
-    expect(batched[0][3]).toBe(1024);
-    expect(batched[0][4]).toBe(0);
+    await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
+
+    const row = await testEnv.env.DB.prepare(
+      "SELECT requests, errors FROM usage_daily WHERE teamSlug = 't'",
+    ).first() as any;
+    expect(row.requests).toBe(1024);
+    expect(row.errors).toBe(0);
   });
 
-  test("handles AE nulls — projects with no traffic aren't missing, they're just zero", async () => {
-    const env = makeEnv([]);
-    env.__setAe([
+  test("handles AE nulls as zero", async () => {
+    const env = makeEnv([
       { team: "t", project: "p", requests: null, errors: null },
     ]);
 
-    await aggregateYesterday(env, new Date("2026-04-17T00:05:00Z"));
-    expect(batched[0][3]).toBe(0);
-    expect(batched[0][4]).toBe(0);
+    await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
+
+    const row = await testEnv.env.DB.prepare(
+      "SELECT requests, errors FROM usage_daily WHERE teamSlug = 't'",
+    ).first() as any;
+    expect(row.requests).toBe(0);
+    expect(row.errors).toBe(0);
   });
 
-  test("empty AE response writes nothing and returns rows:0", async () => {
+  test("empty AE response writes nothing", async () => {
     const env = makeEnv([]);
-    env.__setAe([]);
 
-    const res = await aggregateYesterday(env, new Date("2026-04-17T00:05:00Z"));
+    const res = await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
     expect(res.rows).toBe(0);
-    expect(batched).toHaveLength(0);
+
+    const count = await testEnv.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM usage_daily",
+    ).first() as any;
+    expect(count.cnt).toBe(0);
   });
 });
