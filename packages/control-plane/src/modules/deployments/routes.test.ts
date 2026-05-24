@@ -1,33 +1,28 @@
-import { describe, test, expect, beforeEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 let teamId: string;
 let teamSlug: string;
 
 // Mock execution context for waitUntil
 const executionCtx = {
-  waitUntil: (_p: Promise<unknown>) => {},
+  waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
   passThroughOnException: () => {},
 };
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
   teamId = TEST_TEAM.id;
   teamSlug = TEST_TEAM.slug;
-  seedMemberRole(db);
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 function req(method: string, path: string, body?: unknown) {
@@ -36,28 +31,25 @@ function req(method: string, path: string, body?: unknown) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  return app.request(path, init, env, executionCtx as any);
+  return app.request(path, init, testEnv.env, executionCtx as any);
 }
 
 const PROJECT_ID = "proj-1";
 const DEPLOYMENT_ID = "deploy-1";
 
-function seedProject() {
-  db.seedFirst("SELECT * FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-    id: PROJECT_ID,
-    slug: "my-app",
-    framework: null,
-    productionBranch: "main",
-    organization_id: teamId,
-  });
+function seedTestProject() {
+  const now = Date.now();
+  testEnv.db.db.exec(
+    `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+     VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'main', ${now}, ${now})`,
+  );
 }
 
 // --- POST /projects/:id/deployments ---
 
 describe("POST /projects/:id/deployments", () => {
   test("creates deployment with queued status", async () => {
-    seedProject();
-    db.seedFirst("SELECT MAX(version)", [PROJECT_ID], { max_version: 2 });
+    seedTestProject();
 
     const res = await req("POST", `/projects/${PROJECT_ID}/deployments`);
     expect(res.status).toBe(201);
@@ -80,14 +72,17 @@ describe("PUT /bundle", () => {
     assets: { "index.html": btoa("<h1>hi</h1>") },
   };
 
+  function seedDeployment(status: string, id: string = DEPLOYMENT_ID) {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${id}', '${PROJECT_ID}', 1, '${status}', 'cli', ${now}, ${now})`,
+    );
+  }
+
   test("returns 202 for queued deployment", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "queued",
-      branch: null,
-    });
-    db.seedFirst("SELECT plan FROM organization", [teamId], { plan: "free" });
+    seedTestProject();
+    seedDeployment("queued");
 
     const res = await req(
       "PUT",
@@ -100,13 +95,8 @@ describe("PUT /bundle", () => {
   });
 
   test("allows retry on failed deployment", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "failed",
-      branch: null,
-    });
-    db.seedFirst("SELECT plan FROM organization", [teamId], { plan: "free" });
+    seedTestProject();
+    seedDeployment("failed");
 
     const res = await req(
       "PUT",
@@ -118,30 +108,35 @@ describe("PUT /bundle", () => {
 
   test("rejects 409 when deployment is in progress", async () => {
     for (const status of ["uploading", "provisioning", "deploying"]) {
-      db.reset();
-      seedProject();
-      db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-        id: DEPLOYMENT_ID,
-        status,
-        branch: null,
-      });
+      // Fresh env per iteration
+      testEnv.cleanup();
+      testEnv = createLocalTestEnv();
+      seedTestData(testEnv);
+      seedTestProject();
+      const depId = `dep-${status}`;
+      const now = Date.now();
+      testEnv.db.db.exec(
+        `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+         VALUES ('${depId}', '${PROJECT_ID}', 1, '${status}', 'cli', ${now}, ${now})`,
+      );
 
-      const res = await req(
-        "PUT",
-        `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
-        bundle,
+      const res = await app.request(
+        `/projects/${PROJECT_ID}/deployments/${depId}/bundle`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bundle),
+        },
+        testEnv.env,
+        executionCtx as any,
       );
       expect(res.status).toBe(409);
     }
   });
 
   test("rejects 400 when deployment is already active", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "active",
-      branch: null,
-    });
+    seedTestProject();
+    seedDeployment("active");
 
     const res = await req(
       "PUT",
@@ -154,7 +149,7 @@ describe("PUT /bundle", () => {
   });
 
   test("returns 404 for non-existent deployment", async () => {
-    seedProject();
+    seedTestProject();
 
     const res = await req(
       "PUT",
@@ -167,12 +162,8 @@ describe("PUT /bundle", () => {
   // --- Bundle guardrails ---
 
   test("rejects invalid JSON", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "queued",
-      branch: null,
-    });
+    seedTestProject();
+    seedDeployment("queued");
 
     const res = await app.request(
       `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
@@ -181,7 +172,7 @@ describe("PUT /bundle", () => {
         headers: { "Content-Type": "text/plain" },
         body: "not json {{{",
       },
-      env,
+      testEnv.env,
       executionCtx as any,
     );
     expect(res.status).toBe(400);
@@ -190,12 +181,8 @@ describe("PUT /bundle", () => {
   });
 
   test("rejects bundle without manifest", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "queued",
-      branch: null,
-    });
+    seedTestProject();
+    seedDeployment("queued");
 
     const res = await req(
       "PUT",
@@ -208,12 +195,8 @@ describe("PUT /bundle", () => {
   });
 
   test("rejects bundle without assets", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "queued",
-      branch: null,
-    });
+    seedTestProject();
+    seedDeployment("queued");
 
     const res = await req(
       "PUT",
@@ -230,17 +213,15 @@ describe("PUT /bundle", () => {
 
 describe("GET /deployments/:id", () => {
   test("returns deployment with url and previewUrl", async () => {
-    db.seedFirst("SELECT * FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-      id: PROJECT_ID,
-      slug: "my-app",
-      productionDeploymentId: DEPLOYMENT_ID,
-    });
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "active",
-      failedStep: null,
-      errorMessage: null,
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', '${DEPLOYMENT_ID}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
     expect(res.status).toBe(200);
@@ -251,15 +232,15 @@ describe("GET /deployments/:id", () => {
   });
 
   test("returns null url for non-production deployment", async () => {
-    db.seedFirst("SELECT * FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-      id: PROJECT_ID,
-      slug: "my-app",
-      productionDeploymentId: "other-deploy",
-    });
-    db.seedFirst("SELECT * FROM deployment WHERE id", [DEPLOYMENT_ID, PROJECT_ID], {
-      id: DEPLOYMENT_ID,
-      status: "active",
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'other-deploy', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
     const json = await res.json() as any;
@@ -271,33 +252,32 @@ describe("GET /deployments/:id", () => {
 
 describe("GET /deployments list", () => {
   test("lists deployments for project and attaches a live URL on active rows", async () => {
-    db.seedFirst("FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-      id: PROJECT_ID,
-      slug: "my-app",
-      productionDeploymentId: "d1abcdef12345",
-    });
-    db.seedAll("SELECT * FROM deployment WHERE projectId", [PROJECT_ID], {
-      results: [
-        { id: "d1abcdef12345", version: 2, status: "active" },
-        { id: "d2xyz9876", version: 1, status: "failed" },
-        { id: "d3preview000", version: 0, status: "active" },
-      ],
-    });
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'd1abcdef12345', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt) VALUES
+       ('d1abcdef12345', '${PROJECT_ID}', 2, 'active', 'cli', ${now}, ${now}),
+       ('d2xyz9876', '${PROJECT_ID}', 1, 'failed', 'cli', ${now}, ${now}),
+       ('d3preview000', '${PROJECT_ID}', 0, 'active', 'cli', ${now}, ${now})`,
+    );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments`);
     expect(res.status).toBe(200);
     const json = await res.json() as Array<{ id: string; status: string; url: string | null }>;
     expect(json).toHaveLength(3);
 
-    // Active production deployment → bare slug URL
+    // Active production deployment -> bare slug URL
     const prod = json.find((d) => d.id === "d1abcdef12345")!;
     expect(prod.url).toBe(`https://my-app-${TEST_TEAM.slug}.${"bycreek.com"}`);
 
-    // Failed deployment → no URL
+    // Failed deployment -> no URL
     const failed = json.find((d) => d.id === "d2xyz9876")!;
     expect(failed.url).toBeNull();
 
-    // Active non-production → preview URL with 8-char short id
+    // Active non-production -> preview URL with 8-char short id
     const preview = json.find((d) => d.id === "d3preview000")!;
     expect(preview.url).toBe(
       `https://my-app-d3previe-${TEST_TEAM.slug}.${"bycreek.com"}`,
