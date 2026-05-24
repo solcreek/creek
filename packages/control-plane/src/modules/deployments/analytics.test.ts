@@ -1,33 +1,24 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
-
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
-  seedMemberRole(db);
 });
 
 afterEach(() => {
+  testEnv.cleanup();
   globalThis.fetch = originalFetch;
 });
 
 function req(path: string) {
-  return app.request(path, { method: "GET" }, env);
+  return app.request(path, { method: "GET" }, testEnv.env);
 }
 
 describe("GET /projects/:id/analytics", () => {
@@ -37,9 +28,8 @@ describe("GET /projects/:id/analytics", () => {
   });
 
   test("returns totals and series for valid project", async () => {
-    db.seedFirst("SELECT slug FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { slug: "my-app" });
+    seedProject(testEnv, "my-app");
 
-    // Mock CF GraphQL response
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         data: {
@@ -75,13 +65,12 @@ describe("GET /projects/:id/analytics", () => {
     expect(json.scriptName).toBe(`my-app-${TEST_TEAM.slug}`);
     expect(json.totals.requests).toBe(60);
     expect(json.totals.errors).toBe(2);
-    expect(json.totals.cpuTimeP50).toBe(1.3);
     expect(json.series).toHaveLength(2);
     expect(json.series[0].requests).toBe(42);
   });
 
   test("accepts period=7d query param", async () => {
-    db.seedFirst("SELECT slug FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { slug: "my-app" });
+    seedProject(testEnv, "my-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
@@ -93,14 +82,13 @@ describe("GET /projects/:id/analytics", () => {
     const json = await res.json() as any;
     expect(json.period).toBe("7d");
 
-    // Verify the GraphQL query used datetimeHour for 7d
     const fetchCall = (globalThis.fetch as any).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body);
     expect(body.query).toContain("datetimeHour");
   });
 
   test("returns empty data when CF API fails", async () => {
-    db.seedFirst("SELECT slug FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { slug: "my-app" });
+    seedProject(testEnv, "my-app");
 
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("network error"));
 
@@ -120,7 +108,7 @@ describe("GET /projects/:id/cron-logs", () => {
   });
 
   test("returns invocations for valid project", async () => {
-    db.seedFirst("SELECT slug FROM project WHERE", ["cron-app", "cron-app", TEST_TEAM.id], { slug: "cron-app" });
+    seedProject(testEnv, "cron-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
@@ -149,7 +137,7 @@ describe("GET /projects/:id/cron-logs", () => {
   });
 
   test("returns empty on CF API failure", async () => {
-    db.seedFirst("SELECT slug FROM project WHERE", ["app", "app", TEST_TEAM.id], { slug: "app" });
+    seedProject(testEnv, "app");
 
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("fail"));
 

@@ -268,6 +268,41 @@ const EXTRA_TABLES = `
   CREATE INDEX IF NOT EXISTS idx_audit_ip_log_created ON audit_ip_log(createdAt);
 `;
 
+/**
+ * Seed standard test data: user + org + member (owner role).
+ * Call after createLocalTestEnv() to enable RBAC-gated routes.
+ */
+export function seedTestData(env: LocalTestEnv, options?: {
+  userId?: string;
+  userEmail?: string;
+  orgId?: string;
+  orgSlug?: string;
+  role?: string;
+}) {
+  const userId = options?.userId ?? "user-1";
+  const userEmail = options?.userEmail ?? "test@example.com";
+  const orgId = options?.orgId ?? "team-1";
+  const orgSlug = options?.orgSlug ?? "my-team";
+  const role = options?.role ?? "owner";
+  const now = Date.now();
+
+  const db = env.db.db;
+  db.exec(`INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Test User', '${userEmail}', 0, ${now}, ${now})`);
+  db.exec(`INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('${orgId}', 'Test Org', '${orgSlug}', ${now})`);
+  db.exec(`INSERT OR IGNORE INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-1', '${userId}', '${orgId}', '${role}', ${now})`);
+}
+
+/**
+ * Seed a project.
+ */
+export function seedProject(env: LocalTestEnv, slug: string, options?: { orgId?: string; id?: string }) {
+  const orgId = options?.orgId ?? "team-1";
+  const id = options?.id ?? `proj-${slug}`;
+  const now = Date.now();
+  env.db.db.exec(`INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('${id}', '${slug}', '${orgId}', ${now}, ${now})`);
+  return id;
+}
+
 function applyMigrations(db: TestD1Database) {
   if (!existsSync(MIGRATIONS_DIR)) return;
   const files = readdirSync(MIGRATIONS_DIR)
