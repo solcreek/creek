@@ -241,6 +241,33 @@ export function createLocalTestEnv(options?: { applyMigrations?: boolean }): Loc
   };
 }
 
+const EXTRA_TABLES = `
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    teamId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    userEmail TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resourceType TEXT NOT NULL,
+    resourceId TEXT,
+    metadata TEXT,
+    ipHash TEXT,
+    country TEXT,
+    userAgent TEXT,
+    cfRay TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_log_user_time ON audit_log(userId, createdAt);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_team_time ON audit_log(teamId, createdAt);
+
+  CREATE TABLE IF NOT EXISTS audit_ip_log (
+    auditLogId TEXT NOT NULL,
+    rawIp TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_ip_log_created ON audit_ip_log(createdAt);
+`;
+
 function applyMigrations(db: TestD1Database) {
   if (!existsSync(MIGRATIONS_DIR)) return;
   const files = readdirSync(MIGRATIONS_DIR)
@@ -250,4 +277,5 @@ function applyMigrations(db: TestD1Database) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf-8");
     try { db.db.exec(sql); } catch {}
   }
+  db.db.exec(EXTRA_TABLES);
 }

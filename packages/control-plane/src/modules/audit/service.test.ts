@@ -1,9 +1,18 @@
-import { describe, test, expect, beforeEach } from "vitest";
-import { createMockD1, TEST_USER, TEST_TEAM, type MockD1 } from "../../test-helpers.js";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 import { recordAudit, hashIp, purgeAuditIpLogs } from "./service.js";
 import type { AuditRequestContext } from "./types.js";
+import type { AuthUser } from "../tenant/types.js";
 
-let db: MockD1;
+const TEST_USER: AuthUser = {
+  id: "user-1",
+  email: "test@example.com",
+  name: "Test User",
+  role: "user",
+  activeOrganizationId: null,
+};
+
+const TEST_TEAM_ID = "team-1";
 
 const TEST_AUDIT_CTX: AuditRequestContext = {
   ip: "203.0.113.42",
@@ -13,8 +22,14 @@ const TEST_AUDIT_CTX: AuditRequestContext = {
   cfRay: "8abc123def-TPE",
 };
 
+let testEnv: LocalTestEnv;
+
 beforeEach(() => {
-  db = createMockD1();
+  testEnv = createLocalTestEnv();
+});
+
+afterEach(() => {
+  testEnv.cleanup();
 });
 
 describe("hashIp", () => {
@@ -40,102 +55,114 @@ describe("hashIp", () => {
 });
 
 describe("recordAudit", () => {
-  test("inserts audit_log and audit_ip_log via batch", async () => {
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+  test("inserts audit_log and audit_ip_log rows", async () => {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "project.create",
       resourceType: "project",
       resourceId: "proj-123",
       metadata: { slug: "my-app" },
     }, TEST_AUDIT_CTX);
 
-    const executed = db.getExecuted();
-    // batch() calls run() on each statement
-    expect(executed.length).toBe(2);
-    expect(executed[0].sql).toContain("INSERT INTO audit_log");
-    expect(executed[1].sql).toContain("INSERT INTO audit_ip_log");
+    const auditRow = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_log ORDER BY createdAt DESC LIMIT 1",
+    ).first() as any;
+
+    expect(auditRow).not.toBeNull();
+    expect(auditRow.action).toBe("project.create");
+    expect(auditRow.resourceType).toBe("project");
+    expect(auditRow.resourceId).toBe("proj-123");
+
+    const ipRow = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_ip_log ORDER BY createdAt DESC LIMIT 1",
+    ).first() as any;
+    expect(ipRow).not.toBeNull();
   });
 
   test("stores correct user identity fields", async () => {
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "deployment.deploy",
       resourceType: "deployment",
       resourceId: "dep-456",
     }, TEST_AUDIT_CTX);
 
-    const executed = db.getExecuted();
-    const auditArgs = executed[0].args;
-    // args: id, teamId, userId, userEmail, action, resourceType, resourceId, metadata, ipHash, country, userAgent, cfRay, createdAt
-    expect(auditArgs[1]).toBe(TEST_TEAM.id); // teamId
-    expect(auditArgs[2]).toBe(TEST_USER.id); // userId
-    expect(auditArgs[3]).toBe(TEST_USER.email); // userEmail
-    expect(auditArgs[4]).toBe("deployment.deploy"); // action
-    expect(auditArgs[5]).toBe("deployment"); // resourceType
-    expect(auditArgs[6]).toBe("dep-456"); // resourceId
+    const row = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_log WHERE resourceId = ?",
+    ).bind("dep-456").first() as any;
+
+    expect(row.teamId).toBe(TEST_TEAM_ID);
+    expect(row.userId).toBe(TEST_USER.id);
+    expect(row.userEmail).toBe(TEST_USER.email);
+    expect(row.action).toBe("deployment.deploy");
   });
 
   test("stores request context fields", async () => {
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "envvar.set",
       resourceType: "envvar",
       resourceId: "proj-1",
       metadata: { key: "DATABASE_URL" },
     }, TEST_AUDIT_CTX);
 
-    const executed = db.getExecuted();
-    const auditArgs = executed[0].args;
-    expect(auditArgs[8]).toBe(TEST_AUDIT_CTX.ipHash); // ipHash
-    expect(auditArgs[9]).toBe("TW"); // country
-    expect(auditArgs[10]).toBe("creek-cli/0.3.0"); // userAgent
-    expect(auditArgs[11]).toBe("8abc123def-TPE"); // cfRay
+    const row = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_log WHERE action = ?",
+    ).bind("envvar.set").first() as any;
+
+    expect(row.ipHash).toBe(TEST_AUDIT_CTX.ipHash);
+    expect(row.country).toBe("TW");
+    expect(row.userAgent).toBe("creek-cli/0.3.0");
+    expect(row.cfRay).toBe("8abc123def-TPE");
   });
 
   test("stores raw IP in audit_ip_log", async () => {
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "project.delete",
       resourceType: "project",
       resourceId: "proj-1",
     }, TEST_AUDIT_CTX);
 
-    const executed = db.getExecuted();
-    const ipLogArgs = executed[1].args;
-    // args: auditLogId, rawIp, createdAt
-    expect(ipLogArgs[1]).toBe("203.0.113.42"); // rawIp
+    const ipRow = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_ip_log ORDER BY createdAt DESC LIMIT 1",
+    ).first() as any;
+
+    expect(ipRow.rawIp).toBe("203.0.113.42");
   });
 
-  test("handles null metadata", async () => {
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+  test("handles null metadata and resourceId", async () => {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "domain.add",
       resourceType: "domain",
     }, TEST_AUDIT_CTX);
 
-    const executed = db.getExecuted();
-    const auditArgs = executed[0].args;
-    expect(auditArgs[6]).toBeNull(); // resourceId
-    expect(auditArgs[7]).toBeNull(); // metadata
+    const row = await testEnv.env.DB.prepare(
+      "SELECT * FROM audit_log WHERE action = ?",
+    ).bind("domain.add").first() as any;
+
+    expect(row.resourceId).toBeNull();
+    expect(row.metadata).toBeNull();
   });
 
   test("truncates userAgent to 512 chars", async () => {
     const longUA = "x".repeat(1000);
-    await recordAudit(db as any, TEST_USER, TEST_TEAM.id, {
+    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
       action: "project.create",
       resourceType: "project",
     }, { ...TEST_AUDIT_CTX, userAgent: longUA });
 
-    const executed = db.getExecuted();
-    const ua = executed[0].args[10] as string;
-    expect(ua).toHaveLength(512);
+    const row = await testEnv.env.DB.prepare(
+      "SELECT userAgent FROM audit_log ORDER BY createdAt DESC LIMIT 1",
+    ).first() as any;
+
+    expect(row.userAgent).toHaveLength(512);
   });
 
   test("does not throw on db error", async () => {
-    // Create a DB mock that throws on batch
     const failingDb = {
       batch: async () => { throw new Error("DB offline"); },
       prepare: () => ({ bind: () => ({ run: async () => ({}) }) }),
     };
 
-    // Should not throw
     await expect(
-      recordAudit(failingDb as any, TEST_USER, TEST_TEAM.id, {
+      recordAudit(failingDb as any, TEST_USER, TEST_TEAM_ID, {
         action: "project.create",
         resourceType: "project",
       }, TEST_AUDIT_CTX),
@@ -145,10 +172,21 @@ describe("recordAudit", () => {
 
 describe("purgeAuditIpLogs", () => {
   test("deletes records older than 30 days", async () => {
-    const result = await purgeAuditIpLogs(db as any);
-    const executed = db.getExecuted();
-    expect(executed.length).toBe(1);
-    expect(executed[0].sql).toContain("DELETE FROM audit_ip_log");
-    expect(executed[0].sql).toContain("createdAt < ?");
+    const db = testEnv.env.DB;
+    const now = Date.now();
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+
+    await db.prepare(
+      "INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)",
+    ).bind("fresh-id", "1.2.3.4", now).run();
+    await db.prepare(
+      "INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)",
+    ).bind("old-id", "5.6.7.8", old).run();
+
+    await purgeAuditIpLogs(db as any);
+
+    const remaining = await db.prepare("SELECT * FROM audit_ip_log").all() as any;
+    expect(remaining.results).toHaveLength(1);
+    expect(remaining.results[0].auditLogId).toBe("fresh-id");
   });
 });
