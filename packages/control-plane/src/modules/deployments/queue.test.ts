@@ -1,28 +1,20 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
-  seedMemberRole(db);
 });
 
 afterEach(() => {
+  testEnv.cleanup();
   globalThis.fetch = originalFetch;
 });
 
@@ -34,7 +26,7 @@ function send(projectId: string, body: unknown) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
-    env,
+    testEnv.env,
   );
 }
 
@@ -46,8 +38,16 @@ function patchTriggers(projectId: string, body: unknown) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
-    env,
+    testEnv.env,
   );
+}
+
+function seedAppProject(slug: string = "my-app", triggers?: string) {
+  const id = seedProject(testEnv, slug);
+  if (triggers) {
+    testEnv.db.db.prepare("UPDATE project SET triggers = ? WHERE id = ?").run(triggers, id);
+  }
+  return id;
 }
 
 describe("PATCH /projects/:id/triggers", () => {
@@ -57,11 +57,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("rejects empty body", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: null,
-    });
+    seedAppProject("my-app");
 
     const res = await patchTriggers("my-app", {});
     expect(res.status).toBe(400);
@@ -71,11 +67,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("rejects non-array cron field", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: null,
-    });
+    seedAppProject("my-app");
 
     const res = await patchTriggers("my-app", { cron: "not-an-array" });
     expect(res.status).toBe(400);
@@ -84,11 +76,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("rejects non-boolean queue field", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: null,
-    });
+    seedAppProject("my-app");
 
     const res = await patchTriggers("my-app", { queue: "yes" });
     expect(res.status).toBe(400);
@@ -97,11 +85,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("updates cron schedules and persists to DB", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: '{"cron":["0 0 * * *"],"queue":false}',
-    });
+    const projId = seedAppProject("my-app", '{"cron":["0 0 * * *"],"queue":false}');
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: true, result: {} })),
@@ -123,22 +107,18 @@ describe("PATCH /projects/:id/triggers", () => {
     expect(body.schedules).toEqual([{ cron: "*/15 * * * *" }, { cron: "0 0 * * *" }]);
 
     // Verify DB update
-    const writes = db.getExecuted().filter((q) => q.sql.includes("UPDATE project"));
-    expect(writes.length).toBeGreaterThan(0);
-    expect(writes[0].args[0]).toContain('"cron":["*/15 * * * *","0 0 * * *"]');
-    expect(writes[0].args[0]).toContain('"queue":false');
+    const row = testEnv.db.db.prepare("SELECT triggers FROM project WHERE id = ?").get(projId) as any;
+    const triggers = JSON.parse(row.triggers);
+    expect(triggers.cron).toEqual(["*/15 * * * *", "0 0 * * *"]);
+    expect(triggers.queue).toBe(false);
 
     // Verify audit log was written
-    const auditWrites = db.getExecuted().filter((q) => q.sql.includes("audit_log"));
-    expect(auditWrites.length).toBeGreaterThan(0);
+    const auditRow = testEnv.db.db.prepare("SELECT * FROM audit_log WHERE action = 'trigger.cron.update'").get();
+    expect(auditRow).toBeDefined();
   });
 
   test("toggling queue does NOT call CF API and signals queueRequiresRedeploy", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: '{"cron":[],"queue":false}',
-    });
+    seedAppProject("my-app", '{"cron":[],"queue":false}');
 
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: true, result: {} })),
@@ -155,16 +135,13 @@ describe("PATCH /projects/:id/triggers", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
 
     // DB should have the new queue value
-    const writes = db.getExecuted().filter((q) => q.sql.includes("UPDATE project"));
-    expect(writes[0].args[0]).toContain('"queue":true');
+    const row = testEnv.db.db.prepare("SELECT triggers FROM project WHERE slug = 'my-app'").get() as any;
+    const triggers = JSON.parse(row.triggers);
+    expect(triggers.queue).toBe(true);
   });
 
   test("toggling queue to same value does not flag queueRequiresRedeploy", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: '{"cron":[],"queue":true}',
-    });
+    seedAppProject("my-app", '{"cron":[],"queue":true}');
 
     const res = await patchTriggers("my-app", { queue: true });
     expect(res.status).toBe(200);
@@ -173,11 +150,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("can update both cron and queue in one request", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: '{"cron":[],"queue":false}',
-    });
+    seedAppProject("my-app", '{"cron":[],"queue":false}');
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: true, result: {} })),
@@ -192,11 +165,7 @@ describe("PATCH /projects/:id/triggers", () => {
   });
 
   test("returns 500 when CF API fails", async () => {
-    db.seedFirst("SELECT id, slug, triggers FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], {
-      id: "p-1",
-      slug: "my-app",
-      triggers: null,
-    });
+    seedAppProject("my-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: false, errors: [{ message: "script not found" }] })),
@@ -216,12 +185,8 @@ describe("POST /projects/:id/queue/send", () => {
   });
 
   test("returns 400 when project has no queue provisioned", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
-    db.seedFirst(
-      "SELECT r.cfResourceId",
-      ["p-1"],
-      null,
-    );
+    seedAppProject("my-app");
+    // No resource/binding rows => no queue
 
     const res = await send("my-app", { message: "hello" });
     expect(res.status).toBe(400);
@@ -230,12 +195,9 @@ describe("POST /projects/:id/queue/send", () => {
   });
 
   test("returns 400 when message field is missing", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
-    db.seedFirst(
-      "SELECT r.cfResourceId",
-      ["p-1"],
-      { cfResourceId: "queue-id-123" },
-    );
+    const projId = seedAppProject("my-app");
+    // Seed a queue resource + binding
+    seedQueueBinding(projId, "queue-id-123");
 
     const res = await send("my-app", {});
     expect(res.status).toBe(400);
@@ -244,12 +206,8 @@ describe("POST /projects/:id/queue/send", () => {
   });
 
   test("sends message to CF Queues API on success", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
-    db.seedFirst(
-      "SELECT r.cfResourceId",
-      ["p-1"],
-      { cfResourceId: "queue-id-123" },
-    );
+    const projId = seedAppProject("my-app");
+    seedQueueBinding(projId, "queue-id-123");
 
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: true, result: {} })),
@@ -271,12 +229,8 @@ describe("POST /projects/:id/queue/send", () => {
   });
 
   test("sends string message as text content type", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
-    db.seedFirst(
-      "SELECT r.cfResourceId",
-      ["p-1"],
-      { cfResourceId: "queue-id-123" },
-    );
+    const projId = seedAppProject("my-app");
+    seedQueueBinding(projId, "queue-id-123");
 
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: true, result: {} })),
@@ -292,12 +246,8 @@ describe("POST /projects/:id/queue/send", () => {
   });
 
   test("returns 500 when CF API fails", async () => {
-    db.seedFirst("SELECT id FROM project WHERE", ["my-app", "my-app", TEST_TEAM.id], { id: "p-1" });
-    db.seedFirst(
-      "SELECT r.cfResourceId",
-      ["p-1"],
-      { cfResourceId: "queue-id-123" },
-    );
+    const projId = seedAppProject("my-app");
+    seedQueueBinding(projId, "queue-id-123");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: false, errors: [{ message: "queue not found" }] })),
@@ -309,3 +259,19 @@ describe("POST /projects/:id/queue/send", () => {
     expect(json.error).toBe("send_failed");
   });
 });
+
+/**
+ * Seed a queue resource + project_resource_binding so getProjectQueueId returns cfResourceId.
+ */
+function seedQueueBinding(projectId: string, cfResourceId: string) {
+  const now = Date.now();
+  const resourceId = `res-queue-${projectId}`;
+  testEnv.db.db.exec(
+    `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+     VALUES ('${resourceId}', '${TEST_TEAM.id}', 'queue', 'queue-${projectId}', '${cfResourceId}', 'queue', 'active', ${now}, ${now})`,
+  );
+  testEnv.db.db.exec(
+    `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+     VALUES ('${projectId}', 'QUEUE', '${resourceId}', ${now})`,
+  );
+}
