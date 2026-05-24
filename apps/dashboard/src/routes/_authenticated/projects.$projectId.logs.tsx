@@ -2,6 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { getAppLogs } from "@/lib/adapter";
+import { useApiMode } from "@/lib/api-context";
+import { ConnectionError } from "@/components/connection-error";
 import { Button } from "@solcreek/ui/components/button";
 
 /**
@@ -18,8 +21,66 @@ import { Button } from "@solcreek/ui/components/button";
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/logs",
 )({
-  component: LogsTab,
+  component: LogsPage,
 });
+
+function LogsPage() {
+  const mode = useApiMode();
+  if (mode === "creekd") return <CreekdLogsTab />;
+  return <LogsTab />;
+}
+
+function CreekdLogsTab() {
+  const { projectId } = Route.useParams();
+  const [tail, setTail] = useState(100);
+
+  const { data: logs, error, refetch, isLoading } = useQuery({
+    queryKey: ["creekd-logs", projectId, tail],
+    queryFn: () => getAppLogs(projectId, tail),
+    refetchInterval: 3000,
+    retry: 2,
+  });
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  if (error) return <ConnectionError error={error} onRetry={() => refetch()} />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1">
+          {([50, 100, 500, 1000] as const).map((n) => (
+            <Button
+              key={n}
+              variant={tail === n ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setTail(n)}
+            >
+              {n} lines
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Auto-refresh every 3s</p>
+      </div>
+
+      {isLoading && !logs ? (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : !logs?.trim() ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center">
+          <p className="text-sm text-muted-foreground">No log output yet.</p>
+        </div>
+      ) : (
+        <pre className="max-h-[600px] overflow-auto rounded-md bg-code-bg p-4 font-mono text-xs leading-relaxed">
+          {logs}
+          <div ref={bottomRef} />
+        </pre>
+      )}
+    </div>
+  );
+}
 
 type Outcome =
   | "ok"

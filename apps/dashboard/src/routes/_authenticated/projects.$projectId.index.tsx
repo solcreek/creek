@@ -13,6 +13,7 @@ import {
 import { Button } from "@solcreek/ui/components/button";
 import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink, ScrollText, RotateCw, Square } from "lucide-react";
 import { BuildLogPanel } from "./-components/BuildLogPanel";
+import { ConnectionError } from "@/components/connection-error";
 
 export const Route = createFileRoute(
   "/_authenticated/projects/$projectId/",
@@ -359,16 +360,18 @@ function AppOverviewTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
 
-  const { data: app } = useQuery({
+  const { data: app, error, refetch } = useQuery({
     queryKey: ["app", projectId],
     queryFn: () => getApp(projectId),
     refetchInterval: 2000,
+    retry: 2,
   });
 
   const { data: stats } = useQuery({
     queryKey: ["app-stats", projectId],
     queryFn: () => getAppStats(projectId),
     refetchInterval: 2000,
+    retry: 1,
   });
 
   const restart = useMutation({
@@ -386,6 +389,7 @@ function AppOverviewTab() {
     },
   });
 
+  if (error) return <ConnectionError error={error} onRetry={() => refetch()} />;
   if (!app) return <p className="text-muted-foreground">Loading...</p>;
 
   const status = String(app.status);

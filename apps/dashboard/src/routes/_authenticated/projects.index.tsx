@@ -5,6 +5,7 @@ import { useApiMode, useFeatures } from "@/lib/api-context";
 import { NewProjectDialog } from "@/components/new-project-dialog";
 import { Folder, RotateCw, Square, Loader2 } from "lucide-react";
 import { Button } from "@solcreek/ui/components/button";
+import { ConnectionError } from "@/components/connection-error";
 
 export const Route = createFileRoute("/_authenticated/projects/")({
   component: ProjectsListPage,
@@ -15,10 +16,11 @@ function ProjectsListPage() {
   const features = useFeatures();
   const queryClient = useQueryClient();
 
-  const { data: apps, isLoading } = useQuery({
+  const { data: apps, isLoading, error, refetch } = useQuery({
     queryKey: ["apps"],
     queryFn: listApps,
     refetchInterval: mode === "creekd" ? 5000 : false,
+    retry: 2,
   });
 
   const restart = useMutation({
@@ -40,7 +42,9 @@ function ProjectsListPage() {
         {features.deployments && <NewProjectDialog />}
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <ConnectionError error={error} onRetry={() => refetch()} />
+      ) : isLoading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : !apps?.length ? (
         <EmptyState mode={mode} />
