@@ -79,6 +79,11 @@ export class CreekdClient {
     return this.get<StatsView>(`/v1/apps/${encodeURIComponent(id)}/stats`);
   }
 
+  async getAppLogs(id: string, tail = 100): Promise<string> {
+    const res = await this.request("GET", `/v1/apps/${encodeURIComponent(id)}/logs?tail=${tail}`);
+    return res.text();
+  }
+
   async stopApp(id: string): Promise<void> {
     await this.request("DELETE", `/v1/apps/${encodeURIComponent(id)}`);
   }

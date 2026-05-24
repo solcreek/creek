@@ -18,6 +18,7 @@ import {
   NO_PROJECT_BREADCRUMBS,
 } from "../utils/output.js";
 import { matchesClientSide, describeFilters, safeStringify as ssExport } from "./logs-filter.js";
+import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
 
 /**
  * `creek logs` — read structured tenant logs from R2 archive.
@@ -92,10 +93,27 @@ export const logsCommand = defineCommand({
       description:
         "Live tail via WebSocket. Prints recent context first, then streams new entries until Ctrl+C.",
     },
+    server: {
+      type: "string",
+      description: "creekd admin API URL — routes to creekd log tail instead of control-plane (or $CREEKD_URL)",
+    },
+    "creekd-token": {
+      type: "string",
+      description: "Bearer token for creekd (or $CREEKD_TOKEN)",
+    },
+    tail: {
+      type: "string",
+      description: "Number of lines (creekd mode only, default 100)",
+    },
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+
+    if (args.server || process.env.CREEKD_URL) {
+      return creekdLogs(args, jsonMode);
+    }
+
     const token = getToken();
     if (!token) {
       if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
@@ -296,6 +314,42 @@ async function follow(
     // wasn't from our own token-refresh timer.
     await sleep(backoffMs);
     backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+  }
+}
+
+async function creekdLogs(args: Record<string, unknown>, jsonMode: boolean): Promise<void> {
+  const client = new CreekdClient(
+    (args.server as string) || getCreekdUrl(),
+    (args["creekd-token"] as string) || process.env.CREEKD_TOKEN || process.env.CREEKCTL_TOKEN || "",
+  );
+  const id = (args.project as string) || (args.id as string);
+  if (!id) {
+    if (jsonMode) jsonOutput({ ok: false, error: "missing_id", message: "App ID required" }, 1, [
+      { command: "creek logs --server <url> --project <id>", description: "Specify app ID" },
+    ]);
+    consola.error("App ID required. Use --project <id>.");
+    process.exit(1);
+  }
+
+  const tail = args.tail ? Number(args.tail) : 100;
+
+  try {
+    const text = await client.getAppLogs(id, tail);
+    if (jsonMode) {
+      const lines = text.split("\n").filter(Boolean);
+      jsonOutput({ ok: true, app_id: id, lines, count: lines.length }, 0, [
+        { command: `creek logs --server ${(args.server as string) || getCreekdUrl()} --project ${id} --follow`, description: "Stream live logs" },
+      ]);
+    }
+    process.stdout.write(text);
+    if (text.length > 0 && !text.endsWith("\n")) process.stdout.write("\n");
+  } catch (err) {
+    if (err instanceof CreekdApiError) {
+      if (jsonMode) jsonOutput({ ok: false, error: err.code, message: err.message }, 1);
+      consola.error(err.status === 404 ? `App "${id}" not found.` : `Logs failed: ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
   }
 }
 
