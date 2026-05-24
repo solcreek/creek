@@ -17,4 +17,12 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  server: {
+    proxy: {
+      "/v1": {
+        target: "http://127.0.0.1:9080",
+        changeOrigin: true,
+      },
+    },
+  },
 });

@@ -25,7 +25,9 @@ let _creekdClient: CreekdClient | null = null;
 
 function creekd(): CreekdClient {
   if (!_creekdClient) {
-    const url = import.meta.env.VITE_API_URL || "http://localhost:9080";
+    // In dev, Vite proxies /v1/* to creekd — use page origin.
+    // In production, VITE_API_URL points to the actual creekd address.
+    const url = import.meta.env.VITE_API_URL || window.location.origin;
     const token = import.meta.env.VITE_CREEKD_TOKEN || "";
     _creekdClient = createCreekdClient(url, token || undefined);
   }
@@ -85,7 +87,7 @@ export async function getAppStats(id: string): Promise<StatsView> {
 
 export async function getAppLogs(id: string, tail = 100): Promise<string> {
   if (MODE === "creekd") {
-    const url = import.meta.env.VITE_API_URL || "http://localhost:9080";
+    const url = import.meta.env.VITE_API_URL || window.location.origin;
     const token = import.meta.env.VITE_CREEKD_TOKEN || "";
     const res = await fetch(`${url}/v1/apps/${id}/logs?tail=${tail}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
