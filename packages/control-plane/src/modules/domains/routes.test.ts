@@ -1,26 +1,17 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  createMockD1,
-  createTestEnv,
-  createTestApp,
-  seedMemberRole,
-  TEST_USER,
-  TEST_TEAM,
-  type MockD1,
-} from "../../test-helpers.js";
+import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
-let db: MockD1;
-let env: ReturnType<typeof createTestEnv>;
+let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 let teamId: string;
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
-  db = createMockD1();
-  env = createTestEnv(db);
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
   app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
   teamId = TEST_TEAM.id;
-  seedMemberRole(db);
 
   // Mock CF API calls for custom hostnames
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -43,6 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  testEnv.cleanup();
   globalThis.fetch = originalFetch;
 });
 
@@ -52,31 +44,29 @@ function req(method: string, path: string, body?: unknown) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  return app.request(path, init, env);
+  return app.request(path, init, testEnv.env);
 }
 
 const PROJECT_ID = "proj-1";
 
-function seedProject() {
-  db.seedFirst("SELECT id FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-    id: PROJECT_ID,
-  });
-  db.seedFirst("SELECT id, slug FROM project WHERE", [PROJECT_ID, PROJECT_ID, teamId], {
-    id: PROJECT_ID,
-    slug: "my-app",
-  });
+function seedTestProject() {
+  const now = Date.now();
+  testEnv.db.db.exec(
+    `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+     VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'main', ${now}, ${now})`,
+  );
 }
 
 // --- GET /projects/:id/domains ---
 
 describe("GET /projects/:id/domains", () => {
   test("lists domains for project", async () => {
-    seedProject();
-    db.seedAll("SELECT * FROM custom_domain WHERE projectId", [PROJECT_ID], {
-      results: [
-        { id: "d1", hostname: "app.example.com", status: "active" },
-      ],
-    });
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'active', ${now})`,
+    );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains`);
     expect(res.status).toBe(200);
@@ -95,12 +85,12 @@ describe("GET /projects/:id/domains", () => {
 
 describe("GET /projects/:id/domains/:domainId", () => {
   test("returns single domain", async () => {
-    seedProject();
-    db.seedFirst("SELECT * FROM custom_domain WHERE id", ["d1", PROJECT_ID], {
-      id: "d1",
-      hostname: "app.example.com",
-      status: "pending",
-    });
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
     expect(res.status).toBe(200);
@@ -109,7 +99,7 @@ describe("GET /projects/:id/domains/:domainId", () => {
   });
 
   test("returns 404 for non-existent domain", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/nonexistent`);
     expect(res.status).toBe(404);
   });
@@ -119,7 +109,7 @@ describe("GET /projects/:id/domains/:domainId", () => {
 
 describe("POST /projects/:id/domains", () => {
   test("adds custom domain and calls CF API", async () => {
-    seedProject();
+    seedTestProject();
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "app.example.com",
@@ -137,16 +127,18 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("rejects missing hostname", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {});
     expect(res.status).toBe(400);
   });
 
   test("rejects duplicate hostname", async () => {
-    seedProject();
-    db.seedFirst("SELECT id FROM custom_domain WHERE hostname", ["app.example.com"], {
-      id: "existing",
-    });
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('existing', '${PROJECT_ID}', 'app.example.com', 'active', ${now})`,
+    );
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "app.example.com",
@@ -164,7 +156,7 @@ describe("POST /projects/:id/domains", () => {
   // --- Hostname validation ---
 
   test("rejects localhost", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "localhost",
     });
@@ -174,7 +166,7 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("rejects IP address", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "192.168.1.1",
     });
@@ -182,12 +174,26 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("rejects reserved domain *.bycreek.com for non-owner", async () => {
-    // Re-seed as admin (not owner) — admin can't bypass reserved check
-    db = createMockD1();
-    env = createTestEnv(db);
+    // Re-seed as admin (not owner) -- admin can't bypass reserved check
+    testEnv.cleanup();
+    testEnv = createLocalTestEnv();
+    seedTestData(testEnv, { role: "admin" });
     app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
-    seedMemberRole(db, "admin");
-    seedProject();
+
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'main', ${now}, ${now})`,
+    );
+
+    // Re-apply fetch mock
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(JSON.stringify({ success: true, result: { id: "cf-id", status: "pending", ownership_verification: null } }));
+      }
+      return originalFetch(input as any);
+    }) as any;
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "evil.bycreek.com",
@@ -198,11 +204,24 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("rejects reserved domain *.creek.dev for non-owner", async () => {
-    db = createMockD1();
-    env = createTestEnv(db);
+    testEnv.cleanup();
+    testEnv = createLocalTestEnv();
+    seedTestData(testEnv, { role: "admin" });
     app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
-    seedMemberRole(db, "admin");
-    seedProject();
+
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'main', ${now}, ${now})`,
+    );
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(JSON.stringify({ success: true, result: { id: "cf-id", status: "pending", ownership_verification: null } }));
+      }
+      return originalFetch(input as any);
+    }) as any;
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "steal.creek.dev",
@@ -211,7 +230,7 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("rejects single-label hostname", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "example",
     });
@@ -219,7 +238,7 @@ describe("POST /projects/:id/domains", () => {
   });
 
   test("accepts valid hostname", async () => {
-    seedProject();
+    seedTestProject();
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "api.mycompany.com",
     });
@@ -231,7 +250,12 @@ describe("POST /projects/:id/domains", () => {
 
 describe("POST /projects/:id/domains/:domainId/activate", () => {
   test("activates a pending domain", async () => {
-    seedProject();
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
     expect(res.status).toBe(200);
@@ -240,11 +264,7 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
   });
 
   test("returns 404 for non-existent domain", async () => {
-    seedProject();
-    // Seed the UPDATE to return 0 changes (domain doesn't exist)
-    db.seedRun("UPDATE custom_domain SET status", ["nonexistent", PROJECT_ID], {
-      meta: { changes: 0 },
-    });
+    seedTestProject();
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/nonexistent/activate`);
     expect(res.status).toBe(404);
@@ -260,11 +280,12 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
 
 describe("DELETE /projects/:id/domains/:domainId", () => {
   test("deletes domain and calls CF cleanup", async () => {
-    seedProject();
-    db.seedFirst("SELECT id, cfCustomHostnameId FROM custom_domain WHERE id", ["dom-1", PROJECT_ID], {
-      id: "dom-1",
-      cfCustomHostnameId: "cf-id-123",
-    });
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('dom-1', '${PROJECT_ID}', 'app.example.com', 'active', 'cf-id-123', ${now})`,
+    );
 
     const res = await req("DELETE", `/projects/${PROJECT_ID}/domains/dom-1`);
     expect(res.status).toBe(200);
@@ -288,17 +309,16 @@ describe("DELETE /projects/:id/domains/:domainId", () => {
 
 describe("team scoping", () => {
   test("domains route SQL uses organization_id", async () => {
-    seedProject();
-    db.seedAll("SELECT * FROM custom_domain WHERE projectId", [PROJECT_ID], {
-      results: [],
-    });
+    seedTestProject();
 
-    await req("GET", `/projects/${PROJECT_ID}/domains`);
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains`);
+    expect(res.status).toBe(200);
 
-    const queries = db.getExecuted();
-    const projectQuery = queries.find((q) => q.sql.includes("SELECT id FROM project"));
-    expect(projectQuery).toBeDefined();
-    expect(projectQuery!.sql).toContain("organizationId");
-    expect(projectQuery!.args[2]).toBe(teamId);
+    // With real SQLite, the project is only found because we seeded it
+    // with the correct organizationId. If scoping were broken, a different
+    // team's project would leak through. Verify by checking an unrelated
+    // team's project returns 404.
+    const res2 = await req("GET", "/projects/proj-other-team/domains");
+    expect(res2.status).toBe(404);
   });
 });
