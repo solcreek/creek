@@ -149,12 +149,13 @@ export class LocalR2Bucket {
             objects.push(new LocalR2Object(key, stat.size));
           }
         }
-        if (objects.length >= limit) return;
+        if (objects.length > limit) return;
       }
     };
 
     walk(this.root);
-    return { objects: objects.slice(0, limit), truncated: objects.length > limit, delimitedPrefixes: [] };
+    const truncated = objects.length > limit;
+    return { objects: objects.slice(0, limit), truncated, delimitedPrefixes: [] };
   }
 
   async head(key: string): Promise<LocalR2Object | null> {
