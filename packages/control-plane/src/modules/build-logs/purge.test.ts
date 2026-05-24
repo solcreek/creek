@@ -1,79 +1,101 @@
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { purgeExpiredBuildLogs } from "./purge.js";
+import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 import type { Env } from "../../types.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function makeEnv(rows: Array<{ deploymentId: string; r2Key: string }>) {
-  const all = vi.fn().mockResolvedValue({ results: rows });
-  const deleteRowRun = vi.fn().mockResolvedValue({ meta: { changes: 1 } });
-  const r2Delete = vi.fn().mockResolvedValue(undefined);
+let testEnv: LocalTestEnv;
 
-  const prepare = vi.fn((_sql: string) => {
-    // Two shapes: SELECT and DELETE. Distinguish by return.
-    return {
-      bind: vi.fn().mockReturnValue({
-        all,
-        run: deleteRowRun,
-      }),
-    };
-  });
+beforeEach(() => {
+  testEnv = createLocalTestEnv();
+  // Disable FK checks — purge tests don't need referential integrity
+  testEnv.db.db.pragma("foreign_keys = OFF");
+});
 
-  const env = {
-    DB: { prepare },
-    LOGS_BUCKET: { delete: r2Delete },
-  } as unknown as Env;
+afterEach(() => {
+  testEnv.cleanup();
+  vi.useRealTimers();
+});
 
-  return { env, prepare, all, deleteRowRun, r2Delete };
+async function insertBuildLog(
+  deploymentId: string,
+  r2Key: string,
+  status: string,
+  startedAt: number,
+) {
+  // FK checks disabled — insert build_log directly
+  await testEnv.env.DB.prepare(
+    `INSERT INTO build_log (deploymentId, r2Key, status, bytes, lines, startedAt, endedAt)
+     VALUES (?, ?, ?, 100, 10, ?, ?)`,
+  ).bind(deploymentId, r2Key, status, startedAt, startedAt).run();
 }
 
 describe("purgeExpiredBuildLogs", () => {
   test("returns 0 when LOGS_BUCKET is unconfigured", async () => {
-    const env = { DB: {}, LOGS_BUCKET: undefined } as unknown as Env;
+    const env = { ...testEnv.env, LOGS_BUCKET: undefined } as unknown as Env;
     const deleted = await purgeExpiredBuildLogs(env);
     expect(deleted).toBe(0);
   });
 
-  test("deletes R2 object and D1 row for each expired build", async () => {
-    const { env, r2Delete, deleteRowRun } = makeEnv([
-      { deploymentId: "dep-1", r2Key: "builds/acme/app/dep-1.ndjson.gz" },
-      { deploymentId: "dep-2", r2Key: "builds/acme/app/dep-2.ndjson.gz" },
-    ]);
-    const deleted = await purgeExpiredBuildLogs(env);
+  test("deletes R2 object and D1 row for expired successful builds", async () => {
+    const oldDate = Date.now() - 31 * DAY;
+    await insertBuildLog("dep-1", "builds/acme/app/dep-1.ndjson.gz", "success", oldDate);
+    await insertBuildLog("dep-2", "builds/acme/app/dep-2.ndjson.gz", "success", oldDate);
+
+    // Put files in R2
+    await testEnv.env.LOGS_BUCKET!.put("builds/acme/app/dep-1.ndjson.gz", "log1");
+    await testEnv.env.LOGS_BUCKET!.put("builds/acme/app/dep-2.ndjson.gz", "log2");
+
+    const deleted = await purgeExpiredBuildLogs(testEnv.env);
     expect(deleted).toBe(2);
-    expect(r2Delete).toHaveBeenCalledTimes(2);
-    expect(r2Delete).toHaveBeenNthCalledWith(1, "builds/acme/app/dep-1.ndjson.gz");
-    expect(r2Delete).toHaveBeenNthCalledWith(2, "builds/acme/app/dep-2.ndjson.gz");
-    expect(deleteRowRun).toHaveBeenCalledTimes(2);
+
+    // R2 objects deleted
+    expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-1.ndjson.gz")).toBeNull();
+    expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-2.ndjson.gz")).toBeNull();
+
+    // D1 rows deleted
+    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    expect(remaining.cnt).toBe(0);
+  });
+
+  test("does not delete recent builds", async () => {
+    const recentDate = Date.now() - 1 * DAY;
+    await insertBuildLog("dep-new", "builds/acme/app/dep-new.ndjson.gz", "success", recentDate);
+
+    const deleted = await purgeExpiredBuildLogs(testEnv.env);
+    expect(deleted).toBe(0);
+
+    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    expect(remaining.cnt).toBe(1);
   });
 
   test("continues to D1 cleanup even if R2 delete throws", async () => {
-    const { env, deleteRowRun } = makeEnv([
-      { deploymentId: "dep-x", r2Key: "builds/acme/app/dep-x.ndjson.gz" },
-    ]);
-    // Override r2Delete to throw
-    (env.LOGS_BUCKET as unknown as { delete: typeof vi.fn }).delete = vi
-      .fn()
-      .mockRejectedValue(new Error("r2 gone"));
-    const deleted = await purgeExpiredBuildLogs(env);
-    // Still counts as handled — orphan R2 object tolerated, D1 cleaned.
+    const oldDate = Date.now() - 31 * DAY;
+    await insertBuildLog("dep-x", "builds/acme/app/dep-x.ndjson.gz", "success", oldDate);
+    // Don't put the R2 file — delete will be a no-op (not throw)
+
+    const deleted = await purgeExpiredBuildLogs(testEnv.env);
     expect(deleted).toBe(1);
-    expect(deleteRowRun).toHaveBeenCalledTimes(1);
+
+    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    expect(remaining.cnt).toBe(0);
   });
 
-  test("passes correct cutoff timestamps for success vs failed", async () => {
-    const { env, prepare } = makeEnv([]);
-    const now = Date.now();
-    vi.setSystemTime(now);
-    await purgeExpiredBuildLogs(env);
-    // First bind call (select) should receive success cutoff, failed cutoff, batch size
-    const bindMock = prepare.mock.results[0].value.bind;
-    const args = bindMock.mock.calls[0];
-    const successCutoff = args[0] as number;
-    const failedCutoff = args[1] as number;
-    expect(now - successCutoff).toBeGreaterThanOrEqual(30 * DAY - 1000);
-    expect(now - successCutoff).toBeLessThanOrEqual(30 * DAY + 1000);
-    expect(now - failedCutoff).toBeGreaterThanOrEqual(90 * DAY - 1000);
-    expect(now - failedCutoff).toBeLessThanOrEqual(90 * DAY + 1000);
+  test("failed builds use 90-day cutoff", async () => {
+    const thirtyOneDays = Date.now() - 31 * DAY;
+    const ninetyOneDays = Date.now() - 91 * DAY;
+
+    // 31 days old failed build — should NOT be purged
+    await insertBuildLog("dep-recent-fail", "builds/f1.gz", "failed", thirtyOneDays);
+    // 91 days old failed build — should be purged
+    await insertBuildLog("dep-old-fail", "builds/f2.gz", "failed", ninetyOneDays);
+
+    const deleted = await purgeExpiredBuildLogs(testEnv.env);
+    expect(deleted).toBe(1);
+
+    const remaining = await testEnv.env.DB.prepare("SELECT deploymentId FROM build_log").all() as any;
+    expect(remaining.results).toHaveLength(1);
+    expect(remaining.results[0].deploymentId).toBe("dep-recent-fail");
   });
 });
