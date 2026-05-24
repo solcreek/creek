@@ -174,6 +174,10 @@ describe("schema audit", () => {
     "creek_tenant_requests",
     // Creek migration tracking — lives in user D1 databases, not control-plane
     "_creek_migrations",
+    // Local adapter internal tables — not part of control-plane schema
+    "kv_store",
+    // Host runtime cache table
+    "cache",
   ]);
 
   // Walk all package source dirs
