@@ -1,7 +1,8 @@
 {
   "name": "@solcreek/creekd",
   "version": "0.1.0",
-  "description": "Multi-app daemon: process supervisor and HTTP dispatcher for Creek Bun runtime",
+  "description": "DEPRECATED — replaced by solcreek/creekd (Go). This M3 PoC has no isolation and is not used in production.",
+  "deprecated": "Use solcreek/creekd (Go) instead",
   "type": "module",
   "bin": {
     "creekd": "./src/daemon.ts"
