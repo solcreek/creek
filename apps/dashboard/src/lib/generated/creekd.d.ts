@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/v1/hostkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the daemon's public host key
+         * @description Returns the ed25519 public key + fingerprint that signs
+         *     Tier 0 backup manifests (#7) and — once #21 multi-host CA
+         *     promotion lands — chains into the fleet CA. This endpoint
+         *     is UNAUTHENTICATED so the laptop's `creek init --adopt`
+         *     flow (Path B) can pin the fingerprint before any
+         *     credentials are exchanged. Path A (capstan-provisioned)
+         *     gets the fingerprint via the provider API instead; Path C
+         *     is operator-pasted out-of-band. See DESIGN-self-host-state.md
+         *     §"TOFU hostkey discovery".
+         *
+         *     The public key is public by definition — exposing it
+         *     without auth is correct. An attacker who can MITM this
+         *     response can substitute their own key; the operator MUST
+         *     verify against an out-of-band reference (provider console,
+         *     capstan-recorded fingerprint, or paper bundle) before
+         *     pinning.
+         */
+        get: operations["getHostkey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/apps": {
         parameters: {
             query?: never;
@@ -32,11 +67,25 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get app details */
+        /**
+         * Get app details (k8s-style envelope)
+         * @description Returns the App resource in the k8s wire-format envelope
+         *     `{apiVersion, kind, metadata, spec, status}`. This is the
+         *     first endpoint to use the envelope shape; SpawnApp + ListApps
+         *     still return the legacy AppView shape during the envelope
+         *     refactor (will land per-handler over subsequent PRs).
+         *     See DESIGN-self-host-state.md §"The interop-bearing subset".
+         */
         get: operations["getApp"];
         put?: never;
         post?: never;
-        /** Stop and remove an app */
+        /**
+         * Stop and remove an app
+         * @description Accepts optional `If-Match: <resourceVersion>` header.
+         *     Mismatch → 412 Precondition Failed with current rv in
+         *     response body. Missing header → unconditional delete, with
+         *     `Warning: 299 - "unconditional-write"` response header.
+         */
         delete: operations["stopApp"];
         options?: never;
         head?: never;
@@ -55,7 +104,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Blue-green deploy a new version */
+        /**
+         * Blue-green deploy a new version
+         * @description Accepts optional `If-Match: <resourceVersion>` header.
+         *     Mismatch → 412 Precondition Failed with current rv in
+         *     response body. Missing header → unconditional deploy, with
+         *     `Warning: 299 - "unconditional-write"` response header.
+         */
         post: operations["deployApp"];
         delete?: never;
         options?: never;
@@ -77,6 +132,42 @@ export interface paths {
         put?: never;
         /** Restart an app */
         post: operations["restartApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/apps/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description App identifier (DNS-label format) */
+                id: components["parameters"]["AppID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Roll back to a prior release
+         * @description Re-runs the supervisor with the ConfigSnapshot persisted in
+         *     the target Release. Creates a new Release record (with a
+         *     fresh, monotonic ReleaseSeq) pointing at the target's
+         *     artifact via `rolledBackFrom` and `originalArtifactRelease`.
+         *     The prior Active release flips to phase=RolledBack (not
+         *     Superseded, distinguishing rollback from forward deploy).
+         *
+         *     `to` is the target Release's ReleaseSeq. The target must
+         *     carry a `configSnapshot` — Releases created before #8c
+         *     (or rollback into a release with stripped snapshot) return
+         *     412 `release_artifact_pruned`.
+         *
+         *     Accepts optional `If-Match: <resourceVersion>`. Mismatch
+         *     → 412.
+         */
+        post: operations["rollbackApp"];
         delete?: never;
         options?: never;
         head?: never;
@@ -209,10 +300,22 @@ export interface components {
         /** @enum {string} */
         Runtime: "bun" | "node" | "deno";
         /** @enum {string} */
-        ErrorCode: "bad_request" | "unauthorized" | "not_found" | "conflict" | "already_running" | "port_conflict" | "invalid_id" | "invalid_runtime" | "deploy_unhealthy" | "internal";
+        ErrorCode: "bad_request" | "unauthorized" | "not_found" | "conflict" | "already_running" | "port_conflict" | "invalid_id" | "invalid_runtime" | "deploy_unhealthy" | "resource_version_mismatch" | "unsupported_filesystem" | "storage_corrupted" | "release_artifact_pruned" | "systemd_hardening_drift" | "upgrade_signature_invalid" | "internal";
         ErrorResponse: {
             code: components["schemas"]["ErrorCode"];
             error: string;
+        };
+        /**
+         * @description Public ed25519 host key + fingerprint. Algorithm field is
+         *     a forward-compat slot; only "ed25519" is recognised today.
+         */
+        HostkeyInfo: {
+            /** @enum {string} */
+            algorithm: "ed25519";
+            /** @description base64 of the 32-byte ed25519 public key. */
+            publicKey: string;
+            /** @description sha256:<hex> of the public key bytes. */
+            fingerprint: string;
         };
         Limits: {
             /** Format: int64 */
@@ -278,6 +381,139 @@ export interface components {
         RestartRequest: {
             /** Format: int64 */
             timeout_ms?: number;
+        };
+        /**
+         * @description K8s-style resource envelope. See DESIGN-self-host-state.md
+         *     "The interop-bearing subset" for the field semantics.
+         */
+        App: {
+            /** @enum {string} */
+            apiVersion: "creek.dev/v1alpha1";
+            /** @enum {string} */
+            kind: "App";
+            metadata: components["schemas"]["AppMetadata"];
+            spec: components["schemas"]["AppSpec"];
+            status: components["schemas"]["AppStatus"];
+        };
+        AppMetadata: {
+            /** @description Human-readable ID, [a-z0-9-] 1-63 chars. */
+            name: string;
+            /**
+             * Format: uuid
+             * @description UUIDv7. Stable across rename; never reused.
+             */
+            uid: string;
+            /**
+             * Format: int64
+             * @description Bumps on every successful spec write. NOT bumped on status, annotations, or labels.
+             */
+            generation: number;
+            /** @description Opaque CAS token. Clients MUST NOT do arithmetic on it. */
+            resourceVersion: string;
+            /**
+             * Format: date-time
+             * @description RFC3339. Immutable; preserved across restore.
+             */
+            creationTimestamp: string;
+        };
+        /** @description Desired state. Settable by clients. */
+        AppSpec: {
+            runtime?: string;
+            command?: string;
+            args?: string[];
+            env?: string[];
+            port?: number;
+        };
+        /**
+         * @description Status of one named runtime condition. Mirrors the K8s
+         *     condition tuple: a closed type vocabulary, tri-state status
+         *     (True / False / Unknown), and the timestamp of the last
+         *     observed transition. `reason` is a CamelCase token for
+         *     machine consumption; `message` is human-readable.
+         */
+        Condition: {
+            /** @enum {string} */
+            type: "Ready" | "Progressing" | "Degraded" | "BackupReady";
+            /** @enum {string} */
+            status: "True" | "False" | "Unknown";
+            /** Format: date-time */
+            lastTransitionTime: string;
+            reason: string;
+            message?: string;
+        };
+        /** @description Observed state. Server-written; clients receive 405 on writes. */
+        AppStatus: {
+            /**
+             * Format: int64
+             * @description Last spec generation the deploy flow has converged to a healthy state on.
+             */
+            observedGeneration: number;
+            /**
+             * @description Closed set of observed condition types: Ready, Progressing,
+             *     Degraded, BackupReady. Recomputed at GET time from supervisor
+             *     runtime state. The set is fixed in v1alpha1 — adding a new
+             *     condition type requires an ADR. See DESIGN-self-host-state.md
+             *     §"Condition types (closed set; ADR required to add)".
+             */
+            conditions: components["schemas"]["Condition"][];
+            currentPid: number;
+            currentPort: number;
+            restartCount: number;
+            /** Format: int64 */
+            healthFailures: number;
+            /** Format: int64 */
+            uptimeMs: number;
+            netIp?: string;
+        };
+        /**
+         * @description One entry in an app's release ledger. Created on every
+         *     successful deploy + rollback. Immutable except for `phase`,
+         *     which transitions Active → Superseded | RolledBack as newer
+         *     releases land. Records are kept indefinitely; only the
+         *     underlying artifact images are GC'd (Phase 1.5).
+         */
+        Release: {
+            /**
+             * Format: uuid
+             * @description UUIDv7 stable identity.
+             */
+            uid: string;
+            /** @enum {string} */
+            phase: "Active" | "Superseded" | "RolledBack";
+            /** Format: date-time */
+            creationTimestamp: string;
+            spec: components["schemas"]["ReleaseSpec"];
+        };
+        /**
+         * @description Immutable payload of one Release. `rolledBackFrom` +
+         *     `originalArtifactRelease` reference the source release by
+         *     ReleaseSeq within the same app; zero / unset means "fresh
+         *     deploy, not a rollback".
+         */
+        ReleaseSpec: {
+            /** Format: uuid */
+            appUid: string;
+            /**
+             * Format: int64
+             * @description Per-app monotonic counter; never reused.
+             */
+            releaseSeq: number;
+            gitSha?: string;
+            image?: string;
+            /** @description sha256:<hex> over sorted KEY=value env pairs. */
+            envHash?: string;
+            /** @description Identity of the caller that created this release. */
+            createdBy?: string;
+            /**
+             * Format: int64
+             * @description Immediate source ReleaseSeq if this release was created by a rollback.
+             */
+            rolledBackFrom?: number;
+            /**
+             * Format: int64
+             * @description First-appearance ReleaseSeq of the underlying artifact. Resolves rollback-chain ambiguity.
+             */
+            originalArtifactRelease?: number;
         };
         AppView: {
             id: string;
@@ -372,6 +608,22 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /**
+         * @description If-Match header did not match the current resourceVersion.
+         *     Response body includes the current resourceVersion so clients
+         *     can retry. See DESIGN-self-host-state.md §"First-party CLI
+         *     MUST send If-Match".
+         */
+        PreconditionFailed: {
+            headers: {
+                /** @description Current resourceVersion (opaque string) of the resource. */
+                ETag?: string;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
         /** @description App identifier (DNS-label format) */
@@ -385,6 +637,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getHostkey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Host key info */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostkeyInfo"];
+                };
+            };
+            /** @description Host key not yet initialised (early-boot or no state dir configured) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listApps: {
         parameters: {
             query?: never;
@@ -453,13 +734,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description App details */
+            /** @description App envelope */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AppView"];
+                    "application/json": components["schemas"]["App"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -469,7 +750,10 @@ export interface operations {
     stopApp: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Current resourceVersion (opaque). Mismatch yields 412. */
+                "If-Match"?: string;
+            };
             path: {
                 /** @description App identifier (DNS-label format) */
                 id: components["parameters"]["AppID"];
@@ -487,12 +771,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
         };
     };
     deployApp: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Current resourceVersion (opaque). Mismatch yields 412. */
+                "If-Match"?: string;
+            };
             path: {
                 /** @description App identifier (DNS-label format) */
                 id: components["parameters"]["AppID"];
@@ -526,6 +814,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            412: components["responses"]["PreconditionFailed"];
             /** @description New version failed health check */
             502: {
                 headers: {
@@ -564,6 +853,51 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    rollbackApp: {
+        parameters: {
+            query: {
+                /** @description Target ReleaseSeq to roll back to. */
+                to: number;
+            };
+            header?: {
+                /** @description Current resourceVersion (opaque). Mismatch yields 412. */
+                "If-Match"?: string;
+            };
+            path: {
+                /** @description App identifier (DNS-label format) */
+                id: components["parameters"]["AppID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rollback complete, new Release active */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Release"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description App or target release not found. When the release is
+             *     absent OR has no usable ConfigSnapshot, ErrorResponse.code
+             *     is `release_artifact_pruned`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            412: components["responses"]["PreconditionFailed"];
         };
     };
     resetApp: {
@@ -776,7 +1110,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Force delete even if apps reference this volume */
-                force?: "true";
+                force?: boolean;
             };
             header?: never;
             path: {
