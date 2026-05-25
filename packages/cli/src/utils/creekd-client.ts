@@ -51,6 +51,23 @@ export interface ListAppsResponse {
   apps: AppView[];
 }
 
+/** Release ledger entry returned by POST /v1/apps/{id}/rollback. */
+export interface Release {
+  uid: string;
+  phase: "Active" | "Superseded" | "RolledBack";
+  creationTimestamp: string;
+  spec: {
+    appUid: string;
+    releaseSeq: number;
+    gitSha?: string;
+    image?: string;
+    envHash?: string;
+    createdBy?: string;
+    rolledBackFrom?: number;
+    originalArtifactRelease?: number;
+  };
+}
+
 export interface ErrorResponse {
   code: string;
   error: string;
@@ -111,10 +128,19 @@ export function getCreekdToken(): string {
 }
 
 export class CreekdClient {
+  private baseUrl: string;
   constructor(
-    private baseUrl: string = getCreekdUrl(),
+    baseUrl: string = getCreekdUrl(),
     private token: string = getCreekdToken(),
-  ) {}
+  ) {
+    // Normalise: add http:// for bare host:port. Mirrors
+    // utils/hostkey.ts's normalizeAdminAddr so the two callers
+    // accept the same shape from hosts.json.
+    if (!/^https?:\/\//.test(baseUrl)) {
+      baseUrl = "http://" + baseUrl;
+    }
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
 
   async listApps(): Promise<AppView[]> {
     const resp = await this.get<ListAppsResponse>("/v1/apps");
@@ -138,6 +164,25 @@ export class CreekdClient {
     await this.request("DELETE", `/v1/apps/${encodeURIComponent(id)}`, undefined, opts.ifMatch);
   }
 
+  /**
+   * Spawn a brand-new app. POST /v1/apps. Creation is not
+   * spec-mutating in the rv sense — there's no prior version to
+   * If-Match against — so ifMatch is intentionally NOT a parameter.
+   */
+  async spawnApp(body: unknown): Promise<AppView> {
+    return this.post<AppView>(`/v1/apps`, body);
+  }
+
+  /**
+   * Blue-green deploy of an existing app. POST /v1/apps/{id}/deploy.
+   * Spec-mutating; pass ifMatch sourced from the local cache (or a
+   * fresh getApp) — 412 surfaces as CreekdResourceVersionMismatchError.
+   */
+  async deployApp(id: string, body: unknown, opts: MutateOptions = {}): Promise<AppView> {
+    const res = await this.request("POST", `/v1/apps/${encodeURIComponent(id)}/deploy`, body, opts.ifMatch);
+    return res.json() as Promise<AppView>;
+  }
+
   async restartApp(id: string): Promise<AppView> {
     // Restart is an OPERATION, not a spec mutation per
     // DESIGN-self-host-state.md §"Mutex granularity" — supervisor
@@ -150,10 +195,10 @@ export class CreekdClient {
    * Roll back to the target release seq. Spec-mutating — accepts
    * If-Match. Throws CreekdResourceVersionMismatchError on 412.
    */
-  async rollbackApp(id: string, toSeq: number, opts: MutateOptions = {}): Promise<unknown> {
+  async rollbackApp(id: string, toSeq: number, opts: MutateOptions = {}): Promise<Release> {
     const path = `/v1/apps/${encodeURIComponent(id)}/rollback?to=${toSeq}`;
     const res = await this.request("POST", path, undefined, opts.ifMatch);
-    return res.json();
+    return res.json() as Promise<Release>;
   }
 
   private async get<T>(path: string): Promise<T> {
