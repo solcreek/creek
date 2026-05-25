@@ -31,6 +31,22 @@ export interface StatsView {
   read_err?: string;
 }
 
+export interface AppEnvelope {
+  apiVersion: string;
+  kind: string;
+  metadata: { name: string; uid: string; generation: number; resourceVersion: string; creationTimestamp: string };
+  spec: { runtime?: string; command?: string; args?: string[]; env?: string[]; port?: number };
+  status: {
+    observedGeneration: number;
+    conditions: Array<{ type: string; status: string; lastTransitionTime: string; reason: string; message?: string }>;
+    currentPid: number;
+    currentPort: number;
+    restartCount: number;
+    healthFailures: number;
+    uptimeMs: number;
+  };
+}
+
 export interface ListAppsResponse {
   apps: AppView[];
 }
@@ -71,8 +87,8 @@ export class CreekdClient {
     return resp.apps;
   }
 
-  async getApp(id: string): Promise<AppView> {
-    return this.get<AppView>(`/v1/apps/${encodeURIComponent(id)}`);
+  async getApp(id: string): Promise<AppEnvelope> {
+    return this.get<AppEnvelope>(`/v1/apps/${encodeURIComponent(id)}`);
   }
 
   async getStats(id: string): Promise<StatsView> {
