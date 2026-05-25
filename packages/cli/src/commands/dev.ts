@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { consola } from "consola";
+import { execSync } from "node:child_process";
 import { resolveConfig, formatDetectionSummary, type DeployTarget, DEPLOY_TARGETS } from "@solcreek/sdk";
 import { globalArgs } from "../utils/output.js";
 import { DevServer } from "../dev/server.js";
@@ -24,6 +25,14 @@ export const devCommand = defineCommand({
     reset: {
       type: "boolean",
       description: "Clear local data before starting",
+    },
+    dashboard: {
+      type: "boolean",
+      description: "Open the web dashboard after server starts",
+    },
+    top: {
+      type: "boolean",
+      description: "Show creek top alongside the dev server",
     },
   },
   async run({ args }) {
@@ -72,6 +81,8 @@ export const devCommand = defineCommand({
         await server.stop();
         process.exit(1);
       }
+
+      afterStart(args, port);
       return;
     }
 
@@ -99,6 +110,8 @@ export const devCommand = defineCommand({
       await server.stop();
       process.exit(1);
     }
+
+    afterStart(args, port);
 
     // Interactive trigger commands (only if cron/queue configured)
     if (config.cron.length > 0 || config.queue) {
@@ -140,3 +153,35 @@ export const devCommand = defineCommand({
     }
   },
 });
+
+function afterStart(args: Record<string, unknown>, port: number) {
+  if (args.dashboard) {
+    const url = `http://localhost:${port}`;
+    consola.info(`Opening dashboard: ${url}`);
+    openBrowser(url);
+  }
+  if (args.top) {
+    import("../utils/creekd-client.js").then(({ getCreekdUrl }) => {
+      const topUrl = getCreekdUrl();
+      consola.info(`Starting creek top (${topUrl})...`);
+      import("node:child_process").then(({ spawn }) => {
+        spawn(process.execPath, [process.argv[1], "top", "--server", topUrl], {
+          stdio: "inherit",
+        });
+      });
+    });
+  }
+}
+
+function openBrowser(url: string) {
+  try {
+    const cmd = process.platform === "darwin"
+      ? `open "${url}"`
+      : process.platform === "win32"
+        ? `start "${url}"`
+        : `xdg-open "${url}"`;
+    execSync(cmd, { stdio: "ignore" });
+  } catch {
+    consola.info(`Open manually: ${url}`);
+  }
+}
