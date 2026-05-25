@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AppView, StatsView } from "./creekd-client";
+import type { AppView, App, StatsView } from "./creekd-client";
 
 // --- Mode detection ---
 
@@ -79,7 +79,8 @@ export async function listApps(): Promise<AppView[]> {
 
 export async function getApp(id: string): Promise<AppView> {
   if (MODE === "creekd") {
-    return creekdFetch<AppView>(`/v1/apps/${encodeURIComponent(id)}`);
+    const envelope = await creekdFetch<App>(`/v1/apps/${encodeURIComponent(id)}`);
+    return envelopeToView(envelope);
   }
   const p = await api<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>(`/projects/${id}`);
   return {
@@ -136,6 +137,31 @@ export async function restartApp(id: string): Promise<AppView> {
   }
   await api(`/projects/${id}/restart`, { method: "POST" });
   return getApp(id);
+}
+
+function envelopeToView(app: App): AppView {
+  const ready = app.status?.conditions?.find((c: any) => c.type === "Ready");
+  const progressing = app.status?.conditions?.find((c: any) => c.type === "Progressing");
+  const degraded = app.status?.conditions?.find((c: any) => c.type === "Degraded");
+
+  let status: AppView["status"] = "stopped";
+  if (degraded?.status === "True") status = "crash_loop";
+  else if (ready?.status === "True") status = "running";
+  else if (progressing?.status === "True") status = "starting";
+  else if (ready?.status === "False") status = "stopped";
+
+  return {
+    id: app.metadata?.name ?? "",
+    runtime: app.spec?.runtime,
+    command: app.spec?.command ?? "",
+    args: app.spec?.args,
+    port: app.spec?.port ?? 0,
+    status,
+    pid: app.status?.currentPid ?? 0,
+    uptime_ms: app.status?.uptimeMs ?? 0,
+    restart_count: app.status?.restartCount ?? 0,
+    health_failures: app.status?.healthFailures ?? 0,
+  };
 }
 
 export { MODE as apiMode };

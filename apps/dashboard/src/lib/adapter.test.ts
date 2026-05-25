@@ -101,21 +101,25 @@ describe("creekd adapter functions", () => {
     expect(apps[0].uptime_ms).toBe(60000);
   });
 
-  it("getApp returns spec-typed AppView", async () => {
+  it("getApp maps App envelope to AppView", async () => {
     server.use(
       http.get(`${CREEKD_URL}/v1/apps/my-app`, () => {
         return HttpResponse.json({
-          id: "my-app",
-          runtime: "node",
-          command: "node",
-          args: ["server.js"],
-          env: ["PORT=3001", "NODE_ENV=production"],
-          port: 3001,
-          status: "running",
-          pid: 5678,
-          uptime_ms: 120000,
-          restart_count: 2,
-          health_failures: 1,
+          apiVersion: "creek.dev/v1alpha1",
+          kind: "App",
+          metadata: { name: "my-app", uid: "uuid-1", generation: 1, resourceVersion: "rv-1", creationTimestamp: "2026-05-24T00:00:00Z" },
+          spec: { runtime: "node", command: "node", args: ["server.js"], env: ["PORT=3001"], port: 3001 },
+          status: {
+            observedGeneration: 1,
+            conditions: [
+              { type: "Ready", status: "True", lastTransitionTime: "2026-05-24T00:00:00Z", reason: "Running" },
+            ],
+            currentPid: 5678,
+            currentPort: 3001,
+            restartCount: 2,
+            healthFailures: 1,
+            uptimeMs: 120000,
+          },
         });
       }),
     );
@@ -126,8 +130,10 @@ describe("creekd adapter functions", () => {
     expect(app.id).toBe("my-app");
     expect(app.command).toBe("node");
     expect(app.args).toEqual(["server.js"]);
-    expect(app.env).toEqual(["PORT=3001", "NODE_ENV=production"]);
+    expect(app.status).toBe("running");
+    expect(app.pid).toBe(5678);
     expect(app.restart_count).toBe(2);
+    expect(app.uptime_ms).toBe(120000);
   });
 
   it("getAppStats returns spec-typed StatsView", async () => {
