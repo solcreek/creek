@@ -42,6 +42,8 @@ import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput } from "../utils/nextjs.js";
 import { isRepoUrl, parseRepoUrl, validateRepoUrl, validateSubpath, RepoUrlError } from "../utils/repo-url.js";
 import { checkGitInstalled, cloneRepo, detectPackageManager, installDependencies, cleanupDir as cleanupCloneDir, GitCloneError } from "../utils/git-clone.js";
+import { CreekdClient } from "../utils/creekd-client.js";
+import { watchDeploy, type WatchResult } from "../utils/watch.js";
 
 function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
@@ -317,6 +319,18 @@ export const deployCommand = defineCommand({
         "Target project slug or UUID. Required with --from-github when not run inside a project directory.",
       required: false,
     },
+    watch: {
+      type: "boolean",
+      description:
+        "After deploy lands, poll status.conditions[] until Ready=True or Degraded reason=DeployTimeout (self-host creekd target only). Default poll = 1s, default budget = 5min.",
+      default: false,
+    },
+    "watch-timeout-ms": {
+      type: "string",
+      description:
+        "Client-side watch budget in milliseconds (default 300000 = 5min). Independent of the daemon's progressing_timeout.",
+      required: false,
+    },
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
@@ -401,7 +415,10 @@ export const deployCommand = defineCommand({
 
       // creekd target → deploy to local creekd via admin API
       if (resolved.target === "creekd") {
-        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode);
+        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode, {
+          watch: args.watch === true,
+          watchTimeoutMs: parseWatchTimeoutMs(args["watch-timeout-ms"]),
+        });
       }
 
       if (token) {
@@ -435,11 +452,17 @@ export const deployCommand = defineCommand({
 // Deploy to local creekd — build + creekctl ensure/deploy
 // ============================================================================
 
+interface DeployCreekdWatchOpts {
+  watch: boolean;
+  watchTimeoutMs?: number;
+}
+
 async function deployCreekd(
   cwd: string,
   resolved: ResolvedConfig,
   skipBuild: boolean,
   jsonMode: boolean,
+  watchOpts: DeployCreekdWatchOpts = { watch: false },
 ): Promise<void> {
   const { execSync: exec, execFileSync: execFile } = await import("node:child_process");
 
@@ -538,9 +561,31 @@ async function deployCreekd(
 
     const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
 
+    // --watch — poll status.conditions[] until Ready or
+    // deploy_stuck. Runs AFTER `creekctl ensure` returns success
+    // so the daemon already has the spec; we're observing the
+    // supervisor's convergence. Skipped when --watch is off.
+    let watchSummary: WatchResult | undefined;
+    if (watchOpts.watch) {
+      if (!jsonMode) {
+        section("Watch");
+        consola.start("  Polling status.conditions[]...");
+      }
+      watchSummary = await watchDeploy(new CreekdClient(), resolved.projectName, {
+        timeoutMs: watchOpts.watchTimeoutMs,
+        onPoll: jsonMode
+          ? undefined
+          : (envelope) => {
+              const conds = envelope.status?.conditions ?? [];
+              const summary = conds.map((c) => `${c.type}=${c.status}`).join(" ");
+              consola.info(`  ${summary}`);
+            },
+      });
+    }
+
     if (jsonMode) {
       jsonOutput({
-        ok: true,
+        ok: watchSummary ? watchSummary.ok : true,
         url: `http://localhost:${port}`,
         appId: resolved.projectName,
         port,
@@ -548,12 +593,25 @@ async function deployCreekd(
         target: "creekd",
         buildTimeS: parseFloat(elapsedS),
         mode: "creekd-local",
-      }, 0, [
+        ...(watchSummary ? { watch: watchSummaryWire(watchSummary) } : {}),
+      }, watchSummary && !watchSummary.ok ? 1 : 0, [
         { command: `creekctl get ${resolved.projectName}`, description: "Check app status" },
         { command: `creekctl logs ${resolved.projectName}`, description: "View app logs" },
         { command: `creekctl exec -- bun run seed.ts`, description: "Run one-off command" },
       ]);
     } else {
+      if (watchSummary && !watchSummary.ok) {
+        consola.error(`  Watch failed: ${watchSummary.reason}`);
+        if (watchSummary.reason === "deploy_stuck") {
+          consola.info("  The daemon flipped Degraded reason=DeployTimeout — supervisor did not converge.");
+          consola.info(`    creekctl logs ${resolved.projectName}     Inspect why`);
+        } else if (watchSummary.reason === "watch_timeout") {
+          consola.info(`  Client gave up after ${watchSummary.elapsedMs}ms. The daemon may still converge.`);
+        } else if (watchSummary.reason === "fetch_failed") {
+          consola.info(`  Polling failed: ${watchSummary.error.message}`);
+        }
+        process.exit(1);
+      }
       consola.success(`  Deployed to creekd (${elapsedS}s)`);
       consola.info(`  http://localhost:${port}`);
       console.log("");
@@ -569,6 +627,32 @@ async function deployCreekd(
     consola.error(msg);
     process.exit(1);
   }
+}
+
+/** Parse the --watch-timeout-ms flag. Empty / unset → undefined
+ *  so watchDeploy applies its own default. Non-numeric → exits. */
+function parseWatchTimeoutMs(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const n = Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    consola.error(`--watch-timeout-ms must be a positive integer (got "${raw}")`);
+    process.exit(1);
+  }
+  return n;
+}
+
+/** Pluck the JSON-friendly fields out of a WatchResult — strips
+ *  the AppEnvelope which is too noisy for the deploy summary. */
+function watchSummaryWire(r: WatchResult): Record<string, unknown> {
+  if (r.ok) return { ok: true, reason: r.reason };
+  if (r.reason === "deploy_stuck") {
+    const conds = r.envelope.status?.conditions ?? [];
+    return { ok: false, reason: r.reason, conditions: conds };
+  }
+  if (r.reason === "watch_timeout") {
+    return { ok: false, reason: r.reason, elapsedMs: r.elapsedMs };
+  }
+  return { ok: false, reason: r.reason, error: r.error.message };
 }
 
 // ============================================================================
