@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getApp, getAppStats, restartApp, stopApp, type AppView, type AppDetail, type StatsView, type Condition } from "@/lib/adapter";
-import { useStatsHistory } from "@/lib/use-stats-history";
+import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
 import {
@@ -377,7 +377,8 @@ function AppOverviewTab() {
     retry: 1,
   });
 
-  const statsHistory = useStatsHistory(stats);
+  const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+  const statsHistory = useStatsRingBuffer(projectId, baseUrl);
 
   const restart = useMutation({
     mutationFn: () => restartApp(projectId),

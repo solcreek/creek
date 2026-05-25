@@ -9,43 +9,59 @@ export interface StatsSnapshot {
   pids: number;
 }
 
-const MAX_POINTS = 150; // 5 min × 2s interval
+const MAX_POINTS = 150;
 
-export function useStatsHistory(stats: StatsView | undefined) {
+/**
+ * Polls stats independently via fetch and accumulates into a ring buffer.
+ * Avoids React Query structural sharing issues entirely.
+ */
+export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 2000): StatsSnapshot[] {
   const [history, setHistory] = useState<StatsSnapshot[]>([]);
   const prevCpu = useRef<{ usec: number; ts: number } | null>(null);
 
   useEffect(() => {
-    if (!stats?.cgroup_enabled) return;
+    let stopped = false;
 
-    const now = Date.now();
-    let cpuPercent = 0;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/v1/apps/${encodeURIComponent(appId)}/stats`);
+        if (!res.ok) return;
+        const stats: StatsView = await res.json();
+        if (!stats.cgroup_enabled) return;
 
-    if (stats.cpu_usage_usec != null) {
-      const prev = prevCpu.current;
-      if (prev) {
-        const dtUs = stats.cpu_usage_usec - prev.usec;
-        const dtMs = now - prev.ts;
-        if (dtMs > 0) {
-          cpuPercent = (dtUs / 1000 / dtMs) * 100;
+        const now = Date.now();
+        let cpuPercent = 0;
+        if (stats.cpu_usage_usec != null) {
+          const prev = prevCpu.current;
+          if (prev) {
+            const dtUs = stats.cpu_usage_usec - prev.usec;
+            const dtMs = now - prev.ts;
+            if (dtMs > 0) cpuPercent = (dtUs / 1000 / dtMs) * 100;
+          }
+          prevCpu.current = { usec: stats.cpu_usage_usec, ts: now };
         }
-      }
-      prevCpu.current = { usec: stats.cpu_usage_usec, ts: now };
-    }
 
-    const snapshot: StatsSnapshot = {
-      ts: now,
-      memoryBytes: stats.memory_current_bytes ?? 0,
-      memoryMaxBytes: stats.memory_max_bytes ?? 0,
-      cpuPercent,
-      pids: stats.pids_current ?? 0,
+        if (!stopped) {
+          setHistory((prev) => {
+            const next = [...prev, {
+              ts: now,
+              memoryBytes: stats.memory_current_bytes ?? 0,
+              memoryMaxBytes: stats.memory_max_bytes ?? 0,
+              cpuPercent,
+              pids: stats.pids_current ?? 0,
+            }];
+            return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
+          });
+        }
+      } catch {
+        // Network error — skip this tick
+      }
     };
 
-    setHistory((prev) => {
-      const next = [...prev, snapshot];
-      return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
-    });
-  }, [stats]);
+    poll();
+    const id = setInterval(poll, intervalMs);
+    return () => { stopped = true; clearInterval(id); };
+  }, [appId, baseUrl, intervalMs]);
 
   return history;
 }
