@@ -3,6 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getApp, getAppStats, restartApp, stopApp, type AppView, type AppDetail, type StatsView, type Condition } from "@/lib/adapter";
+import { useStatsHistory } from "@/lib/use-stats-history";
+import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
 import {
   DropdownMenu,
@@ -375,6 +377,8 @@ function AppOverviewTab() {
     retry: 1,
   });
 
+  const statsHistory = useStatsHistory(stats);
+
   const restart = useMutation({
     mutationFn: () => restartApp(projectId),
     onSuccess: () => {
@@ -456,6 +460,45 @@ function AppOverviewTab() {
             label="CPU time"
             value={stats.cpu_usage_usec != null ? (stats.cpu_usage_usec / 1_000_000).toFixed(1) + "s" : "—"}
           />
+        </div>
+      )}
+
+      {/* Live charts */}
+      {statsHistory.length > 1 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border p-3">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Memory</p>
+              <p className="text-xs font-mono text-muted-foreground">
+                {fmtBytes(statsHistory[statsHistory.length - 1].memoryBytes)}
+                {statsHistory[statsHistory.length - 1].memoryMaxBytes > 0 && (
+                  <span> / {fmtBytes(statsHistory[statsHistory.length - 1].memoryMaxBytes)}</span>
+                )}
+              </p>
+            </div>
+            <Sparkline
+              data={statsHistory.map((s) => s.memoryBytes)}
+              max={statsHistory[0].memoryMaxBytes > 0 ? statsHistory[0].memoryMaxBytes : undefined}
+              width={400}
+              height={64}
+              color="#3b82f6"
+            />
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">CPU %</p>
+              <p className="text-xs font-mono text-muted-foreground">
+                {statsHistory[statsHistory.length - 1].cpuPercent.toFixed(1)}%
+              </p>
+            </div>
+            <Sparkline
+              data={statsHistory.map((s) => s.cpuPercent)}
+              max={100}
+              width={400}
+              height={64}
+              color="#22c55e"
+            />
+          </div>
         </div>
       )}
 
