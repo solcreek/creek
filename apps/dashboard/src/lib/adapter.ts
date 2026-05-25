@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AppView, App, StatsView } from "./creekd-client";
+import type { AppView, App, Condition, StatsView } from "./creekd-client";
 
 // --- Mode detection ---
 
@@ -77,10 +77,21 @@ export async function listApps(): Promise<AppView[]> {
   }));
 }
 
-export async function getApp(id: string): Promise<AppView> {
+export interface AppDetail extends AppView {
+  conditions: Condition[];
+  resourceVersion?: string;
+  generation?: number;
+}
+
+export async function getApp(id: string): Promise<AppDetail> {
   if (MODE === "creekd") {
     const envelope = await creekdFetch<App>(`/v1/apps/${encodeURIComponent(id)}`);
-    return envelopeToView(envelope);
+    return {
+      ...envelopeToView(envelope),
+      conditions: (envelope.status?.conditions as Condition[]) ?? [],
+      resourceVersion: envelope.metadata?.resourceVersion,
+      generation: envelope.metadata?.generation,
+    };
   }
   const p = await api<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>(`/projects/${id}`);
   return {
@@ -93,6 +104,7 @@ export async function getApp(id: string): Promise<AppView> {
     restart_count: 0,
     health_failures: 0,
     runtime: p.framework ?? undefined,
+    conditions: [],
   };
 }
 
@@ -165,4 +177,4 @@ function envelopeToView(app: App): AppView {
 }
 
 export { MODE as apiMode };
-export type { AppView, StatsView };
+export type { AppView, StatsView, Condition };
