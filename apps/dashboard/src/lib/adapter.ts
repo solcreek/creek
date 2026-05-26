@@ -73,7 +73,7 @@ export async function listApps(): Promise<AppView[]> {
     uptime_ms: 0,
     restart_count: 0,
     health_failures: 0,
-    runtime: p.framework ?? undefined,
+    runtime: (p.framework ?? undefined) as AppView["runtime"],
   }));
 }
 
@@ -103,7 +103,7 @@ export async function getApp(id: string): Promise<AppDetail> {
     uptime_ms: 0,
     restart_count: 0,
     health_failures: 0,
-    runtime: p.framework ?? undefined,
+    runtime: (p.framework ?? undefined) as AppView["runtime"],
     conditions: [],
   };
 }
@@ -157,14 +157,14 @@ function envelopeToView(app: App): AppView {
   const degraded = app.status?.conditions?.find((c: any) => c.type === "Degraded");
 
   let status: AppView["status"] = "stopped";
-  if (degraded?.status === "True") status = "crash_loop";
+  if (degraded?.status === "True") status = "crash-looping";
   else if (ready?.status === "True") status = "running";
   else if (progressing?.status === "True") status = "starting";
   else if (ready?.status === "False") status = "stopped";
 
   return {
     id: app.metadata?.name ?? "",
-    runtime: app.spec?.runtime,
+    runtime: app.spec?.runtime as AppView["runtime"],
     command: app.spec?.command ?? "",
     args: app.spec?.args,
     port: app.spec?.port ?? 0,
