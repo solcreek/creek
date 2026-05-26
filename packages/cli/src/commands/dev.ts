@@ -178,7 +178,7 @@ function openBrowser(url: string) {
     const cmd = process.platform === "darwin"
       ? `open "${url}"`
       : process.platform === "win32"
-        ? `start "${url}"`
+        ? `start "" "${url}"`
         : `xdg-open "${url}"`;
     execSync(cmd, { stdio: "ignore" });
   } catch {
