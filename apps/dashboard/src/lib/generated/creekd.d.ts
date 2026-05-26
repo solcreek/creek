@@ -452,8 +452,7 @@ export interface components {
              * @description Closed set of observed condition types: Ready, Progressing,
              *     Degraded, BackupReady. Recomputed at GET time from supervisor
              *     runtime state. The set is fixed in v1alpha1 — adding a new
-             *     condition type requires an ADR. See DESIGN-self-host-state.md
-             *     §"Condition types (closed set; ADR required to add)".
+             *     condition type requires an ADR.
              */
             conditions: components["schemas"]["Condition"][];
             currentPid: number;
@@ -517,13 +516,13 @@ export interface components {
         };
         AppView: {
             id: string;
-            runtime?: string;
+            runtime?: components["schemas"]["Runtime"];
             command: string;
             args?: string[];
             env?: string[];
             port: number;
             /** @enum {string} */
-            status: "starting" | "running" | "crash_loop" | "stopping" | "stopped";
+            status: "unknown" | "starting" | "running" | "crashed" | "crash-looping" | "stopped" | "unhealthy";
             pid: number;
             /** Format: int64 */
             uptime_ms: number;
@@ -611,8 +610,9 @@ export interface components {
         /**
          * @description If-Match header did not match the current resourceVersion.
          *     Response body includes the current resourceVersion so clients
-         *     can retry. See DESIGN-self-host-state.md §"First-party CLI
-         *     MUST send If-Match".
+         *     can retry. First-party clients SHOULD send If-Match on
+         *     spec-mutating calls; missing header is allowed but emits a
+         *     `Warning: 299 - "unconditional-write"` response header.
          */
         PreconditionFailed: {
             headers: {
