@@ -42,6 +42,8 @@ import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput } from "../utils/nextjs.js";
 import { isRepoUrl, parseRepoUrl, validateRepoUrl, validateSubpath, RepoUrlError } from "../utils/repo-url.js";
 import { checkGitInstalled, cloneRepo, detectPackageManager, installDependencies, cleanupDir as cleanupCloneDir, GitCloneError } from "../utils/git-clone.js";
+import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
+import { watchDeploy, type WatchResult } from "../utils/watch.js";
 
 function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
@@ -317,6 +319,18 @@ export const deployCommand = defineCommand({
         "Target project slug or UUID. Required with --from-github when not run inside a project directory.",
       required: false,
     },
+    watch: {
+      type: "boolean",
+      description:
+        "After deploy lands, poll status.conditions[] until Ready=True or Degraded reason=DeployTimeout (self-host creekd target only). Default poll = 1s, default budget = 5min.",
+      default: false,
+    },
+    "watch-timeout-ms": {
+      type: "string",
+      description:
+        "Client-side watch budget in milliseconds (default 300000 = 5min). Independent of the daemon's progressing_timeout.",
+      required: false,
+    },
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
@@ -401,7 +415,10 @@ export const deployCommand = defineCommand({
 
       // creekd target → deploy to local creekd via admin API
       if (resolved.target === "creekd") {
-        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode);
+        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode, {
+          watch: args.watch === true,
+          watchTimeoutMs: parseWatchTimeoutMs(args["watch-timeout-ms"]),
+        });
       }
 
       if (token) {
@@ -435,20 +452,28 @@ export const deployCommand = defineCommand({
 // Deploy to local creekd — build + creekctl ensure/deploy
 // ============================================================================
 
+interface DeployCreekdWatchOpts {
+  watch: boolean;
+  watchTimeoutMs?: number;
+}
+
 async function deployCreekd(
   cwd: string,
   resolved: ResolvedConfig,
   skipBuild: boolean,
   jsonMode: boolean,
+  watchOpts: DeployCreekdWatchOpts = { watch: false },
 ): Promise<void> {
-  const { execSync: exec, execFileSync: execFile } = await import("node:child_process");
+  const client = new CreekdClient();
 
-  // 1. Check creekd/creekctl available
+  // 1. Verify creekd is reachable
   try {
-    exec("creekctl --version", { stdio: "pipe" });
+    await client.listApps();
   } catch {
-    const msg = "creekctl not found. Install with: curl -fsSL https://install.creek.dev | sh";
-    if (jsonMode) jsonOutput({ error: "creekctl_not_found", message: msg }, 1, []);
+    const msg = `Cannot reach creekd at ${getCreekdUrl()}. Is it running?`;
+    if (jsonMode) jsonOutput({ error: "creekd_unreachable", message: msg }, 1, [
+      { command: "creekd", description: "Start the daemon" },
+    ]);
     consola.error(msg);
     process.exit(1);
   }
@@ -467,7 +492,7 @@ async function deployCreekd(
       consola.start(`  ${resolved.buildCommand}`);
     }
     try {
-      exec(resolved.buildCommand, { cwd, stdio: jsonMode ? "pipe" : "inherit" });
+      execSync(resolved.buildCommand, { cwd, stdio: jsonMode ? "pipe" : "inherit" });
       if (!jsonMode) consola.success("  Build complete");
     } catch (e: any) {
       const msg = `Build failed: ${resolved.buildCommand}`;
@@ -477,21 +502,12 @@ async function deployCreekd(
     }
   }
 
-  // 3. Detect entry point
-  const entryPoint = resolved.workerEntry
-    ?? resolved.buildOutput + "/index.js"
-    ;
-  const runtime = "bun"; // default for creekd; could read from creek.toml [app].runtime
-
-  // 4. Build creekctl spawn request
+  // 3. Detect entry point + runtime
+  const entryPoint = resolved.workerEntry ?? resolved.buildOutput + "/index.js";
+  const runtime = "bun"; // default; could read from creek.toml [app].runtime
   const port = 3000; // TODO: auto-assign or read from config
-  const spawnRequest = JSON.stringify({
-    runtime,
-    entry: entryPoint,
-    port,
-  });
 
-  // 5. Deploy via creekctl ensure (idempotent)
+  // 4. Deploy via CreekdClient (idempotent: spawn if absent, deploy if running)
   if (!jsonMode) {
     section("Deploy");
     consola.start("  Deploying to creekd...");
@@ -499,48 +515,70 @@ async function deployCreekd(
 
   const startTime = Date.now();
   try {
-    const result = exec(
-      `creekctl ensure ${resolved.projectName} --json-input '${spawnRequest}' --json`,
-      { encoding: "utf-8", stdio: "pipe" },
-    );
+    const spawnReq = { id: resolved.projectName, runtime, entry: entryPoint, port };
 
-    let app: Record<string, unknown> = {};
+    let app: AppView;
     try {
-      app = JSON.parse(result.trim());
-    } catch {
-      // non-JSON output, still succeeded
+      app = await client.spawnApp(spawnReq);
+    } catch (e: any) {
+      if (e.code === "already_running") {
+        app = await client.deployApp(resolved.projectName, { runtime, entry: entryPoint, port });
+      } else {
+        throw e;
+      }
     }
 
-    // 6. Release phase (run before traffic swap)
-    const releaseCmd = resolved.releaseCommand;
-    if (releaseCmd) {
+    // Release phase (pre-traffic command, e.g. migrations)
+    if (resolved.releaseCommand) {
       if (!jsonMode) {
         section("Release");
-        consola.start(`  ${releaseCmd}`);
+        consola.start(`  ${resolved.releaseCommand}`);
       }
       try {
-        const releaseOutput = exec(
-          `creekctl exec --app ${resolved.projectName} -- ${releaseCmd}`,
-          { encoding: "utf-8", stdio: jsonMode ? "pipe" : "inherit", timeout: resolved.releaseTimeout * 1000 },
-        );
+        execSync(resolved.releaseCommand, {
+          cwd,
+          stdio: jsonMode ? "pipe" : "inherit",
+          timeout: (resolved.releaseTimeout ?? 300) * 1000,
+        });
         if (!jsonMode) consola.success("  Release complete");
       } catch (e: any) {
         const msg = e.killed
-          ? `Release command timed out after ${resolved.releaseTimeout}s`
+          ? `Release command timed out after ${resolved.releaseTimeout ?? 300}s`
           : `Release command failed: ${e.stderr?.toString() || e.message}`;
-        if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg, releaseCommand: releaseCmd }, 1, []);
+        if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg }, 1);
         consola.error(msg);
-        // Kill the newly deployed app — v1 stays
-        try { exec(`creekctl rm ${resolved.projectName} --json`, { stdio: "pipe" }); } catch {}
+        try { await client.stopApp(resolved.projectName); } catch {}
         process.exit(1);
       }
     }
 
     const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
 
+    // --watch — poll status.conditions[] until Ready or
+    // deploy_stuck. Runs AFTER `creekctl ensure` returns success
+    // so the daemon already has the spec; we're observing the
+    // supervisor's convergence. Skipped when --watch is off.
+    let watchSummary: WatchResult | undefined;
+    if (watchOpts.watch) {
+      if (!jsonMode) {
+        section("Watch");
+        consola.start("  Polling status.conditions[]...");
+      }
+      watchSummary = await watchDeploy(new CreekdClient(), resolved.projectName, {
+        timeoutMs: watchOpts.watchTimeoutMs,
+        onPoll: jsonMode
+          ? undefined
+          : (envelope) => {
+              const conds = envelope.status?.conditions ?? [];
+              const summary = conds.map((c) => `${c.type}=${c.status}`).join(" ");
+              consola.info(`  ${summary}`);
+            },
+      });
+    }
+
     if (jsonMode) {
       jsonOutput({
-        ok: true,
+        ok: watchSummary ? watchSummary.ok : true,
         url: `http://localhost:${port}`,
         appId: resolved.projectName,
         port,
@@ -548,18 +586,31 @@ async function deployCreekd(
         target: "creekd",
         buildTimeS: parseFloat(elapsedS),
         mode: "creekd-local",
-      }, 0, [
-        { command: `creekctl get ${resolved.projectName}`, description: "Check app status" },
-        { command: `creekctl logs ${resolved.projectName}`, description: "View app logs" },
-        { command: `creekctl exec -- bun run seed.ts`, description: "Run one-off command" },
+        ...(watchSummary ? { watch: watchSummaryWire(watchSummary) } : {}),
+      }, watchSummary && !watchSummary.ok ? 1 : 0, [
+        { command: `creek top ${resolved.projectName}`, description: "Check app status" },
+        { command: `creek logs --server ${resolved.projectName}`, description: "View app logs" },
+        { command: `creek exec -- bun run seed.ts`, description: "Run one-off command" },
       ]);
     } else {
+      if (watchSummary && !watchSummary.ok) {
+        consola.error(`  Watch failed: ${watchSummary.reason}`);
+        if (watchSummary.reason === "deploy_stuck") {
+          consola.info("  The daemon flipped Degraded reason=DeployTimeout — supervisor did not converge.");
+          consola.info(`    creek logs --server ${resolved.projectName}     Inspect why`);
+        } else if (watchSummary.reason === "watch_timeout") {
+          consola.info(`  Client gave up after ${watchSummary.elapsedMs}ms. The daemon may still converge.`);
+        } else if (watchSummary.reason === "fetch_failed") {
+          consola.info(`  Polling failed: ${watchSummary.error.message}`);
+        }
+        process.exit(1);
+      }
       consola.success(`  Deployed to creekd (${elapsedS}s)`);
       consola.info(`  http://localhost:${port}`);
       console.log("");
       consola.info("  Next steps:");
-      consola.info(`    creekctl get ${resolved.projectName}      Check status`);
-      consola.info(`    creekctl logs ${resolved.projectName}     View logs`);
+      consola.info(`    creek top ${resolved.projectName}      Check status`);
+      consola.info(`    creek logs --server ${resolved.projectName}     View logs`);
       consola.info(`    creekctl events ${resolved.projectName}   Stream events`);
     }
   } catch (e: any) {
@@ -569,6 +620,37 @@ async function deployCreekd(
     consola.error(msg);
     process.exit(1);
   }
+}
+
+/** Parse the --watch-timeout-ms flag. Empty / unset → undefined
+ *  so watchDeploy applies its own default. Non-numeric → exits. */
+function parseWatchTimeoutMs(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw);
+  if (!/^\d+$/.test(s)) {
+    consola.error(`--watch-timeout-ms must be a positive integer (got "${raw}")`);
+    process.exit(1);
+  }
+  const n = Number.parseInt(s, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    consola.error(`--watch-timeout-ms must be a positive integer (got "${raw}")`);
+    process.exit(1);
+  }
+  return n;
+}
+
+/** Pluck the JSON-friendly fields out of a WatchResult — strips
+ *  the AppEnvelope which is too noisy for the deploy summary. */
+function watchSummaryWire(r: WatchResult): Record<string, unknown> {
+  if (r.ok) return { ok: true, reason: r.reason };
+  if (r.reason === "deploy_stuck") {
+    const conds = r.envelope.status?.conditions ?? [];
+    return { ok: false, reason: r.reason, conditions: conds };
+  }
+  if (r.reason === "watch_timeout") {
+    return { ok: false, reason: r.reason, elapsedMs: r.elapsedMs };
+  }
+  return { ok: false, reason: r.reason, error: r.error.message };
 }
 
 // ============================================================================

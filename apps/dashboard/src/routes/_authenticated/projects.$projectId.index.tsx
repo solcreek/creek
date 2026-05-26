@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { getApp, getAppStats, restartApp, stopApp, type AppView, type StatsView } from "@/lib/adapter";
+import { getApp, getAppStats, restartApp, stopApp, type AppView, type AppDetail, type StatsView, type Condition } from "@/lib/adapter";
+import { useStatsRingBuffer } from "@/lib/use-stats-history";
+import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
 import {
   DropdownMenu,
@@ -375,6 +377,10 @@ function AppOverviewTab() {
     retry: 1,
   });
 
+  const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+  const creekdToken = import.meta.env.VITE_CREEKD_TOKEN || "";
+  const statsHistory = useStatsRingBuffer(projectId, baseUrl, 2000, creekdToken || undefined);
+
   const restart = useMutation({
     mutationFn: () => restartApp(projectId),
     onSuccess: () => {
@@ -429,6 +435,11 @@ function AppOverviewTab() {
         </div>
       </div>
 
+      {/* Conditions */}
+      {app.conditions.length > 0 && (
+        <ConditionsPanel conditions={app.conditions} />
+      )}
+
       {/* Info grid */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Uptime" value={fmtDuration(app.uptime_ms)} />
@@ -454,6 +465,45 @@ function AppOverviewTab() {
         </div>
       )}
 
+      {/* Live charts */}
+      {statsHistory.length > 1 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border p-3">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Memory</p>
+              <p className="text-xs font-mono text-muted-foreground">
+                {fmtBytes(statsHistory[statsHistory.length - 1].memoryBytes)}
+                {statsHistory[statsHistory.length - 1].memoryMaxBytes > 0 && (
+                  <span> / {fmtBytes(statsHistory[statsHistory.length - 1].memoryMaxBytes)}</span>
+                )}
+              </p>
+            </div>
+            <Sparkline
+              data={statsHistory.map((s) => s.memoryBytes)}
+              max={statsHistory[0].memoryMaxBytes > 0 ? statsHistory[0].memoryMaxBytes : undefined}
+              width={400}
+              height={64}
+              color="#3b82f6"
+            />
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">CPU %</p>
+              <p className="text-xs font-mono text-muted-foreground">
+                {statsHistory[statsHistory.length - 1].cpuPercent.toFixed(1)}%
+              </p>
+            </div>
+            <Sparkline
+              data={statsHistory.map((s) => s.cpuPercent)}
+              max={100}
+              width={400}
+              height={64}
+              color="#22c55e"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Command */}
       <div>
         <h3 className="mb-2 text-sm font-medium text-muted-foreground">Command</h3>
@@ -463,6 +513,76 @@ function AppOverviewTab() {
       </div>
     </div>
   );
+}
+
+const CONDITION_ICON: Record<string, { true: string; false: string; unknown: string }> = {
+  Ready:       { true: "✅", false: "❌", unknown: "❓" },
+  Progressing: { true: "🔄", false: "—",  unknown: "❓" },
+  Degraded:    { true: "⚠️", false: "—",  unknown: "❓" },
+  BackupReady: { true: "💾", false: "—",  unknown: "❓" },
+};
+
+const CONDITION_ROW_STYLE: Record<string, Record<string, string>> = {
+  Ready:    { True: "", False: "bg-red-500/5", Unknown: "bg-yellow-500/5" },
+  Degraded: { True: "bg-amber-500/5", False: "", Unknown: "" },
+};
+
+function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
+  const sorted = [...conditions].sort((a, b) => {
+    const order = ["Ready", "Progressing", "Degraded", "BackupReady"];
+    return order.indexOf(a.type) - order.indexOf(b.type);
+  });
+
+  return (
+    <div className="rounded-lg border border-border">
+      <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border">
+        Conditions
+      </div>
+      <div className="divide-y divide-border">
+        {sorted.map((c) => {
+          const icon = CONDITION_ICON[c.type]?.[c.status.toLowerCase() as "true" | "false" | "unknown"] ?? "—";
+          const rowStyle = CONDITION_ROW_STYLE[c.type]?.[c.status] ?? "";
+          const timeAgo = c.lastTransitionTime ? fmtTimeAgo(c.lastTransitionTime) : "";
+
+          return (
+            <div key={c.type} className={`flex items-center gap-3 px-3 py-2 text-xs ${rowStyle}`}>
+              <span className="w-5 text-center">{icon}</span>
+              <span className="w-24 font-medium">{c.type}</span>
+              <span className={`w-16 ${
+                c.status === "True" && c.type === "Degraded" ? "text-amber-400" :
+                c.status === "True" ? "text-green-400" :
+                c.status === "False" && c.type === "Ready" ? "text-red-400" :
+                "text-muted-foreground"
+              }`}>
+                {c.status}
+              </span>
+              <span className="font-mono text-muted-foreground">{c.reason}</span>
+              {c.message && (
+                <span className="flex-1 truncate text-muted-foreground" title={c.message}>
+                  {c.message}
+                </span>
+              )}
+              {timeAgo && (
+                <span className="shrink-0 text-muted-foreground">{timeAgo}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function fmtTimeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return "";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + "s ago";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
 }
 
 function StatCard({ label, value, sub, alert }: { label: string; value: string; sub?: string; alert?: boolean }) {

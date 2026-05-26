@@ -1,10 +1,40 @@
-import { resolve, basename } from "node:path";
-import { existsSync, unlinkSync } from "node:fs";
+import { resolve, basename, join } from "node:path";
+import { existsSync, unlinkSync, readFileSync, appendFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import consola from "consola";
 import { fetchTemplate } from "./fetch.js";
 import { applyData } from "./apply-data.js";
 import { validateData } from "./validate.js";
+
+const GITIGNORE_ENTRIES = [
+  ".creek",
+  ".agent",
+  ".agents",
+  ".augment",
+  ".claude",
+  ".cline",
+  ".cursor",
+  ".github/copilot*",
+  ".kilocode",
+  ".kiro",
+  ".qoder",
+  ".qwen",
+  ".roo",
+  ".trae",
+  ".windsurf",
+];
+
+function ensureGitignoreEntries(dir: string): void {
+  const gitignorePath = join(dir, ".gitignore");
+  const existing = existsSync(gitignorePath)
+    ? readFileSync(gitignorePath, "utf-8")
+    : "";
+  const lines = new Set(existing.split("\n").map((l) => l.trim()));
+  const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry));
+  if (!missing.length) return;
+  const block = `\n# Creek & AI agent configs\n${missing.join("\n")}\n`;
+  appendFileSync(gitignorePath, block);
+}
 
 export interface ScaffoldOptions {
   template: string;
@@ -99,6 +129,9 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
       }
     }
   }
+
+  // 6b. Ensure AI agent configs are gitignored
+  ensureGitignoreEntries(dir);
 
   // 7. Git init
   if (opts.git !== false) {
