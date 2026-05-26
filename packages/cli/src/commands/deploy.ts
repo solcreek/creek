@@ -528,6 +528,30 @@ async function deployCreekd(
       }
     }
 
+    // Release phase (pre-traffic command, e.g. migrations)
+    if (resolved.releaseCommand) {
+      if (!jsonMode) {
+        section("Release");
+        consola.start(`  ${resolved.releaseCommand}`);
+      }
+      try {
+        execSync(resolved.releaseCommand, {
+          cwd,
+          stdio: jsonMode ? "pipe" : "inherit",
+          timeout: (resolved.releaseTimeout ?? 300) * 1000,
+        });
+        if (!jsonMode) consola.success("  Release complete");
+      } catch (e: any) {
+        const msg = e.killed
+          ? `Release command timed out after ${resolved.releaseTimeout ?? 300}s`
+          : `Release command failed: ${e.stderr?.toString() || e.message}`;
+        if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg }, 1);
+        consola.error(msg);
+        try { await client.stopApp(resolved.projectName); } catch {}
+        process.exit(1);
+      }
+    }
+
     const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
 
     // --watch — poll status.conditions[] until Ready or
@@ -602,7 +626,12 @@ async function deployCreekd(
  *  so watchDeploy applies its own default. Non-numeric → exits. */
 function parseWatchTimeoutMs(raw: unknown): number | undefined {
   if (raw === undefined || raw === null || raw === "") return undefined;
-  const n = Number.parseInt(String(raw), 10);
+  const s = String(raw);
+  if (!/^\d+$/.test(s)) {
+    consola.error(`--watch-timeout-ms must be a positive integer (got "${raw}")`);
+    process.exit(1);
+  }
+  const n = Number.parseInt(s, 10);
   if (!Number.isFinite(n) || n <= 0) {
     consola.error(`--watch-timeout-ms must be a positive integer (got "${raw}")`);
     process.exit(1);
