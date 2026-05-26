@@ -15,7 +15,7 @@ const MAX_POINTS = 150;
  * Polls stats independently via fetch and accumulates into a ring buffer.
  * Avoids React Query structural sharing issues entirely.
  */
-export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 2000): StatsSnapshot[] {
+export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 2000, token?: string): StatsSnapshot[] {
   const [history, setHistory] = useState<StatsSnapshot[]>([]);
   const prevCpu = useRef<{ usec: number; ts: number } | null>(null);
 
@@ -24,7 +24,9 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
 
     const poll = async () => {
       try {
-        const res = await fetch(`${baseUrl}/v1/apps/${encodeURIComponent(appId)}/stats`);
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${baseUrl}/v1/apps/${encodeURIComponent(appId)}/stats`, { headers });
         if (!res.ok) return;
         const stats: StatsView = await res.json();
         if (!stats.cgroup_enabled) return;

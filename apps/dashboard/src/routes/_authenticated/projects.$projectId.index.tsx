@@ -378,7 +378,8 @@ function AppOverviewTab() {
   });
 
   const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
-  const statsHistory = useStatsRingBuffer(projectId, baseUrl);
+  const creekdToken = import.meta.env.VITE_CREEKD_TOKEN || "";
+  const statsHistory = useStatsRingBuffer(projectId, baseUrl, 2000, creekdToken || undefined);
 
   const restart = useMutation({
     mutationFn: () => restartApp(projectId),
