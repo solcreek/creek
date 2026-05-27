@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { consola } from "consola";
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { resolveConfig, formatDetectionSummary, type DeployTarget, DEPLOY_TARGETS } from "@solcreek/sdk";
 import { globalArgs } from "../utils/output.js";
 import { DevServer } from "../dev/server.js";
@@ -82,7 +82,7 @@ export const devCommand = defineCommand({
         process.exit(1);
       }
 
-      afterStart(args, port);
+      afterStart(args);
       return;
     }
 
@@ -111,7 +111,7 @@ export const devCommand = defineCommand({
       process.exit(1);
     }
 
-    afterStart(args, port);
+    afterStart(args);
 
     // Interactive trigger commands (only if cron/queue configured)
     if (config.cron.length > 0 || config.queue) {
@@ -154,10 +154,15 @@ export const devCommand = defineCommand({
   },
 });
 
-function afterStart(args: Record<string, unknown>, port: number) {
+function afterStart(args: Record<string, unknown>) {
   if (args.dashboard) {
     import("../utils/creekd-client.js").then(({ getCreekdUrl }) => {
-      const dashUrl = getCreekdUrl().replace(":9080", ":3000");
+      let dashUrl: string;
+      try {
+        const u = new URL(getCreekdUrl());
+        if (u.port === "9080") u.port = "3000";
+        dashUrl = u.toString().replace(/\/$/, "");
+      } catch { dashUrl = getCreekdUrl(); }
       consola.info(`Opening dashboard: ${dashUrl}`);
       openBrowser(dashUrl);
     });
