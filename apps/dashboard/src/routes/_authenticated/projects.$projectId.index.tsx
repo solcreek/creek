@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { getApp, getAppStats, restartApp, stopApp, type Condition } from "@/lib/adapter";
+import { getApp, restartApp, stopApp, type Condition } from "@/lib/adapter";
 import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
@@ -353,7 +353,7 @@ function fmtDuration(ms: number): string {
 const STATUS_BADGE: Record<string, string> = {
   running: "bg-green-500/10 text-green-400 border-green-500/30",
   starting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
-  crash_loop: "bg-red-500/10 text-red-400 border-red-500/30",
+  "crash-looping": "bg-red-500/10 text-red-400 border-red-500/30",
   stopping: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
   stopped: "bg-gray-500/10 text-gray-400 border-gray-500/30",
 };
@@ -370,22 +370,15 @@ function AppOverviewTab() {
     retryDelay: 1000,
   });
 
-  const { data: stats } = useQuery({
-    queryKey: ["app-stats", projectId],
-    queryFn: () => getAppStats(projectId),
-    refetchInterval: 2000,
-    retry: 1,
-  });
-
   const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
   const creekdToken = import.meta.env.VITE_CREEKD_TOKEN || "";
   const statsHistory = useStatsRingBuffer(projectId, baseUrl, 2000, creekdToken || undefined);
+  const stats = statsHistory.length > 0 ? statsHistory[statsHistory.length - 1] : null;
 
   const restart = useMutation({
     mutationFn: () => restartApp(projectId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["app", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["app-stats", projectId] });
     },
   });
 
@@ -449,19 +442,16 @@ function AppOverviewTab() {
       </div>
 
       {/* cgroup stats */}
-      {stats?.cgroup_enabled && (
+      {stats && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard
             label="Memory"
-            value={stats.memory_current_bytes != null ? fmtBytes(stats.memory_current_bytes) : "—"}
-            sub={stats.memory_max_bytes != null && stats.memory_max_bytes > 0 ? `/ ${fmtBytes(stats.memory_max_bytes)}` : undefined}
+            value={fmtBytes(stats.memoryBytes)}
+            sub={stats.memoryMaxBytes > 0 ? `/ ${fmtBytes(stats.memoryMaxBytes)}` : undefined}
           />
-          <StatCard label="PIDs" value={stats.pids_current != null ? String(stats.pids_current) : "—"} />
-          <StatCard label="OOM kills" value={stats.oom_kills != null ? String(stats.oom_kills) : "0"} alert={(stats.oom_kills ?? 0) > 0} />
-          <StatCard
-            label="CPU time"
-            value={stats.cpu_usage_usec != null ? (stats.cpu_usage_usec / 1_000_000).toFixed(1) + "s" : "—"}
-          />
+          <StatCard label="PIDs" value={String(stats.pids)} />
+          <StatCard label="CPU %" value={stats.cpuPercent.toFixed(1) + "%"} />
+          <StatCard label="Data points" value={String(statsHistory.length)} />
         </div>
       )}
 

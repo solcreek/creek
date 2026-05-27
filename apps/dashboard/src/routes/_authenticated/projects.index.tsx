@@ -96,7 +96,7 @@ function EmptyState({ mode }: { mode: string }) {
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-green-500",
   starting: "bg-yellow-500",
-  crash_loop: "bg-red-500",
+  "crash-looping": "bg-red-500",
   stopping: "bg-yellow-500",
   stopped: "bg-gray-500",
   active: "bg-green-500",
