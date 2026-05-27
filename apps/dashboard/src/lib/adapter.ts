@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { AppView, App, StatsView } from "./creekd-client";
+import type { AppView, App, Condition, StatsView } from "./creekd-client";
 
 // --- Mode detection ---
 
@@ -73,14 +73,25 @@ export async function listApps(): Promise<AppView[]> {
     uptime_ms: 0,
     restart_count: 0,
     health_failures: 0,
-    runtime: p.framework ?? undefined,
+    runtime: (p.framework ?? undefined) as AppView["runtime"],
   }));
 }
 
-export async function getApp(id: string): Promise<AppView> {
+export interface AppDetail extends AppView {
+  conditions: Condition[];
+  resourceVersion?: string;
+  generation?: number;
+}
+
+export async function getApp(id: string): Promise<AppDetail> {
   if (MODE === "creekd") {
     const envelope = await creekdFetch<App>(`/v1/apps/${encodeURIComponent(id)}`);
-    return envelopeToView(envelope);
+    return {
+      ...envelopeToView(envelope),
+      conditions: (envelope.status?.conditions as Condition[]) ?? [],
+      resourceVersion: envelope.metadata?.resourceVersion,
+      generation: envelope.metadata?.generation,
+    };
   }
   const p = await api<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>(`/projects/${id}`);
   return {
@@ -92,7 +103,8 @@ export async function getApp(id: string): Promise<AppView> {
     uptime_ms: 0,
     restart_count: 0,
     health_failures: 0,
-    runtime: p.framework ?? undefined,
+    runtime: (p.framework ?? undefined) as AppView["runtime"],
+    conditions: [],
   };
 }
 
@@ -145,14 +157,14 @@ function envelopeToView(app: App): AppView {
   const degraded = app.status?.conditions?.find((c: any) => c.type === "Degraded");
 
   let status: AppView["status"] = "stopped";
-  if (degraded?.status === "True") status = "crash_loop";
+  if (degraded?.status === "True") status = "crash-looping";
   else if (ready?.status === "True") status = "running";
   else if (progressing?.status === "True") status = "starting";
   else if (ready?.status === "False") status = "stopped";
 
   return {
     id: app.metadata?.name ?? "",
-    runtime: app.spec?.runtime,
+    runtime: app.spec?.runtime as AppView["runtime"],
     command: app.spec?.command ?? "",
     args: app.spec?.args,
     port: app.spec?.port ?? 0,
@@ -165,4 +177,4 @@ function envelopeToView(app: App): AppView {
 }
 
 export { MODE as apiMode };
-export type { AppView, StatsView };
+export type { AppView, StatsView, Condition };

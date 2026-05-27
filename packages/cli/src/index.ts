@@ -27,6 +27,7 @@ import { cacheCommand } from "./commands/cache.js";
 import { topCommand } from "./commands/top.js";
 import { restartCommand } from "./commands/restart.js";
 import { stopCommand } from "./commands/stop.js";
+import { dashboardCommand } from "./commands/dashboard.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -69,6 +70,7 @@ const main = defineCommand({
     domains: domainsCommand,
     rollback: rollbackCommand,
     top: topCommand,
+    dashboard: dashboardCommand,
     restart: restartCommand,
     stop: stopCommand,
     ops: opsCommand,

@@ -11,6 +11,7 @@ import {
   parsePastedFingerprint,
   HostkeyResponseError,
 } from "../utils/hostkey.js";
+import { ensureGitignoreEntries } from "../utils/gitignore.js";
 
 export const initCommand = defineCommand({
   meta: {
@@ -96,6 +97,8 @@ export const initCommand = defineCommand({
     };
 
     writeFileSync(configPath, stringify(config));
+
+    ensureGitignoreEntries(cwd);
 
     // Scaffold worker + d1-schema example when database enabled
     if (useDb) {
