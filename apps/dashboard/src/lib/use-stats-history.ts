@@ -62,9 +62,14 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
       }
     };
 
-    poll();
-    const id = setInterval(poll, intervalMs);
-    return () => { stopped = true; clearInterval(id); };
+    const loop = async () => {
+      while (!stopped) {
+        await poll();
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+    };
+    loop();
+    return () => { stopped = true; };
   }, [appId, baseUrl, intervalMs, token]);
 
   return history;
