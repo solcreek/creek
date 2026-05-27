@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
 
@@ -28,7 +28,6 @@ export const dashboardCommand = defineCommand({
       args.token || process.env.CREEKD_TOKEN || process.env.CREEKCTL_TOKEN || "",
     );
 
-    // Verify creekd is reachable
     try {
       await client.listApps();
     } catch (err) {
@@ -45,11 +44,14 @@ export const dashboardCommand = defineCommand({
       process.exit(1);
     }
 
-    // In production, dashboard is served at the same URL as creekd (via Caddy).
-    // In dev, it's typically at localhost:3000 (Vite).
-    const dashboardUrl = url.includes(":9080")
-      ? url.replace(":9080", ":3000")
-      : url;
+    let dashboardUrl: string;
+    try {
+      const u = new URL(url);
+      if (u.port === "9080") u.port = "3000";
+      dashboardUrl = u.toString().replace(/\/$/, "");
+    } catch {
+      dashboardUrl = url;
+    }
 
     if (jsonMode) {
       jsonOutput({ ok: true, url: dashboardUrl }, 0, [
@@ -65,11 +67,14 @@ export const dashboardCommand = defineCommand({
 function openBrowser(url: string) {
   try {
     const cmd = process.platform === "darwin"
-      ? `open "${url}"`
+      ? "open"
       : process.platform === "win32"
-        ? `start "" "${url}"`
-        : `xdg-open "${url}"`;
-    execSync(cmd, { stdio: "ignore" });
+        ? "cmd"
+        : "xdg-open";
+    const args = process.platform === "win32"
+      ? ["/c", "start", "", url]
+      : [url];
+    execFileSync(cmd, args, { stdio: "ignore" });
   } catch {
     consola.info(`Open manually: ${url}`);
   }

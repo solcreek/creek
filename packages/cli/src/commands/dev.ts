@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { consola } from "consola";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { resolveConfig, formatDetectionSummary, type DeployTarget, DEPLOY_TARGETS } from "@solcreek/sdk";
 import { globalArgs } from "../utils/output.js";
 import { DevServer } from "../dev/server.js";
@@ -156,9 +156,11 @@ export const devCommand = defineCommand({
 
 function afterStart(args: Record<string, unknown>, port: number) {
   if (args.dashboard) {
-    const url = `http://localhost:${port}`;
-    consola.info(`Opening dashboard: ${url}`);
-    openBrowser(url);
+    import("../utils/creekd-client.js").then(({ getCreekdUrl }) => {
+      const dashUrl = getCreekdUrl().replace(":9080", ":3000");
+      consola.info(`Opening dashboard: ${dashUrl}`);
+      openBrowser(dashUrl);
+    });
   }
   if (args.top) {
     import("../utils/creekd-client.js").then(({ getCreekdUrl }) => {
@@ -176,11 +178,14 @@ function afterStart(args: Record<string, unknown>, port: number) {
 function openBrowser(url: string) {
   try {
     const cmd = process.platform === "darwin"
-      ? `open "${url}"`
+      ? "open"
       : process.platform === "win32"
-        ? `start "" "${url}"`
-        : `xdg-open "${url}"`;
-    execSync(cmd, { stdio: "ignore" });
+        ? "cmd"
+        : "xdg-open";
+    const args = process.platform === "win32"
+      ? ["/c", "start", "", url]
+      : [url];
+    execFileSync(cmd, args, { stdio: "ignore" });
   } catch {
     consola.info(`Open manually: ${url}`);
   }
