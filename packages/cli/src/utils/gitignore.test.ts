@@ -7,7 +7,6 @@ function makeTmp(): string {
   return mkdtempSync(join(tmpdir(), "creek-gitignore-"));
 }
 
-afterEach(() => {});
 
 it("creates .gitignore when none exists", () => {
   const dir = makeTmp();
