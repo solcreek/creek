@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { getApp, getAppStats, restartApp, stopApp, type AppView, type AppDetail, type StatsView, type Condition } from "@/lib/adapter";
+import { getApp, getAppStats, restartApp, stopApp, type Condition } from "@/lib/adapter";
 import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";

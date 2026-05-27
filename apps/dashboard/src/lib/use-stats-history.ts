@@ -20,6 +20,8 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
   const prevCpu = useRef<{ usec: number; ts: number } | null>(null);
 
   useEffect(() => {
+    setHistory([]);
+    prevCpu.current = null;
     let stopped = false;
 
     const poll = async () => {
@@ -63,7 +65,7 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
     poll();
     const id = setInterval(poll, intervalMs);
     return () => { stopped = true; clearInterval(id); };
-  }, [appId, baseUrl, intervalMs]);
+  }, [appId, baseUrl, intervalMs, token]);
 
   return history;
 }
