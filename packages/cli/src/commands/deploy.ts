@@ -542,7 +542,8 @@ async function deployCreekd(
         });
         if (!jsonMode) consola.success("  Release complete");
       } catch (e: any) {
-        const msg = e.killed
+        const isTimeout = e.signal === "SIGTERM" || e.code === "ETIMEDOUT";
+        const msg = isTimeout
           ? `Release command timed out after ${resolved.releaseTimeout ?? 300}s`
           : `Release command failed: ${e.stderr?.toString() || e.message}`;
         if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg }, 1);
