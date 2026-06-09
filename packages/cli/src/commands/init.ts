@@ -21,7 +21,7 @@ export const initCommand = defineCommand({
   },
   args: {
     name: {
-      type: "string",
+      type: "positional",
       description: "Project name (project init) OR host short-name (self-host init)",
       required: false,
     },
@@ -195,7 +195,7 @@ export default app;
  *
  * Two paths:
  *
- *   Path B: --adopt=<addr> [--name <name>]
+ *   Path B: --adopt=<addr> [<name>]
  *     Fetches GET /v1/hostkey, recomputes the fingerprint from the
  *     returned publicKey, prompts the operator to verify against
  *     the provider console / paper bundle, and writes the pinned
@@ -326,7 +326,7 @@ async function initHostAdopt(
  * Derive a short host name from the adopt address. e.g.
  *   --adopt=5.75.231.44:9080 → "h-5-75-231-44"
  *   --adopt=my.host.dev      → "h-my-host-dev"
- * Operator may override via --name.
+ * Operator may override via the positional name argument.
  */
 function defaultHostName(addr: string): string {
   const noScheme = addr.replace(/^https?:\/\//, "").replace(/[:/].*$/, "");

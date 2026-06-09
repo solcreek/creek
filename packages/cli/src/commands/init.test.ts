@@ -42,6 +42,7 @@ describe("creek init --db (non-interactive)", () => {
     await runInit({ name: "demo", db: true, yes: true });
 
     const toml = readFileSync(join(dir, "creek.toml"), "utf-8");
+    expect(toml).toContain('name = "demo"');
     expect(toml).toContain('worker = "worker/index.ts"');
     expect(toml).toMatch(/\[resources\][\s\S]*database = true/);
     expect(existsSync(join(dir, "worker", "index.ts"))).toBe(true);
