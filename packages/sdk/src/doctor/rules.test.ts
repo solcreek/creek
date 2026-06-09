@@ -421,6 +421,20 @@ describe("CK-NOTHING-TO-DEPLOY", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0].code).toBe("CK-NOTHING-TO-DEPLOY");
     expect(findings[0].fix).toContain("npm run build");
+    // The worker entry must be presented as a co-equal path, not a
+    // footnote — users with API routes otherwise chase build output.
+    expect(findings[0].fix).toContain('worker = "worker/index.ts"');
+    expect(findings[0].detail).toContain("[build].worker");
+  });
+
+  test("fix offers the worker entry even without a build command", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ buildOutput: "dist", buildCommand: "" }),
+      fileExists: () => false,
+    });
+    const findings = rules.CK_NOTHING_TO_DEPLOY(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].fix).toContain('worker = "worker/index.ts"');
   });
 
   test("silent when dist exists", () => {

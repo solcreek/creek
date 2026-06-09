@@ -319,13 +319,15 @@ const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
     {
       code: "CK-NOTHING-TO-DEPLOY",
       severity: "warn",
-      title: `Build output '${buildOutput}' not found and no worker entry — nothing to deploy yet`,
-      detail: hasBuildCommand
-        ? `You have a build command (${ctx.resolved.buildCommand}) but no output. Either the build hasn't run, or it writes to a different directory than [build].output says.`
-        : "No build command, no build output, no worker entry.",
+      title: `No build output ('${buildOutput}') and no worker entry — nothing to deploy yet`,
+      detail:
+        (hasBuildCommand
+          ? `You have a build command (${ctx.resolved.buildCommand}) but no output. Either the build hasn't run, or it writes to a different directory than [build].output says.`
+          : "No build command, no build output, no worker entry.") +
+        " These are two separate inputs: [build].output is the static frontend, [build].worker is the server code. Running the build only produces the first — if this project has API routes, the worker entry must be declared too.",
       fix: hasBuildCommand
-        ? `Run your build (\`${ctx.resolved.buildCommand}\`) and confirm it writes to ${buildOutput}/. If your tooling writes to a different directory, update creek.toml [build].output.`
-        : "Add a build script to package.json, or a [build].worker entry in creek.toml, or a static directory at the [build].output path.",
+        ? `Static frontend: run your build (\`${ctx.resolved.buildCommand}\`) and confirm it writes to ${buildOutput}/; if your tooling writes elsewhere, update creek.toml [build].output.\n\nServer code / API routes: also declare the entry:\n  [build]\n  worker = "worker/index.ts"`
+        : `Static frontend: add a build script to package.json, or put files at ${buildOutput}/.\n\nServer code / API routes: declare the entry:\n  [build]\n  worker = "worker/index.ts"`,
     },
   ];
 };
