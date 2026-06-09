@@ -43,10 +43,47 @@ export function detectFramework(packageJson: PackageJson): Framework | null {
   return null;
 }
 
-export function getDefaultBuildOutput(framework: Framework | null): string {
+// Next.js >= 16.2.3 builds through the Creek adapter, which writes to
+// .creek/adapter-output. Older versions use the legacy path (.open-next).
+const NEXTJS_ADAPTER_OUTPUT = ".creek/adapter-output";
+const NEXTJS_LEGACY_OUTPUT = ".open-next";
+const NEXTJS_ADAPTER_MIN = "16.2.3";
+
+/** major.minor.patch >= comparison (ignores prerelease/build tags). */
+function semverGte(version: string, target: string): boolean {
+  const parse = (v: string) => v.split(".").map((n) => parseInt(n, 10) || 0);
+  const [aMaj, aMin, aPat] = parse(version);
+  const [bMaj, bMin, bPat] = parse(target);
+  if (aMaj !== bMaj) return aMaj > bMaj;
+  if (aMin !== bMin) return aMin > bMin;
+  return aPat >= bPat;
+}
+
+/**
+ * Resolve the build output dir for Next.js. The deployable output is
+ * produced by `creek deploy`, not the user's `next build`: the adapter
+ * path (Next.js >= 16.2.3) writes .creek/adapter-output, the legacy path
+ * writes .open-next. With cwd we read the installed version to pick;
+ * without it (or if undetectable) we default to the modern adapter output.
+ */
+function getNextjsBuildOutput(cwd?: string): string {
+  if (!cwd) return NEXTJS_ADAPTER_OUTPUT;
+  try {
+    const { version } = JSON.parse(
+      readFileSync(join(cwd, "node_modules/next/package.json"), "utf-8"),
+    );
+    return typeof version === "string" && !semverGte(version, NEXTJS_ADAPTER_MIN)
+      ? NEXTJS_LEGACY_OUTPUT
+      : NEXTJS_ADAPTER_OUTPUT;
+  } catch {
+    return NEXTJS_ADAPTER_OUTPUT;
+  }
+}
+
+export function getDefaultBuildOutput(framework: Framework | null, cwd?: string): string {
   switch (framework) {
     case "nextjs":
-      return ".open-next";
+      return getNextjsBuildOutput(cwd);
     case "react-router":
       return "build/client";
     case "sveltekit":

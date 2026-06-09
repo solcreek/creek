@@ -219,7 +219,7 @@ function fromWranglerConfig(
     framework,
     // Pure Worker: no traditional build step — entry IS the app
     buildCommand: isPureWorker ? "" : "npm run build",
-    buildOutput: framework ? getDefaultBuildOutput(framework) : (isPureWorker ? "." : "dist"),
+    buildOutput: framework ? getDefaultBuildOutput(framework, cwd) : (isPureWorker ? "." : "dist"),
     workerEntry: wrangler.main ?? null,
     bindings,
     unsupportedBindings,
@@ -251,7 +251,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     target: "cf",
     framework,
     buildCommand: "npm run build",
-    buildOutput: getDefaultBuildOutput(framework),
+    buildOutput: getDefaultBuildOutput(framework, cwd),
     workerEntry: null,
     bindings: [],
     unsupportedBindings: [],

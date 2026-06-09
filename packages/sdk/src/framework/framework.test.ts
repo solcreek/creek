@@ -111,8 +111,13 @@ describe("detectFramework", () => {
 });
 
 describe("getDefaultBuildOutput", () => {
-  test("nextjs -> .open-next", () => {
-    expect(getDefaultBuildOutput("nextjs")).toBe(".open-next");
+  test("nextjs (no cwd) -> .creek/adapter-output (modern adapter default)", () => {
+    expect(getDefaultBuildOutput("nextjs")).toBe(".creek/adapter-output");
+  });
+
+  test("nextjs with undetectable version -> .creek/adapter-output", () => {
+    // cwd has no node_modules/next — falls back to the modern default.
+    expect(getDefaultBuildOutput("nextjs", "/nonexistent")).toBe(".creek/adapter-output");
   });
 
   test("react-router -> build/client", () => {

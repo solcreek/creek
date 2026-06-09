@@ -137,7 +137,7 @@ export async function prepareDeployBundle(
   const useAdapterOutput = framework === "nextjs" && hasAdapterOutput(cwd);
   const outputDir = useAdapterOutput
     ? resolve(cwd, ".creek/adapter-output")
-    : resolve(cwd, resolved.buildOutput || getDefaultBuildOutput(framework));
+    : resolve(cwd, resolved.buildOutput || getDefaultBuildOutput(framework, cwd));
 
   // 4. Post-build framework adapter detection. Astro can be either SSG
   // or CF-adapter-SSR; we only know which after build.
