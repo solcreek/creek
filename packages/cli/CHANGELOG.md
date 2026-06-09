@@ -1,5 +1,26 @@
 # @solcreek/cli
 
+## 0.4.22
+
+### Fixes / DX
+
+- **Next.js deploys now set up the Creek adapter automatically.** Deploying
+  a Next.js (≥ 16.2.3) project no longer requires installing or configuring
+  anything — `creek deploy` fetches and runs the adapter on first use.
+  Projects outside the Creek repo previously fell back to an older build
+  path without it.
+
+- **`creek deploy` no longer publishes from a non-interactive shell without
+  `--yes`.** In CI, an AI coding agent, or a pipe there is no prompt to
+  confirm, so a bare `creek deploy` now refuses and points you at
+  `--dry-run` (preview the plan) or `--yes` (confirm and deploy) instead of
+  shipping on its own. Interactive (terminal) use is unchanged.
+
+- **Clearer Next.js diagnostics.** `creek doctor` and `creek deploy
+  --dry-run` no longer tell you to run `next build` to produce output that
+  Creek generates itself at deploy time, and the reported build-output path
+  now matches what actually ships.
+
 ## 0.4.6
 
 ### Features

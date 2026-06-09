@@ -4,6 +4,14 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.22
+
+### Changes
+
+- Bundles `@solcreek/cli@0.4.22`: Next.js deploys set up the Creek adapter
+  automatically, `creek deploy` requires `--yes` to run non-interactively
+  (CI / agents), and the Next.js `doctor` / `--dry-run` guidance is clearer.
+
 ## 0.4.3
 
 ### Changes
