@@ -114,13 +114,17 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
     ];
   }
 
+  const alsoPrisma = !!ctx.allDeps["@prisma/client"] || !!ctx.allDeps["prisma"];
   return [
     {
       code: "CK-SYNC-SQLITE",
       severity: "warn",
       title: "better-sqlite3 in dependencies — synchronous, won't run on Workers",
       detail:
-        "better-sqlite3 is a Node native module with a synchronous API (db.prepare(...).get()). Cloudflare Workers runs workerd (no native bindings, no sync DB access). D1 — Creek's default `env.DB` — has an async API; the method signatures differ. A codemod-style rename won't work; every call site needs an `await`.",
+        "better-sqlite3 is a Node native module with a synchronous API (db.prepare(...).get()). Cloudflare Workers runs workerd (no native bindings, no sync DB access). D1 — Creek's default `env.DB` — has an async API; the method signatures differ. A codemod-style rename won't work; every call site needs an `await`." +
+        (alsoPrisma
+          ? "\n\nPrisma is also in your dependencies (see CK-PRISMA-SQLITE) — these two findings are the same underlying issue (sync/Node SQLite doesn't run on Workers), not separate problems. Settle on one ORM and one migration path."
+          : ""),
       fix:
         "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example: examples/vite-react-drizzle/ (zero @solcreek/* deps in the runtime).",
       references: ["package.json"],
@@ -132,13 +136,17 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
 
 const CK_PRISMA_SQLITE: Rule = (ctx) => {
   if (!ctx.allDeps["@prisma/client"] && !ctx.allDeps["prisma"]) return [];
+  const alsoBetterSqlite = !!ctx.allDeps["better-sqlite3"];
   return [
     {
       code: "CK-PRISMA-SQLITE",
       severity: "warn",
       title: "Prisma detected — limited Workers support",
       detail:
-        "Prisma on Cloudflare Workers requires Prisma Accelerate (hosted connection pool) or a D1 adapter, not the default engine. If you're using local SQLite, it won't port cleanly; if you're using Postgres, plan for Accelerate + a cold-start budget.",
+        "Prisma on Cloudflare Workers requires Prisma Accelerate (hosted connection pool) or a D1 adapter, not the default engine. If you're using local SQLite, it won't port cleanly; if you're using Postgres, plan for Accelerate + a cold-start budget." +
+        (alsoBetterSqlite
+          ? "\n\nbetter-sqlite3 is also in your dependencies (see CK-SYNC-SQLITE) — both findings point at the same Workers SQLite migration, not separate problems. Settle on one ORM and one path."
+          : ""),
       fix:
         "For new projects, consider Drizzle instead (native D1 + Postgres adapters, no hosted connection pool required). If you need to keep Prisma: use @prisma/adapter-d1 for SQLite, or Prisma Accelerate for Postgres. See https://www.prisma.io/docs/orm/overview/databases/cloudflare-d1",
       references: ["package.json"],

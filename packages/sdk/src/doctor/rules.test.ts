@@ -208,6 +208,30 @@ describe("CK-PRISMA-SQLITE", () => {
   });
 });
 
+// ─── CK-SYNC-SQLITE × CK-PRISMA-SQLITE cross-reference ──────────────────
+
+describe("SQLite findings cross-reference when both deps present", () => {
+  test("both fire and each detail points at the other", () => {
+    const ctx = buildCtx({
+      allDeps: { "better-sqlite3": "^12.0.0", prisma: "^7.0.0" },
+      packageJson: pkg({ "better-sqlite3": "^12.0.0", prisma: "^7.0.0" }),
+    });
+    const sync = rules.CK_SYNC_SQLITE(ctx);
+    const prisma = rules.CK_PRISMA_SQLITE(ctx);
+    expect(sync[0].detail).toContain("CK-PRISMA-SQLITE");
+    expect(prisma[0].detail).toContain("CK-SYNC-SQLITE");
+  });
+
+  test("no cross-reference when only one dep is present", () => {
+    const syncOnly = rules.CK_SYNC_SQLITE(
+      buildCtx({ allDeps: { "better-sqlite3": "^12.0.0" }, packageJson: pkg({ "better-sqlite3": "^12.0.0" }) }),
+    );
+    const prismaOnly = rules.CK_PRISMA_SQLITE(buildCtx({ allDeps: { prisma: "^7.0.0" } }));
+    expect(syncOnly[0].detail).not.toContain("CK-PRISMA-SQLITE");
+    expect(prismaOnly[0].detail).not.toContain("CK-SYNC-SQLITE");
+  });
+});
+
 // ─── CK-RUNTIME-LOCKIN ──────────────────────────────────────────────────
 
 describe("CK-RUNTIME-LOCKIN", () => {
