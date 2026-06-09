@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.23
+
+### Changes
+
+- Bundles `@solcreek/cli@0.4.23`: `creek init` help lists the files it
+  creates, `creek doctor --json` prints a human summary to stderr, the two
+  SQLite doctor findings cross-reference each other, and `… attach --to`
+  shows a `<project>` value placeholder.
+
 ## 0.4.22
 
 ### Changes

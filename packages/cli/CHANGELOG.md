@@ -1,5 +1,24 @@
 # @solcreek/cli
 
+## 0.4.23
+
+### Fixes / DX
+
+- **`creek init` help now lists what it creates** — creek.toml (project
+  name, build command/output, detected framework) plus a worker/index.ts
+  example when you add a database — so first-timers know what to expect.
+
+- **`creek doctor --json` prints a one-line summary to stderr** when a human
+  is watching, instead of only a wall of JSON. stdout stays pure JSON for
+  agents and pipes; CI / redirected runs stay silent.
+
+- **The two SQLite doctor findings cross-reference each other.** A project
+  with both better-sqlite3 and Prisma no longer reads as two unrelated
+  problems — each notes it's the same Cloudflare-Workers SQLite migration.
+
+- **`creek db/storage/cache attach --to` shows a value placeholder** in its
+  usage (`--to=<project>`) instead of a bare `--to`.
+
 ## 0.4.22
 
 ### Fixes / DX
