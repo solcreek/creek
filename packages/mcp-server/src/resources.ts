@@ -8,31 +8,32 @@
  *   can't load that. Exposing the same content as MCP resources gives
  *   those agents equivalent structured guidance.
  *
- * Content source: skills/creek/references/ at the monorepo root —
- * same files the filesystem skill consumes. Wrangler's Text module
- * loader (configured in wrangler.jsonc) bundles the .md as strings
- * at build time, so there's nothing to sync and no way for the MCP
- * copy to drift from the skill copy.
+ * Content source: references/ in this package — vendored from the
+ * canonical skills repo (github.com/solcreek/skills,
+ * skills/creek/references/). Wrangler's Text module loader
+ * (configured in wrangler.jsonc) bundles the .md as strings at build
+ * time. When the skills repo changes, run `pnpm sync-refs` here and
+ * commit the result.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // @ts-expect-error — wrangler Text loader turns these into string imports
-import COMMANDS from "../../../skills/creek/references/commands.md";
+import COMMANDS from "../references/commands.md";
 // @ts-expect-error
-import DEPLOYMENT_MODES from "../../../skills/creek/references/deployment-modes.md";
+import DEPLOYMENT_MODES from "../references/deployment-modes.md";
 // @ts-expect-error
-import WORKFLOWS from "../../../skills/creek/references/workflows.md";
+import WORKFLOWS from "../references/workflows.md";
 // @ts-expect-error
-import CREEK_TOML from "../../../skills/creek/references/creek-toml.md";
+import CREEK_TOML from "../references/creek-toml.md";
 // @ts-expect-error
-import DIAGNOSIS from "../../../skills/creek/references/diagnosis.md";
+import DIAGNOSIS from "../references/diagnosis.md";
 // @ts-expect-error
-import OBSERVABILITY from "../../../skills/creek/references/observability.md";
+import OBSERVABILITY from "../references/observability.md";
 // @ts-expect-error
-import RESOURCES from "../../../skills/creek/references/resources.md";
+import RESOURCES from "../references/resources.md";
 // @ts-expect-error
-import GITHUB_SETUP from "../../../skills/creek/references/github-setup.md";
+import GITHUB_SETUP from "../references/github-setup.md";
 
 interface SkillResource {
   uri: string;

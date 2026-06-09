@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "sync-refs": "rm -rf .skills-tmp && git clone --depth 1 https://github.com/solcreek/skills .skills-tmp && cp .skills-tmp/skills/creek/references/*.md references/ && rm -rf .skills-tmp",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

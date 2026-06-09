@@ -9,10 +9,10 @@
   // All business logic lives in sandbox-api and control-plane.
 
   // Import skill reference .md files as strings at build time. Source
-  // of truth: skills/creek/references/ at the monorepo root, which
-  // also drives the filesystem skill (`npx skills add`). Single
-  // location, bundled into this worker via wrangler's Text module
-  // loader — no sync script, no generated TS snapshot, no drift.
+  // of truth: github.com/solcreek/skills (skills/creek/references/),
+  // vendored into this package's references/ — run `pnpm sync-refs`
+  // after skills-repo changes. Bundled via wrangler's Text module
+  // loader.
   "rules": [
     { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
   ],
