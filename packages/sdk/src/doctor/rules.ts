@@ -12,6 +12,7 @@
  */
 
 import type { DoctorContext, Finding, Rule } from "./types.js";
+import { isSSRFramework } from "../types/index.js";
 
 // ─── Rule: no config at all ──────────────────────────────────────────────
 
@@ -81,6 +82,45 @@ const CK_WORKER_MISSING: Rule = (ctx) => {
         "The deploy pipeline will fail with `worker entry not found`. Either the file hasn't been built yet, or the path in creek.toml is wrong.",
       fix: `Check that ${worker} exists after your build step runs, or fix the path in creek.toml [build].worker.\n\nCommon shapes:\n  worker = "worker/index.ts"        # TS source (Creek bundles via esbuild)\n  worker = "dist/_worker.mjs"       # pre-bundled by your own build script`,
       references: ["creek.toml"],
+    },
+  ];
+};
+
+// ─── Rule: resources declared but no worker entry ───────────────────────
+
+// Binding types that come from [resources] (or wrangler resource
+// arrays). durable_object / analytics_engine imply hand-written
+// wrangler config and aren't the "declared a DB, forgot the worker"
+// shape this rule targets.
+const RESOURCE_BINDING_TYPES = new Set(["d1", "r2", "kv", "ai"]);
+
+const CK_RESOURCES_NO_WORKER: Rule = (ctx) => {
+  const resolved = ctx.resolved;
+  if (!resolved) return [];
+  if (resolved.workerEntry) return [];
+  const resourceBindings = resolved.bindings.filter((b) =>
+    RESOURCE_BINDING_TYPES.has(b.type),
+  );
+  if (resourceBindings.length === 0) return [];
+  // SSR frameworks produce their own server bundle at deploy time — a
+  // null workerEntry is the normal shape there, and the bindings are
+  // reachable from the framework's server code. Same for Astro with
+  // the CF adapter (not covered by isSSRFramework; detected via dep).
+  if (isSSRFramework(resolved.framework)) return [];
+  if (ctx.allDeps["@astrojs/cloudflare"]) return [];
+  const names = resourceBindings
+    .map((b) => `${b.type} (env.${b.name})`)
+    .join(", ");
+  return [
+    {
+      code: "CK-RESOURCES-NO-WORKER",
+      severity: "warn",
+      title: "Resources declared but no worker entry — deploy will be a static SPA",
+      detail:
+        `Your config declares ${names} but no worker entry. The deploy still provisions and binds the resources, but renderMode will be "spa": there is no server code, so every request — including /api/* — serves static assets, and unknown paths fall back to index.html. If you have API routes, they will silently return your frontend HTML instead of running.`,
+      fix:
+        'Point creek.toml at your server code:\n  [build]\n  worker = "worker/index.ts"\n\n(wrangler-based projects: set `main` instead.)\n\nNo server code yet? Scaffold it with `creek init --db`. Purely static site? Remove the [resources] block.',
+      references: [resolved.source],
     },
   ];
 };
@@ -307,6 +347,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_NO_CONFIG,
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
+  CK_RESOURCES_NO_WORKER,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,
@@ -320,6 +361,7 @@ export const rules = {
   CK_NO_CONFIG,
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
+  CK_RESOURCES_NO_WORKER,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,

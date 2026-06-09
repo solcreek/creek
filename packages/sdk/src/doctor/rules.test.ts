@@ -143,6 +143,72 @@ describe("CK-WORKER-MISSING", () => {
   });
 });
 
+// ─── CK-RESOURCES-NO-WORKER ─────────────────────────────────────────────
+
+describe("CK-RESOURCES-NO-WORKER", () => {
+  test("fires when a database is declared but there is no worker entry", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        bindings: [{ type: "d1", name: "DB" }],
+        workerEntry: null,
+      }),
+    });
+    const findings = rules.CK_RESOURCES_NO_WORKER(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      code: "CK-RESOURCES-NO-WORKER",
+      severity: "warn",
+    });
+    expect(findings[0].detail).toContain("spa");
+    expect(findings[0].fix).toContain('worker = "worker/index.ts"');
+  });
+
+  test("silent when a worker entry is declared", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        bindings: [{ type: "d1", name: "DB" }],
+        workerEntry: "worker/index.ts",
+      }),
+    });
+    expect(rules.CK_RESOURCES_NO_WORKER(ctx)).toEqual([]);
+  });
+
+  test("silent when no resource bindings are declared", () => {
+    const ctx = buildCtx({ resolved: resolvedConfig() });
+    expect(rules.CK_RESOURCES_NO_WORKER(ctx)).toEqual([]);
+  });
+
+  test("silent for SSR frameworks — the framework provides the server bundle", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        framework: "nextjs",
+        bindings: [{ type: "d1", name: "DB" }],
+      }),
+    });
+    expect(rules.CK_RESOURCES_NO_WORKER(ctx)).toEqual([]);
+  });
+
+  test("silent for Astro with the Cloudflare adapter", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        framework: "astro",
+        bindings: [{ type: "kv", name: "KV" }],
+      }),
+      allDeps: { "@astrojs/cloudflare": "^12.0.0" },
+    });
+    expect(rules.CK_RESOURCES_NO_WORKER(ctx)).toEqual([]);
+  });
+
+  test("silent when only non-resource bindings (durable objects) are present", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        bindings: [{ type: "durable_object", name: "ROOM" }],
+      }),
+    });
+    expect(rules.CK_RESOURCES_NO_WORKER(ctx)).toEqual([]);
+  });
+});
+
 // ─── CK-SYNC-SQLITE ──────────────────────────────────────────────────────
 
 describe("CK-SYNC-SQLITE", () => {
