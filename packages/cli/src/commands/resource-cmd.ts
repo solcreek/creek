@@ -116,7 +116,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
     meta: { name: "attach", description: `Attach a ${label} to a project under the given ENV var name` },
     args: {
       name: { type: "positional", description: `${label} name (as shown by \`creek ${cmdName} ls\`)`, required: true },
-      to: { type: "string", description: "Project slug to attach to", required: true },
+      to: { type: "string", description: "Project slug to attach to", required: true, valueHint: "project" },
       as: { type: "string", description: `ENV var name (uppercase, default: ${defaultBinding})`, default: defaultBinding },
       ...globalArgs,
     },
