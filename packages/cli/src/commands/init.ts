@@ -16,7 +16,8 @@ import { ensureGitignoreEntries } from "../utils/gitignore.js";
 export const initCommand = defineCommand({
   meta: {
     name: "init",
-    description: "Initialize a new Creek project (or register a self-host creekd via --adopt / --hostkey-fingerprint)",
+    description:
+      "Initialize a new Creek project — writes creek.toml (project name, build command/output, detected framework) and, if you add a database, a worker/index.ts example. Or register a self-host creekd via --adopt / --hostkey-fingerprint.",
   },
   args: {
     name: {
