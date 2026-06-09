@@ -70,6 +70,15 @@ export const doctorCommand = defineCommand({
     const report = runDoctor(ctx);
 
     if (jsonMode) {
+      // A one-line human summary on stderr so stdout stays pure JSON for
+      // agents/pipes, while a person who pipes this in a terminal isn't
+      // staring at a wall of JSON. Only when stderr is a TTY (a human is
+      // watching) — fully-redirected/CI runs stay silent.
+      if (process.stderr.isTTY) {
+        const { error, warn, info } = report.summary;
+        const counts = `${error} error${s(error)}, ${warn} warning${s(warn)}, ${info} info`;
+        process.stderr.write(`creek doctor: ${report.ok ? "ok" : "issues found"} — ${counts}\n`);
+      }
       jsonOutput(
         {
           ok: report.ok,
