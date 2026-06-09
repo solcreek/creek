@@ -199,6 +199,31 @@ const CK_CONFIG_OVERLAP: Rule = (ctx) => {
 
 const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
   if (!ctx.resolved) return []; // CK-NO-CONFIG already fires
+
+  // Next.js: the Workers build output is produced by `creek deploy` itself
+  // (the Creek adapter writes to .creek/adapter-output; the legacy path to
+  // .open-next), NOT by the user's `next build`. So a missing output before
+  // the first deploy is expected, and the generic "run your build" message
+  // would be actively wrong — it tells the user to run `next build`, which
+  // never creates those directories. Surface a Next.js-specific note instead.
+  if (ctx.allDeps["next"]) {
+    if (ctx.fileExists(".creek/adapter-output") || ctx.fileExists(".open-next")) {
+      return [];
+    }
+    return [
+      {
+        code: "CK-NOTHING-TO-DEPLOY",
+        severity: "info",
+        title: "No Workers build output yet — Creek produces it at deploy time",
+        detail:
+          "Next.js apps don't ship `.next/` directly. `creek deploy` runs the build through the Creek adapter (@solcreek/adapter-creek, auto-installed on first use) and writes the Workers output to `.creek/adapter-output/`. That directory being absent before your first deploy is expected — a plain `next build` will not create it.",
+        fix:
+          "Run `creek deploy` — it builds and deploys in one step. You do NOT need to install @opennextjs/cloudflare or any adapter yourself; Creek manages that. Preview first with `creek deploy --dry-run`.",
+        references: ["package.json"],
+      },
+    ];
+  }
+
   const buildOutput = ctx.resolved.buildOutput || "dist";
   const hasBuildOutput = ctx.fileExists(buildOutput);
   const hasWorker =

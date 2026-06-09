@@ -299,6 +299,30 @@ describe("CK-NOTHING-TO-DEPLOY", () => {
     expect(rules.CK_NOTHING_TO_DEPLOY(ctx)).toEqual([]);
   });
 
+  test("Next.js: info note (not warn) and never says to run next build", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ buildOutput: ".open-next", buildCommand: "next build" }),
+      allDeps: { next: "^16.2.3" },
+      fileExists: () => false,
+    });
+    const findings = rules.CK_NOTHING_TO_DEPLOY(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("info");
+    expect(findings[0].fix).not.toContain("next build");
+    expect(findings[0].fix).toContain("creek deploy");
+    // Must not push the user to install an adapter themselves.
+    expect(findings[0].fix).toMatch(/do NOT need to install/i);
+  });
+
+  test("Next.js: silent once adapter output exists", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ buildOutput: ".open-next" }),
+      allDeps: { next: "^16.2.3" },
+      fileExists: (p) => p === ".creek/adapter-output",
+    });
+    expect(rules.CK_NOTHING_TO_DEPLOY(ctx)).toEqual([]);
+  });
+
   test("silent when resolved is null (CK-NO-CONFIG handles that)", () => {
     expect(rules.CK_NOTHING_TO_DEPLOY(buildCtx())).toEqual([]);
   });
