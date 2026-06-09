@@ -1,5 +1,35 @@
 # @solcreek/cli
 
+## 0.4.24
+
+### Fixes / DX
+
+- **`creek init --db` adds a database without prompting.** Non-interactive
+  runs (CI, coding agents) previously skipped the "Add a database?"
+  question silently and produced a config without one. With `--db`, init
+  writes `[resources] database = true` and `[build].worker`, and scaffolds
+  the worker/index.ts example. When the prompt is skipped, init now says
+  so and points at `--db` (`--json` output gets a `databasePromptSkipped`
+  field and a breadcrumb).
+
+- **`creek init <name>` sets the project name.** The positional name was
+  ignored and the directory basename used instead; `--name` was the only
+  working form.
+
+- **`creek doctor` catches the resources-without-worker mismatch.** Two new
+  findings: declaring resources with no worker entry (the deploy would be a
+  static SPA where `/api/*` serves index.html — warn), and a worker file on
+  disk that no config points at, so it would never deploy (info).
+
+- **`creek deploy` warns before shipping a static SPA that declares
+  resources**, naming the bindings and pointing at `[build].worker` — the
+  same mismatch doctor flags, surfaced even when doctor never ran.
+
+- **The "nothing to deploy" finding now presents both fixes.** Build output
+  and worker entry are separate inputs; the guidance previously steered
+  only toward re-running the build, leaving API-route projects chasing the
+  wrong one.
+
 ## 0.4.23
 
 ### Fixes / DX

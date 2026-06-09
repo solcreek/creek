@@ -4,6 +4,16 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.24
+
+### Changes
+
+- Bundles `@solcreek/cli@0.4.24`: `creek init --db` adds a database
+  non-interactively (and init says when the prompt was skipped),
+  `creek init <name>` sets the project name, doctor and deploy flag
+  resources declared without a worker entry, and the "nothing to deploy"
+  guidance covers the worker entry alongside the build output.
+
 ## 0.4.23
 
 ### Changes
