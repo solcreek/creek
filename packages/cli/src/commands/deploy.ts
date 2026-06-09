@@ -347,6 +347,29 @@ export const deployCommand = defineCommand({
       return await dryRunPlan(dryCwd, args, jsonMode);
     }
 
+    // --- Safety gate: no silent deploys in non-interactive environments ---
+    // Deploying publishes to a public URL — irreversible enough that we
+    // don't want it to happen by accident. In a TTY a human is present to
+    // see and abort; in a non-TTY (AI agent, CI, pipe) there is no prompt,
+    // so a bare `creek deploy` would otherwise just ship. Require an
+    // explicit --yes there instead. This is what makes the "safe to run
+    // from an AI coding agent" promise true: a bare call refuses and points
+    // at --dry-run / --yes rather than publishing on its own. Documented CI
+    // already passes --yes, so this doesn't regress automated deploys.
+    if (!isTTY && !args.yes) {
+      const breadcrumbs: Breadcrumb[] = [
+        { command: "creek deploy --dry-run", description: "Preview the plan without executing (no network, no uploads)" },
+        { command: "creek deploy --yes", description: "Confirm and deploy without an interactive prompt" },
+      ];
+      const message =
+        "Refusing to deploy from a non-interactive environment without confirmation. Re-run with --dry-run to preview the plan, or --yes to deploy.";
+      if (jsonMode) {
+        jsonOutput({ ok: false, error: "confirmation_required", message }, 1, breadcrumbs);
+      }
+      consola.error(message);
+      process.exit(1);
+    }
+
     // --- Ensure ToS accepted ---
     const autoConfirm = shouldAutoConfirm(args);
     const tos = await ensureTosAccepted(autoConfirm);
