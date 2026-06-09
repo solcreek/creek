@@ -42,28 +42,38 @@ function semverGte(version: string, target: string): boolean {
 }
 
 /**
- * Build a Next.js app using the Creek adapter (>= 16.2.3).
+ * Resolve @solcreek/adapter-creek from any reachable location.
  *
- * Sets NEXT_ADAPTER_PATH to the adapter bundled with the CLI.
- * No opennext, no wrangler, no config patching — the adapter handles
- * everything inside onBuildComplete().
+ * Tries, in order: the CLI's own install (monorepo workspace / global
+ * install alongside the adapter), the project's own node_modules, then the
+ * lazy-installed copy under .creek/node_modules. Returns the adapter entry
+ * path (for NEXT_ADAPTER_PATH), or null if not installed anywhere.
  */
-function resolveAdapterPath(): string | null {
-  try {
-    const require = createRequire(import.meta.url);
-    return require.resolve("@solcreek/adapter-creek");
-  } catch {
-    return null;
+function resolveAdapterPath(cwd?: string): string | null {
+  const bases = [import.meta.url];
+  if (cwd) {
+    // createRequire walks node_modules up from the base file's directory;
+    // the base file itself need not exist.
+    bases.push(join(cwd, "package.json"));
+    bases.push(join(cwd, CREEK_DIR, "package.json"));
   }
+  for (const base of bases) {
+    try {
+      return createRequire(base).resolve("@solcreek/adapter-creek");
+    } catch {
+      // try next base
+    }
+  }
+  return null;
 }
 
-function buildWithAdapter(cwd: string): void {
-  const adapterPath = resolveAdapterPath();
-  if (!adapterPath) {
-    consola.warn("  @solcreek/adapter-creek not found — install it for optimal Next.js builds");
-    return; // caller falls back to legacy
-  }
-
+/**
+ * Build a Next.js app using the Creek adapter (>= 16.2.3).
+ *
+ * Sets NEXT_ADAPTER_PATH to the resolved adapter. No opennext, no wrangler,
+ * no config patching — the adapter handles everything inside onBuildComplete().
+ */
+function buildWithAdapter(cwd: string, adapterPath: string): void {
   consola.start("  Building Next.js with Creek adapter...\n");
   // --webpack is required: Turbopack does not generate standalone output,
   // and its chunked format uses a custom runtime incompatible with esbuild.
@@ -77,24 +87,29 @@ function buildWithAdapter(cwd: string): void {
 /**
  * Unified Next.js build entry point.
  *
- * - Next.js >= 16.2.3: Creek adapter path (recommended)
- * - Next.js < 16.2.3: legacy opennext path (best effort)
+ * - Next.js >= 16.2.3: Creek adapter path (recommended). The adapter is
+ *   lazily installed into .creek/node_modules on first use — the CLI never
+ *   depends on it directly, so non-Next.js users never pay for it.
+ * - Next.js < 16.2.3 (or adapter install fails): legacy opennext path.
  *
  * Min version for the adapter path matches @solcreek/adapter-creek's
  * peerDependency, which pins Next.js >= 16.2.3 to fix CVE-2026-23869.
  */
 export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: string): void {
   const version = getNextVersion(cwd);
-  const useAdapter = version && semverGte(version, "16.2.3") && resolveAdapterPath();
 
-  if (useAdapter) {
-    buildWithAdapter(cwd);
-  } else {
-    if (version) {
-      consola.warn(`  Next.js ${version} — using legacy build path`);
+  if (version && semverGte(version, "16.2.3")) {
+    const adapterPath = ensureAdapter(cwd);
+    if (adapterPath) {
+      buildWithAdapter(cwd, adapterPath);
+      return;
     }
-    buildNextjsForWorkers(cwd, isMonorepo, projectName);
+    consola.warn(`  Falling back to legacy build path for Next.js ${version}`);
+  } else if (version) {
+    consola.warn(`  Next.js ${version} — using legacy build path`);
   }
+
+  buildNextjsForWorkers(cwd, isMonorepo, projectName);
 }
 
 /** Check if the adapter output exists (vs legacy opennext output). */
@@ -142,6 +157,72 @@ export function patchBundledWorker(bundleDir: string, openNextDir: string): void
 const CREEK_DIR = ".creek";
 const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
+const ADAPTER_PKG = "@solcreek/adapter-creek";
+const ADAPTER_VERSION = "^0.2.0";
+
+/**
+ * Merge a dependency into .creek/package.json without clobbering deps that
+ * a previous install (adapter or opennext) may have already written.
+ */
+function upsertCreekDep(creekDir: string, pkg: string, version: string): void {
+  const pkgPath = join(creekDir, "package.json");
+  let manifest: { private?: boolean; dependencies?: Record<string, string> } = {
+    private: true,
+    dependencies: {},
+  };
+  if (existsSync(pkgPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      manifest.dependencies ??= {};
+    } catch {
+      manifest = { private: true, dependencies: {} };
+    }
+  }
+  manifest.dependencies![pkg] = version;
+  writeFileSync(pkgPath, JSON.stringify(manifest, null, 2));
+}
+
+/**
+ * Install a package into .creek/node_modules. Returns false if npm fails.
+ */
+function installCreekDep(creekDir: string, pkg: string, version: string): boolean {
+  mkdirSync(creekDir, { recursive: true });
+  upsertCreekDep(creekDir, pkg, version);
+  try {
+    execSync("npm install --no-audit --no-fund --ignore-scripts --no-optional", {
+      cwd: creekDir,
+      stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure @solcreek/adapter-creek is resolvable, lazily installing it into
+ * .creek/node_modules on demand. Returns the resolved adapter entry path
+ * (for NEXT_ADAPTER_PATH), or null if it could not be made available.
+ *
+ * Lazy by design: the CLI stays framework-neutral, so the adapter — a
+ * Next.js-specific package with its own Next peerDependency — is only
+ * fetched when a Next.js project is actually deployed. It is never a hard
+ * CLI dependency that every `npx creek` user would pay for.
+ */
+function ensureAdapter(cwd: string): string | null {
+  const existing = resolveAdapterPath(cwd);
+  if (existing) return existing;
+
+  consola.start(`  Installing ${ADAPTER_PKG} (one-time setup)...`);
+  if (!installCreekDep(join(cwd, CREEK_DIR), ADAPTER_PKG, ADAPTER_VERSION)) {
+    consola.warn(`  Could not install ${ADAPTER_PKG}`);
+    return null;
+  }
+
+  const resolved = resolveAdapterPath(cwd);
+  if (resolved) consola.success(`  ${ADAPTER_PKG} installed`);
+  return resolved;
+}
 
 /**
  * Ensure @opennextjs/cloudflare is available in .creek/node_modules.
@@ -154,20 +235,7 @@ function ensureOpenNext(cwd: string): string {
   if (existsSync(opennextBin)) return opennextBin;
 
   consola.start(`  Installing ${OPENNEXT_PKG} (one-time setup)...`);
-  mkdirSync(creekDir, { recursive: true });
-
-  const pkgPath = join(creekDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    writeFileSync(pkgPath, JSON.stringify({
-      private: true,
-      dependencies: { [OPENNEXT_PKG]: OPENNEXT_VERSION },
-    }, null, 2));
-  }
-
-  execSync("npm install --no-audit --no-fund --ignore-scripts --no-optional", {
-    cwd: creekDir,
-    stdio: "pipe",
-  });
+  installCreekDep(creekDir, OPENNEXT_PKG, OPENNEXT_VERSION);
 
   consola.success(`  ${OPENNEXT_PKG} installed`);
   return opennextBin;
