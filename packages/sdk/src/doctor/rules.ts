@@ -125,6 +125,43 @@ const CK_RESOURCES_NO_WORKER: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: worker file on disk but not declared ─────────────────────────
+
+// The inverse of CK-WORKER-MISSING: code exists, config doesn't point
+// at it. Common when an agent hand-writes worker/ after a non-DB init
+// and forgets [build].worker — the deploy then ships a static SPA and
+// the worker never runs.
+const WORKER_CANDIDATE_PATHS = [
+  "worker/index.ts",
+  "worker/index.js",
+  "src/worker.ts",
+  "server/worker.ts",
+];
+
+const CK_WORKER_UNDECLARED: Rule = (ctx) => {
+  const resolved = ctx.resolved;
+  if (!resolved) return [];
+  if (resolved.workerEntry) return [];
+  // SSR frameworks bundle their own server — a worker-shaped file in
+  // src/ or server/ belongs to the framework build, not to
+  // [build].worker.
+  if (isSSRFramework(resolved.framework)) return [];
+  if (ctx.allDeps["@astrojs/cloudflare"]) return [];
+  const found = WORKER_CANDIDATE_PATHS.find((p) => ctx.fileExists(p));
+  if (!found) return [];
+  return [
+    {
+      code: "CK-WORKER-UNDECLARED",
+      severity: "info",
+      title: `${found} exists but no worker entry is declared — it will not be deployed`,
+      detail:
+        `A worker-shaped file exists at ${found}, but the config has no worker entry, so the deploy treats the project as a static SPA and never bundles or runs that file.`,
+      fix: `If ${found} is your server code, declare it in creek.toml:\n  [build]\n  worker = "${found}"\n\n(wrangler-based projects: set \`main\` instead.) If the file is unused, delete it to silence this notice.`,
+      references: [found],
+    },
+  ];
+};
+
 // ─── Rule: better-sqlite3 — sync API doesn't run on Workers ──────────────
 
 const CK_SYNC_SQLITE: Rule = (ctx) => {
@@ -348,6 +385,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
   CK_RESOURCES_NO_WORKER,
+  CK_WORKER_UNDECLARED,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,
@@ -362,6 +400,7 @@ export const rules = {
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
   CK_RESOURCES_NO_WORKER,
+  CK_WORKER_UNDECLARED,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,

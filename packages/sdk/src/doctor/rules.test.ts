@@ -209,6 +209,56 @@ describe("CK-RESOURCES-NO-WORKER", () => {
   });
 });
 
+// ─── CK-WORKER-UNDECLARED ───────────────────────────────────────────────
+
+describe("CK-WORKER-UNDECLARED", () => {
+  test("fires when worker/index.ts exists on disk but no worker entry is declared", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig(),
+      fileExists: (p) => p === "worker/index.ts",
+    });
+    const findings = rules.CK_WORKER_UNDECLARED(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      code: "CK-WORKER-UNDECLARED",
+      severity: "info",
+    });
+    expect(findings[0].title).toContain("worker/index.ts");
+    expect(findings[0].references).toContain("worker/index.ts");
+  });
+
+  test("fires for src/worker.ts too", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig(),
+      fileExists: (p) => p === "src/worker.ts",
+    });
+    const findings = rules.CK_WORKER_UNDECLARED(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].title).toContain("src/worker.ts");
+  });
+
+  test("silent when the worker entry is declared", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      fileExists: (p) => p === "worker/index.ts",
+    });
+    expect(rules.CK_WORKER_UNDECLARED(ctx)).toEqual([]);
+  });
+
+  test("silent when no candidate file exists", () => {
+    const ctx = buildCtx({ resolved: resolvedConfig() });
+    expect(rules.CK_WORKER_UNDECLARED(ctx)).toEqual([]);
+  });
+
+  test("silent for SSR frameworks — server code is the framework's, not a custom worker", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "sveltekit" }),
+      fileExists: (p) => p === "src/worker.ts",
+    });
+    expect(rules.CK_WORKER_UNDECLARED(ctx)).toEqual([]);
+  });
+});
+
 // ─── CK-SYNC-SQLITE ──────────────────────────────────────────────────────
 
 describe("CK-SYNC-SQLITE", () => {
