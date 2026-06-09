@@ -15,8 +15,11 @@ const monorepoSkills = resolve(pkgRoot, "..", "..", "skills");
 const dest = resolve(pkgRoot, "skills");
 
 if (!existsSync(monorepoSkills)) {
-  console.error(`bundle-skills: source not found at ${monorepoSkills}`);
-  process.exit(1);
+  // The skills/ source was moved to a separate repo (solcreek/skills) and
+  // isn't present in the publish checkout. Skip bundling rather than failing
+  // the publish — `npx creek` works without the bundled skill references.
+  console.warn(`bundle-skills: source not found at ${monorepoSkills} — skipping (skills bundling is optional).`);
+  process.exit(0);
 }
 
 await rm(dest, { recursive: true, force: true });
