@@ -20,7 +20,8 @@
     "onlyBuiltDependencies": [
       "sharp",
       "esbuild",
-      "lightningcss"
+      "lightningcss",
+      "better-sqlite3"
     ]
   }
 }
