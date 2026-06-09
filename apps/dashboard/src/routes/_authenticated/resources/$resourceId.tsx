@@ -318,7 +318,8 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
             <div key={`${b.projectId}-${b.bindingName}`} className="flex items-center justify-between px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <Link
-                  to={`/projects/${b.projectSlug}/settings`}
+                  to="/projects/$projectId/settings"
+                  params={{ projectId: b.projectSlug }}
                   className="text-sm font-mono hover:underline"
                 >
                   {b.projectSlug}

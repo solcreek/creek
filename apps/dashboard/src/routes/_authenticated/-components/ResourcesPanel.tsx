@@ -221,7 +221,7 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
             autoFocus
           />
         ) : (
-          <Link to={`/resources/${resource.id}`} className="font-mono truncate hover:underline">{resource.name}</Link>
+          <Link to="/resources/$resourceId" params={{ resourceId: resource.id }} className="font-mono truncate hover:underline">{resource.name}</Link>
         )}
         {attachedTo.length > 0 ? (
           <span className="text-muted-foreground truncate">
