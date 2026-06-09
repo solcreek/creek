@@ -17,13 +17,18 @@ export const initCommand = defineCommand({
   meta: {
     name: "init",
     description:
-      "Initialize a new Creek project — writes creek.toml (project name, build command/output, detected framework) and, if you add a database, a worker/index.ts example. Or register a self-host creekd via --adopt / --hostkey-fingerprint.",
+      "Initialize a new Creek project — writes creek.toml (project name, build command/output, detected framework) and, if you add a database (interactive prompt or --db), a worker/index.ts example. Or register a self-host creekd via --adopt / --hostkey-fingerprint.",
   },
   args: {
     name: {
       type: "string",
       description: "Project name (project init) OR host short-name (self-host init)",
       required: false,
+    },
+    db: {
+      type: "boolean",
+      description: "Add a database without prompting — writes [resources] database = true and scaffolds worker/index.ts. Required to get the database path in non-interactive runs (the prompt is skipped there).",
+      default: false,
     },
     adopt: {
       type: "string",
@@ -78,10 +83,19 @@ export const initCommand = defineCommand({
     const defaultName = basename(cwd).toLowerCase().replace(/[^a-z0-9-]/g, "-");
     const name = args.name ?? defaultName;
 
-    // Ask about database
-    let useDb = false;
-    if (!jsonMode && !shouldAutoConfirm(args)) {
-      useDb = await consola.prompt("Add a database?", { type: "confirm" }) as unknown as boolean;
+    // Ask about database. --db answers without prompting; otherwise the
+    // prompt only fires in interactive runs. In non-interactive runs
+    // (agents, CI — jsonMode or auto-confirm) the question is skipped,
+    // and we say so: silently defaulting to "no database" is how users
+    // end up hand-editing creek.toml and missing [build].worker.
+    let useDb = args.db === true;
+    let dbPromptSkipped = false;
+    if (!useDb) {
+      if (!jsonMode && !shouldAutoConfirm(args)) {
+        useDb = await consola.prompt("Add a database?", { type: "confirm" }) as unknown as boolean;
+      } else {
+        dbPromptSkipped = true;
+      }
     }
 
     const config: Record<string, unknown> = {
@@ -153,7 +167,10 @@ export default app;
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, path: configPath }, 0, [
+      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath }, 0, [
+        ...(dbPromptSkipped
+          ? [{ command: "creek init --db", description: "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts" }]
+          : []),
         { command: "creek deploy", description: "Deploy the project" },
         { command: "creek dev", description: "Start local development server" },
       ]);
@@ -162,6 +179,9 @@ export default app;
     consola.success(`Created creek.toml for "${name}"`);
 
     if (!jsonMode) {
+      if (dbPromptSkipped) {
+        consola.info("Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.");
+      }
       console.log("");
       consola.info("  Next steps:");
       consola.info("    creek deploy    Deploy to production");
