@@ -305,6 +305,20 @@ export async function prepareDeployBundle(
     ? "entry.mjs"
     : (plan.worker.entry ?? null);
 
+  // Resources declared but the deploy carries no server code: the
+  // bindings get provisioned with nothing able to read them, and
+  // /api/* serves static assets (unknown paths fall back to
+  // index.html). Same condition as doctor's CK-RESOURCES-NO-WORKER —
+  // repeated here because most deploys never run `creek doctor` first.
+  const resourceBindings = resolved.bindings.filter(
+    (b) => b.type === "d1" || b.type === "r2" || b.type === "kv" || b.type === "ai",
+  );
+  if (effectiveRenderMode === "spa" && resourceBindings.length > 0) {
+    consola.warn(
+      `  Resources declared (${resourceBindings.map((b) => `env.${b.name}`).join(", ")}) but no worker entry — deploying as a static SPA. /api/* will serve index.html, not server code. If that's unintended, set [build].worker in creek.toml (details: creek doctor).`,
+    );
+  }
+
   return {
     plan,
     framework,

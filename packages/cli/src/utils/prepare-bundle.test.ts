@@ -240,3 +240,70 @@ describe("prepareDeployBundle", () => {
 });
 
 import { vi } from "vitest";
+import consola from "consola";
+
+describe("spa-with-resources warning", () => {
+  test("warns when resource bindings are declared but the deploy is a static SPA", async () => {
+    const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+    writeFixture({
+      "dist/index.html": "<html></html>",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ bindings: [{ type: "d1", name: "DB" }] }),
+      skipBuild: true,
+    });
+
+    expect(result.effectiveRenderMode).toBe("spa");
+    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warned).toContain("env.DB");
+    expect(warned).toContain("static SPA");
+    warnSpy.mockRestore();
+  });
+
+  test("silent when a worker entry is present", async () => {
+    const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+    writeFixture({
+      "dist/index.html": "<html></html>",
+      "worker/index.ts":
+        "export default { fetch() { return new Response('ok'); } };",
+      // Stub the `creek` runtime so bundleWorker's wrapper resolves —
+      // same trick as the vanilla-worker fixture above.
+      "node_modules/creek/package.json": JSON.stringify({
+        name: "creek",
+        type: "module",
+        main: "index.js",
+      }),
+      "node_modules/creek/index.js":
+        "export const _runRequest = async (_e, _c, fn) => fn(); export const generateWsToken = async () => '';",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        bindings: [{ type: "d1", name: "DB" }],
+        workerEntry: "worker/index.ts",
+      }),
+      skipBuild: true,
+    });
+
+    expect(result.effectiveRenderMode).toBe("worker");
+    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warned).not.toContain("static SPA");
+    warnSpy.mockRestore();
+  });
+
+  test("silent for a SPA with no resource bindings", async () => {
+    const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+    writeFixture({
+      "dist/index.html": "<html></html>",
+    });
+
+    await prepareDeployBundle({ cwd, resolved: baseConfig(), skipBuild: true });
+
+    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warned).not.toContain("static SPA");
+    warnSpy.mockRestore();
+  });
+});
