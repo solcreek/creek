@@ -200,7 +200,11 @@ const CK_FIX_HINTS: Record<string, string> = {
   "CK-NO-CONFIG":
     "Run `creek init` to scaffold a creek.toml, or cd to a directory that contains creek.toml / wrangler.* / package.json / index.html.",
   "CK-NOTHING-TO-DEPLOY":
-    "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one.",
+    "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one. If the project has server code / API routes, also set [build].worker — the build alone never declares it.",
+  "CK-RESOURCES-NO-WORKER":
+    "Resources are declared but no worker entry — the deploy is a static SPA and /api/* serves index.html. Set [build].worker in creek.toml (e.g. worker = \"worker/index.ts\"), or remove [resources] if the site is purely static.",
+  "CK-WORKER-UNDECLARED":
+    "A worker-shaped file exists on disk but no worker entry is declared, so it will not be deployed. Point [build].worker in creek.toml at it, or delete the file if unused.",
   "CK-DB-DUAL-DRIVER-SPLIT":
     "Consolidate the split db.local.ts + db.prod.ts files. Share schema.ts and routes.ts; keep only thin boot files (server/local.ts for dev, server/worker.ts for prod) that differ in driver setup. See examples/vite-react-drizzle.",
   "CK-SYNC-SQLITE":
