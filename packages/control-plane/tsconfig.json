@@ -8,5 +8,11 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // src/local's Bun-only files (Bun.serve in serve.ts, bun:sqlite in the
+  // *-adapter.ts, bun:test in *.test.ts) aren't part of the deployed Worker
+  // and can't be typechecked with these Workers types — Bun validates them
+  // at run/test time. The Node/vitest helper test-env.ts is still checked,
+  // since worker-side vitest tests import it.
+  "exclude": ["src/local"]
 }

@@ -159,7 +159,7 @@ class TestR2Bucket {
   async put(key: string, value: any) {
     const p = join(this.root, key);
     mkdirSync(dirname(p), { recursive: true });
-    const buf = typeof value === "string" ? Buffer.from(value) : Buffer.isBuffer(value) ? value : value instanceof Uint8Array ? Buffer.from(value) : Buffer.from(value instanceof ArrayBuffer ? value : "");
+    const buf = typeof value === "string" ? Buffer.from(value) : Buffer.isBuffer(value) ? value : value instanceof Uint8Array ? Buffer.from(value) : value instanceof ArrayBuffer ? Buffer.from(value) : Buffer.from("");
     writeFileSync(p, buf);
     return new TestR2Object(key, buf.length);
   }
