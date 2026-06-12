@@ -42,14 +42,38 @@ function semverGte(version: string, target: string): boolean {
 }
 
 /**
+ * Read the installed adapter version from the package.json above a resolved
+ * adapter entry path (.../adapter-creek/dist/index.js).
+ */
+function adapterVersionAt(entryPath: string): string | null {
+  let dir = dirname(entryPath);
+  for (let i = 0; i < 3; i++) {
+    const pkgPath = join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        if (pkg.name === ADAPTER_PKG) return pkg.version ?? null;
+      } catch {
+        return null;
+      }
+    }
+    dir = dirname(dir);
+  }
+  return null;
+}
+
+/**
  * Resolve @solcreek/adapter-creek from any reachable location.
  *
  * Tries, in order: the CLI's own install (monorepo workspace / global
  * install alongside the adapter), the project's own node_modules, then the
- * lazy-installed copy under .creek/node_modules. Returns the adapter entry
- * path (for NEXT_ADAPTER_PATH), or null if not installed anywhere.
+ * lazy-installed copy under .creek/node_modules. Copies older than
+ * `minVersion` are skipped — adapter < 0.2.1 cannot resolve its cache
+ * handler from the .creek lazy install, so a stale cached copy must not
+ * shadow a fixed one. Returns the adapter entry path (for
+ * NEXT_ADAPTER_PATH), or null if no acceptable copy is installed.
  */
-function resolveAdapterPath(cwd?: string): string | null {
+function resolveAdapterPath(cwd?: string, minVersion?: string): string | null {
   const bases = [import.meta.url];
   if (cwd) {
     // createRequire walks node_modules up from the base file's directory;
@@ -59,7 +83,12 @@ function resolveAdapterPath(cwd?: string): string | null {
   }
   for (const base of bases) {
     try {
-      return createRequire(base).resolve("@solcreek/adapter-creek");
+      const entry = createRequire(base).resolve(ADAPTER_PKG);
+      if (minVersion) {
+        const version = adapterVersionAt(entry);
+        if (!version || !semverGte(version, minVersion)) continue;
+      }
+      return entry;
     } catch {
       // try next base
     }
@@ -158,7 +187,11 @@ const CREEK_DIR = ".creek";
 const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
 const ADAPTER_PKG = "@solcreek/adapter-creek";
-const ADAPTER_VERSION = "^0.2.0";
+const ADAPTER_VERSION = "^0.2.1";
+// Adapter < 0.2.1 resolves its cache handler against paths that don't exist
+// under the .creek lazy install, failing every Next.js build with webpack
+// "Module not found". Installs below this are re-installed, not reused.
+const ADAPTER_MIN_VERSION = "0.2.1";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
@@ -210,16 +243,23 @@ function installCreekDep(creekDir: string, pkg: string, version: string): boolea
  * CLI dependency that every `npx creek` user would pay for.
  */
 function ensureAdapter(cwd: string): string | null {
-  const existing = resolveAdapterPath(cwd);
+  const existing = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
   if (existing) return existing;
 
-  consola.start(`  Installing ${ADAPTER_PKG} (one-time setup)...`);
+  // Distinguish "not installed" from "only stale copies" for the message;
+  // either way the fix is the same install into .creek.
+  const stale = resolveAdapterPath(cwd) !== null;
+  consola.start(
+    stale
+      ? `  Updating ${ADAPTER_PKG} to >= ${ADAPTER_MIN_VERSION} (older versions cannot build)...`
+      : `  Installing ${ADAPTER_PKG} (one-time setup)...`,
+  );
   if (!installCreekDep(join(cwd, CREEK_DIR), ADAPTER_PKG, ADAPTER_VERSION)) {
     consola.warn(`  Could not install ${ADAPTER_PKG}`);
     return null;
   }
 
-  const resolved = resolveAdapterPath(cwd);
+  const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
   if (resolved) consola.success(`  ${ADAPTER_PKG} installed`);
   return resolved;
 }
