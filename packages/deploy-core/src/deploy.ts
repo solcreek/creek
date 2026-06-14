@@ -63,14 +63,18 @@ export async function deployScriptWithAssets(
 ): Promise<void> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
 
-  // Next.js (via the Creek adapter / @opennextjs/cloudflare) needs
-  // nodejs_compat_v2 for full Node module support (node:http, node:fs,
-  // worker_threads shims) and the DO bindings above for ISR/tag cache.
-  // Mirrors the production control-plane path so sandbox deploys reach
-  // parity — without this, SSR Next.js workers fail validation with
-  // "No such module node:http".
+  // Next.js (via the Creek adapter) emits a worker that statically imports
+  // node:http etc. In Workers for Platforms node:http is served by
+  // `nodejs_compat` (NOT `nodejs_compat_v2`, which does not provide it) and
+  // only at a recent compatibility_date — empirically rejected at
+  // 2025-03-14, accepted from ~2025-09 on. The Creek adapter builds the
+  // bundle at 2026-03-28, so deploy at that date too. Without this, SSR
+  // Next.js workers fail validation with "No such module node:http".
+  // Also inject the DO bindings/migrations the adapter needs for ISR/tag
+  // cache. Mirrors the production control-plane path for Next.js.
   const isNext = framework === "nextjs";
-  const defaultFlags = isNext ? ["nodejs_compat_v2"] : ["nodejs_compat"];
+  const defaultDate = isNext ? "2026-03-28" : "2025-03-14";
+  const defaultFlags = ["nodejs_compat"];
   const allBindings = isNext ? [...bindings, ...NEXTJS_DO_BINDINGS] : bindings;
 
   const metadata: Record<string, unknown> = {
@@ -79,7 +83,7 @@ export async function deployScriptWithAssets(
     // can require newer Node API support (e.g. `@astrojs/cloudflare`
     // pulls in `node:fs` paths that only resolve on newer dates).
     // Fall back to a framework-aware Creek default when unset.
-    compatibility_date: compatibilityDate ?? "2025-03-14",
+    compatibility_date: compatibilityDate ?? defaultDate,
     compatibility_flags: compatibilityFlags?.length ? compatibilityFlags : defaultFlags,
     tags,
     bindings: allBindings,
