@@ -39,7 +39,7 @@ import { prepareDeployBundle } from "../utils/prepare-bundle.js";
 import { BuildLogEmitter } from "../utils/build-log.js";
 import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
-import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput } from "../utils/nextjs.js";
+import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput, readAdapterCompat } from "../utils/nextjs.js";
 import { isRepoUrl, parseRepoUrl, validateRepoUrl, validateSubpath, RepoUrlError } from "../utils/repo-url.js";
 import { checkGitInstalled, cloneRepo, detectPackageManager, installDependencies, cleanupDir as cleanupCloneDir, GitCloneError } from "../utils/git-clone.js";
 import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
@@ -1150,6 +1150,15 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     section("Deploy");
     consola.start("  Deploying to edge...");
   }
+  // An adapter build records the exact compat it was built against in its
+  // manifest; deploy with that so the worker validates at upload (e.g.
+  // node:http server modules need nodejs_compat + compatibility_date
+  // >= 2025-09-01). Fall back to the resolved config for non-adapter builds.
+  const sandboxAdapterCompat = readAdapterCompat(cwd);
+  const sandboxCompatDate = sandboxAdapterCompat?.compatibilityDate ?? resolved?.compatibilityDate;
+  const sandboxCompatFlags =
+    sandboxAdapterCompat?.compatibilityFlags ??
+    (resolved && resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined);
   try {
     const result = await sandboxDeploy({
       manifest: {
@@ -1165,11 +1174,9 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
       ...(resolved
         ? { bindings: resolvedConfigToBindingRequirements(resolved) }
         : {}),
-      ...(resolved?.compatibilityDate
-        ? { compatibilityDate: resolved.compatibilityDate }
-        : {}),
-      ...(resolved && resolved.compatibilityFlags.length > 0
-        ? { compatibilityFlags: resolved.compatibilityFlags }
+      ...(sandboxCompatDate ? { compatibilityDate: sandboxCompatDate } : {}),
+      ...(sandboxCompatFlags && sandboxCompatFlags.length > 0
+        ? { compatibilityFlags: sandboxCompatFlags }
         : {}),
     }, { tos });
 
@@ -1435,6 +1442,17 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
     consola.start("  Uploading bundle...");
     const effectiveHasWorker = serverFiles !== undefined;
+    // Prefer the compat the adapter built the worker against (recorded in its
+    // manifest) so the deploy matches the build — node:http server modules
+    // need nodejs_compat + compatibility_date >= 2025-09-01. Falls back to the
+    // resolved config + a framework-aware default for non-adapter builds.
+    const prodAdapterCompat = readAdapterCompat(cwd);
+    const prodCompatDate = prodAdapterCompat?.compatibilityDate ?? resolved.compatibilityDate;
+    const prodCompatFlags =
+      prodAdapterCompat?.compatibilityFlags ??
+      (hasAdapterOutput(cwd)
+        ? ["nodejs_compat"]
+        : ["nodejs_compat", ...resolved.compatibilityFlags.filter((f) => f !== "nodejs_compat")]);
     const bundle = {
       manifest: {
         assets: fileList,
@@ -1450,15 +1468,8 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       bindings: resolvedConfigToBindingRequirements(resolved),
       // Pass through wrangler vars and compat settings
       ...(Object.keys(resolved.vars).length > 0 ? { vars: resolved.vars } : {}),
-      ...(resolved.compatibilityDate ? { compatibilityDate: resolved.compatibilityDate } : {}),
-      // nodejs_compat required for Creek runtime (AsyncLocalStorage).
-      // Adapter path uses nodejs_compat_v2 for full Node.js APIs.
-      ...(hasAdapterOutput(cwd)
-        ? { compatibilityFlags: ["nodejs_compat_v2"] }
-        : { compatibilityFlags: [
-            "nodejs_compat",
-            ...resolved.compatibilityFlags.filter((f) => f !== "nodejs_compat"),
-          ] }),
+      ...(prodCompatDate ? { compatibilityDate: prodCompatDate } : {}),
+      compatibilityFlags: prodCompatFlags,
       ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
       ...(resolved.queue ? { queue: true } : {}),
     };

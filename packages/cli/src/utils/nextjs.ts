@@ -147,6 +147,33 @@ export function hasAdapterOutput(cwd: string): boolean {
 }
 
 /**
+ * Read the compat settings the adapter built the worker with from
+ * `.creek/adapter-output/manifest.json`. The worker is validated at upload
+ * against the date/flags it ships with (e.g. node:http server modules need
+ * `nodejs_compat` + compatibility_date >= 2025-09-01), so the deploy must
+ * use exactly what the adapter built against rather than a hardcoded default
+ * that can drift. Returns null when absent/unparseable (caller falls back).
+ */
+export function readAdapterCompat(
+  cwd: string,
+): { compatibilityDate?: string; compatibilityFlags?: string[] } | null {
+  const manifestPath = join(cwd, ".creek/adapter-output/manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+      compatibilityDate?: string;
+      compatibilityFlags?: string[];
+    };
+    const out: { compatibilityDate?: string; compatibilityFlags?: string[] } = {};
+    if (typeof m.compatibilityDate === "string") out.compatibilityDate = m.compatibilityDate;
+    if (Array.isArray(m.compatibilityFlags)) out.compatibilityFlags = m.compatibilityFlags;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Patch the bundled worker to fix opennext's dynamic require issues.
  *
  * @deprecated Legacy path — only used for Next.js < 16.2. For >= 16.2,
