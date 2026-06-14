@@ -187,11 +187,13 @@ const CREEK_DIR = ".creek";
 const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
 const ADAPTER_PKG = "@solcreek/adapter-creek";
-const ADAPTER_VERSION = "^0.2.1";
-// Adapter < 0.2.1 resolves its cache handler against paths that don't exist
-// under the .creek lazy install, failing every Next.js build with webpack
-// "Module not found". Installs below this are re-installed, not reused.
-const ADAPTER_MIN_VERSION = "0.2.1";
+const ADAPTER_VERSION = "^0.2.2";
+// Adapter < 0.2.2 resolves its dependencies against paths that don't exist
+// under the .creek lazy install (0.2.0: the cache handler; 0.2.1: the
+// wrangler bin) — npm hoists them to the top of the tree, so the adapter's
+// guessed nested paths fail every Next.js build. Installs below this are
+// re-installed, not reused.
+const ADAPTER_MIN_VERSION = "0.2.2";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
@@ -222,7 +224,11 @@ function installCreekDep(creekDir: string, pkg: string, version: string): boolea
   mkdirSync(creekDir, { recursive: true });
   upsertCreekDep(creekDir, pkg, version);
   try {
-    execSync("npm install --no-audit --no-fund --ignore-scripts --no-optional", {
+    // No --no-optional: the adapter bundles the worker with wrangler, whose
+    // workerd dependency ships its platform binary (@cloudflare/workerd-*)
+    // as an optionalDependency. Omitting optionals fails the build with
+    // "package could not be found, and is needed by workerd".
+    execSync("npm install --no-audit --no-fund --ignore-scripts", {
       cwd: creekDir,
       stdio: "pipe",
     });
