@@ -139,6 +139,33 @@ const NEXTJS_DO_BINDINGS: WfPBinding[] = [
  */
 const NEXTJS_DO_MIGRATION_TAG = "v1";
 
+/**
+ * Resolve the Worker compat date/flags for a deploy. The bundle is preferred
+ * (the Creek adapter records the exact date/flags it built against in its
+ * manifest, threaded through as compatibilityDate/Flags). When unset, fall
+ * back to a framework-aware default.
+ *
+ * Next.js workers statically import node:http, whose SERVER modules are
+ * served by the umbrella `nodejs_compat` flag (NOT `nodejs_compat_v2`) and
+ * auto-enable only at compatibility_date >= 2025-09-01 (per Cloudflare's
+ * Node.js docs). So the Next.js default uses nodejs_compat + the Creek
+ * adapter's build date (2026-03-28); a 2025-03-14 default was rejected with
+ * "No such module node:http".
+ *
+ * Exported for tests.
+ */
+export function resolveDeployCompat(
+  framework: string | null | undefined,
+  compatibilityDate?: string,
+  compatibilityFlags?: string[],
+): { compatibility_date: string; compatibility_flags: string[] } {
+  const isNext = framework === "nextjs";
+  return {
+    compatibility_date: compatibilityDate ?? (isNext ? "2026-03-28" : "2025-03-14"),
+    compatibility_flags: compatibilityFlags?.length ? compatibilityFlags : ["nodejs_compat"],
+  };
+}
+
 async function deployScriptWithAssets(
   env: Env,
   scriptName: string,
@@ -160,16 +187,12 @@ async function deployScriptWithAssets(
     ? [...bindings, ...NEXTJS_DO_BINDINGS]
     : bindings;
 
-  // Next.js (via @opennextjs/cloudflare) requires nodejs_compat_v2 for
-  // full Node.js module support (fs, http, worker_threads shims, etc.)
-  const defaultFlags = framework === "nextjs"
-    ? ["nodejs_compat_v2"]
-    : ["nodejs_compat"];
+  const compat = resolveDeployCompat(framework, compatibilityDate, compatibilityFlags);
 
   const metadata: Record<string, unknown> = {
     main_module: mainModule,
-    compatibility_date: compatibilityDate ?? "2025-03-14",
-    compatibility_flags: compatibilityFlags?.length ? compatibilityFlags : defaultFlags,
+    compatibility_date: compat.compatibility_date,
+    compatibility_flags: compat.compatibility_flags,
     tags,
     bindings: allBindings,
     assets: {
