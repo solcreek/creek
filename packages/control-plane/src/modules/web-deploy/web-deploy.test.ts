@@ -1,8 +1,23 @@
-import { describe, test, expect, vi, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach, afterAll, beforeAll } from "vitest";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
 import { Hono } from "hono";
 import { webDeploy } from "./routes.js";
 import { buildAndDeploy, updateStatus, hashIp, type WebDeployEnv } from "./build-and-deploy.js";
 import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
+
+// The repo-deploy path calls fetchCommitSha -> a REAL fetch to
+// api.github.com, which made these tests flaky (network / GitHub rate
+// limits, and interference with MSW's process-wide fetch interception in
+// other suites). Intercept it deterministically; `onUnhandledRequest:
+// "error"` ensures no test silently reaches the real network again.
+const server = setupServer(
+  http.get("https://api.github.com/repos/:owner/:repo/git/refs/heads/:branch", () =>
+    HttpResponse.json({ object: { sha: "0123456789abcdef0123" } }),
+  ),
+);
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterAll(() => server.close());
 
 // --- Test Helpers ---
 
@@ -27,6 +42,7 @@ function createEnv(overrides?: Partial<WebDeployEnv>): WebDeployEnv {
 }
 
 afterEach(() => {
+  server.resetHandlers();
   for (const te of _testEnvs) te.cleanup();
   _testEnvs.length = 0;
 });
