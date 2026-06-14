@@ -766,6 +766,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260405.1
         version: 4.20260414.1
+      msw:
+        specifier: ^2.12.14
+        version: 2.13.2(@types/node@25.6.0)(typescript@5.9.3)
       typescript:
         specifier: ^5.8.2
         version: 5.9.3
