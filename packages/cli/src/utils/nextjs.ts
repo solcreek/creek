@@ -16,6 +16,7 @@ import { join, dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { execSync, execFileSync } from "node:child_process";
 import consola from "consola";
+import { prismaNeedsGenerate } from "./db-preflight.js";
 
 // ---------------------------------------------------------------------------
 // Version detection + unified entry point
@@ -130,6 +131,7 @@ export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: stri
   if (version && semverGte(version, "16.2.3")) {
     const adapterPath = ensureAdapter(cwd);
     if (adapterPath) {
+      ensurePrismaClient(cwd);
       ensurePrismaD1(cwd);
       buildWithAdapter(cwd, adapterPath);
       return;
@@ -300,6 +302,30 @@ function ensureAdapter(cwd: string): string | null {
   const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
   if (resolved) consola.success(`  ${ADAPTER_PKG} installed`);
   return resolved;
+}
+
+/**
+ * Generate the Prisma client before the Next build when it's missing.
+ * Prisma 7's `prisma-client` generator emits to a configured `output` dir that
+ * the app imports; without it the build fails. Safe to run automatically —
+ * generation is idempotent and has no external/persistent effect. No-op unless
+ * a Prisma schema exists and its output dir is absent (see prismaNeedsGenerate).
+ */
+function ensurePrismaClient(cwd: string): void {
+  if (!prismaNeedsGenerate(cwd)) return;
+  consola.start("  Generating Prisma client (prisma generate)...");
+  try {
+    // `--no-install` uses the project's own prisma (a dependency) rather than
+    // fetching one; the schema's datasource needs no URL to generate.
+    execSync("npx --no-install prisma generate", { cwd, stdio: "pipe" });
+    consola.success("  Prisma client generated");
+  } catch (err) {
+    // Non-fatal: the build will surface a clearer "client not found" error if
+    // generation was genuinely required.
+    consola.warn(
+      `  prisma generate failed (${err instanceof Error ? err.message : String(err)}); continuing`,
+    );
+  }
 }
 
 /**
