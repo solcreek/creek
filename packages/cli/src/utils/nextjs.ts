@@ -130,6 +130,7 @@ export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: stri
   if (version && semverGte(version, "16.2.3")) {
     const adapterPath = ensureAdapter(cwd);
     if (adapterPath) {
+      ensurePrismaD1(cwd);
       buildWithAdapter(cwd, adapterPath);
       return;
     }
@@ -215,6 +216,10 @@ const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
 const ADAPTER_PKG = "@solcreek/adapter-creek";
 const ADAPTER_VERSION = "^0.2.2";
+// Zero-change Prisma-on-D1: the adapter's build-time swap targets this
+// adapter and imports @prisma/adapter-d1 (an optional peer it doesn't ship).
+const PRISMA_BSQLITE_PKG = "@prisma/adapter-better-sqlite3";
+const PRISMA_D1_PKG = "@prisma/adapter-d1";
 // Adapter < 0.2.2 resolves its dependencies against paths that don't exist
 // under the .creek lazy install (0.2.0: the cache handler; 0.2.1: the
 // wrangler bin) — npm hoists them to the top of the tree, so the adapter's
@@ -295,6 +300,57 @@ function ensureAdapter(cwd: string): string | null {
   const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
   if (resolved) consola.success(`  ${ADAPTER_PKG} installed`);
   return resolved;
+}
+
+/**
+ * Ensure @prisma/adapter-d1 is resolvable at build time for the zero-change
+ * Prisma-on-D1 swap. adapter-creek aliases `@prisma/adapter-better-sqlite3` to
+ * a PrismaD1-backed shim that imports `@prisma/adapter-d1`; that package is an
+ * OPTIONAL peer of the adapter (not shipped to non-Prisma projects), so it is
+ * lazily installed into .creek only when the project actually uses the
+ * better-sqlite3 Prisma adapter. Installed matching the project's Prisma
+ * version — the adapter packages release in lockstep with @prisma/client, so a
+ * matching driver-adapter interface avoids subtle version skew.
+ *
+ * No-op unless @prisma/adapter-better-sqlite3 is present, or if adapter-d1 is
+ * already resolvable (project dep or a prior .creek install).
+ *
+ * Exported for tests.
+ */
+export function ensurePrismaD1(cwd: string): void {
+  const projectRequire = createRequire(join(cwd, "noop.js"));
+  try {
+    projectRequire.resolve(PRISMA_BSQLITE_PKG);
+  } catch {
+    return; // Not a Prisma-on-D1 (better-sqlite3 adapter) project.
+  }
+
+  // createRequire from .creek walks up into the project's node_modules too, so
+  // this single check covers both a prior .creek install and a project dep.
+  const creekDir = join(cwd, CREEK_DIR);
+  try {
+    createRequire(join(creekDir, "noop.js")).resolve(PRISMA_D1_PKG);
+    return; // Already available.
+  } catch {
+    // Fall through to install.
+  }
+
+  let version = "latest";
+  try {
+    const clientPkg = JSON.parse(
+      readFileSync(projectRequire.resolve("@prisma/client/package.json"), "utf-8"),
+    ) as { version?: string };
+    if (clientPkg.version) version = clientPkg.version;
+  } catch {
+    // No @prisma/client version readable — fall back to latest.
+  }
+
+  consola.start(`  Installing ${PRISMA_D1_PKG}@${version} (Prisma on D1)...`);
+  if (installCreekDep(creekDir, PRISMA_D1_PKG, version)) {
+    consola.success(`  ${PRISMA_D1_PKG} installed`);
+  } else {
+    consola.warn(`  Could not install ${PRISMA_D1_PKG} — Prisma build may fail`);
+  }
 }
 
 /**

@@ -1,8 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hasAdapterOutput, readAdapterCompat } from "./nextjs";
+import { ensurePrismaD1, hasAdapterOutput, readAdapterCompat } from "./nextjs";
+
+describe("ensurePrismaD1", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "creek-prisma-d1-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is a no-op for a project that doesn't use the better-sqlite3 Prisma adapter", () => {
+    // No node_modules at all → @prisma/adapter-better-sqlite3 is unresolvable,
+    // so it must NOT attempt an install (no .creek created). This is the
+    // safety guard: non-Prisma projects never pay for the on-demand dep.
+    expect(() => ensurePrismaD1(cwd)).not.toThrow();
+    expect(existsSync(join(cwd, ".creek", "package.json"))).toBe(false);
+  });
+});
 
 describe("readAdapterCompat", () => {
   let cwd: string;
