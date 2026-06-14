@@ -2,8 +2,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import {
+  createCustomHostname,
   createD1Database,
+  deleteCustomHostname,
   findExistingCFResource,
+  getCustomHostname,
   getD1Database,
   provisionCFResource,
 } from "./cloudflare";
@@ -15,6 +18,7 @@ import type { Env } from "../../types.js";
 const env = {
   CLOUDFLARE_API_TOKEN: "test-token",
   CLOUDFLARE_ACCOUNT_ID: "test-account",
+  CLOUDFLARE_ZONE_ID: "test-zone",
 } as unknown as Env;
 
 const CF = "https://api.cloudflare.com/client/v4/accounts/:acc";
@@ -92,5 +96,45 @@ describe("resource provisioning (CF REST via MSW)", () => {
       ),
     );
     expect(await getD1Database(env, "db")).toBeNull();
+  });
+});
+
+describe("custom hostnames — CF for SaaS (via MSW)", () => {
+  const ZONE = "https://api.cloudflare.com/client/v4/zones/:zone/custom_hostnames";
+
+  it("createCustomHostname POSTs the hostname with http/dv SSL and returns the record", async () => {
+    let body: unknown = null;
+    server.use(
+      http.post(ZONE, async ({ request }) => {
+        body = await request.json();
+        return ok({ id: "ch-1", hostname: "app.example.com", status: "pending", ssl: { status: "pending_validation" } });
+      }),
+    );
+    const res = await createCustomHostname(env, "app.example.com");
+    expect(res.id).toBe("ch-1");
+    expect(body).toEqual({ hostname: "app.example.com", ssl: { method: "http", type: "dv" } });
+  });
+
+  it("getCustomHostname reads a single record by id", async () => {
+    server.use(
+      http.get(`${ZONE}/:id`, ({ params }) =>
+        ok({ id: params.id, hostname: "app.example.com", status: "active" }),
+      ),
+    );
+    const res = await getCustomHostname(env, "ch-1");
+    expect(res.id).toBe("ch-1");
+    expect(res.status).toBe("active");
+  });
+
+  it("deleteCustomHostname issues a DELETE and resolves", async () => {
+    let method = "";
+    server.use(
+      http.delete(`${ZONE}/:id`, ({ request }) => {
+        method = request.method;
+        return ok({ id: "ch-1" });
+      }),
+    );
+    await expect(deleteCustomHostname(env, "ch-1")).resolves.toBeUndefined();
+    expect(method).toBe("DELETE");
   });
 });
