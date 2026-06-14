@@ -13,26 +13,37 @@ import { join, resolve } from "node:path";
 const CANDIDATE_DIRS = [
   "drizzle",
   "drizzle/migrations",
+  "prisma/migrations",
   "migrations",
   "sql",
 ];
 
 /**
+ * Whether a directory holds migrations in either supported layout:
+ *  - flat: `.sql` files directly in the dir (Drizzle `drizzle-kit generate`,
+ *    plain SQL dirs)
+ *  - nested: `<name>/migration.sql` per migration (Prisma `prisma migrate`)
+ */
+function hasMigrations(dir: string): boolean {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false; // Permission error or not a directory.
+  }
+  if (entries.some((f) => f.endsWith(".sql"))) return true;
+  return entries.some((f) => existsSync(join(dir, f, "migration.sql")));
+}
+
+/**
  * Find the migration directory relative to cwd.
- * Returns the absolute path of the first candidate that exists and
- * contains at least one .sql file, or null if none found.
+ * Returns the absolute path of the first candidate that holds migrations
+ * (flat `.sql` or Prisma's nested `<name>/migration.sql`), or null.
  */
 export function detectMigrationDir(cwd: string): string | null {
   for (const dir of CANDIDATE_DIRS) {
     const abs = resolve(cwd, dir);
-    if (existsSync(abs)) {
-      try {
-        const files = readdirSync(abs);
-        if (files.some((f) => f.endsWith(".sql"))) return abs;
-      } catch {
-        // Permission error or not a directory — skip
-      }
-    }
+    if (existsSync(abs) && hasMigrations(abs)) return abs;
   }
   return null;
 }
@@ -47,8 +58,13 @@ export interface MigrationFile {
 }
 
 /**
- * Read .sql files from a directory, sorted lexicographically.
- * Non-.sql files and empty .sql files are skipped.
+ * Read migrations from a directory in either layout, sorted lexicographically
+ * by name (Drizzle's `NNNN_` prefixes and Prisma's `<timestamp>_` prefixes both
+ * sort chronologically). Empty migrations are skipped.
+ *
+ *  - flat: each `.sql` file is a migration; name = file name (e.g. `0001_init.sql`)
+ *  - nested: each `<name>/migration.sql` is a migration; name = subdir name
+ *    (e.g. `20260614120000_init`) — the identifier Prisma tracks
  */
 export function parseMigrationFiles(dir: string): MigrationFile[] {
   let entries: string[];
@@ -58,10 +74,19 @@ export function parseMigrationFiles(dir: string): MigrationFile[] {
     return [];
   }
 
-  return entries
-    .filter((f) => f.endsWith(".sql"))
-    .sort()
-    .map((name) => ({ name, path: join(dir, name) }))
+  const files: MigrationFile[] = [];
+  for (const name of entries) {
+    if (name.endsWith(".sql")) {
+      files.push({ name, path: join(dir, name) });
+      continue;
+    }
+    // Prisma nests each migration as `<name>/migration.sql`.
+    const nested = join(dir, name, "migration.sql");
+    if (existsSync(nested)) files.push({ name, path: nested });
+  }
+
+  return files
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .filter((f) => {
       try {
         const content = readFileSync(f.path, "utf-8").trim();

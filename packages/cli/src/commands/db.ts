@@ -181,7 +181,7 @@ const migrateCommand = defineCommand({
     },
     dir: {
       type: "string",
-      description: "Migration directory path. Default: auto-detect drizzle/, drizzle/migrations/, migrations/, sql/",
+      description: "Migration directory path. Default: auto-detect drizzle/, drizzle/migrations/, prisma/migrations/, migrations/, sql/",
       required: false,
     },
     "dry-run": {
@@ -216,7 +216,7 @@ const migrateCommand = defineCommand({
     if (!migrationDir) {
       const msg = args.dir
         ? `Migration directory not found: ${args.dir}`
-        : "No migration directory found. Looked for: drizzle/, drizzle/migrations/, migrations/, sql/. Use --dir to specify.";
+        : "No migration directory found. Looked for: drizzle/, drizzle/migrations/, prisma/migrations/, migrations/, sql/. Use --dir to specify.";
       if (jsonMode) jsonOutput({ ok: false, error: "no_migration_dir", message: msg }, 1);
       consola.error(msg);
       process.exit(1);

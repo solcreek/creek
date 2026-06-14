@@ -70,6 +70,42 @@ describe("detectMigrationDir", () => {
     writeFileSync(join(testDir, "sql", "setup.sql"), "SELECT 1;");
     expect(detectMigrationDir(testDir)).toBe(join(testDir, "sql"));
   });
+
+  test("finds prisma/migrations/ with Prisma's nested <name>/migration.sql layout", () => {
+    mkdirSync(join(testDir, "prisma/migrations/20260614120000_init"), { recursive: true });
+    writeFileSync(join(testDir, "prisma/migrations", "migration_lock.toml"), 'provider = "sqlite"');
+    writeFileSync(
+      join(testDir, "prisma/migrations/20260614120000_init", "migration.sql"),
+      "CREATE TABLE Note (id INTEGER PRIMARY KEY, title TEXT);",
+    );
+    expect(detectMigrationDir(testDir)).toBe(join(testDir, "prisma/migrations"));
+  });
+
+  test("returns null for prisma/migrations/ with only the lock file (no migrations yet)", () => {
+    mkdirSync(join(testDir, "prisma/migrations"), { recursive: true });
+    writeFileSync(join(testDir, "prisma/migrations", "migration_lock.toml"), 'provider = "sqlite"');
+    expect(detectMigrationDir(testDir)).toBeNull();
+  });
+});
+
+// --- Prisma nested migration parsing ---
+
+describe("parseMigrationFiles — Prisma nested layout", () => {
+  test("uses subdir names as identifiers, sorted chronologically, skipping the lock file", () => {
+    const base = join(testDir, "prisma/migrations");
+    mkdirSync(join(base, "20260614130000_add_users"), { recursive: true });
+    mkdirSync(join(base, "20260614120000_init"), { recursive: true });
+    writeFileSync(join(base, "migration_lock.toml"), 'provider = "sqlite"');
+    writeFileSync(join(base, "20260614120000_init", "migration.sql"), "CREATE TABLE Note (id INTEGER);");
+    writeFileSync(join(base, "20260614130000_add_users", "migration.sql"), "CREATE TABLE User (id INTEGER);");
+
+    const files = parseMigrationFiles(base);
+    expect(files.map((f) => f.name)).toEqual([
+      "20260614120000_init",
+      "20260614130000_add_users",
+    ]);
+    expect(files[0]!.path).toBe(join(base, "20260614120000_init", "migration.sql"));
+  });
 });
 
 // --- parseMigrationFiles ---
