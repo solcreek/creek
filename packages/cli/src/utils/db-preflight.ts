@@ -15,8 +15,9 @@
  * Pure functions are exported for testing.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import consola from "consola";
 
 export type SqliteOrm = "prisma" | "drizzle";
 
@@ -224,4 +225,31 @@ export function migrationOfferPlan(opts: {
   if (!opts.migrationDir) return "none";
   if (opts.autoMigrate) return "run";
   return opts.tty ? "prompt" : "suggest";
+}
+
+/** Merged dependencies + devDependencies from the project's package.json. */
+export function readProjectDeps(cwd: string): Record<string, string | undefined> {
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+  } catch {
+    return {};
+  }
+}
+
+/** Real (consola + filesystem) PreflightIO for the deploy command. */
+export function makePreflightIO(cwd: string): PreflightIO {
+  const tomlPath = join(cwd, "creek.toml");
+  return {
+    readToml: () => (existsSync(tomlPath) ? readFileSync(tomlPath, "utf-8") : null),
+    writeToml: (content) => writeFileSync(tomlPath, content),
+    // DB provisioning is low-risk → default to yes.
+    confirm: async (message) =>
+      (await consola.prompt(message, { type: "confirm", initial: true })) as unknown as boolean,
+    log: (message) => consola.success(`  ${message}`),
+    warn: (message) => consola.warn(`  ${message}`),
+  };
 }

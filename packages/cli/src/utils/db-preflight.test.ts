@@ -9,6 +9,7 @@ import {
   prismaNeedsGenerate,
   runDatabasePreflight,
   migrationOfferPlan,
+  readProjectDeps,
   type PreflightIO,
 } from "./db-preflight.js";
 
@@ -240,6 +241,33 @@ describe("runDatabasePreflight", () => {
     expect(io.prompts).toHaveLength(0);
     expect(io.written).toBeNull();
     expect(io.warns.join(" ")).toMatch(/Database routes will fail/);
+  });
+});
+
+describe("readProjectDeps", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "creek-deps-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("merges dependencies and devDependencies", () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        dependencies: { "@prisma/adapter-better-sqlite3": "^7.8.0" },
+        devDependencies: { vitest: "^4.0.0" },
+      }),
+    );
+    const deps = readProjectDeps(cwd);
+    expect(deps["@prisma/adapter-better-sqlite3"]).toBe("^7.8.0");
+    expect(deps["vitest"]).toBe("^4.0.0");
+  });
+
+  test("returns {} when package.json is missing or invalid", () => {
+    expect(readProjectDeps(cwd)).toEqual({});
   });
 });
 

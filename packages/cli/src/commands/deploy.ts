@@ -32,6 +32,7 @@ import {
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { collectAssets } from "../utils/bundle.js";
+import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
@@ -429,6 +430,22 @@ export const deployCommand = defineCommand({
     }
 
     if (resolved) {
+      // Database deploy preflight: when the app uses Prisma/Drizzle on SQLite
+      // but creek.toml hasn't declared a database, confirm provisioning a D1
+      // (a cloud instance, separate from the local file) and re-resolve so the
+      // binding is included in this deploy. Confirm-first; no-op when already
+      // decided or non-interactive without --yes.
+      const dbPreflight = await runDatabasePreflight(
+        {
+          deps: readProjectDeps(cwd),
+          projectName: resolved.projectName,
+          tty: isTTY && !jsonMode,
+          autoYes: shouldAutoConfirm(args),
+        },
+        makePreflightIO(cwd),
+      );
+      if (dbPreflight.wroteToml) resolved = resolveConfig(cwd);
+
       if (!jsonMode) {
         consola.info(`  Detected: ${formatDetectionSummary(resolved)}`);
         for (const ub of resolved.unsupportedBindings) {
