@@ -33,6 +33,17 @@ export function sanitizeBranch(branch: string): string {
     .slice(0, 27);
 }
 
+// Durable Object bindings Next.js (via the Creek adapter / @opennextjs)
+// needs for ISR + tag cache. The DO classes are bundled in the worker.
+// Kept in sync with the production control-plane deploy path.
+const NEXTJS_DO_BINDINGS: WfPBinding[] = [
+  { type: "durable_object_namespace", name: "NEXT_CACHE_DO_QUEUE", class_name: "DOQueueHandler" },
+  { type: "durable_object_namespace", name: "NEXT_TAG_CACHE_DO_SHARDED", class_name: "DOShardedTagCache" },
+  { type: "durable_object_namespace", name: "NEXT_CACHE_DO_BUCKET_PURGE", class_name: "BucketCachePurge" },
+] as WfPBinding[];
+
+const NEXTJS_DO_MIGRATION_TAG = "v1";
+
 /**
  * Step 3: Deploy worker script with assets completion JWT, tags, and bindings.
  */
@@ -48,19 +59,30 @@ export async function deployScriptWithAssets(
   cronSchedules?: string[],
   compatibilityDate?: string,
   compatibilityFlags?: string[],
+  framework?: string | null,
 ): Promise<void> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
+
+  // Next.js (via the Creek adapter / @opennextjs/cloudflare) needs
+  // nodejs_compat_v2 for full Node module support (node:http, node:fs,
+  // worker_threads shims) and the DO bindings above for ISR/tag cache.
+  // Mirrors the production control-plane path so sandbox deploys reach
+  // parity — without this, SSR Next.js workers fail validation with
+  // "No such module node:http".
+  const isNext = framework === "nextjs";
+  const defaultFlags = isNext ? ["nodejs_compat_v2"] : ["nodejs_compat"];
+  const allBindings = isNext ? [...bindings, ...NEXTJS_DO_BINDINGS] : bindings;
 
   const metadata: Record<string, unknown> = {
     main_module: mainModule,
     // Prefer the bundle's declared compat date/flags — user bundles
     // can require newer Node API support (e.g. `@astrojs/cloudflare`
     // pulls in `node:fs` paths that only resolve on newer dates).
-    // Fall back to a conservative Creek default when unset.
+    // Fall back to a framework-aware Creek default when unset.
     compatibility_date: compatibilityDate ?? "2025-03-14",
-    compatibility_flags: compatibilityFlags ?? ["nodejs_compat"],
+    compatibility_flags: compatibilityFlags?.length ? compatibilityFlags : defaultFlags,
     tags,
-    bindings,
+    bindings: allBindings,
     assets: {
       jwt: completionJwt,
       config: assetsConfig ?? {},
@@ -75,20 +97,43 @@ export async function deployScriptWithAssets(
     // user worker dispatched through it.
   };
 
+  // DO migrations for Next.js SSR. A sandbox script is always a fresh
+  // name (unique sandboxId), so it's a first deploy → new_sqlite_classes.
+  // On an existing script the tag precondition fails; retry tag-only.
+  if (isNext) {
+    metadata.migrations = {
+      new_tag: NEXTJS_DO_MIGRATION_TAG,
+      new_sqlite_classes: ["DOQueueHandler", "DOShardedTagCache", "BucketCachePurge"],
+    };
+  }
+
   if (cronSchedules && cronSchedules.length > 0) {
     metadata.triggers = { crons: cronSchedules };
   }
 
-  const form = new FormData();
-  form.append(
-    "metadata",
-    new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-  );
-  for (const file of workerFiles) {
-    form.append(file.name, file);
+  async function attemptDeploy(meta: Record<string, unknown>): Promise<void> {
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify(meta)], { type: "application/json" }),
+    );
+    for (const file of workerFiles) {
+      form.append(file.name, file);
+    }
+    await cfApi(env, "PUT", path, form);
   }
 
-  await cfApi(env, "PUT", path, form);
+  try {
+    await attemptDeploy(metadata);
+  } catch (err) {
+    if (isNext && err instanceof Error && err.message.includes("migration tag precondition failed")) {
+      delete metadata.migrations;
+      metadata.migration_tag = NEXTJS_DO_MIGRATION_TAG;
+      await attemptDeploy(metadata);
+    } else {
+      throw err;
+    }
+  }
 }
 
 /**
@@ -241,6 +286,7 @@ export async function deployWithAssets(
       isProduction ? cronSchedules : undefined,
       input.compatibilityDate,
       input.compatibilityFlags,
+      input.framework,
     );
   }
 }

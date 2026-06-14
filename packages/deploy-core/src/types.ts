@@ -37,4 +37,10 @@ export interface DeployAssetsInput {
   compatibilityDate?: string;
   /** Override compat flags. Defaults to `["nodejs_compat"]`. */
   compatibilityFlags?: string[];
+  /**
+   * Detected framework. When `"nextjs"`, the deploy injects
+   * `nodejs_compat_v2` + the Next.js DO bindings/migrations (ISR/tag
+   * cache) so SSR workers validate — parity with the production path.
+   */
+  framework?: string | null;
 }

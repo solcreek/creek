@@ -528,6 +528,7 @@ async function runSandboxDeploy(
         bindings: deployBindings,
         compatibilityDate: bundle.compatibilityDate,
         compatibilityFlags: bundle.compatibilityFlags,
+        framework: bundle.framework,
       },
     );
 
