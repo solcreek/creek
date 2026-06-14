@@ -366,7 +366,7 @@ importers:
     dependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.30.0
-        version: 1.33.1(vite@7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3))(workerd@1.20260410.1)(wrangler@4.82.2(@cloudflare/workers-types@4.20260414.1))
+        version: 1.33.1(vite@7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3))(workerd@1.20260421.1)(wrangler@4.82.2(@cloudflare/workers-types@4.20260414.1))
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.2(vite@7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3))
@@ -835,6 +835,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260405.1
         version: 4.20260414.1
+      msw:
+        specifier: ^2.12.14
+        version: 2.13.2(@types/node@25.6.0)(typescript@5.9.3)
       typescript:
         specifier: ^5.8.2
         version: 5.9.3
@@ -8930,9 +8933,15 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260410.1
 
-  '@cloudflare/vite-plugin@1.33.1(vite@7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3))(workerd@1.20260410.1)(wrangler@4.82.2(@cloudflare/workers-types@4.20260414.1))':
+  '@cloudflare/unenv-preset@2.16.0(unenv@2.0.0-rc.24)(workerd@1.20260421.1)':
     dependencies:
-      '@cloudflare/unenv-preset': 2.16.0(unenv@2.0.0-rc.24)(workerd@1.20260410.1)
+      unenv: 2.0.0-rc.24
+    optionalDependencies:
+      workerd: 1.20260421.1
+
+  '@cloudflare/vite-plugin@1.33.1(vite@7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3))(workerd@1.20260421.1)(wrangler@4.82.2(@cloudflare/workers-types@4.20260414.1))':
+    dependencies:
+      '@cloudflare/unenv-preset': 2.16.0(unenv@2.0.0-rc.24)(workerd@1.20260421.1)
       miniflare: 4.20260421.0
       unenv: 2.0.0-rc.24
       vite: 7.3.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(tsx@4.21.0)(yaml@2.8.3)
