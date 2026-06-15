@@ -93,7 +93,16 @@ routes.post("/deploy", async (c) => {
     bindings?: Array<{ type: string; bindingName: string }>;
   };
   try {
-    body = await c.req.json();
+    // The CLI may gzip the (large, base64-asset-heavy) bundle to cut upload
+    // size ~6x. Signalled via a custom header — NOT standard Content-Encoding —
+    // so no edge/runtime auto-decompression interferes. Backward compatible:
+    // a plain JSON body (no header) still parses normally.
+    if ((c.req.header("x-creek-body-encoding") ?? "").includes("gzip") && c.req.raw.body) {
+      const stream = c.req.raw.body.pipeThrough(new DecompressionStream("gzip"));
+      body = JSON.parse(await new Response(stream).text());
+    } else {
+      body = await c.req.json();
+    }
   } catch {
     return c.json({ error: "validation", message: "Invalid or missing JSON body" }, 400);
   }
