@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { gunzipSync } from "node:zlib";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { sandboxDeploy, pollSandboxStatus, expiresInMinutes } from "./sandbox";
@@ -54,6 +55,49 @@ describe("sandboxDeploy", () => {
     expect(res.sandboxId).toBe("sb-1");
     expect(lastRequest?.body).toEqual(bundle);
     expect(lastRequest?.headers["content-type"]).toContain("application/json");
+  });
+
+  it("gzips a large bundle and signals it with the X-Creek-Body-Encoding header", async () => {
+    let raw: ArrayBuffer | null = null;
+    let hdrs: Record<string, string> = {};
+    server.use(
+      http.post(DEPLOY, async ({ request }) => {
+        hdrs = Object.fromEntries(request.headers);
+        raw = await request.arrayBuffer();
+        return HttpResponse.json({
+          sandboxId: "sb-gz",
+          status: "deploying",
+          statusUrl: STATUS,
+          previewUrl: "https://sb-gz.creeksandbox.test",
+          expiresAt: "2026-06-14T12:00:00Z",
+        });
+      }),
+    );
+    // Bundle big enough to cross the gzip threshold (256KB).
+    const big = { ...bundle, assets: { "big.js": "x".repeat(400_000) } };
+    const res = await sandboxDeploy(big);
+    expect(res.sandboxId).toBe("sb-gz");
+    expect(hdrs["x-creek-body-encoding"]).toBe("gzip");
+    // The gzipped body round-trips back to the original bundle.
+    const decoded = JSON.parse(gunzipSync(Buffer.from(raw!)).toString("utf-8"));
+    expect(decoded).toEqual(big);
+    // And it was actually smaller than the raw JSON.
+    expect(raw!.byteLength).toBeLessThan(JSON.stringify(big).length);
+  });
+
+  it("sends small bundles as plain JSON (no gzip header)", async () => {
+    server.use(
+      http.post(DEPLOY, async ({ request }) => {
+        lastRequest = { body: await request.json(), headers: Object.fromEntries(request.headers) };
+        return HttpResponse.json({
+          sandboxId: "sb-s", status: "deploying", statusUrl: STATUS,
+          previewUrl: "https://x.test", expiresAt: "2026-06-14T12:00:00Z",
+        });
+      }),
+    );
+    await sandboxDeploy(bundle);
+    expect(lastRequest?.headers["x-creek-body-encoding"]).toBeUndefined();
+    expect(lastRequest?.body).toEqual(bundle);
   });
 
   it("attaches ToS and agent-token headers when provided", async () => {

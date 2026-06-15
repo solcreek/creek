@@ -1,7 +1,13 @@
 import consola from "consola";
+import { gzipSync } from "node:zlib";
 import { getSandboxApiUrl } from "./config.js";
 import { isTTY } from "./output.js";
 import type { TosAcceptance } from "./tos.js";
+
+// Bundles with many base64-encoded assets are large (tens of MB). gzip the
+// JSON body so the upload is ~6x smaller; the sandbox-api decompresses when it
+// sees the X-Creek-Body-Encoding header (and still accepts plain JSON).
+const GZIP_MIN_BYTES = 256 * 1024;
 
 interface SandboxDeployResponse {
   sandboxId: string;
@@ -71,10 +77,19 @@ export async function sandboxDeploy(
     headers["X-Creek-ToS-Accepted-At"] = opts.tos.acceptedAt;
   }
 
+  const json = JSON.stringify(bundle);
+  // gzip large bodies; send the raw string for small ones (compression
+  // overhead isn't worth it and keeps the simple path simple).
+  let body: string | Uint8Array = json;
+  if (Buffer.byteLength(json) >= GZIP_MIN_BYTES) {
+    body = gzipSync(json);
+    headers["X-Creek-Body-Encoding"] = "gzip";
+  }
+
   const res = await fetch(`${apiUrl}/api/sandbox/deploy`, {
     method: "POST",
     headers,
-    body: JSON.stringify(bundle),
+    body,
   });
 
   if (!res.ok) {
@@ -90,7 +105,10 @@ export async function sandboxDeploy(
  */
 export async function pollSandboxStatus(statusUrl: string): Promise<SandboxStatusResponse> {
   const POLL_INTERVAL = 1000;
-  const POLL_TIMEOUT = 60_000;
+  // Server-side activation (decode assets + upload to WfP + provision
+  // resources) can take well over a minute for asset-heavy apps (tens of MB /
+  // 100+ assets). 60s was too tight and timed out legitimate large deploys.
+  const POLL_TIMEOUT = 180_000;
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT) {
