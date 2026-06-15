@@ -229,9 +229,11 @@ const PRISMA_D1_PKG = "@prisma/adapter-d1";
 //           worker that only fails at upload with "Payload Too Large")
 //   0.2.7 — zero-change Prisma-on-D1 swap
 //   0.2.10 — oversized-bundle fail-fast
+//   0.2.12 — never scan stale `.next/dev` (else a leftover dev build inflates
+//            the worker by orders of magnitude — a real deploy hit 202MB)
 // Kept at the latest because the reinstall cost is trivial and a cached copy
 // in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
-const ADAPTER_MIN_VERSION = "0.2.10";
+const ADAPTER_MIN_VERSION = "0.2.12";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
