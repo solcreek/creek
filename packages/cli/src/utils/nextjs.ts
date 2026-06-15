@@ -16,7 +16,7 @@ import { join, dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { execSync, execFileSync } from "node:child_process";
 import consola from "consola";
-import { prismaNeedsGenerate } from "./db-preflight.js";
+import { prismaNeedsGenerate, detectSqliteOrm, readProjectDeps } from "./db-preflight.js";
 
 // ---------------------------------------------------------------------------
 // Version detection + unified entry point
@@ -218,9 +218,8 @@ const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
 const ADAPTER_PKG = "@solcreek/adapter-creek";
 const ADAPTER_VERSION = "^0.2.2";
-// Zero-change Prisma-on-D1: the adapter's build-time swap targets this
-// adapter and imports @prisma/adapter-d1 (an optional peer it doesn't ship).
-const PRISMA_BSQLITE_PKG = "@prisma/adapter-better-sqlite3";
+// Zero-change Prisma-on-D1: the adapter's build-time swap imports
+// @prisma/adapter-d1 (an optional peer it doesn't ship), installed on demand.
 const PRISMA_D1_PKG = "@prisma/adapter-d1";
 // Minimum adapter the CLI will REUSE from a prior .creek install; older
 // cached copies are force-reinstalled. Each bump tracks a deploy-critical
@@ -343,16 +342,16 @@ function ensurePrismaClient(cwd: string): void {
  * version — the adapter packages release in lockstep with @prisma/client, so a
  * matching driver-adapter interface avoids subtle version skew.
  *
- * No-op unless @prisma/adapter-better-sqlite3 is present, or if adapter-d1 is
- * already resolvable (project dep or a prior .creek install).
+ * No-op unless the project declares @prisma/adapter-better-sqlite3, or if
+ * adapter-d1 is already resolvable (project dep or a prior .creek install).
  *
  * Exported for tests.
  */
 export function ensurePrismaD1(cwd: string): void {
-  const projectRequire = createRequire(join(cwd, "noop.js"));
-  try {
-    projectRequire.resolve(PRISMA_BSQLITE_PKG);
-  } catch {
+  // Detect intent from the project's OWN declared deps (deterministic), not
+  // module resolution — resolve() walks up node_modules and would
+  // false-positive on a copy hoisted elsewhere (e.g. a monorepo sibling).
+  if (detectSqliteOrm(readProjectDeps(cwd)) !== "prisma") {
     return; // Not a Prisma-on-D1 (better-sqlite3 adapter) project.
   }
 
@@ -369,7 +368,10 @@ export function ensurePrismaD1(cwd: string): void {
   let version = "latest";
   try {
     const clientPkg = JSON.parse(
-      readFileSync(projectRequire.resolve("@prisma/client/package.json"), "utf-8"),
+      readFileSync(
+        createRequire(join(cwd, "noop.js")).resolve("@prisma/client/package.json"),
+        "utf-8",
+      ),
     ) as { version?: string };
     if (clientPkg.version) version = clientPkg.version;
   } catch {
