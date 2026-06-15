@@ -222,12 +222,17 @@ const ADAPTER_VERSION = "^0.2.2";
 // adapter and imports @prisma/adapter-d1 (an optional peer it doesn't ship).
 const PRISMA_BSQLITE_PKG = "@prisma/adapter-better-sqlite3";
 const PRISMA_D1_PKG = "@prisma/adapter-d1";
-// Adapter < 0.2.2 resolves its dependencies against paths that don't exist
-// under the .creek lazy install (0.2.0: the cache handler; 0.2.1: the
-// wrangler bin) — npm hoists them to the top of the tree, so the adapter's
-// guessed nested paths fail every Next.js build. Installs below this are
-// re-installed, not reused.
-const ADAPTER_MIN_VERSION = "0.2.2";
+// Minimum adapter the CLI will REUSE from a prior .creek install; older
+// cached copies are force-reinstalled. Each bump tracks a deploy-critical
+// adapter fix that a stale cache would silently miss:
+//   0.2.2 — wrangler resolved via module resolution (not a nested .bin guess)
+//   0.2.6 — better-sqlite3 stubbed (else the native module inlines → a ~200MB
+//           worker that only fails at upload with "Payload Too Large")
+//   0.2.7 — zero-change Prisma-on-D1 swap
+//   0.2.10 — oversized-bundle fail-fast
+// Kept at the latest because the reinstall cost is trivial and a cached copy
+// in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
+const ADAPTER_MIN_VERSION = "0.2.10";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
