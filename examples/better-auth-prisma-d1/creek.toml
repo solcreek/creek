@@ -1,0 +1,12 @@
+[project]
+name = "better-auth-prisma-d1"
+
+[resources]
+# Creek provisions a Cloudflare D1 database and binds it as env.DB. The
+# adapter swaps the better-sqlite3 Prisma adapter onto it at build time, so
+# both the app and Better Auth run on D1 with no app-code change.
+database = true
+
+[release]
+# Apply prisma/migrations (Better Auth's tables included) to D1 before traffic.
+command = "creek db migrate --name better-auth-prisma-d1 --yes"

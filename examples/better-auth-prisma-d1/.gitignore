@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.creek/
+out/
+# Prisma client is generated (Creek runs `prisma generate` at deploy)
+/app/generated/
+# Local dev SQLite file
+/prisma/*.db
+/prisma/*.db-journal
+.env*
