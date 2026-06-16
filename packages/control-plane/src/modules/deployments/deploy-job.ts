@@ -66,8 +66,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     // Decode assets from base64 to ArrayBuffer
     const decodedClientAssets: Record<string, ArrayBuffer> = {};
     for (const [path, b64] of Object.entries(bundle.assets)) {
-      const binary = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
-      decodedClientAssets[path] = binary.buffer;
+      decodedClientAssets[path] = base64ToArrayBuffer(b64);
     }
 
     const decodedServerFiles: Record<string, ArrayBuffer> | undefined =
@@ -75,7 +74,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
         ? Object.fromEntries(
             Object.entries(bundle.serverFiles).map(([path, b64]) => [
               path,
-              Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)).buffer,
+              base64ToArrayBuffer(b64),
             ]),
           )
         : undefined;
@@ -254,6 +253,20 @@ async function setDeploymentStatus(env: Env, deploymentId: string, status: strin
   )
     .bind(status, Date.now(), deploymentId)
     .run();
+}
+
+/**
+ * Decode a base64 string to an ArrayBuffer. Writes into a pre-allocated typed
+ * array with a tight index loop rather than `Uint8Array.from(atob(b64), fn)`,
+ * which invokes a callback per byte — measurably slower across an asset-heavy
+ * bundle's tens of MB.
+ */
+export function base64ToArrayBuffer(b64: string): ArrayBuffer {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
 
 /** How often to beat updatedAt during a long edge deploy. */

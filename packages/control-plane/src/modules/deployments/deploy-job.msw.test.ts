@@ -107,6 +107,31 @@ describe("runDeployJob (integration via MSW)", () => {
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("uploading");
   });
+
+  it("uploads every bucket the session asks for (bounded-concurrency loop)", async () => {
+    const UPLOAD = "https://api.cloudflare.com/client/v4/accounts/:acc/workers/assets/upload";
+    const BUCKETS = [["h1"], ["h2"], ["h3"], ["h4"], ["h5"], ["h6"], ["h7"]]; // > CONCURRENCY (6)
+    let uploadCalls = 0;
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: BUCKETS }, errors: [] }),
+      ),
+      http.post(UPLOAD, () => {
+        uploadCalls++;
+        return HttpResponse.json({ success: true, result: { jwt: "completion-jwt" }, errors: [] });
+      }),
+      http.put(NS, () => HttpResponse.json({ success: true, result: { id: "script" }, errors: [] })),
+    );
+
+    await stageBundle();
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    // Every bucket uploaded, none dropped by the concurrency pool: the count is
+    // a whole multiple of the 7 buckets (once per deployed script).
+    expect(uploadCalls).toBeGreaterThanOrEqual(BUCKETS.length);
+    expect(uploadCalls % BUCKETS.length).toBe(0);
+  });
 });
 
 describe("withDeployHeartbeat", () => {

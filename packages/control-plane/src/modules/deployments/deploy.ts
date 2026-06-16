@@ -106,20 +106,36 @@ async function uploadAssetFiles(
   hashToPath: Record<string, string>,
 ): Promise<string> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/assets/upload?base64=true`;
-  let completionJwt = "";
 
-  for (const bucket of buckets) {
+  const buildForm = (bucket: string[]): FormData => {
     const form = new FormData();
     for (const hash of bucket) {
       const filePath = hashToPath[hash];
       if (!filePath || !assets[filePath]) continue;
-      const b64 = arrayBufferToBase64(assets[filePath]);
-      form.append(hash, b64);
+      form.append(hash, arrayBufferToBase64(assets[filePath]));
     }
+    return form;
+  };
 
-    const result = await cfApi(env, "POST", path, form, uploadJwt) as AssetUploadResponse;
-    completionJwt = result.jwt ?? completionJwt;
+  // Upload buckets with bounded concurrency rather than one-at-a-time. A serial
+  // loop over an asset-heavy app's buckets (tens of MB) is the bulk of a
+  // multi-minute "deploying to edge" step. Each bucket POST is independent (all
+  // use the same uploadJwt); Cloudflare returns the session completion JWT once
+  // every file is received, so we keep the last non-empty jwt across responses.
+  // Mirrors deploy-core's uploadAssetFiles — the two should be consolidated.
+  const CONCURRENCY = 6;
+  let completionJwt = "";
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < buckets.length) {
+      const bucket = buckets[next++];
+      const result = (await cfApi(env, "POST", path, buildForm(bucket), uploadJwt)) as AssetUploadResponse;
+      if (result.jwt) completionJwt = result.jwt;
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()),
+  );
 
   return completionJwt;
 }
@@ -245,11 +261,17 @@ async function deployScriptWithAssets(
   }
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
+  // Build the binary string in chunks via fromCharCode.apply instead of
+  // appending one char at a time. Per-byte concatenation reallocates the
+  // string on every byte and is pathologically slow for MB-sized assets (the
+  // CPU half of a slow edge deploy); chunking makes it linear. 32KB keeps the
+  // apply() argument count well under engine limits.
+  const CHUNK = 0x8000;
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(binary);
 }
