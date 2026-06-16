@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
-import { runDeployJob } from "./deploy-job.js";
+import { runDeployJob, withDeployHeartbeat } from "./deploy-job.js";
 
 // Integration: drives the full async deploy pipeline (read R2 bundle ->
 // provision -> deploy to WfP -> status) against a real test DB + R2, with
@@ -106,5 +106,71 @@ describe("runDeployJob (integration via MSW)", () => {
     const row = deploymentRow();
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("uploading");
+  });
+});
+
+describe("withDeployHeartbeat", () => {
+  function updatedAt(): number {
+    return (
+      testEnv.db.db.prepare("SELECT updatedAt FROM deployment WHERE id = 'dep-1'").get() as {
+        updatedAt: number;
+      }
+    ).updatedAt;
+  }
+  function setDeploying(staleMs: number): void {
+    testEnv.db.db
+      .prepare("UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = 'dep-1'")
+      .run(Date.now() - staleMs);
+  }
+
+  it("advances updatedAt while a slow deploy is in flight", async () => {
+    setDeploying(10 * 60 * 1000); // looks stale to the reaper
+    const before = updatedAt();
+    await withDeployHeartbeat(
+      testEnv.env,
+      "dep-1",
+      () => new Promise((r) => setTimeout(r, 70)), // outlives ~3 beats
+      20,
+    );
+    expect(updatedAt()).toBeGreaterThan(before);
+    // Beaten to roughly "now", no longer stale.
+    expect(Date.now() - updatedAt()).toBeLessThan(60 * 1000);
+  });
+
+  it("returns the wrapped function's value and stops beating after it settles", async () => {
+    setDeploying(0);
+    const result = await withDeployHeartbeat(testEnv.env, "dep-1", async () => "ok", 20);
+    expect(result).toBe("ok");
+    const settled = updatedAt();
+    await new Promise((r) => setTimeout(r, 60)); // would be >2 beats if still running
+    expect(updatedAt()).toBe(settled); // no further beats
+  });
+
+  it("propagates the wrapped function's error (and still stops beating)", async () => {
+    setDeploying(0);
+    await expect(
+      withDeployHeartbeat(testEnv.env, "dep-1", async () => {
+        throw new Error("deploy boom");
+      }, 20),
+    ).rejects.toThrow("deploy boom");
+  });
+
+  it("does not resurrect a row the reaper already failed", async () => {
+    // Reaper marks it failed mid-deploy; a late heartbeat must not flip it back.
+    testEnv.db.db
+      .prepare("UPDATE deployment SET status = 'failed', updatedAt = ? WHERE id = 'dep-1'")
+      .run(Date.now() - 1000);
+    const before = updatedAt();
+    await withDeployHeartbeat(
+      testEnv.env,
+      "dep-1",
+      () => new Promise((r) => setTimeout(r, 50)),
+      20,
+    );
+    // status guard means the beats no-op'd; updatedAt untouched.
+    expect(updatedAt()).toBe(before);
+    expect(
+      (testEnv.db.db.prepare("SELECT status FROM deployment WHERE id = 'dep-1'").get() as { status: string }).status,
+    ).toBe("failed");
   });
 });

@@ -181,8 +181,16 @@ export { app };
 
 // --- Scheduled jobs (cron trigger) ---
 
+// A deploy job beats updatedAt every ~60s while it's actively progressing
+// (see withDeployHeartbeat in deploy-job.ts). So a deployment whose updatedAt
+// has gone quiet for this long is genuinely stuck — its waitUntil context died
+// — not merely slow. Kept comfortably above the heartbeat interval so a few
+// missed beats (event-loop saturation during a large upload) don't false-kill
+// a live deploy.
+const STALE_DEPLOY_MS = 10 * 60 * 1000;
+
 async function sweepStaleDeployments(db: D1Database): Promise<number> {
-  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+  const staleBefore = Date.now() - STALE_DEPLOY_MS;
   const result = await db.prepare(
     `UPDATE deployment
      SET status = 'failed',
@@ -191,7 +199,7 @@ async function sweepStaleDeployments(db: D1Database): Promise<number> {
          updatedAt = ?
      WHERE status IN ('uploading', 'provisioning', 'deploying')
        AND updatedAt < ?`,
-  ).bind(Date.now(), fiveMinutesAgo).run();
+  ).bind(Date.now(), staleBefore).run();
   return result.meta.changes ?? 0;
 }
 

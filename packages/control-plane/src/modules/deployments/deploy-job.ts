@@ -150,27 +150,36 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     await setDeploymentStatus(env, deploymentId, "deploying");
 
     try {
-      await deployWithAssets(
-        env,
-        projectSlug,
-        teamSlug,
-        deploymentId,
-        {
-          clientAssets: decodedClientAssets,
-          serverFiles: decodedServerFiles,
-          renderMode,
-          teamId,
-          teamSlug,
+      // Uploading an asset-heavy app's files to the edge can legitimately run
+      // for several minutes. The stale-deploy reaper fails any deployment whose
+      // updatedAt is older than its threshold, so without a heartbeat a
+      // slow-but-progressing upload gets killed mid-flight ("Deploy timed
+      // out"). Beat updatedAt on an interval for the duration of the deploy so
+      // the reaper only fires when the job is genuinely stuck (its waitUntil
+      // context died and the heartbeat stopped).
+      await withDeployHeartbeat(env, deploymentId, () =>
+        deployWithAssets(
+          env,
           projectSlug,
-          plan,
-          bindings,
-          compatibilityDate: bundle.compatibilityDate,
-          compatibilityFlags: bundle.compatibilityFlags,
-          framework: input.framework ?? null,
-          cronSchedules: bundle.cron,
-        },
-        branch,
-        productionBranch,
+          teamSlug,
+          deploymentId,
+          {
+            clientAssets: decodedClientAssets,
+            serverFiles: decodedServerFiles,
+            renderMode,
+            teamId,
+            teamSlug,
+            projectSlug,
+            plan,
+            bindings,
+            compatibilityDate: bundle.compatibilityDate,
+            compatibilityFlags: bundle.compatibilityFlags,
+            framework: input.framework ?? null,
+            cronSchedules: bundle.cron,
+          },
+          branch,
+          productionBranch,
+        ),
       );
     } catch (err) {
       throw new StepError("deploying", err instanceof Error ? err.message : String(err));
@@ -245,6 +254,64 @@ async function setDeploymentStatus(env: Env, deploymentId: string, status: strin
   )
     .bind(status, Date.now(), deploymentId)
     .run();
+}
+
+/** How often to beat updatedAt during a long edge deploy. */
+export const DEPLOY_HEARTBEAT_MS = 60_000;
+
+/**
+ * Touch updatedAt to signal the deploy is still progressing. Guarded on
+ * status = 'deploying' so it never resurrects a row the reaper already failed
+ * (avoids racing the stale-deploy sweep).
+ */
+async function touchDeployment(env: Env, deploymentId: string): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE deployment SET updatedAt = ? WHERE id = ? AND status = 'deploying'",
+  )
+    .bind(Date.now(), deploymentId)
+    .run();
+}
+
+/**
+ * Run `fn` while beating updatedAt every DEPLOY_HEARTBEAT_MS, so the
+ * stale-deploy reaper treats a slow-but-progressing deploy as alive. The
+ * heartbeat stops as soon as `fn` settles (success or failure).
+ */
+export async function withDeployHeartbeat<T>(
+  env: Env,
+  deploymentId: string,
+  fn: () => Promise<T>,
+  intervalMs: number = DEPLOY_HEARTBEAT_MS,
+): Promise<T> {
+  let done = false;
+  // Cancellable sleep: when fn settles we must wake the pending interval
+  // immediately, otherwise `await beat` (and the deploy going active) would
+  // block until the full interval elapses.
+  let wake: () => void = () => {};
+  const beat = (async () => {
+    while (!done) {
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, intervalMs);
+        wake = () => {
+          clearTimeout(t);
+          resolve();
+        };
+      });
+      if (done) break;
+      try {
+        await touchDeployment(env, deploymentId);
+      } catch {
+        // A failed heartbeat is non-fatal — the deploy itself is the work.
+      }
+    }
+  })();
+  try {
+    return await fn();
+  } finally {
+    done = true;
+    wake();
+    await beat;
+  }
 }
 
 async function failDeployment(
