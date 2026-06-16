@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { CreekClient } from "@solcreek/sdk";
 import { createResourceCommand } from "./resource-cmd.js";
-import { detectMigrationDir, parseMigrationFiles, splitStatements, computePending } from "./migrate.js";
+import { detectMigrationDir, parseMigrationFiles, splitStatements, computePending, batchStatements } from "./migrate.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 
@@ -302,19 +302,24 @@ const migrateCommand = defineCommand({
 
       consola.start(`  ${file.name} (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
 
-      let failed = false;
-      for (let i = 0; i < statements.length; i++) {
+      // Send each file's statements in as few requests as possible. D1's
+      // /query runs a multi-statement string in one round-trip, so a 24-table
+      // schema applies in ~1 request instead of dozens — what made `creek db
+      // migrate` feel slow was the per-statement HTTP latency, not D1 itself.
+      const batches = batchStatements(statements);
+      for (const batch of batches) {
         try {
-          await client.queryDatabase(db.id, statements[i]);
+          await client.queryDatabase(db.id, batch);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          consola.error(`  ${file.name} — statement ${i + 1}/${statements.length} failed: ${msg}`);
+          // The server's D1 error names the offending statement's SQL, so we
+          // surface that rather than a now-meaningless global index.
+          consola.error(`  ${file.name} — failed: ${msg}`);
           if (jsonMode) {
             jsonOutput({
               ok: false,
               error: "migration_failed",
               file: file.name,
-              statement: i + 1,
               totalStatements: statements.length,
               message: msg,
               migrated,

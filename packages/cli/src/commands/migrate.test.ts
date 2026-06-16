@@ -8,6 +8,8 @@ import {
   parseMigrationFiles,
   splitStatements,
   computePending,
+  batchStatements,
+  MAX_BATCH_BYTES,
   type MigrationFile,
 } from "./migrate.js";
 
@@ -265,6 +267,56 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 });
 
 // --- computePending ---
+
+// --- batchStatements ---
+
+describe("batchStatements", () => {
+  test("packs small statements into a single batch", () => {
+    const batches = batchStatements([
+      "CREATE TABLE a (id INT);",
+      "CREATE TABLE b (id INT);",
+      "CREATE TABLE c (id INT);",
+    ]);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toContain("CREATE TABLE a");
+    expect(batches[0]).toContain("CREATE TABLE c");
+  });
+
+  test("preserves statement order within a batch", () => {
+    const batches = batchStatements(["SELECT 1;", "SELECT 2;", "SELECT 3;"]);
+    expect(batches[0]).toBe("SELECT 1;\nSELECT 2;\nSELECT 3;");
+  });
+
+  test("splits into multiple batches when the byte limit is exceeded", () => {
+    const big = `SELECT '${"x".repeat(40)}';`; // ~50 bytes each
+    const batches = batchStatements([big, big, big], 100);
+    // Two fit per 100-byte batch (50 + 1 + 50 = 101 > 100 → actually one each)
+    expect(batches.length).toBeGreaterThan(1);
+    // Every batch stays within the limit.
+    for (const b of batches) expect(Buffer.byteLength(b)).toBeLessThanOrEqual(100);
+  });
+
+  test("an oversize single statement becomes its own batch (not dropped)", () => {
+    const huge = `SELECT '${"y".repeat(200)}';`;
+    const batches = batchStatements([huge], 100);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toBe(huge);
+  });
+
+  test("skips empty/whitespace statements", () => {
+    const batches = batchStatements(["SELECT 1;", "   ", "", "SELECT 2;"]);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toBe("SELECT 1;\nSELECT 2;");
+  });
+
+  test("returns [] for no statements", () => {
+    expect(batchStatements([])).toEqual([]);
+  });
+
+  test("default limit leaves headroom under the control-plane 100KB cap", () => {
+    expect(MAX_BATCH_BYTES).toBeLessThan(100_000);
+  });
+});
 
 describe("computePending", () => {
   const files: MigrationFile[] = [
