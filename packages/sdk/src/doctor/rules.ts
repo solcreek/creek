@@ -332,6 +332,65 @@ const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: auth framework needs a runtime secret set via `creek env set` ──
+//
+// The deploy-then-500 trap: an auth library (Better Auth, Auth.js) builds
+// fine and ships, but at runtime its handler throws because a required
+// secret env var isn't set on the deployed project. There is NO build
+// error — the worker activates, every page that touches auth (login,
+// get-session) returns 500, and the user has no breadcrumb pointing at the
+// missing env. Build-time config can't carry these (a secret in the bundle
+// would be a leak); they must be set with `creek env set`, which is easy to
+// forget after a fresh deploy or an account claim. This rule surfaces the
+// requirement before the 500 does.
+//
+// We can't verify the secret is actually set (it lives in the project's
+// remote encrypted env store, not anything on disk), so this is a `warn`
+// reminder keyed purely on the dependency — cheap to dismiss when already
+// set, and the one thing that turns a silent 500 into an obvious fix.
+
+interface SecretRequirement {
+  /** package.json dependency that signals the framework. */
+  dep: string;
+  /** Human label for the framework. */
+  label: string;
+  /** Required runtime secret env var names. */
+  envVars: string[];
+}
+
+const SECRET_REQUIRING_DEPS: SecretRequirement[] = [
+  { dep: "better-auth", label: "Better Auth", envVars: ["BETTER_AUTH_SECRET"] },
+  { dep: "next-auth", label: "Auth.js (NextAuth)", envVars: ["AUTH_SECRET"] },
+  { dep: "@auth/core", label: "Auth.js", envVars: ["AUTH_SECRET"] },
+];
+
+const CK_AUTH_SECRET: Rule = (ctx) => {
+  const hits = SECRET_REQUIRING_DEPS.filter((r) => ctx.allDeps[r.dep]);
+  if (hits.length === 0) return [];
+  const label = hits[0].label;
+  // Dedupe env vars across matched libs (e.g. next-auth + @auth/core).
+  const envVars = [...new Set(hits.flatMap((h) => h.envVars))];
+  const setLines = envVars
+    .map((v) =>
+      v === "BETTER_AUTH_SECRET" || v === "AUTH_SECRET"
+        ? `  creek env set ${v} "$(openssl rand -base64 32)"`
+        : `  creek env set ${v} <value>`,
+    )
+    .join("\n");
+  return [
+    {
+      code: "CK-AUTH-SECRET",
+      severity: "warn",
+      title: `${label} detected — set its runtime secret(s) with \`creek env set\``,
+      detail:
+        `${label} requires ${envVars.join(", ")} at runtime. This is NOT part of your build — a secret can't ship in the bundle — so it lives in the project's deployed env, set with \`creek env set\`. If it's missing, the deploy still succeeds and the worker activates, but every request through the auth handler (login, get-session, OAuth callback) returns 500 with no build error and no log breadcrumb. Setting up a fresh project or claiming a sandbox into production is the common moment this gets forgotten. If you also use an OAuth provider, its client ID/secret env vars are required too.`,
+      fix:
+        `Set the secret on the deployed project, then redeploy:\n${setLines}\n  creek deploy\n\nCheck what's already set with \`creek env ls\`. (Already set? You can ignore this.)`,
+      references: ["package.json"],
+    },
+  ];
+};
+
 // ─── Rule: split db.local.ts + db.prod.ts (or equivalents) ──────────────
 //
 // Agents frequently propose this pattern to work around perceived
@@ -394,6 +453,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
   CK_DB_DUAL_DRIVER_SPLIT,
+  CK_AUTH_SECRET,
 ];
 
 // Named exports for tests to target individual rules.
@@ -409,6 +469,7 @@ export const rules = {
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
   CK_DB_DUAL_DRIVER_SPLIT,
+  CK_AUTH_SECRET,
 } satisfies Record<string, Rule>;
 
 // Helper used by the runner so rules don't have to normalize inputs.

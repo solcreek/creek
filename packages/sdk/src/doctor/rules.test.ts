@@ -324,6 +324,59 @@ describe("CK-PRISMA-SQLITE", () => {
   });
 });
 
+// ─── CK-AUTH-SECRET ─────────────────────────────────────────────────────
+
+describe("CK-AUTH-SECRET", () => {
+  test("fires as WARN for better-auth and names BETTER_AUTH_SECRET", () => {
+    const ctx = buildCtx({ allDeps: { "better-auth": "^1.0.0" } });
+    const findings = rules.CK_AUTH_SECRET(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-AUTH-SECRET");
+    expect(findings[0].severity).toBe("warn");
+    expect(findings[0].title).toContain("Better Auth");
+    expect(findings[0].detail).toContain("BETTER_AUTH_SECRET");
+    // The fix must point at `creek env set`, not a build-time config.
+    expect(findings[0].fix).toContain("creek env set BETTER_AUTH_SECRET");
+    expect(findings[0].fix).toContain("creek deploy");
+  });
+
+  test("fires for Auth.js (next-auth) and names AUTH_SECRET", () => {
+    const ctx = buildCtx({ allDeps: { "next-auth": "^5.0.0" } });
+    const findings = rules.CK_AUTH_SECRET(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].detail).toContain("AUTH_SECRET");
+    expect(findings[0].fix).toContain("creek env set AUTH_SECRET");
+  });
+
+  test("dedupes the env var when next-auth + @auth/core are both present", () => {
+    const ctx = buildCtx({
+      allDeps: { "next-auth": "^5.0.0", "@auth/core": "^0.37.0" },
+    });
+    const findings = rules.CK_AUTH_SECRET(ctx);
+    expect(findings).toHaveLength(1);
+    // AUTH_SECRET appears once in the detail's required list (no dup).
+    const occurrences = findings[0].detail.split("AUTH_SECRET").length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  test("silent when no auth framework is present", () => {
+    const ctx = buildCtx({ allDeps: { "drizzle-orm": "^0.36.0" } });
+    expect(rules.CK_AUTH_SECRET(ctx)).toEqual([]);
+  });
+
+  test("does not affect ok (warning, not error)", () => {
+    const report = runDoctor(
+      buildCtx({
+        resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+        fileExists: (p) => p === "worker/index.ts",
+        allDeps: { "better-auth": "^1.0.0" },
+      }),
+    );
+    expect(report.ok).toBe(true);
+    expect(report.summary.warn).toBeGreaterThan(0);
+  });
+});
+
 // ─── CK-SYNC-SQLITE × CK-PRISMA-SQLITE cross-reference ──────────────────
 
 describe("SQLite findings cross-reference when both deps present", () => {
