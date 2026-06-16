@@ -194,16 +194,24 @@ describe("parseHostnameWithTeams", () => {
 });
 
 describe("getLimitsForPlan", () => {
+  // Values must stay high enough to run an SSR render + cold Prisma WASM start
+  // (hundreds of ms of CPU) — the prior 10ms free limit threw "exceeded CPU
+  // time limit" on every SSR route.
   test("free plan limits", () => {
-    expect(getLimitsForPlan("free")).toEqual({ cpuMs: 10, subRequests: 5 });
+    expect(getLimitsForPlan("free")).toEqual({ cpuMs: 1000, subRequests: 50 });
   });
 
   test("pro plan limits", () => {
-    expect(getLimitsForPlan("pro")).toEqual({ cpuMs: 50, subRequests: 50 });
+    expect(getLimitsForPlan("pro")).toEqual({ cpuMs: 5000, subRequests: 200 });
   });
 
   test("enterprise plan limits", () => {
-    expect(getLimitsForPlan("enterprise")).toEqual({ cpuMs: 500, subRequests: 1000 });
+    expect(getLimitsForPlan("enterprise")).toEqual({ cpuMs: 30000, subRequests: 1000 });
+  });
+
+  test("free plan CPU ceiling clears a typical SSR + cold-WASM render", () => {
+    // Guard the regression: an SSR app needs materially more than the old 10ms.
+    expect(getLimitsForPlan("free").cpuMs).toBeGreaterThanOrEqual(500);
   });
 
   test("unknown plan falls back to free", () => {

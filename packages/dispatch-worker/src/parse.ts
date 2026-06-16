@@ -12,10 +12,19 @@ export interface TeamInfo {
   plan: string;
 }
 
+// Per-plan CPU + subrequest ceilings the dispatch Worker applies to each user
+// worker via `DISPATCHER.get(name, {}, { limits })`. CPU time excludes I/O
+// waits (D1/fetch/KV don't count), but an SSR render plus a cold Prisma
+// query-compiler WASM start can still cost hundreds of ms of pure CPU — and a
+// page makes several subrequests. The earlier values (free 10ms / 5 reqs) were
+// CF's doc-example numbers and throttled every SSR + database app to an
+// immediate "exceeded CPU time limit" exception on every route. These track
+// closer to the platform CPU defaults (Workers Paid default is 30,000ms) so
+// SSR works on every plan, with headroom widening up the tiers.
 export const PLAN_LIMITS: Record<string, { cpuMs: number; subRequests: number }> = {
-  free:       { cpuMs: 10,  subRequests: 5 },
-  pro:        { cpuMs: 50,  subRequests: 50 },
-  enterprise: { cpuMs: 500, subRequests: 1000 },
+  free:       { cpuMs: 1000,  subRequests: 50 },
+  pro:        { cpuMs: 5000,  subRequests: 200 },
+  enterprise: { cpuMs: 30000, subRequests: 1000 },
 };
 
 export function getLimitsForPlan(plan: string) {
