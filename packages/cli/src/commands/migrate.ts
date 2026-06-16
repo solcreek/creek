@@ -141,3 +141,32 @@ export function computePending(
 ): MigrationFile[] {
   return files.filter((f) => !applied.has(f.name));
 }
+
+// --- Collect migrations for sandbox seeding ---
+
+export interface MigrationBundle {
+  /** Migration identifier (file or dir name), in apply order. */
+  name: string;
+  /** Individual SQL statements to run in order. */
+  statements: string[];
+}
+
+/**
+ * Read all migrations from the auto-detected directory as ordered SQL
+ * statements, for the sandbox to apply to its ephemeral D1 (so DB-backed
+ * routes work in the preview without `creek db migrate`). Returns [] when no
+ * migration directory is found.
+ */
+export function collectMigrations(cwd: string): MigrationBundle[] {
+  const dir = detectMigrationDir(cwd);
+  if (!dir) return [];
+  return parseMigrationFiles(dir)
+    .map((file) => {
+      try {
+        return { name: file.name, statements: splitStatements(readFileSync(file.path, "utf-8")) };
+      } catch {
+        return { name: file.name, statements: [] };
+      }
+    })
+    .filter((m) => m.statements.length > 0);
+}

@@ -48,6 +48,12 @@ export async function sandboxDeploy(
      * in the user's Worker without any auth or extra setup.
      */
     bindings?: Array<{ type: string; bindingName: string }>;
+    /**
+     * User migrations (prisma/migrations, drizzle/, …) collected by the CLI.
+     * Sandbox-api applies them to the provisioned ephemeral D1 so DB-backed
+     * routes work in the preview without `creek db migrate`.
+     */
+    migrations?: Array<{ name: string; statements: string[] }>;
     /** Compat overrides — required for Node-API-heavy bundles. */
     compatibilityDate?: string;
     compatibilityFlags?: string[];

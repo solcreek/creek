@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env } from "./types.js";
-import { deployWithAssets, shortDeployId } from "@solcreek/deploy-core";
+import { deployWithAssets, shortDeployId, execD1Query } from "@solcreek/deploy-core";
 import { provisionSandboxResources } from "./provision.js";
 import { scanBundle } from "./scan.js";
 import { verifyAgentToken } from "./agent-challenge.js";
@@ -91,6 +91,8 @@ routes.post("/deploy", async (c) => {
      * actually boot their `env.DB` / `env.MEDIA` bindings.
      */
     bindings?: Array<{ type: string; bindingName: string }>;
+    // User migrations (collected by the CLI) applied to the ephemeral D1.
+    migrations?: Array<{ name: string; statements: string[] }>;
   };
   try {
     // The CLI may gzip the (large, base64-asset-heavy) bundle to cut upload
@@ -464,6 +466,10 @@ async function runSandboxDeploy(
     compatibilityDate?: string;
     compatibilityFlags?: string[];
     bindings?: Array<{ type: string; bindingName: string }>;
+    // User migrations (prisma/migrations, drizzle/, …) collected by the CLI,
+    // applied to the provisioned ephemeral D1 so DB-backed routes work in the
+    // preview without `creek db migrate`.
+    migrations?: Array<{ name: string; statements: string[] }>;
   },
 ) {
   try {
@@ -514,6 +520,27 @@ async function runSandboxDeploy(
       )
         .bind(JSON.stringify(provisioned), sandboxId)
         .run();
+    }
+
+    // Apply the user's migrations to the freshly-provisioned D1 so DB-backed
+    // routes (and Better Auth) work in the preview without `creek db migrate`.
+    // Target the "DB" binding (the database resource), falling back to the
+    // first provisioned D1. Statements run in order; a failure aborts the
+    // deploy with a clear message (caught below as failedStep "deploying").
+    if (bundle.migrations?.length && provisioned.d1?.length) {
+      const target =
+        provisioned.d1.find((d) => d.binding === "DB") ?? provisioned.d1[0];
+      for (const migration of bundle.migrations) {
+        for (const statement of migration.statements) {
+          try {
+            await execD1Query(env, target.id, statement);
+          } catch (err) {
+            throw new Error(
+              `migration ${migration.name} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      }
     }
 
     // Deploy to WfP sandbox namespace — single script (no branch/production variants)

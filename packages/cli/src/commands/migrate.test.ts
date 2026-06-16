@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   detectMigrationDir,
+  collectMigrations,
   parseMigrationFiles,
   splitStatements,
   computePending,
@@ -299,5 +300,41 @@ describe("computePending", () => {
 
   test("empty file list returns empty", () => {
     expect(computePending([], new Set(["anything"]))).toEqual([]);
+  });
+});
+
+// --- collectMigrations (sandbox seeding) ---
+
+describe("collectMigrations", () => {
+  test("returns [] when no migration directory exists", () => {
+    expect(collectMigrations(testDir)).toEqual([]);
+  });
+
+  test("reads migrations as ordered named statement groups (Drizzle breakpoints)", () => {
+    mkdirSync(join(testDir, "drizzle"));
+    writeFileSync(
+      join(testDir, "drizzle", "0000_init.sql"),
+      'CREATE TABLE "user" (id text);\n--> statement-breakpoint\nCREATE TABLE "session" (id text);',
+    );
+    writeFileSync(join(testDir, "drizzle", "0001_more.sql"), "CREATE TABLE note (id integer);");
+
+    const migrations = collectMigrations(testDir);
+    expect(migrations.map((m) => m.name)).toEqual(["0000_init.sql", "0001_more.sql"]);
+    expect(migrations[0].statements).toHaveLength(2); // split on the breakpoint
+    expect(migrations[0].statements[0]).toContain('CREATE TABLE "user"');
+    expect(migrations[1].statements).toHaveLength(1);
+  });
+
+  test("handles Prisma's nested <name>/migration.sql layout", () => {
+    mkdirSync(join(testDir, "prisma/migrations/20260101_init"), { recursive: true });
+    writeFileSync(join(testDir, "prisma/migrations", "migration_lock.toml"), 'provider = "sqlite"');
+    writeFileSync(
+      join(testDir, "prisma/migrations/20260101_init", "migration.sql"),
+      "CREATE TABLE Note (id INTEGER PRIMARY KEY);",
+    );
+    const migrations = collectMigrations(testDir);
+    expect(migrations).toHaveLength(1);
+    expect(migrations[0].name).toBe("20260101_init");
+    expect(migrations[0].statements[0]).toContain("CREATE TABLE Note");
   });
 });

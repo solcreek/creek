@@ -66,6 +66,24 @@ export async function deleteD1Database(
   );
 }
 
+/**
+ * Run a single SQL statement against a D1 database via the REST query API.
+ * Used to apply user migrations to a freshly-provisioned database (e.g. a
+ * sandbox's ephemeral D1) so DB-backed routes work in the preview.
+ */
+export async function execD1Query(
+  env: DeployEnv,
+  databaseId: string,
+  sql: string,
+): Promise<void> {
+  await cfApi(
+    env,
+    "POST",
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${databaseId}/query`,
+    { sql },
+  );
+}
+
 // --- R2 ---
 
 /**

@@ -3,6 +3,7 @@ import {
   createD1Database,
   getD1DatabaseByName,
   deleteD1Database,
+  execD1Query,
   createR2Bucket,
   r2BucketExists,
   deleteR2Bucket,
@@ -72,6 +73,20 @@ describe("D1 database operations", () => {
     const call = (globalThis.fetch as any).mock.calls[0];
     expect(call[0]).toContain("/d1/database/d1-uuid");
     expect(call[1].method).toBe("DELETE");
+  });
+
+  test("execD1Query POSTs the SQL to the database query endpoint", async () => {
+    mockCfSuccess({ results: [] });
+    await execD1Query(env, "d1-uuid", "CREATE TABLE t (id INTEGER)");
+    const call = (globalThis.fetch as any).mock.calls[0];
+    expect(call[0]).toContain("/d1/database/d1-uuid/query");
+    expect(call[1].method).toBe("POST");
+    expect(JSON.parse(call[1].body).sql).toBe("CREATE TABLE t (id INTEGER)");
+  });
+
+  test("execD1Query throws on API error (so a bad migration aborts the deploy)", async () => {
+    mockCfError();
+    await expect(execD1Query(env, "d1-uuid", "BAD SQL")).rejects.toThrow();
   });
 });
 

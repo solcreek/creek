@@ -13,6 +13,7 @@ export {
   createD1Database,
   getD1DatabaseByName,
   deleteD1Database,
+  execD1Query,
   createR2Bucket,
   r2BucketExists,
   deleteR2Bucket,
