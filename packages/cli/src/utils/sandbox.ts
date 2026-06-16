@@ -106,9 +106,11 @@ export async function sandboxDeploy(
 export async function pollSandboxStatus(statusUrl: string): Promise<SandboxStatusResponse> {
   const POLL_INTERVAL = 1000;
   // Server-side activation (decode assets + upload to WfP + provision
-  // resources) can take well over a minute for asset-heavy apps (tens of MB /
-  // 100+ assets). 60s was too tight and timed out legitimate large deploys.
-  const POLL_TIMEOUT = 180_000;
+  // resources) can take a few minutes for asset-heavy apps (tens of MB / 100+
+  // assets). Poll up to 5 min so the client doesn't give up while the server is
+  // still legitimately uploading — matched to the server-side stuck-deploy
+  // reaper window so the two don't fight.
+  const POLL_TIMEOUT = 300_000;
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT) {

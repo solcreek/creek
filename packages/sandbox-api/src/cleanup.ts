@@ -102,12 +102,15 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
     }
   }
 
-  // Also mark stale deploying sandboxes as failed (stuck for > 5 min)
+  // Also mark stale deploying sandboxes as failed (stuck for > 10 min).
+  // Headroom for asset-heavy apps (100+ files) whose activation legitimately
+  // runs a few minutes; the CLI's deploy poll is 5 min, so 10 min here means
+  // the reaper never races a still-progressing deploy.
   await env.DB.prepare(
     `UPDATE deployments SET status = 'failed', failedStep = 'deploying', errorMessage = 'Deploy timed out'
      WHERE status IN ('queued', 'deploying') AND createdAt < ?`,
   )
-    .bind(now - 5 * 60 * 1000)
+    .bind(now - 10 * 60 * 1000)
     .run();
 
   // Purge raw IP logs older than 30 days (legal data retention)
