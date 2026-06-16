@@ -43,20 +43,37 @@ export async function uploadAssetFiles(
   hashToPath: Record<string, string>,
 ): Promise<string> {
   const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/assets/upload?base64=true`;
-  let completionJwt = "";
 
-  for (const bucket of buckets) {
+  const buildForm = (bucket: string[]): FormData => {
     const form = new FormData();
     for (const hash of bucket) {
       const filePath = hashToPath[hash];
       if (!filePath || !assets[filePath]) continue;
-      const b64 = arrayBufferToBase64(assets[filePath]);
-      form.append(hash, b64);
+      form.append(hash, arrayBufferToBase64(assets[filePath]));
     }
+    return form;
+  };
 
-    const result = (await cfApi(env, "POST", path, form, uploadJwt)) as { jwt?: string };
-    completionJwt = result.jwt ?? completionJwt;
+  // Upload buckets with bounded concurrency rather than one-at-a-time: a serial
+  // loop over 100+ files (tens of MB) routinely ran past the sandbox's 5-minute
+  // activation window and got reaped as "Deploy timed out". Each bucket POST is
+  // independent (all use the same uploadJwt); Cloudflare returns the session
+  // completion JWT once every file is received, so we keep the last non-empty
+  // jwt across responses. The pool is bounded because Workers cap simultaneous
+  // outbound connections.
+  const CONCURRENCY = 6;
+  let completionJwt = "";
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < buckets.length) {
+      const bucket = buckets[next++];
+      const result = (await cfApi(env, "POST", path, buildForm(bucket), uploadJwt)) as { jwt?: string };
+      if (result.jwt) completionJwt = result.jwt;
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()),
+  );
 
   return completionJwt;
 }

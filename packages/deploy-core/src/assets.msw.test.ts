@@ -67,14 +67,18 @@ describe("uploadAssetFiles", () => {
     expect(Object.keys(forms[0])).toEqual(["h1", "h2"]); // form keyed by hash
   });
 
-  it("skips hashes with no matching asset and returns the last bucket's jwt", async () => {
+  it("skips hashes with no matching asset; returns the session completion jwt", async () => {
     const forms: Array<Record<string, unknown>> = [];
-    let call = 0;
+    let received = 0;
+    const total = 2;
     server.use(
       http.post(UPLOAD_URL, async ({ request }) => {
         forms.push(Object.fromEntries((await request.formData()).entries()));
-        call++;
-        return HttpResponse.json({ success: true, result: { jwt: `jwt-${call}` }, errors: [] });
+        received++;
+        // Model CF: the completion jwt is returned only once every file is in
+        // (the request that completes the session) — order-independent.
+        const jwt = received === total ? "completion-jwt" : null;
+        return HttpResponse.json({ success: true, result: { jwt }, errors: [] });
       }),
     );
 
@@ -82,7 +86,44 @@ describe("uploadAssetFiles", () => {
     const hashToPath = { h1: "/a.js" }; // "h-missing" has no path
     const jwt = await uploadAssetFiles(env, "upload-jwt", [["h1", "h-missing"], ["h1"]], assets, hashToPath);
 
-    expect(jwt).toBe("jwt-2"); // completion jwt comes from the last bucket
-    expect(Object.keys(forms[0])).toEqual(["h1"]); // "h-missing" skipped
+    expect(jwt).toBe("completion-jwt");
+    // Both buckets uploaded; "h-missing" dropped (every form keyed only by h1).
+    expect(forms).toHaveLength(2);
+    expect(forms.every((f) => Object.keys(f).join() === "h1")).toBe(true);
+  });
+
+  it("uploads many buckets concurrently (bounded) and still returns the completion jwt", async () => {
+    const N = 15;
+    let received = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    server.use(
+      http.post(UPLOAD_URL, async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 15)); // hold the connection so overlap is observable
+        inFlight--;
+        received++;
+        return HttpResponse.json(
+          { success: true, result: { jwt: received === N ? "completion-jwt" : null }, errors: [] },
+        );
+      }),
+    );
+
+    const assets: Record<string, ArrayBuffer> = {};
+    const hashToPath: Record<string, string> = {};
+    const buckets: string[][] = [];
+    for (let i = 0; i < N; i++) {
+      assets[`/f${i}.js`] = buf(`content-${i}`);
+      hashToPath[`h${i}`] = `/f${i}.js`;
+      buckets.push([`h${i}`]);
+    }
+
+    const jwt = await uploadAssetFiles(env, "upload-jwt", buckets, assets, hashToPath);
+
+    expect(received).toBe(N); // every bucket uploaded
+    expect(jwt).toBe("completion-jwt"); // completion jwt captured despite ordering
+    expect(maxInFlight).toBeGreaterThan(1); // actually concurrent
+    expect(maxInFlight).toBeLessThanOrEqual(6); // but bounded by the pool
   });
 });
