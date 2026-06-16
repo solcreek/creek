@@ -31,6 +31,7 @@ import {
 } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { getToken, getApiUrl } from "../utils/config.js";
+import { collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
@@ -1191,6 +1192,12 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
       ...(resolved
         ? { bindings: resolvedConfigToBindingRequirements(resolved) }
         : {}),
+      // Seed the sandbox's ephemeral D1 with the project's migrations so
+      // DB-backed routes work in the preview without `creek db migrate`.
+      ...((): { migrations?: ReturnType<typeof collectMigrations> } => {
+        const migrations = collectMigrations(cwd);
+        return migrations.length > 0 ? { migrations } : {};
+      })(),
       ...(sandboxCompatDate ? { compatibilityDate: sandboxCompatDate } : {}),
       ...(sandboxCompatFlags && sandboxCompatFlags.length > 0
         ? { compatibilityFlags: sandboxCompatFlags }
