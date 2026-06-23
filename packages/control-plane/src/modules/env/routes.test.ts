@@ -159,9 +159,11 @@ describe("CSRF origin guard on /env routes", () => {
     contentType: string,
     body?: unknown,
   ) {
-    const init: RequestInit = { method, headers: { Origin: origin } };
+    const init: RequestInit = {
+      method,
+      headers: { Origin: origin, "Content-Type": contentType },
+    };
     if (body) {
-      (init.headers as Record<string, string>)["Content-Type"] = contentType;
       init.body = JSON.stringify(body);
     }
     return app.request(path, init, testEnv.env);
