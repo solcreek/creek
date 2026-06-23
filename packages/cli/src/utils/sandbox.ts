@@ -107,16 +107,38 @@ export async function sandboxDeploy(
 }
 
 /**
- * Poll sandbox status until terminal state.
+ * Activation didn't reach a terminal state within the poll window. Tagged so
+ * the caller can tell this (usually deterministic — a repeat timeout is almost
+ * always the upload volume, not a transient blip) apart from genuinely
+ * transient failures, and advise checking the cause instead of a naked retry.
  */
-export async function pollSandboxStatus(statusUrl: string): Promise<SandboxStatusResponse> {
-  const POLL_INTERVAL = 1000;
+export class SandboxTimeoutError extends Error {
+  readonly code = "deploy_timeout";
+  constructor(timeoutMs: number) {
+    super(
+      `Sandbox deploy timed out after ${Math.round(timeoutMs / 60_000)} min. ` +
+        `A repeat timeout is usually the upload volume (asset count/size), not a ` +
+        `transient blip — reduce assets or check the deploy status before retrying.`,
+    );
+    this.name = "SandboxTimeoutError";
+  }
+}
+
+/**
+ * Poll sandbox status until terminal state. `timeoutMs`/`intervalMs` are
+ * injectable for tests; the defaults match production.
+ */
+export async function pollSandboxStatus(
+  statusUrl: string,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<SandboxStatusResponse> {
+  const POLL_INTERVAL = opts.intervalMs ?? 1000;
   // Server-side activation (decode assets + upload to WfP + provision
   // resources) can take a few minutes for asset-heavy apps (tens of MB / 100+
   // assets). Poll up to 5 min so the client doesn't give up while the server is
   // still legitimately uploading — matched to the server-side stuck-deploy
   // reaper window so the two don't fight.
-  const POLL_TIMEOUT = 300_000;
+  const POLL_TIMEOUT = opts.timeoutMs ?? 300_000;
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT) {
@@ -137,7 +159,7 @@ export async function pollSandboxStatus(statusUrl: string): Promise<SandboxStatu
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
 
-  throw new Error("Sandbox deploy timed out");
+  throw new SandboxTimeoutError(POLL_TIMEOUT);
 }
 
 /**

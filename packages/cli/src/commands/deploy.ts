@@ -1049,8 +1049,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     consola.start("  Deploying to edge...");
   }
 
+  let result: Awaited<ReturnType<typeof sandboxDeploy>> | undefined;
   try {
-    const result = await sandboxDeploy({ assets, source: "cli" }, { tos });
+    result = await sandboxDeploy({ assets, source: "cli" }, { tos });
     const status = await pollSandboxStatus(result.statusUrl);
 
     if (jsonMode) {
@@ -1072,9 +1073,18 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Deploy failed";
-    if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", message }, 1, [
-      { command: "creek deploy", description: "Retry deploy" },
-    ]);
+    // A timeout is usually deterministic (upload volume), so don't lead with a
+    // naked "retry" — point at the cause first. Tagged via the error's `code`
+    // so it survives across module boundaries. Other failures keep the simple
+    // retry hint.
+    const deterministic = (err as { code?: string })?.code === "deploy_timeout";
+    const crumbs = deterministic && result
+      ? [
+          { command: `creek status ${result.sandboxId}`, description: "Check what the deploy is stuck on" },
+          { command: "creek deploy", description: "Retry only if the cause was transient" },
+        ]
+      : [{ command: "creek deploy", description: "Retry deploy" }];
+    if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", deterministic, message }, 1, crumbs);
     consola.error(message);
     process.exit(1);
   }
