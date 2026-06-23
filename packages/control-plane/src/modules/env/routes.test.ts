@@ -147,3 +147,63 @@ describe("DELETE /projects/:id/env/:key", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// Regression for the SameSite=none CSRF gap: a cross-site page must not be
+// able to drive a state-changing control-plane route even with the victim's
+// session cookie attached. originGuard rejects before the route runs.
+describe("CSRF origin guard on /env routes", () => {
+  function reqWithOrigin(
+    method: string,
+    path: string,
+    origin: string,
+    contentType: string,
+    body?: unknown,
+  ) {
+    const init: RequestInit = { method, headers: { Origin: origin } };
+    if (body) {
+      (init.headers as Record<string, string>)["Content-Type"] = contentType;
+      init.body = JSON.stringify(body);
+    }
+    return app.request(path, init, testEnv.env);
+  }
+
+  test("cross-origin POST with text/plain (no-preflight trick) → 403", async () => {
+    seedTestProject();
+    const res = await reqWithOrigin(
+      "POST",
+      `/projects/${PROJECT_ID}/env`,
+      "https://evil.com",
+      "text/plain",
+      { key: "STOLEN", value: "x" },
+    );
+    expect(res.status).toBe(403);
+
+    // The write must not have landed.
+    const row = testEnv.db.db.prepare(
+      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
+    ).get(PROJECT_ID, "STOLEN");
+    expect(row).toBeUndefined();
+  });
+
+  test("cross-origin DELETE → 403", async () => {
+    const res = await reqWithOrigin(
+      "DELETE",
+      `/projects/${PROJECT_ID}/env/DATABASE_URL`,
+      "https://evil.com",
+      "application/json",
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("first-party Origin (app.creek.dev) is allowed through the guard", async () => {
+    seedTestProject();
+    const res = await reqWithOrigin(
+      "POST",
+      `/projects/${PROJECT_ID}/env`,
+      "https://app.creek.dev",
+      "application/json",
+      { key: "OK_KEY", value: "v" },
+    );
+    expect(res.status).not.toBe(403);
+  });
+});
