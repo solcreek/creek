@@ -15,7 +15,11 @@ export function isAllowedOrigin(origin: string): boolean {
     return false;
   }
   const host = url.hostname;
+  // localhost dev runs over http; every other allowed origin must be https
+  // to match the production model (Secure cookies). This keeps the guard
+  // from treating http://app.creek.dev the same as https://app.creek.dev.
   if (host === "localhost") return true;
+  if (url.protocol !== "https:") return false;
   if (host === "creek.dev") return true;
   if (host.endsWith(".creek.dev")) return true;
   return false;

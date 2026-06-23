@@ -25,6 +25,8 @@ describe("isAllowedOrigin", () => {
     "https://creek.dev.evil.com", // creek.dev as a label, not the registrable domain
     "https://app.bycreek.com", // a tenant app — different registrable domain
     "https://localhost.evil.com",
+    "http://app.creek.dev", // non-localhost must be https to match the prod model
+    "http://creek.dev",
     "not-a-url",
     "",
   ])("rejects %s", (origin) => {
