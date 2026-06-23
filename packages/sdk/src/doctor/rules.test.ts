@@ -360,6 +360,59 @@ describe("CK-WORKER-UNDECLARED", () => {
   });
 });
 
+// ─── CK-UNDEPLOYED-SERVICES ─────────────────────────────────────────────
+
+describe("CK-UNDEPLOYED-SERVICES", () => {
+  test("warns when a server/ backend exists but no worker is declared (spa)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "vite" }),
+      fileExists: (p) => p === "server/index.ts",
+    });
+    const findings = rules.CK_UNDEPLOYED_SERVICES(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-UNDEPLOYED-SERVICES");
+    expect(findings[0].severity).toBe("warn");
+    expect(findings[0].title).toContain("server/");
+    expect(findings[0].references).toContain("server");
+  });
+
+  test("reports every service directory found (server + mcp)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "vite" }),
+      fileExists: (p) => p === "server/package.json" || p === "mcp/index.ts",
+    });
+    const findings = rules.CK_UNDEPLOYED_SERVICES(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].title).toContain("server/");
+    expect(findings[0].title).toContain("mcp/");
+    expect(findings[0].references).toEqual(expect.arrayContaining(["server", "mcp"]));
+  });
+
+  test("silent when a worker entry is declared (backend is wired in)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "vite", workerEntry: "worker/index.ts" }),
+      fileExists: (p) => p === "server/index.ts",
+    });
+    expect(rules.CK_UNDEPLOYED_SERVICES(ctx)).toEqual([]);
+  });
+
+  test("silent for SSR frameworks — server/ belongs to the framework build", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "sveltekit" }),
+      fileExists: (p) => p === "server/index.ts",
+    });
+    expect(rules.CK_UNDEPLOYED_SERVICES(ctx)).toEqual([]);
+  });
+
+  test("silent when no service directory exists", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ framework: "vite" }),
+      fileExists: () => false,
+    });
+    expect(rules.CK_UNDEPLOYED_SERVICES(ctx)).toEqual([]);
+  });
+});
+
 // ─── CK-SYNC-SQLITE ──────────────────────────────────────────────────────
 
 describe("CK-SYNC-SQLITE", () => {

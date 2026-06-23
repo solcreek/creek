@@ -547,6 +547,72 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: sibling service directory that the deploy won't ship ─────────
+//
+// The multi-service blind spot: a repo has a root frontend (Vite SPA)
+// plus a separate backend in server/ (a Bun/Hono process) and/or an
+// mcp/ server. Creek deploys ONE worker entry + static assets, so a
+// standalone backend process is silently left behind — doctor reported
+// archetype:"spa", ok:true and never hinted that server/ won't ship.
+// This rule warns when such a service directory exists but no worker
+// entry is wired to carry that code into the deploy.
+
+const SERVICE_DIRS: Array<{ dir: string; entries: string[] }> = [
+  {
+    dir: "server",
+    entries: [
+      "server/index.ts", "server/index.js", "server/main.ts",
+      "server/app.ts", "server/server.ts", "server/package.json",
+    ],
+  },
+  {
+    dir: "mcp",
+    entries: [
+      "mcp/index.ts", "mcp/index.js", "mcp/server.ts",
+      "mcp/main.ts", "mcp/package.json",
+    ],
+  },
+  {
+    dir: "backend",
+    entries: [
+      "backend/index.ts", "backend/main.ts", "backend/server.ts",
+      "backend/app.ts", "backend/package.json",
+    ],
+  },
+];
+
+const CK_UNDEPLOYED_SERVICES: Rule = (ctx) => {
+  const resolved = ctx.resolved;
+  if (!resolved) return [];
+  // A declared worker entry means the user has wired server code into the
+  // deploy — server/ files are reachable from it, nothing is orphaned.
+  if (resolved.workerEntry) return [];
+  // SSR frameworks (and Astro's CF adapter) bundle their own server; a
+  // server-shaped directory there belongs to the framework build.
+  if (isSSRFramework(resolved.framework)) return [];
+  if (ctx.allDeps["@astrojs/cloudflare"]) return [];
+
+  const found = SERVICE_DIRS
+    .filter(({ entries }) => entries.some((p) => ctx.fileExists(p)))
+    .map(({ dir }) => dir);
+  if (found.length === 0) return [];
+
+  const list = found.map((d) => `${d}/`).join(", ");
+  const one = found.length === 1;
+  return [
+    {
+      code: "CK-UNDEPLOYED-SERVICES",
+      severity: "warn",
+      title: `Found ${one ? "a service directory" : "service directories"} that the deploy won't ship: ${list}`,
+      detail:
+        `Creek deploys a single worker entry plus static assets — it does not run a separate backend process. ${list} ${one ? "looks like a standalone service" : "look like standalone services"} (its own entrypoint or package.json), but with no [build].worker declared this project deploys as a static SPA, so ${one ? "that service" : "those services"} never ${one ? "ships" : "ship"}. Any same-origin /api/* calls the frontend makes will hit static-asset fallback (index.html), not your backend.`,
+      fix:
+        `Port the backend into a single same-origin worker — one Hono app that serves both /api/* and the SPA — and declare it:\n  [build]\n  worker = "worker/index.ts"\n\nThe worker handles API routes; unmatched paths fall back to the static build. (Genuinely deploying the service elsewhere? You can ignore this.)`,
+      references: found,
+    },
+  ];
+};
+
 // ─── Rule registry ──────────────────────────────────────────────────────
 
 export const BUILTIN_RULES: Rule[] = [
@@ -556,6 +622,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_WORKER_UNRESOLVED_IMPORTS,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
+  CK_UNDEPLOYED_SERVICES,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,
@@ -573,6 +640,7 @@ export const rules = {
   CK_WORKER_UNRESOLVED_IMPORTS,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
+  CK_UNDEPLOYED_SERVICES,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
   CK_RUNTIME_LOCKIN,
