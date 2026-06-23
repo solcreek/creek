@@ -10,6 +10,7 @@ import { opsCommand } from "./ops.js";
 import { claimCommand } from "./claim.js";
 import { envCommand } from "./env.js";
 import { resolveShellDatabase } from "./db.js";
+import { projectsCommand } from "./projects.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -272,5 +273,58 @@ describe("db shell resolution (resolveShellDatabase)", () => {
     );
     const db = await resolveShellDatabase(client(), { name: "creek-abc", jsonMode: true });
     expect(db).toEqual({ id: "res-x", name: "creek-abc" });
+  });
+});
+
+describe("creek projects delete", () => {
+  beforeEach(() => {
+    process.env.CREEK_TOKEN = "tok";
+  });
+
+  it("deletes a project via DELETE /projects/:slug and reports it", async () => {
+    let hit = "";
+    server.use(
+      http.delete(`${API}/projects/:slug`, ({ params }) => {
+        hit = String(params.slug);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    // Non-TTY auto-confirms (no prompt), matching agent/CI behaviour.
+    const code = await runExit(projectsCommand.subCommands!.delete.run!({ args: { slug: "ghost", _: [] } } as never));
+    expect(code).toBe(0);
+    expect(hit).toBe("ghost");
+    expect(json()).toMatchObject({ ok: true, project: "ghost", deleted: true });
+  });
+
+  it("maps a 404 to a structured not_found error", async () => {
+    server.use(
+      http.delete(`${API}/projects/:slug`, () => HttpResponse.json({ error: "not_found", message: "nope" }, { status: 404 })),
+    );
+    const code = await runExit(projectsCommand.subCommands!.delete.run!({ args: { slug: "missing", _: [] } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_found", project: "missing" });
+  });
+
+  it("bare `creek projects` still lists (parent run doesn't double-fire)", async () => {
+    let deleteCalls = 0;
+    server.use(
+      http.get(`${API}/projects`, () => HttpResponse.json([{ slug: "a", framework: null, production_deployment_id: null }])),
+      http.delete(`${API}/projects/:slug`, () => { deleteCalls++; return HttpResponse.json({ ok: true }); }),
+    );
+    const code = await runExit(projectsCommand.run!({ args: { _: [] }, rawArgs: [] } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, projects: [{ slug: "a" }] });
+    expect(deleteCalls).toBe(0);
+  });
+
+  it("parent run is a no-op when a subcommand verb is present", async () => {
+    // Guards the citty double-run: with rawArgs ["delete","x"] the parent
+    // handler must NOT also list (which would hit /projects).
+    let listCalls = 0;
+    server.use(
+      http.get(`${API}/projects`, () => { listCalls++; return HttpResponse.json([]); }),
+    );
+    await projectsCommand.run!({ args: { _: ["delete"] }, rawArgs: ["delete", "x"] } as never);
+    expect(listCalls).toBe(0);
   });
 });

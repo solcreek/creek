@@ -1,26 +1,25 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import { CreekClient, CreekApiError } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm, AUTH_BREADCRUMBS, isTTY } from "../utils/output.js";
 
-export const projectsCommand = defineCommand({
-  meta: {
-    name: "projects",
-    description: "List all projects",
-  },
+function requireClient(jsonMode: boolean): CreekClient {
+  const token = getToken();
+  if (!token) {
+    if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+    consola.error("Not authenticated. Run `creek login` first.");
+    process.exit(1);
+  }
+  return new CreekClient(getApiUrl(), token);
+}
+
+const projectsList = defineCommand({
+  meta: { name: "list", description: "List all projects" },
   args: { ...globalArgs },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const token = getToken();
-
-    if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
-      consola.error("Not authenticated. Run `creek login` first.");
-      process.exit(1);
-    }
-
-    const client = new CreekClient(getApiUrl(), token);
+    const client = requireClient(jsonMode);
     const projects = await client.listProjects();
 
     if (jsonMode) {
@@ -44,5 +43,73 @@ export const projectsCommand = defineCommand({
       const deployed = p.production_deployment_id ? "deployed" : "not deployed";
       consola.log(`  ${p.slug}${framework} — ${deployed}`);
     }
+  },
+});
+
+const projectsDelete = defineCommand({
+  meta: { name: "delete", description: "Delete a project (by slug or id). Does not delete its team-owned databases/buckets." },
+  args: {
+    slug: { type: "positional", description: "Project slug or id to delete", required: true },
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const client = requireClient(jsonMode);
+    const slug = args.slug as string;
+
+    // Destructive + outward-facing: confirm in an interactive run unless
+    // --yes. Non-TTY (agents/CI) auto-confirms, consistent with the rest
+    // of the CLI's shouldAutoConfirm contract.
+    if (!shouldAutoConfirm(args) && isTTY) {
+      const ok = (await consola.prompt(`Delete project "${slug}"? This cannot be undone.`, { type: "confirm" })) as unknown as boolean;
+      if (!ok) {
+        consola.info("Cancelled.");
+        process.exit(0);
+      }
+    }
+
+    try {
+      await client.deleteProject(slug);
+    } catch (err) {
+      if (err instanceof CreekApiError && err.status === 404) {
+        const msg = `No project "${slug}" in your team (already deleted, or wrong slug).`;
+        if (jsonMode) jsonOutput({ ok: false, error: "not_found", project: slug, message: msg }, 1);
+        consola.error(msg);
+        process.exit(1);
+      }
+      const msg = err instanceof Error ? err.message : "Failed to delete project";
+      if (jsonMode) jsonOutput({ ok: false, error: "delete_failed", project: slug, message: msg }, 1);
+      consola.error(msg);
+      process.exit(1);
+    }
+
+    if (jsonMode) jsonOutput({ ok: true, project: slug, deleted: true }, 0, [
+      { command: "creek projects", description: "List remaining projects" },
+    ]);
+    consola.success(`Deleted project ${slug}`);
+    consola.info("Note: its databases/buckets are team-owned and were not deleted — manage them with `creek db`/`creek storage`.");
+  },
+});
+
+const SUBCOMMANDS = {
+  list: projectsList,
+  delete: projectsDelete,
+};
+
+export const projectsCommand = defineCommand({
+  meta: {
+    name: "projects",
+    description: "List and manage projects",
+  },
+  subCommands: SUBCOMMANDS,
+  args: { ...globalArgs },
+  // Bare `creek projects` keeps listing. citty 0.1.6 runs this parent
+  // handler even after a subcommand dispatched, so guard against
+  // double-running: only list when no known verb was given.
+  run(ctx) {
+    const rawArgs = ((ctx as { rawArgs?: string[] }).rawArgs ?? []);
+    const verb = rawArgs.find((a) => !a.startsWith("-"));
+    if (verb && verb in SUBCOMMANDS) return;
+    return projectsList.run!(ctx as Parameters<NonNullable<typeof projectsList.run>>[0]);
   },
 });

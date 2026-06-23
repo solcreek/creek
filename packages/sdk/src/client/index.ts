@@ -85,6 +85,16 @@ export class CreekClient {
     return this.request("GET", `/projects/${idOrSlug}`);
   }
 
+  /**
+   * Hard-delete a project (by id or slug). The backing team-owned
+   * resources (D1/R2/KV) are NOT torn down — only the project row and its
+   * custom-domain cleanup. Throws CreekApiError(404) if the project isn't
+   * in the caller's team.
+   */
+  async deleteProject(idOrSlug: string): Promise<{ ok: boolean }> {
+    return this.request("DELETE", `/projects/${idOrSlug}`);
+  }
+
   async listDeployments(projectSlug: string): Promise<Deployment[]> {
     return this.request("GET", `/projects/${projectSlug}/deployments`);
   }
