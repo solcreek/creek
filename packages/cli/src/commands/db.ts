@@ -168,6 +168,11 @@ async function executeAndPrint(
   }
 }
 
+/** Escape a string for safe inlining inside a single-quoted SQL literal. */
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 const migrateCommand = defineCommand({
   meta: {
     name: "migrate",
@@ -191,6 +196,11 @@ const migrateCommand = defineCommand({
     "dry-run": {
       type: "boolean",
       description: "Show pending migrations without executing them.",
+      default: false,
+    },
+    resume: {
+      type: "boolean",
+      description: "Reconcile a partially-applied migration: if applying fails because objects already exist, mark it applied and continue. Use after an interrupted run.",
       default: false,
     },
     ...globalArgs,
@@ -295,13 +305,14 @@ const migrateCommand = defineCommand({
     // 6. Apply pending
     if (pending.length === 0) {
       if (jsonMode) jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
-      consola.success(`Database "${args.name}" is up to date (${appliedSet.size} applied)`);
+      consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
       return;
     }
 
     consola.info(`Migrating "${dbName}": ${pending.length} pending of ${files.length} total\n`);
 
     let migrated = 0;
+    let resumed = 0;
     for (const file of pending) {
       const sql = readFileSync(file.path, "utf-8");
       const statements = splitStatements(sql);
@@ -313,45 +324,62 @@ const migrateCommand = defineCommand({
 
       consola.start(`  ${file.name} (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
 
-      // Send each file's statements in as few requests as possible. D1's
-      // /query runs a multi-statement string in one round-trip, so a 24-table
-      // schema applies in ~1 request instead of dozens — what made `creek db
-      // migrate` feel slow was the per-statement HTTP latency, not D1 itself.
-      const batches = batchStatements(statements);
-      for (const batch of batches) {
-        try {
-          await client.queryDatabase(db.id, batch);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // The server's D1 error names the offending statement's SQL, so we
-          // surface that rather than a now-meaningless global index.
-          consola.error(`  ${file.name} — failed: ${msg}`);
-          if (jsonMode) {
-            jsonOutput({
-              ok: false,
-              error: "migration_failed",
-              file: file.name,
-              totalStatements: statements.length,
-              message: msg,
-              migrated,
-              remaining: pending.length - migrated,
-            }, 1);
-          }
-          consola.error(`\n${migrated} migration(s) applied before failure. Fix the SQL and re-run.`);
-          process.exit(1);
-        }
-      }
+      // Apply the migration AND record it as applied in the same request: the
+      // tracking insert rides along as the final statement. This closes the
+      // window where the schema changed but the migration still looked pending
+      // — an interrupted run between "apply" and a separate "record" used to
+      // leave exactly that, unrecoverable without manual SQL. D1 runs a
+      // multi-statement /query in one round-trip, so this stays ~1 request.
+      const trackSql = `INSERT INTO _creek_migrations (name, applied_at) VALUES ('${escapeSqlLiteral(file.name)}', ${Date.now()});`;
+      const batches = batchStatements([...statements, trackSql]);
 
-      // Record success
       try {
-        await client.queryDatabase(db.id,
-          "INSERT INTO _creek_migrations (name, applied_at) VALUES (?, ?);",
-          [file.name, Date.now()],
-        );
-      } catch {
-        // Non-fatal — migration ran but tracking failed. It won't re-run
-        // because the schema changes already happened. Warn and continue.
-        consola.warn(`  ${file.name} — applied but failed to record in tracking table`);
+        for (const batch of batches) {
+          await client.queryDatabase(db.id, batch);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const alreadyExists = /already exists/i.test(msg);
+
+        // --resume: a prior run applied this migration's schema but was
+        // interrupted before recording it, so re-running collides with an
+        // object that "already exists". Reconcile by marking it applied and
+        // moving on, rather than getting stuck needing manual cleanup.
+        if (args.resume && alreadyExists) {
+          try {
+            await client.queryDatabase(db.id, trackSql);
+            consola.warn(`  ${file.name} — objects already exist; marked applied (--resume)`);
+            resumed++;
+            migrated++;
+            continue;
+          } catch (recordErr) {
+            const rmsg = recordErr instanceof Error ? recordErr.message : String(recordErr);
+            if (jsonMode) jsonOutput({ ok: false, error: "resume_failed", file: file.name, message: rmsg, migrated }, 1);
+            consola.error(`  ${file.name} — resume failed: ${rmsg}`);
+            process.exit(1);
+          }
+        }
+
+        // The server's D1 error names the offending statement's SQL, so we
+        // surface that rather than a now-meaningless global index.
+        consola.error(`  ${file.name} — failed: ${msg}`);
+        if (jsonMode) {
+          jsonOutput({
+            ok: false,
+            error: "migration_failed",
+            file: file.name,
+            totalStatements: statements.length,
+            message: msg,
+            migrated,
+            remaining: pending.length - migrated,
+            ...(alreadyExists ? { hint: "Re-run with --resume to reconcile a partially-applied migration." } : {}),
+          }, 1);
+        }
+        if (alreadyExists) {
+          consola.info(`  If a previous run was interrupted, re-run with --resume to reconcile.`);
+        }
+        consola.error(`\n${migrated} migration(s) applied before failure. Fix the SQL and re-run.`);
+        process.exit(1);
       }
 
       migrated++;
@@ -359,9 +387,9 @@ const migrateCommand = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, migrated, total: files.length, applied: appliedSet.size + migrated }, 0);
+      jsonOutput({ ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated }, 0);
     }
-    consola.success(`\n${migrated} migration(s) applied successfully`);
+    consola.success(`\n${migrated} migration(s) applied successfully${resumed ? ` (${resumed} reconciled via --resume)` : ""}`);
   },
 });
 

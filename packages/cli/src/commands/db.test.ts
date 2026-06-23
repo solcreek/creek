@@ -72,10 +72,10 @@ function d1Handlers(d1: FakeD1) {
       }),
     ),
     http.post(`${API}/resources/${DB_ID}/query`, async ({ request }) => {
-      const { sql, params } = (await request.json()) as { sql: string; params?: unknown[] };
+      const { sql } = (await request.json()) as { sql: string; params?: unknown[] };
 
       // Ensure tracking table — idempotent no-op.
-      if (sql.includes("_creek_migrations") && sql.includes("CREATE TABLE")) {
+      if (/CREATE TABLE IF NOT EXISTS _creek_migrations/i.test(sql)) {
         d1.calls.push("ensure-tracking");
         return okResult();
       }
@@ -84,27 +84,42 @@ function d1Handlers(d1: FakeD1) {
         d1.calls.push("read-applied");
         return rowsResult([...d1.applied].sort().map((name) => ({ name })));
       }
-      // Record an applied migration.
-      if (sql.includes("INSERT INTO _creek_migrations")) {
+
+      // A request may carry migration statements, a folded tracking insert, or
+      // both — the apply loop now records a migration in the SAME request as
+      // its schema change. Parse out created tables and any recorded names.
+      const created = [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?["'`]?(\w+)["'`]?/gi)]
+        .map((m) => m[1])
+        .filter((t) => t !== "_creek_migrations");
+      const trackNames = [...sql.matchAll(/INSERT INTO _creek_migrations[^']*'([^']+)'/gi)].map((m) => m[1]);
+
+      if (created.length > 0) {
+        d1.calls.push("batch");
+        // Reject any table that already exists, leaving NOTHING recorded — a
+        // non-transactional /query aborts at the failing statement, so the
+        // folded tracking insert never runs. This is what bites a re-run after
+        // an interrupted, half-applied migration.
+        const dup = created.find((t) => d1.tables.has(t));
+        if (dup) {
+          return HttpResponse.json(
+            { error: "d1_error", message: `D1_ERROR: table ${dup} already exists` },
+            { status: 400 },
+          );
+        }
+        for (const t of created) d1.tables.add(t);
+        for (const n of trackNames) d1.applied.add(n); // folded tracking insert
+        return okResult(created.length);
+      }
+
+      // Standalone tracking insert — the --resume reconcile path.
+      if (trackNames.length > 0) {
         d1.calls.push("track");
-        d1.applied.add(String((params ?? [])[0]));
+        for (const n of trackNames) d1.applied.add(n);
         return okResult(1);
       }
 
-      // Otherwise: a migration batch. Apply its CREATE TABLE statements,
-      // rejecting any table that already exists — exactly what bites a
-      // re-run after an interrupted, half-applied migration.
-      d1.calls.push("batch");
-      const created = [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?["'`]?(\w+)["'`]?/gi)].map((m) => m[1]);
-      const dup = created.find((t) => d1.tables.has(t));
-      if (dup) {
-        return HttpResponse.json(
-          { error: "d1_error", message: `D1_ERROR: table ${dup} already exists` },
-          { status: 400 },
-        );
-      }
-      for (const t of created) d1.tables.add(t);
-      return okResult(created.length);
+      d1.calls.push("other");
+      return okResult();
     }),
   ];
 }
@@ -271,48 +286,65 @@ describe("creek db migrate", () => {
     expect(json()).toMatchObject({ ok: false, error: "not_found" });
   });
 
-  // --- B3: migration apply is not atomic / not resumable ---
-  // The batch (schema change) and the `INSERT INTO _creek_migrations` record
-  // are two separate HTTP requests with no transaction around them. These two
-  // tests document the resulting footgun. When migrations become atomic +
-  // resumable (fold the tracking insert into the same atomic D1 batch, add
-  // `--resume`/reconcile), the expectations below should flip — that is the
-  // signal the bug is fixed.
-  describe("B3 — non-atomic apply leaves an unrecoverable half-applied state", () => {
-    it("applies the batch and records it as two separate, non-atomic requests", async () => {
+  // --- B3: atomic apply + --resume recovery ---
+  // The migration's schema change and its tracking insert now ride in the SAME
+  // request, so an interrupt can't leave a migration applied-but-unrecorded for
+  // the common single-request case. For a migration left half-applied by an
+  // older/interrupted run, --resume reconciles it instead of getting stuck.
+  describe("B3 — atomic apply and --resume", () => {
+    it("records a migration in the same request as its schema change", async () => {
       const d1 = makeD1();
       server.use(...d1Handlers(d1));
       writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
 
-      await runMigrate({ name: "mydb" });
+      const code = await runMigrate({ name: "mydb" });
 
-      // A crash in this window — after "batch", before "track" — is the bug.
-      const batchIdx = d1.calls.indexOf("batch");
-      expect(d1.calls[batchIdx]).toBe("batch");
-      expect(d1.calls[batchIdx + 1]).toBe("track");
+      expect(code).toBe(0);
+      // The applied state is recorded by the batch request itself — there is no
+      // separate, droppable "track" request to be interrupted between.
+      expect(d1.calls).toContain("batch");
+      expect(d1.calls).not.toContain("track");
+      expect(d1.applied.has("0001_init")).toBe(true);
     });
 
-    it("cannot resume a migration whose table was created but never recorded", async () => {
-      // Simulates the state left by an interrupted first run: 0002's CREATE
-      // TABLE B reached D1 (table exists) but the tracking insert never did
-      // (0002 is NOT in _creek_migrations). Re-running collides on B.
+    it("still fails (without --resume) on a migration left half-applied by an interrupted run", async () => {
+      // Default behavior stays conservative: a real collision is a hard error,
+      // but the message now points at the recovery path.
       const d1 = makeD1({ applied: ["0001_init"], tables: ["A", "B"] });
       server.use(...d1Handlers(d1));
       writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
       writeMigration("0002_add", "CREATE TABLE B (id INTEGER PRIMARY KEY);");
       writeMigration("0003_more", "CREATE TABLE C (id INTEGER PRIMARY KEY);");
 
-      // dry-run still reports 0002 as pending — the "table already exists, yet
-      // dry-run shows pending" contradiction users hit.
-      await runMigrate({ name: "mydb", "dry-run": true });
-      expect(json()).toMatchObject({ pending: ["0002_add", "0003_more"] });
-      stdout = ""; // discard the dry-run output before the apply run
-
-      // Applying gets stuck: 0002's batch fails, nothing advances.
       const code = await runMigrate({ name: "mydb" });
       expect(code).toBe(1);
-      expect(json()).toMatchObject({ ok: false, error: "migration_failed", file: "0002_add", migrated: 0 });
+      expect(json()).toMatchObject({
+        ok: false,
+        error: "migration_failed",
+        file: "0002_add",
+        migrated: 0,
+        hint: expect.stringContaining("--resume"),
+      });
       expect(d1.applied.has("0002_add")).toBe(false);
+    });
+
+    it("--resume reconciles the half-applied migration and continues", async () => {
+      // Interrupted state: 0002's CREATE TABLE B reached D1 (table exists) but
+      // the tracking insert never did (0002 not in _creek_migrations).
+      const d1 = makeD1({ applied: ["0001_init"], tables: ["A", "B"] });
+      server.use(...d1Handlers(d1));
+      writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
+      writeMigration("0002_add", "CREATE TABLE B (id INTEGER PRIMARY KEY);");
+      writeMigration("0003_more", "CREATE TABLE C (id INTEGER PRIMARY KEY);");
+
+      const code = await runMigrate({ name: "mydb", resume: true });
+
+      expect(code).toBe(0);
+      // 0002 reconciled (recorded without re-creating B); 0003 applied fresh.
+      expect(json()).toMatchObject({ ok: true, migrated: 2, resumed: 1 });
+      expect(d1.applied.has("0002_add")).toBe(true);
+      expect(d1.applied.has("0003_more")).toBe(true);
+      expect(d1.tables.has("C")).toBe(true);
     });
   });
 });
