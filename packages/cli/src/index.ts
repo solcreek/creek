@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { defineCommand, runMain } from "citty";
+import { defineCommand } from "citty";
+import consola from "consola";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -28,6 +29,7 @@ import { topCommand } from "./commands/top.js";
 import { restartCommand } from "./commands/restart.js";
 import { stopCommand } from "./commands/stop.js";
 import { dashboardCommand } from "./commands/dashboard.js";
+import { runCli, wantsJson } from "./cli-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -77,4 +79,11 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+const rawArgs = process.argv.slice(2);
+const jsonMode = wantsJson(rawArgs, process.stdout.isTTY ?? false);
+runCli(main, rawArgs, { jsonMode }).catch((err) => {
+  // Non-CLIError runtime failure that no command handled. Keep citty's
+  // human behaviour: error to stderr, exit non-zero.
+  consola.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});
