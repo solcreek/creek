@@ -106,8 +106,12 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
   // Headroom for asset-heavy apps (100+ files) whose activation legitimately
   // runs a few minutes; the CLI's deploy poll is 5 min, so 10 min here means
   // the reaper never races a still-progressing deploy.
+  // Record an actionable reason rather than a bare "Deploy timed out" — `creek
+  // status <id>` surfaces this message, so it's the sandbox-side parity of the
+  // control-plane reaper's per-stage reason.
   await env.DB.prepare(
-    `UPDATE deployments SET status = 'failed', failedStep = 'deploying', errorMessage = 'Deploy timed out'
+    `UPDATE deployments SET status = 'failed', failedStep = 'deploying',
+       errorMessage = 'Activation exceeded the 10-minute deploy window — most often the asset count/size. Reduce assets or split the deploy, then retry.'
      WHERE status IN ('queued', 'deploying') AND createdAt < ?`,
   )
     .bind(now - 10 * 60 * 1000)

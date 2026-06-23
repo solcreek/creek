@@ -191,11 +191,19 @@ const STALE_DEPLOY_MS = 10 * 60 * 1000;
 
 async function sweepStaleDeployments(db: D1Database): Promise<number> {
   const staleBefore = Date.now() - STALE_DEPLOY_MS;
+  // Record a per-stage, actionable reason rather than a bare "Deploy timed
+  // out" — the read-side fallback (build-logs) classifies these into stable
+  // reason codes, and "deploy window" is the phrase that classifier keys off.
   const result = await db.prepare(
     `UPDATE deployment
      SET status = 'failed',
          failedStep = status,
-         errorMessage = 'Deploy timed out',
+         errorMessage = CASE status
+           WHEN 'uploading' THEN 'Upload exceeded the 10-minute deploy window — usually bundle size or a slow link. Shrink the bundle, then retry.'
+           WHEN 'provisioning' THEN 'Provisioning exceeded the 10-minute deploy window — a backing resource (D1/R2/KV) did not come up; retry, and check the resource if it persists.'
+           WHEN 'deploying' THEN 'Activation exceeded the 10-minute deploy window — most often the asset count/size. Reduce assets or split the deploy, then retry.'
+           ELSE 'Deploy timed out'
+         END,
          updatedAt = ?
      WHERE status IN ('uploading', 'provisioning', 'deploying')
        AND updatedAt < ?`,

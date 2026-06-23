@@ -77,6 +77,25 @@ describe("GET deployment logs — server-side failure fallback", () => {
     expect(body.message).toContain("deploying");
   });
 
+  test("classifies the recorded failure into a stable reason code + actionable hint", async () => {
+    // A reaper-style activation timeout — agents branch on metadata.errorCode.
+    seedDeployment({
+      id: "dep-timeout",
+      status: "failed",
+      failedStep: "deploying",
+      errorMessage: "Activation exceeded the 10-minute deploy window — most often the asset count/size.",
+    });
+
+    const res = await getLogs("dep-timeout");
+    const body = (await res.json()) as {
+      metadata: { errorCode: string | null };
+      message: string;
+    };
+    expect(body.metadata.errorCode).toBe("activation_timeout");
+    // The hint is appended so a human/agent gets a next step, not just a code.
+    expect(body.message).toMatch(/reduce assets|split the deploy/i);
+  });
+
   test("falls back to a sensible message even without a failedStep/errorMessage", async () => {
     seedDeployment({ id: "dep-bare", status: "failed" });
 
