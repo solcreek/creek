@@ -439,12 +439,121 @@ const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: worker entry imports packages that aren't installed ──────────
+//
+// The false-green-light bug: a worker entry (typically from `creek init
+// --db`) imports packages that are neither in package.json nor installed
+// — e.g. the scaffold imports hono, creek, d1-schema but init installs
+// none of them. `creek deploy` bundles the worker with esbuild and dies
+// with "Could not resolve" before anything ships, yet doctor used to
+// report ok:true because no rule looked at the worker's imports. This
+// rule statically scans the single declared worker file and flags bare
+// import specifiers whose package isn't a declared dependency.
+
+// Node builtins that resolve without a package.json entry. (Whether they
+// run on Workers is CK-SYNC-SQLITE / patchBareNodeImports territory —
+// here we only care about resolvability, so they're never "missing".)
+const NODE_BUILTINS = new Set([
+  "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
+  "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
+  "events", "fs", "http", "http2", "https", "inspector", "module", "net",
+  "os", "path", "perf_hooks", "process", "punycode", "querystring",
+  "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls",
+  "trace_events", "tty", "url", "util", "v8", "vm", "wasi", "worker_threads",
+  "zlib",
+]);
+
+/**
+ * Extract bare module specifiers from import/export/require/dynamic-import
+ * statements. Regex-based — good enough for the small, conventional worker
+ * files this rule targets, not a full parser.
+ */
+export function extractImportSpecifiers(src: string): string[] {
+  const specs = new Set<string>();
+  const patterns = [
+    /\bimport\s+[^"';]*?\bfrom\s*["']([^"']+)["']/g, // import X from "y"
+    /\bimport\s*["']([^"']+)["']/g, //                  import "y"
+    /\bexport\s+[^"';]*?\bfrom\s*["']([^"']+)["']/g, // export X from "y"
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g, //        require("y")
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, //         import("y")
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src)) !== null) specs.add(m[1]);
+  }
+  return [...specs];
+}
+
+/** Map a specifier to its installable package name (handles scopes + subpaths). */
+function packageNameOf(spec: string): string {
+  if (spec.startsWith("@")) return spec.split("/").slice(0, 2).join("/");
+  return spec.split("/")[0];
+}
+
+const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
+  const worker = ctx.resolved?.workerEntry;
+  if (!worker) return [];
+  // Only scan source files we can read + statically inspect.
+  if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(worker)) return [];
+  // Pre-bundled worker outputs (e.g. dist/_worker.mjs) are out of scope —
+  // a build inlines their deps, so bare imports there aren't a package.json
+  // gap. Skip anything under a known build-output directory.
+  const BUILD_OUTPUT_PREFIXES = [
+    "dist/", "build/", "out/", ".output/", ".creek/", ".next/",
+    ".svelte-kit/", ".vercel/", ".open-next/",
+  ];
+  const buildOut = ctx.resolved?.buildOutput
+    ? ctx.resolved.buildOutput.replace(/\/?$/, "/")
+    : null;
+  if (
+    BUILD_OUTPUT_PREFIXES.some((p) => worker.startsWith(p)) ||
+    (buildOut && worker.startsWith(buildOut))
+  ) {
+    return [];
+  }
+  // Without a package.json there's no dependency set to check against —
+  // flagging everything would be noise. CK-NO-CONFIG / install guidance
+  // covers that case.
+  if (!ctx.packageJson) return [];
+  const src = ctx.readFile(worker);
+  if (src === null) return []; // CK-WORKER-MISSING already covers absent files
+
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const spec of extractImportSpecifiers(src)) {
+    if (spec.startsWith(".") || spec.startsWith("/")) continue; // relative / absolute
+    if (spec.startsWith("node:")) continue; // explicit builtin
+    const pkg = packageNameOf(spec);
+    if (NODE_BUILTINS.has(pkg)) continue; // bare builtin (fs, crypto, …)
+    if (ctx.allDeps[pkg]) continue; // declared in deps or devDeps
+    if (seen.has(pkg)) continue;
+    seen.add(pkg);
+    missing.push(pkg);
+  }
+  if (missing.length === 0) return [];
+
+  const one = missing.length === 1;
+  return [
+    {
+      code: "CK-WORKER-UNRESOLVED-IMPORTS",
+      severity: "error",
+      title: `Worker imports ${one ? "a package" : "packages"} not in package.json: ${missing.join(", ")}`,
+      detail:
+        `${worker} imports ${missing.join(", ")}, but ${one ? "it is" : "they are"} not listed in dependencies or devDependencies. \`creek deploy\` bundles the worker with esbuild and will fail with "Could not resolve" before anything is uploaded. This is exactly the gap a fresh \`creek init --db\` scaffold leaves: the example worker imports hono, creek, and d1-schema, none of which init installs.`,
+      fix:
+        `Install the missing ${one ? "package" : "packages"}:\n  npm install ${missing.join(" ")}\n\nThen re-run \`creek doctor\` to confirm. If a name is a typo or an intended path alias, fix the import in ${worker} instead.`,
+      references: [worker, "package.json"],
+    },
+  ];
+};
+
 // ─── Rule registry ──────────────────────────────────────────────────────
 
 export const BUILTIN_RULES: Rule[] = [
   CK_NO_CONFIG,
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
+  CK_WORKER_UNRESOLVED_IMPORTS,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
   CK_SYNC_SQLITE,
@@ -461,6 +570,7 @@ export const rules = {
   CK_NO_CONFIG,
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
+  CK_WORKER_UNRESOLVED_IMPORTS,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
   CK_SYNC_SQLITE,

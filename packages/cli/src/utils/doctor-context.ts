@@ -18,6 +18,7 @@ interface PackageJson {
 export function buildDoctorContext(cwd: string): DoctorContext {
   const fileExists = (relPath: string): boolean =>
     existsSync(join(cwd, relPath));
+  const readFile = (relPath: string): string | null => safeRead(join(cwd, relPath));
   const creekTomlPath = join(cwd, "creek.toml");
   const creekTomlRaw = existsSync(creekTomlPath) ? safeRead(creekTomlPath) : null;
   const pkgPath = join(cwd, "package.json");
@@ -29,7 +30,7 @@ export function buildDoctorContext(cwd: string): DoctorContext {
     ...(packageJson?.dependencies ?? {}),
     ...(packageJson?.devDependencies ?? {}),
   };
-  return { cwd, resolved, packageJson, creekTomlRaw, fileExists, allDeps };
+  return { cwd, resolved, packageJson, creekTomlRaw, fileExists, readFile, allDeps };
 }
 
 function resolveConfigSafely(cwd: string): ResolvedConfig | null {

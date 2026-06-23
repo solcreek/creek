@@ -21,6 +21,7 @@ function buildCtx(overrides: Partial<DoctorContext> = {}): DoctorContext {
     packageJson: null,
     creekTomlRaw: null,
     fileExists: () => false,
+    readFile: () => null,
     allDeps: {},
     ...overrides,
   };
@@ -140,6 +141,106 @@ describe("CK-WORKER-MISSING", () => {
   test("silent when no workerEntry declared at all", () => {
     const ctx = buildCtx({ resolved: resolvedConfig() });
     expect(rules.CK_WORKER_MISSING(ctx)).toEqual([]);
+  });
+});
+
+// ─── CK-WORKER-UNRESOLVED-IMPORTS ───────────────────────────────────────
+
+describe("CK-WORKER-UNRESOLVED-IMPORTS", () => {
+  // The exact bytes `creek init --db` scaffolds.
+  const SCAFFOLD = `import { Hono } from "hono";
+import { db } from "creek";
+import { define } from "d1-schema";
+export default new Hono();`;
+
+  test("fires (error) on the init --db scaffold with no deps installed", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg(),
+      allDeps: {},
+      readFile: (p) => (p === "worker/index.ts" ? SCAFFOLD : null),
+    });
+    const findings = rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-WORKER-UNRESOLVED-IMPORTS");
+    expect(findings[0].severity).toBe("error");
+    expect(findings[0].title).toContain("hono");
+    expect(findings[0].title).toContain("creek");
+    expect(findings[0].title).toContain("d1-schema");
+    expect(findings[0].fix).toContain("npm install hono creek d1-schema");
+  });
+
+  test("silent once every imported package is declared", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg({ hono: "^4", creek: "^0", "d1-schema": "^0" }),
+      allDeps: { hono: "^4", creek: "^0", "d1-schema": "^0" },
+      readFile: () => SCAFFOLD,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("only flags the undeclared subset", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+      readFile: () => SCAFFOLD,
+    });
+    const findings = rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].title).not.toContain("hono");
+    expect(findings[0].title).toContain("creek");
+    expect(findings[0].title).toContain("d1-schema");
+  });
+
+  test("ignores relative imports and node builtins", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg(),
+      allDeps: {},
+      readFile: () =>
+        `import { x } from "./local";\nimport crypto from "node:crypto";\nimport { readFile } from "fs";\nexport default {};`,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("maps scoped + subpath specifiers to the installable package name", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg({ "@scope/lib": "^1", drizzle: "^0" }),
+      allDeps: { "@scope/lib": "^1", drizzle: "^0" },
+      readFile: () =>
+        `import a from "@scope/lib/sub";\nimport b from "drizzle/d1";\nexport default {};`,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("silent when no package.json (nothing to assess against)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: null,
+      readFile: () => SCAFFOLD,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("silent for pre-bundled (non-source) worker outputs", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "dist/_worker.mjs" }),
+      packageJson: pkg(),
+      readFile: () => `import x from "uninstalled";`,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("silent when the worker file can't be read (missing handled elsewhere)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "worker/index.ts" }),
+      packageJson: pkg(),
+      readFile: () => null,
+    });
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
   });
 });
 

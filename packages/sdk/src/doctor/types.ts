@@ -63,6 +63,13 @@ export interface DoctorContext {
   creekTomlRaw: string | null;
   /** Project-relative file existence check. */
   fileExists: (relPath: string) => boolean;
+  /**
+   * Read a project-relative file's text. `null` if absent/unreadable.
+   * Rules use this sparingly — only to scan a single declared file
+   * (e.g. the worker entry for unresolved imports), never to walk the
+   * tree. Keep usage bounded so `creek doctor` stays cheap.
+   */
+  readFile: (relPath: string) => string | null;
   /** Flattened deps+devDeps map from package.json. Empty if no pkg. */
   allDeps: Record<string, string>;
 }
