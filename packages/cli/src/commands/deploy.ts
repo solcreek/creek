@@ -34,11 +34,12 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
+import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
 import { prepareDeployBundle } from "../utils/prepare-bundle.js";
-import { BuildLogEmitter } from "../utils/build-log.js";
+import { BuildLogEmitter, flushBuildLog } from "../utils/build-log.js";
 import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput, readAdapterCompat } from "../utils/nextjs.js";
@@ -1536,17 +1537,27 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
       if (status === "active") {
         buildLog.info("activate", `deployed: ${res.url ?? res.previewUrl}`);
-        // Fire-and-forget the build log upload — don't block the user
-        // on it or make a slow/failing log API take down a successful
-        // deploy.
-        void client
-          .uploadBuildLog(deployment.id, buildLog.toNdjson(), {
-            status: "success",
-            startedAt: buildLog.startedAt,
-          })
-          .catch(() => {
-            // Silent — build log is best-effort for now.
-          });
+        // Start the build-log upload now so it overlaps the drift check below.
+        // Capture the promise instead of firing and forgetting: the JSON path
+        // calls process.exit() a few lines down, which aborts an in-flight
+        // request — so a successful deploy could otherwise leave no build log.
+        // We await it (capped) before any exit via flushBuildLog.
+        const logUpload = client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
+          status: "success",
+          startedAt: buildLog.startedAt,
+        });
+
+        // Deploy ships code, not schema. Check whether the bound database is
+        // behind the project's local migrations so a "successful" deploy
+        // doesn't 500 at runtime (D1_ERROR: no such column). Best-effort —
+        // detectMigrationDrift never throws, but guard the call anyway.
+        const drift = await detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
+          () => null,
+        );
+        const driftMsg = drift ? driftWarning(drift) : null;
+
+        // Make sure the build log lands before we exit below.
+        await flushBuildLog(logUpload);
 
         if (jsonMode) {
           const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
@@ -1564,6 +1575,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             mode: "production",
             rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
+            ...(drift && drift.status === "pending"
+              ? { migrations: { status: drift.status, pending: drift.pending } }
+              : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },
             { command: `creek deployments --project ${project.slug}`, description: "View deployment history" },
@@ -1581,6 +1595,13 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
           consola.info("  Queue: enabled");
         }
 
+        // Surface a lagging database schema right after the success line, so
+        // it isn't buried — this is the gap where a deploy "succeeds" but the
+        // app 500s on a missing column until migrations are applied.
+        if (driftMsg) {
+          consola.warn(`  ${driftMsg}`);
+        }
+
         // Contextual next-step hints (non-JSON only)
         if (!jsonMode) {
           printNextStepHint(effectiveRenderMode, resolved);
@@ -1595,15 +1616,16 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
           (failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate",
           msg,
         );
-        void client
-          .uploadBuildLog(deployment.id, buildLog.toNdjson(), {
+        // Await (capped) so the failure log reaches the server before
+        // process.exit() below — otherwise a failed deploy has nothing for
+        // `creek deployments logs` to show.
+        await flushBuildLog(
+          client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
             status: "failed",
             startedAt: buildLog.startedAt,
             errorStep: failed_step ?? null,
-          })
-          .catch(() => {
-            // Silent — build log is best-effort for now.
-          });
+          }),
+        );
         if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", message: msg, failedStep: failed_step }, 1, [
           { command: `creek deployments --project ${project.slug}`, description: "Check previous deployments" },
           { command: `creek rollback --project ${project.slug}`, description: "Rollback to previous version" },
@@ -1623,11 +1645,23 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
     }
 
-    if (jsonMode) jsonOutput({ ok: false, error: "timeout", message: "Deploy timed out after 2 minutes" }, 1, [
-      { command: `creek status`, description: "Check if deploy completed" },
-      { command: "creek deploy", description: "Retry deploy" },
+    // The CLI gave up before the deploy reached a terminal state — the server
+    // may still be working. Upload what we have so `creek deployments logs`
+    // isn't empty, and point the user there instead of a bare "retry".
+    buildLog.warn("activate", "CLI stopped waiting before the deploy reached a terminal state");
+    await flushBuildLog(
+      client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
+        status: "running",
+        startedAt: buildLog.startedAt,
+      }),
+    );
+    if (jsonMode) jsonOutput({ ok: false, error: "timeout", message: "CLI stopped waiting after 2 minutes; the deploy may still be in progress" }, 1, [
+      { command: `creek status`, description: "Check whether the deploy finished" },
+      { command: `creek deployments logs ${deployment.id}`, description: "View the build log so far" },
     ]);
-    consola.error("Deploy timed out after 2 minutes");
+    consola.error("CLI stopped waiting after 2 minutes — the deploy may still be in progress.");
+    consola.info(`  Check status:  creek status`);
+    consola.info(`  View the log:  creek deployments logs ${deployment.id}`);
     process.exit(1);
   } catch (err) {
     if (err instanceof CreekAuthError) {

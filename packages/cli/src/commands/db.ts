@@ -168,16 +168,25 @@ async function executeAndPrint(
   }
 }
 
+/** Escape a string for safe inlining inside a single-quoted SQL literal. */
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 const migrateCommand = defineCommand({
   meta: {
     name: "migrate",
     description: "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order.",
   },
   args: {
+    // Accept the database name either as the first positional (`db migrate
+    // <NAME>`) or as `--name <NAME>` — both spellings appear in docs/examples.
+    // Defined as an option (not a positional) so `--name` parses; the bare
+    // positional is read from args._ in run().
     name: {
-      type: "positional",
-      description: "Database name (as shown by `creek db ls`)",
-      required: true,
+      type: "string",
+      description: "Database name (as shown by `creek db ls`). May also be given as the first positional argument.",
+      required: false,
     },
     dir: {
       type: "string",
@@ -189,10 +198,22 @@ const migrateCommand = defineCommand({
       description: "Show pending migrations without executing them.",
       default: false,
     },
+    resume: {
+      type: "boolean",
+      description: "Reconcile a partially-applied migration: if applying fails because objects already exist, mark it applied and continue. Use after an interrupted run.",
+      default: false,
+    },
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    const dbName = args.name ?? (args._ as string[] | undefined)?.[0];
+    if (!dbName) {
+      const msg = "Database name required. Usage: `creek db migrate <NAME>` (or `--name <NAME>`).";
+      if (jsonMode) jsonOutput({ ok: false, error: "missing_name", message: msg }, 1);
+      consola.error(msg);
+      process.exit(1);
+    }
     const token = getToken();
     if (!token) {
       if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
@@ -203,10 +224,10 @@ const migrateCommand = defineCommand({
 
     // 1. Resolve database name → resource ID
     const { resources } = await client.listResources();
-    const db = resources.find((r) => r.name === args.name && r.kind === "database");
+    const db = resources.find((r) => r.name === dbName && r.kind === "database");
     if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${args.name}"` }, 1);
-      consola.error(`No database named "${args.name}"`);
+      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${dbName}"` }, 1);
+      consola.error(`No database named "${dbName}"`);
       process.exit(1);
     }
 
@@ -270,7 +291,7 @@ const migrateCommand = defineCommand({
           pending: pending.map((f) => f.name),
         }, 0);
       } else if (pending.length === 0) {
-        consola.success(`Database "${args.name}" is up to date (${appliedSet.size} applied)`);
+        consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
       } else {
         consola.info(`${pending.length} pending migration(s):\n`);
         for (const f of pending) {
@@ -284,13 +305,14 @@ const migrateCommand = defineCommand({
     // 6. Apply pending
     if (pending.length === 0) {
       if (jsonMode) jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
-      consola.success(`Database "${args.name}" is up to date (${appliedSet.size} applied)`);
+      consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
       return;
     }
 
-    consola.info(`Migrating "${args.name}": ${pending.length} pending of ${files.length} total\n`);
+    consola.info(`Migrating "${dbName}": ${pending.length} pending of ${files.length} total\n`);
 
     let migrated = 0;
+    let resumed = 0;
     for (const file of pending) {
       const sql = readFileSync(file.path, "utf-8");
       const statements = splitStatements(sql);
@@ -302,45 +324,62 @@ const migrateCommand = defineCommand({
 
       consola.start(`  ${file.name} (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
 
-      // Send each file's statements in as few requests as possible. D1's
-      // /query runs a multi-statement string in one round-trip, so a 24-table
-      // schema applies in ~1 request instead of dozens — what made `creek db
-      // migrate` feel slow was the per-statement HTTP latency, not D1 itself.
-      const batches = batchStatements(statements);
-      for (const batch of batches) {
-        try {
-          await client.queryDatabase(db.id, batch);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // The server's D1 error names the offending statement's SQL, so we
-          // surface that rather than a now-meaningless global index.
-          consola.error(`  ${file.name} — failed: ${msg}`);
-          if (jsonMode) {
-            jsonOutput({
-              ok: false,
-              error: "migration_failed",
-              file: file.name,
-              totalStatements: statements.length,
-              message: msg,
-              migrated,
-              remaining: pending.length - migrated,
-            }, 1);
-          }
-          consola.error(`\n${migrated} migration(s) applied before failure. Fix the SQL and re-run.`);
-          process.exit(1);
-        }
-      }
+      // Apply the migration AND record it as applied in the same request: the
+      // tracking insert rides along as the final statement. This closes the
+      // window where the schema changed but the migration still looked pending
+      // — an interrupted run between "apply" and a separate "record" used to
+      // leave exactly that, unrecoverable without manual SQL. D1 runs a
+      // multi-statement /query in one round-trip, so this stays ~1 request.
+      const trackSql = `INSERT INTO _creek_migrations (name, applied_at) VALUES ('${escapeSqlLiteral(file.name)}', ${Date.now()});`;
+      const batches = batchStatements([...statements, trackSql]);
 
-      // Record success
       try {
-        await client.queryDatabase(db.id,
-          "INSERT INTO _creek_migrations (name, applied_at) VALUES (?, ?);",
-          [file.name, Date.now()],
-        );
-      } catch {
-        // Non-fatal — migration ran but tracking failed. It won't re-run
-        // because the schema changes already happened. Warn and continue.
-        consola.warn(`  ${file.name} — applied but failed to record in tracking table`);
+        for (const batch of batches) {
+          await client.queryDatabase(db.id, batch);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const alreadyExists = /already exists/i.test(msg);
+
+        // --resume: a prior run applied this migration's schema but was
+        // interrupted before recording it, so re-running collides with an
+        // object that "already exists". Reconcile by marking it applied and
+        // moving on, rather than getting stuck needing manual cleanup.
+        if (args.resume && alreadyExists) {
+          try {
+            await client.queryDatabase(db.id, trackSql);
+            consola.warn(`  ${file.name} — objects already exist; marked applied (--resume)`);
+            resumed++;
+            migrated++;
+            continue;
+          } catch (recordErr) {
+            const rmsg = recordErr instanceof Error ? recordErr.message : String(recordErr);
+            if (jsonMode) jsonOutput({ ok: false, error: "resume_failed", file: file.name, message: rmsg, migrated }, 1);
+            consola.error(`  ${file.name} — resume failed: ${rmsg}`);
+            process.exit(1);
+          }
+        }
+
+        // The server's D1 error names the offending statement's SQL, so we
+        // surface that rather than a now-meaningless global index.
+        consola.error(`  ${file.name} — failed: ${msg}`);
+        if (jsonMode) {
+          jsonOutput({
+            ok: false,
+            error: "migration_failed",
+            file: file.name,
+            totalStatements: statements.length,
+            message: msg,
+            migrated,
+            remaining: pending.length - migrated,
+            ...(alreadyExists ? { hint: "Re-run with --resume to reconcile a partially-applied migration." } : {}),
+          }, 1);
+        }
+        if (alreadyExists) {
+          consola.info(`  If a previous run was interrupted, re-run with --resume to reconcile.`);
+        }
+        consola.error(`\n${migrated} migration(s) applied before failure. Fix the SQL and re-run.`);
+        process.exit(1);
       }
 
       migrated++;
@@ -348,9 +387,9 @@ const migrateCommand = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, migrated, total: files.length, applied: appliedSet.size + migrated }, 0);
+      jsonOutput({ ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated }, 0);
     }
-    consola.success(`\n${migrated} migration(s) applied successfully`);
+    consola.success(`\n${migrated} migration(s) applied successfully${resumed ? ` (${resumed} reconciled via --resume)` : ""}`);
   },
 });
 

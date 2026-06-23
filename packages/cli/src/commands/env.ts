@@ -41,6 +41,9 @@ const envSet = defineCommand({
       { command: `creek deploy`, description: "Deploy to apply changes" },
     ]);
     consola.success(`Set ${args.key}`);
+    // Env vars are injected at deploy time, so a change to a live project does
+    // nothing until the next deploy. Say so, or it silently 500s on the old value.
+    consola.info("Run `creek deploy` to apply this to your live deployment.");
   },
 });
 
@@ -108,6 +111,7 @@ const envRm = defineCommand({
       { command: "creek deploy", description: "Deploy to apply changes" },
     ]);
     consola.success(`Removed ${args.key}`);
+    consola.info("Run `creek deploy` to apply this to your live deployment.");
   },
 });
 

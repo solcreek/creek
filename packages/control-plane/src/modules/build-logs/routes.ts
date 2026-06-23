@@ -18,7 +18,7 @@ import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { storeBuildLog } from "./storage.js";
-import type { BuildLogLine, BuildLogStatus } from "./types.js";
+import type { BuildLogLine, BuildLogStatus, BuildLogStep } from "./types.js";
 
 type BuildLogsEnv = {
   Bindings: Env;
@@ -47,6 +47,34 @@ async function resolveDeployment(
     .bind(deploymentId)
     .first<{ projectSlug: string; teamSlug: string; teamId: string }>();
   return row ?? null;
+}
+
+/**
+ * Map a deployment.failedStep (server-side phase names) onto a BuildLogStep.
+ * The deploy job records steps like "uploading"/"provisioning"/"deploying",
+ * which don't match the CLI's build-log step vocabulary one-to-one.
+ */
+function mapFailedStep(step: string | null): BuildLogStep {
+  switch (step) {
+    case "uploading":
+      return "upload";
+    case "provisioning":
+      return "provision";
+    case "deploying":
+      return "activate";
+    case "clone":
+    case "detect":
+    case "install":
+    case "build":
+    case "bundle":
+    case "upload":
+    case "provision":
+    case "activate":
+    case "cleanup":
+      return step;
+    default:
+      return "activate";
+  }
 }
 
 function isInternalAuth(c: { req: { header: (n: string) => string | undefined }; env: Env }): boolean {
@@ -122,10 +150,53 @@ buildLogsRead.get(
       }>();
 
     if (!meta) {
+      // No build_log row. A server-side failure (deploy-job's failDeployment,
+      // or the stale-deploy reaper) records the reason on the deployment row,
+      // not in build_log — so without this fallback a failed deploy looks
+      // log-less. Surface the recorded failure instead of a bare "not yet
+      // available", and mark it synthesized so callers know it's not an
+      // uploaded log.
+      const dep = await c.env.DB.prepare(
+        `SELECT status, failedStep, errorMessage, updatedAt
+           FROM deployment WHERE id = ?`,
+      )
+        .bind(deploymentId)
+        .first<{ status: string; failedStep: string | null; errorMessage: string | null; updatedAt: number }>();
+
+      if (dep?.status === "failed") {
+        const ts = dep.updatedAt ?? Date.now();
+        const entry: BuildLogLine = {
+          ts,
+          step: mapFailedStep(dep.failedStep),
+          stream: "creek",
+          level: "error",
+          msg: dep.errorMessage ?? "Deploy failed",
+        };
+        return c.json({
+          entries: [entry],
+          metadata: {
+            deploymentId,
+            status: "failed" as BuildLogStatus,
+            startedAt: ts,
+            endedAt: ts,
+            bytes: 0,
+            lines: 1,
+            truncated: false,
+            errorCode: null,
+            errorStep: dep.failedStep,
+            r2Key: null,
+            synthesized: true,
+          },
+          message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}.`,
+        });
+      }
+
       return c.json({
         entries: [] as BuildLogLine[],
-        metadata: null,
-        message: "Build log not yet available — the deploy may still be running or never uploaded logs.",
+        metadata: dep ? { deploymentId, status: dep.status, synthesized: true } : null,
+        message: dep
+          ? `Build log not yet available — deployment status is "${dep.status}".`
+          : "Build log not yet available — the deploy may still be running or never uploaded logs.",
       });
     }
 

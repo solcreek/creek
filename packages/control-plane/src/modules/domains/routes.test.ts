@@ -103,6 +103,19 @@ describe("GET /projects/:id/domains/:domainId", () => {
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/nonexistent`);
     expect(res.status).toBe(404);
   });
+
+  test("includes the CNAME instruction so DNS records are retrievable", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d2', '${PROJECT_ID}', 'site.example.com', 'pending', ${now})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d2`);
+    const json = await res.json() as any;
+    expect(json.dns.cname).toEqual({ name: "site.example.com", target: "cname.creek.dev" });
+  });
 });
 
 // --- POST /projects/:id/domains ---
@@ -132,12 +145,34 @@ describe("POST /projects/:id/domains", () => {
     expect(res.status).toBe(400);
   });
 
-  test("rejects duplicate hostname", async () => {
+  test("is idempotent — re-adding a hostname on the same project returns it, not an error", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);
     testEnv.db.db.exec(
       `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
-       VALUES ('existing', '${PROJECT_ID}', 'app.example.com', 'active', ${now})`,
+       VALUES ('existing', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
+      hostname: "app.example.com",
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json.idempotent).toBe(true);
+    expect(json.domain.id).toBe("existing");
+    expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
+  });
+
+  test("rejects a hostname owned by a different project", async () => {
+    seedTestProject();
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionBranch, createdAt, updatedAt)
+       VALUES ('proj-2', 'other-app', '${teamId}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('taken', 'proj-2', 'app.example.com', 'active', ${Math.floor(now / 1000)})`,
     );
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
@@ -249,7 +284,7 @@ describe("POST /projects/:id/domains", () => {
 // --- POST /projects/:id/domains/:domainId/activate ---
 
 describe("POST /projects/:id/domains/:domainId/activate", () => {
-  test("activates a pending domain", async () => {
+  test("manual-overrides a pending domain when there is no CF hostname to verify", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);
     testEnv.db.db.exec(
@@ -260,7 +295,46 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
     expect(res.status).toBe(200);
     const json = await res.json() as any;
-    expect(json.ok).toBe(true);
+    expect(json).toMatchObject({ ok: true, status: "active", manual: true });
+  });
+
+  test("reports pending_dns (and does not flip) when the edge hasn't verified", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    // The beforeEach fetch mock returns custom_hostnames status "pending".
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    expect(res.status).toBe(200);
+    const json = await res.json() as any;
+    expect(json).toMatchObject({ ok: false, status: "pending_dns" });
+    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as { status: string };
+    expect(row.status).toBe("pending"); // not falsely activated
+  });
+
+  test("activates when the edge confirms the hostname is active", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(JSON.stringify({ success: true, result: { id: "cf-1", status: "active", ssl: { status: "active" } } }));
+      }
+      return originalFetch(input as any);
+    }) as any;
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const json = await res.json() as any;
+    expect(json).toMatchObject({ ok: true, status: "active" });
+    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as { status: string };
+    expect(row.status).toBe("active");
   });
 
   test("returns 404 for non-existent domain", async () => {

@@ -76,16 +76,16 @@ const domainsAdd = defineCommand({
     const slug = getProjectSlug(args);
 
     const result = await client.addDomain(slug, args.hostname);
-    const { domain, verification } = result;
+    const { domain, verification, idempotent } = result;
 
     if (jsonMode) {
       const crumbs = domain.status === "active"
         ? [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }]
         : [
-            { command: `creek domains ls --project ${slug}`, description: "Check domain status" },
+            { command: `creek domains show ${domain.hostname} --project ${slug}`, description: "Retrieve the DNS records to set" },
             { command: `creek domains activate ${domain.hostname} --project ${slug}`, description: "Activate after DNS setup" },
           ];
-      jsonOutput({ ok: true, project: slug, domain, verification }, 0, crumbs);
+      jsonOutput({ ok: true, project: slug, domain, verification, idempotent: idempotent ?? false }, 0, crumbs);
       return;
     }
 
@@ -94,7 +94,8 @@ const domainsAdd = defineCommand({
       return;
     }
 
-    consola.success(`Added ${domain.hostname} (status: ${domain.status})`);
+    const verb = idempotent ? "Already added" : "Added";
+    consola.success(`${verb} ${domain.hostname} (status: ${domain.status})`);
     consola.info("");
     consola.info("  Point your DNS to Creek:");
     consola.info(`    CNAME  ${domain.hostname}  →  cname.creek.dev`);
@@ -106,6 +107,54 @@ const domainsAdd = defineCommand({
     consola.info("");
     consola.info("  Creek will automatically verify and provision SSL.");
     consola.info(`  Run \`creek domains ls --project ${slug}\` to check status.`);
+  },
+});
+
+async function resolveDomain(client: CreekClient, slug: string, hostname: string) {
+  const domains = await client.listDomains(slug);
+  return domains.find((d) => d.hostname === hostname.toLowerCase());
+}
+
+const domainsShow = defineCommand({
+  meta: { name: "show", description: "Show a domain's status and the DNS records to set" },
+  args: {
+    hostname: { type: "positional", description: "Domain to show", required: true },
+    ...projectArg,
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const client = getClient();
+    const slug = getProjectSlug(args);
+
+    const found = await resolveDomain(client, slug, args.hostname);
+    if (!found) {
+      consola.error(`Domain "${args.hostname}" not found.`);
+      process.exit(1);
+    }
+
+    // getDomain refreshes status from the edge and always returns the DNS
+    // instruction — the records are retrievable here any time, not only in the
+    // one-time `add` output.
+    const detail = await client.getDomain(slug, found.id);
+
+    if (jsonMode) {
+      jsonOutput({ ok: true, project: slug, domain: detail, dns: detail.dns }, 0, [
+        { command: `creek domains activate ${detail.hostname} --project ${slug}`, description: "Activate once DNS resolves" },
+      ]);
+      return;
+    }
+
+    consola.info(`${detail.hostname}  (status: ${detail.status})`);
+    consola.info("");
+    consola.info("  Point your DNS to Creek:");
+    consola.info(`    CNAME  ${detail.dns.cname.name}  →  ${detail.dns.cname.target}`);
+    consola.info("");
+    if (detail.status === "active") {
+      consola.info("  This domain is active — SSL is provisioned.");
+    } else {
+      consola.info(`  Once the CNAME resolves, run \`creek domains activate ${detail.hostname} --project ${slug}\`.`);
+    }
   },
 });
 
@@ -121,9 +170,7 @@ const domainsRm = defineCommand({
     const client = getClient();
     const slug = getProjectSlug(args);
 
-    // Resolve hostname to domain ID
-    const domains = await client.listDomains(slug);
-    const domain = domains.find((d) => d.hostname === args.hostname.toLowerCase());
+    const domain = await resolveDomain(client, slug, args.hostname);
     if (!domain) {
       consola.error(`Domain "${args.hostname}" not found.`);
       process.exit(1);
@@ -154,29 +201,51 @@ const domainsActivate = defineCommand({
     const client = getClient();
     const slug = getProjectSlug(args);
 
-    // Resolve hostname to domain ID
-    const domains = await client.listDomains(slug);
-    const domain = domains.find((d) => d.hostname === args.hostname.toLowerCase());
+    const domain = await resolveDomain(client, slug, args.hostname);
     if (!domain) {
       consola.error(`Domain "${args.hostname}" not found.`);
       process.exit(1);
     }
 
     if (domain.status === "active") {
+      if (jsonMode) {
+        jsonOutput({ ok: true, hostname: domain.hostname, status: "active", project: slug }, 0);
+        return;
+      }
       consola.info(`${domain.hostname} is already active.`);
       return;
     }
 
-    await client.activateDomain(slug, domain.id);
+    const result = await client.activateDomain(slug, domain.id);
+
+    // Honest activate: only report success when the edge confirms the hostname.
+    // pending_dns means DNS isn't resolving yet — surface it as a non-success
+    // (exit 1) with the actionable reason, not a misleading "Activated".
+    if (result.status === "pending_dns" || result.ok === false) {
+      const message = result.message ?? "Domain is not verified yet — set the DNS record and retry.";
+      const showCrumb = { command: `creek domains show ${domain.hostname} --project ${slug}`, description: "Retrieve the DNS records to set" };
+      if (jsonMode) {
+        jsonOutput({ ok: false, error: "pending_dns", hostname: domain.hostname, status: "pending_dns", message, project: slug }, 1, [showCrumb]);
+        return;
+      }
+      consola.warn(`${domain.hostname} is not active yet.`);
+      consola.info(`  ${message}`);
+      consola.info(`  Run \`${showCrumb.command}\` to see the DNS records.`);
+      process.exit(1);
+    }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, hostname: domain.hostname, status: "active", project: slug }, 0, [
+      jsonOutput({ ok: true, hostname: domain.hostname, status: "active", manual: result.manual ?? false, project: slug }, 0, [
         { command: `creek domains ls --project ${slug}`, description: "List all domains" },
       ]);
       return;
     }
 
-    consola.success(`Activated ${domain.hostname}`);
+    consola.success(
+      result.manual
+        ? `Activated ${domain.hostname} (manual override — no edge to verify against)`
+        : `Activated ${domain.hostname}`,
+    );
   },
 });
 
@@ -187,6 +256,7 @@ export const domainsCommand = defineCommand({
   },
   subCommands: {
     ls: domainsLs,
+    show: domainsShow,
     add: domainsAdd,
     rm: domainsRm,
     activate: domainsActivate,

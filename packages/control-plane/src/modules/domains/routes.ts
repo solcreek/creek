@@ -23,6 +23,15 @@ type DomainEnv = {
 
 const domains = new Hono<DomainEnv>();
 
+// The CNAME target tenants point their DNS at. Single source of truth for the
+// DNS instruction surfaced by `add`, the single-domain GET, and `activate`, so
+// the records are always retrievable — not only printed once at add time.
+const CNAME_TARGET = "cname.creek.dev";
+
+function dnsInstructions(hostname: string) {
+  return { cname: { name: hostname, target: CNAME_TARGET } };
+}
+
 // List custom domains for a project
 domains.get(
   "/:projectId/domains",
@@ -118,7 +127,9 @@ domains.get(
       }
     }
 
-    return c.json(domain);
+    // Always include the DNS instruction so it's retrievable any time, not
+    // just in the original `add` response.
+    return c.json({ ...domain, dns: dnsInstructions(domain.hostname) });
   },
 );
 
@@ -162,16 +173,25 @@ domains.post(
       );
     }
 
-    // Check if hostname is already taken
+    // Idempotent for THIS project: re-adding a hostname already on the project
+    // returns the existing record + DNS instructions instead of an error, so
+    // `add` is safe to re-run and the CNAME is always retrievable. A hostname
+    // owned by a different project is a genuine conflict.
     const existing = await c.env.DB.prepare(
-      "SELECT id FROM custom_domain WHERE hostname = ?",
+      "SELECT * FROM custom_domain WHERE hostname = ?",
     )
       .bind(hostname)
-      .first();
+      .first<{ id: string; projectId: string; status: string }>();
 
     if (existing) {
+      if (existing.projectId === project.id) {
+        return c.json(
+          { domain: existing, verification: dnsInstructions(hostname), idempotent: true },
+          200,
+        );
+      }
       return c.json(
-        { error: "conflict", message: "Hostname already in use" },
+        { error: "conflict", message: "Hostname already in use by another project" },
         409,
       );
     }
@@ -233,10 +253,7 @@ domains.post(
         verification:
           initialStatus !== "active" && ownershipVerification
             ? {
-                cname: {
-                  name: hostname,
-                  target: "cname.creek.dev",
-                },
+                ...dnsInstructions(hostname),
                 txt: ownershipVerification,
               }
             : null,
@@ -268,33 +285,61 @@ domains.post(
       );
     }
 
-    const result = await c.env.DB.prepare(
-      "UPDATE custom_domain SET status = 'active' WHERE id = ? AND projectId = ?",
+    const domain = await c.env.DB.prepare(
+      "SELECT id, hostname, status, cfCustomHostnameId FROM custom_domain WHERE id = ? AND projectId = ?",
     )
       .bind(domainId, project.id)
-      .run();
+      .first<{ id: string; hostname: string; status: string; cfCustomHostnameId: string | null }>();
 
-    if (!result.meta.changes) {
-      return c.json(
-        { error: "not_found", message: "Domain not found" },
-        404,
-      );
+    if (!domain) {
+      return c.json({ error: "not_found", message: "Domain not found" }, 404);
     }
 
-    await recordAudit(
-      c.env.DB,
-      c.get("user"),
-      c.get("teamId"),
-      {
-        action: "domain.activate",
-        resourceType: "domain",
-        resourceId: domainId,
-        metadata: { projectId },
-      },
-      c.get("auditCtx"),
-    );
+    if (domain.status === "active") {
+      return c.json({ ok: true, status: "active" });
+    }
 
-    return c.json({ ok: true });
+    const markActive = async () => {
+      await c.env.DB.prepare("UPDATE custom_domain SET status = 'active' WHERE id = ?")
+        .bind(domain.id)
+        .run();
+      await recordAudit(
+        c.env.DB,
+        c.get("user"),
+        c.get("teamId"),
+        { action: "domain.activate", resourceType: "domain", resourceId: domainId, metadata: { projectId } },
+        c.get("auditCtx"),
+      );
+    };
+
+    // When the domain is wired through CF, only claim "active" if the edge
+    // confirms the hostname. Flipping a domain that doesn't resolve yet to
+    // "active" was the misleading part — distinguish it as "pending_dns".
+    if (domain.cfCustomHostnameId && c.env.CLOUDFLARE_ZONE_ID) {
+      try {
+        const cf = await getCustomHostname(c.env, domain.cfCustomHostnameId);
+        if (cf.status === "active") {
+          await markActive();
+          return c.json({ ok: true, status: "active" });
+        }
+        return c.json({
+          ok: false,
+          status: "pending_dns",
+          message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
+        });
+      } catch {
+        return c.json({
+          ok: false,
+          status: "pending_dns",
+          message: "Could not verify the domain with the edge yet. Check your DNS and retry.",
+        });
+      }
+    }
+
+    // No CF hostname to verify against (self-hosted / zone not configured):
+    // honor activate as an explicit manual override, but label it as such.
+    await markActive();
+    return c.json({ ok: true, status: "active", manual: true });
   },
 );
 

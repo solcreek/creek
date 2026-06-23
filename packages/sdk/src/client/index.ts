@@ -2,6 +2,8 @@ import type {
   Project,
   Deployment,
   CustomDomain,
+  DomainDetail,
+  ActivateDomainResult,
   CreateProjectRequest,
   CreateProjectResponse,
   CreateDeploymentResponse,
@@ -444,12 +446,31 @@ export class CreekClient {
     hostname: string,
   ): Promise<{
     domain: CustomDomain;
+    // CNAME is always present; `txt` only on a first add that needs ownership
+    // verification, absent on an idempotent re-add.
     verification?: {
       cname: { name: string; target: string };
-      txt: { type: string; name: string; value: string };
+      txt?: { type: string; name: string; value: string };
     } | null;
+    // True when the hostname was already on this project (add is idempotent).
+    idempotent?: boolean;
   }> {
     return this.request("POST", `/projects/${projectId}/domains`, { hostname });
+  }
+
+  /**
+   * Fetch a single domain with its DNS instruction. Unlike the one-time `add`
+   * response, this is retrievable any time — the CNAME a tenant must set is
+   * always available here.
+   */
+  async getDomain(
+    projectId: string,
+    domainId: string,
+  ): Promise<DomainDetail> {
+    return this.request(
+      "GET",
+      `/projects/${projectId}/domains/${domainId}`,
+    );
   }
 
   async deleteDomain(
@@ -462,7 +483,7 @@ export class CreekClient {
   async activateDomain(
     projectId: string,
     domainId: string,
-  ): Promise<{ ok: boolean }> {
+  ): Promise<ActivateDomainResult> {
     return this.request(
       "POST",
       `/projects/${projectId}/domains/${domainId}/activate`,

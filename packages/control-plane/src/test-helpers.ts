@@ -9,6 +9,7 @@ import {
   resources,
   resourceBindings,
 } from "./modules/resources/routes.js";
+import { buildLogsRead } from "./modules/build-logs/routes.js";
 import type { Env } from "./types.js";
 import type { AuthUser } from "./modules/tenant/types.js";
 import type { AuditRequestContext } from "./modules/audit/types.js";
@@ -212,6 +213,7 @@ export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) 
 
   app.route("/projects", projects);
   app.route("/projects", deployments);
+  app.route("/projects", buildLogsRead);
   app.route("/projects", domains);
   app.route("/projects", envVars);
   app.route("/projects", resourceBindings);

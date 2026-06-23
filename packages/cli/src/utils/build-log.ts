@@ -67,3 +67,34 @@ export class BuildLogEmitter {
     return this.lines.length;
   }
 }
+
+export type FlushOutcome = "sent" | "failed" | "timeout";
+
+/**
+ * Wait for a build-log upload to actually reach the server before the CLI
+ * exits, but never let a slow or hanging log endpoint block the deploy result.
+ *
+ * The build log is best-effort, so this swallows upload errors and caps the
+ * wait. It exists because firing the upload and then calling `process.exit()`
+ * (as the JSON output path does right after) aborts the in-flight request — so
+ * a "successful" deploy could otherwise leave no build log at all. Await this
+ * before any exit instead of fire-and-forget.
+ *
+ * Returns "sent" if the upload completed, "failed" if it errored, or "timeout"
+ * if we stopped waiting after `capMs` (the upload may still be in flight).
+ */
+export async function flushBuildLog(upload: Promise<unknown>, capMs = 3000): Promise<FlushOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const capped = new Promise<FlushOutcome>((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), capMs);
+  });
+  const settled: Promise<FlushOutcome> = upload.then(
+    () => "sent",
+    () => "failed",
+  );
+  try {
+    return await Promise.race([settled, capped]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
