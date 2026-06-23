@@ -15,6 +15,7 @@ describe("isAllowedOrigin", () => {
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost",
+    "https://app.creek.dev:443", // explicit default port normalizes to "" — allowed
   ])("allows %s", (origin) => {
     expect(isAllowedOrigin(origin)).toBe(true);
   });
@@ -28,6 +29,7 @@ describe("isAllowedOrigin", () => {
     "http://app.creek.dev", // non-localhost must be https to match the prod model
     "http://creek.dev",
     "https://app.creek.dev:444", // non-default port widens the origin — reject
+    "ws://localhost", // localhost only over http/https
     "not-a-url",
     "",
   ])("rejects %s", (origin) => {

@@ -19,9 +19,9 @@ export function isAllowedOrigin(origin: string): boolean {
   // https on the default port. Validating scheme + host + port keeps the
   // guard from treating http://app.creek.dev or https://app.creek.dev:444 the
   // same as the real https://app.creek.dev origin.
-  if (host === "localhost") return true;
+  if (host === "localhost") return url.protocol === "http:" || url.protocol === "https:";
   if (url.protocol !== "https:") return false;
-  if (url.port !== "") return false; // non-default port widens the origin
+  if (url.port !== "") return false; // non-default port widens the origin (:443 normalizes to "")
   if (host === "creek.dev") return true;
   if (host.endsWith(".creek.dev")) return true;
   return false;
