@@ -1197,6 +1197,8 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   if (plan.assets.enabled) {
     progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
   }
+  const sandboxApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled);
+  if (sandboxApiHint) progress.info(`  ℹ ${sandboxApiHint}`);
 
   // Deploy to sandbox
   progress.section("Deploy");
@@ -1252,6 +1254,8 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
         renderMode: effectiveRenderMode,
         assetCount: fileList.length,
         mode: "sandbox",
+        sameOriginApi: sandboxApiHint !== null,
+        ...(sandboxApiHint ? { sameOriginApiHint: sandboxApiHint } : {}),
       }, 0, [
         { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
         { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
@@ -1478,6 +1482,8 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
     progress.section("Upload");
     progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
+    const prodApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled);
+    if (prodApiHint) progress.info(`  ℹ ${prodApiHint}`);
 
     progress.section("Deploy");
     progress.start("  Creating deployment...");
@@ -1606,6 +1612,8 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             assetCount: fileList.length,
             buildTimeS: parseFloat(elapsedS),
             mode: "production",
+            sameOriginApi: prodApiHint !== null,
+            ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
             rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
             ...(drift && drift.status === "pending"
@@ -1706,6 +1714,19 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 }
 
 // --- Hints ---
+
+/**
+ * Worker+assets is the single-origin model: one worker serves the SPA
+ * AND the API. But `creek deploy` runs the frontend build WITHOUT
+ * VITE_API_URL, so a SPA that falls back to a hardcoded dev base (the
+ * common `import.meta.env.VITE_API_URL || "http://localhost:8787"`)
+ * ships pointing at localhost and breaks in the browser. Returns a hint
+ * for that case, else null (spa / ssr don't have this footgun).
+ */
+export function sameOriginApiHint(renderMode: string, assetsEnabled: boolean): string | null {
+  if (renderMode !== "worker" || !assetsEnabled) return null;
+  return 'Same-origin: this worker serves your SPA and API together — call the API with relative paths (fetch("/api/...")). The build runs without VITE_API_URL, so a hardcoded localhost fallback breaks in the browser; set VITE_API_URL="" for production if your frontend reads it.';
+}
 
 /**
  * Print next-step hints after deploy.

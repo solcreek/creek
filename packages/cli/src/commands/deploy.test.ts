@@ -5,6 +5,7 @@ import {
   patchBareNodeImports,
   findNewDeployment,
   makeProgress,
+  sameOriginApiHint,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
@@ -57,6 +58,22 @@ describe("makeProgress (deploy --json stdout hygiene)", () => {
     expect(start).toHaveBeenCalledTimes(1);
     expect(success).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sameOriginApiHint", () => {
+  test("returns a hint only for worker+assets (single-origin) deploys", () => {
+    const hint = sameOriginApiHint("worker", true);
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("VITE_API_URL");
+    expect(hint).toContain("relative");
+  });
+
+  test("is silent for spa, ssr, and worker-only deploys", () => {
+    expect(sameOriginApiHint("spa", true)).toBeNull();
+    expect(sameOriginApiHint("ssr", true)).toBeNull();
+    // worker with no static assets isn't the SPA-same-origin footgun
+    expect(sameOriginApiHint("worker", false)).toBeNull();
   });
 });
 
