@@ -196,6 +196,21 @@ describe("creek env", () => {
     const code = await runExit(envCommand.subCommands!.unset.run!({ args: { key: "DEMO_PROBE", _: [] } } as never));
     expect(code).toBe(0);
     expect(deleted).toBe("DEMO_PROBE");
-    expect(json()).toMatchObject({ ok: true, key: "DEMO_PROBE", removed: true });
+    // Removal isn't live until redeploy — must be signalled structurally.
+    expect(json()).toMatchObject({ ok: true, key: "DEMO_PROBE", removed: true, applied: false, pendingDeploy: true });
+  });
+
+  it("`set` signals the change is pending a deploy (not yet live)", async () => {
+    server.use(
+      http.post(`${API}/projects/demo/env`, () => HttpResponse.json({ ok: true, key: "DEMO_PROBE" })),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "DEMO_PROBE", value: "1", _: [] } } as never),
+    );
+    expect(code).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({ ok: true, key: "DEMO_PROBE", applied: false, pendingDeploy: true });
+    // The redeploy step must remain in the breadcrumbs.
+    expect(JSON.stringify(out.breadcrumbs)).toContain("creek deploy");
   });
 });

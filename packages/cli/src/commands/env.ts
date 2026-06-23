@@ -36,7 +36,10 @@ const envSet = defineCommand({
     const client = getClient();
     const slug = getProjectSlug();
     await client.setEnvVar(slug, args.key, args.value);
-    if (jsonMode) jsonOutput({ ok: true, key: args.key, project: slug }, 0, [
+    // Env vars are injected at deploy time — the change is stored but NOT
+    // live on the running worker until the next deploy. Signal that
+    // structurally so an agent doesn't assume it took effect immediately.
+    if (jsonMode) jsonOutput({ ok: true, key: args.key, project: slug, applied: false, pendingDeploy: true }, 0, [
       { command: `creek env ls --project ${slug}`, description: "List all environment variables" },
       { command: `creek deploy`, description: "Deploy to apply changes" },
     ]);
@@ -106,7 +109,9 @@ const envRm = defineCommand({
     const client = getClient();
     const slug = getProjectSlug();
     await client.deleteEnvVar(slug, args.key);
-    if (jsonMode) jsonOutput({ ok: true, key: args.key, removed: true, project: slug }, 0, [
+    // Same deploy-time injection as `set`: the var is removed from the
+    // store but the running worker keeps the old value until redeploy.
+    if (jsonMode) jsonOutput({ ok: true, key: args.key, removed: true, project: slug, applied: false, pendingDeploy: true }, 0, [
       { command: `creek env ls --project ${slug}`, description: "List remaining variables" },
       { command: "creek deploy", description: "Deploy to apply changes" },
     ]);
