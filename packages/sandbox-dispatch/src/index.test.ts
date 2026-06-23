@@ -566,6 +566,101 @@ describe("Cache-Control — auth & session safety (regression)", () => {
   });
 });
 
+// All sandboxes share creeksandbox.com, so a Domain-scoped cookie from one
+// sandbox would otherwise reach siblings. Narrow Set-Cookie Domain to
+// host-only, preserving the cookie (and the EmDash Cache-Control invariant).
+describe("Set-Cookie Domain narrowing (cross-sandbox isolation)", () => {
+  async function dispatch(opts: {
+    sandboxId: string;
+    pathname: string;
+    method?: string;
+    responseHeaders?: HeadersInit;
+  }) {
+    const headers = new Headers(opts.responseHeaders ?? {});
+    const { env } = createEnv({
+      d1Rows: {
+        [opts.sandboxId]: {
+          id: opts.sandboxId,
+          status: "active",
+          expiresAt: Date.now() + 60_000,
+          previewHost: `${opts.sandboxId}.creeksandbox.com`,
+          deployDurationMs: 9000,
+        },
+      },
+      scriptHandlers: {
+        [`${opts.sandboxId}-sandbox`]: async () =>
+          new Response("ok", { status: 200, headers }),
+      },
+    });
+    return worker.fetch(
+      new Request(`https://${opts.sandboxId}.creeksandbox.com${opts.pathname}`, {
+        method: opts.method ?? "GET",
+      }),
+      env,
+    );
+  }
+
+  test("strips Domain=.creeksandbox.com, keeps cookie + other attrs", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/x",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "sid=abc; Domain=.creeksandbox.com; Path=/; HttpOnly",
+      },
+    });
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("sid=abc");
+    expect(cookie.toLowerCase()).not.toContain("domain=");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Path=/");
+  });
+
+  test("host-only cookie (no Domain) passes through byte-for-byte", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/x",
+      responseHeaders: {
+        "Content-Type": "application/json",
+        "Set-Cookie": "sid=abc; HttpOnly; Secure; SameSite=Lax",
+      },
+    });
+    expect(res.headers.get("Set-Cookie")).toBe("sid=abc; HttpOnly; Secure; SameSite=Lax");
+  });
+
+  test("POST with Domain cookie: Domain stripped AND Cache-Control stays private (EmDash invariant holds)", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/_emdash/api/auth/verify",
+      method: "POST",
+      responseHeaders: {
+        "Content-Type": "application/json",
+        "Set-Cookie": "astro-session=xyz; Domain=.creeksandbox.com; HttpOnly",
+      },
+    });
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("astro-session=xyz");
+    expect(cookie.toLowerCase()).not.toContain("domain=");
+    expect(res.headers.get("Cache-Control")).not.toMatch(/public/);
+  });
+
+  test("multiple Set-Cookie: narrows the one with Domain, leaves the other", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/x",
+      responseHeaders: [
+        ["Content-Type", "application/json"],
+        ["Set-Cookie", "a=1; Domain=.creeksandbox.com; Path=/"],
+        ["Set-Cookie", "b=2; HttpOnly"],
+      ],
+    });
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toContain("a=1; Path=/");
+    expect(cookies).toContain("b=2; HttpOnly");
+    expect(cookies).toHaveLength(2);
+  });
+});
+
 describe("extractPreloadLinks", () => {
   test("extracts a single stylesheet link", () => {
     const html = `<html><head><link rel="stylesheet" href="/_astro/a.css"></head></html>`;

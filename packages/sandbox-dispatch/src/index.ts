@@ -111,6 +111,30 @@ export function deriveCacheControl(pathname: string, contentType: string): strin
   return "public, max-age=3600, s-maxage=3600";
 }
 
+// --- Cross-sandbox cookie isolation ---
+// All sandboxes share the creeksandbox.com registrable domain, so a
+// Domain-scoped cookie from one sandbox would otherwise reach siblings.
+// Narrow every Set-Cookie to host-only; preserve the cookie, never drop it
+// (CF strips Set-Cookie from `public`-cached responses — see the EmDash
+// regression that the Cache-Control guard above protects against).
+
+/** True if a Set-Cookie value carries an explicit `Domain=` attribute. */
+export function cookieHasDomain(setCookie: string): boolean {
+  return setCookie
+    .split(";")
+    .slice(1)
+    .some((seg) => seg.trim().split("=", 1)[0].trim().toLowerCase() === "domain");
+}
+
+/** Drop the `Domain=...` attribute, forcing the cookie host-only. */
+export function stripCookieDomain(setCookie: string): string {
+  return setCookie
+    .split(";")
+    .filter((seg, i) => i === 0 || seg.trim().split("=", 1)[0].trim().toLowerCase() !== "domain")
+    .map((seg) => seg.trim())
+    .join("; ");
+}
+
 // --- MIME type inference ---
 // WfP Static Assets does not set Content-Type on responses.
 
@@ -422,6 +446,17 @@ export default {
           // private so any intermediate proxy treats it correctly.
           headers.set("Cache-Control", "private, no-store");
         }
+
+        // Narrow Set-Cookie Domain to host-only so one sandbox cannot scope a
+        // cookie to creeksandbox.com and have it land on a sibling sandbox.
+        const setCookies = headers.getSetCookie();
+        if (setCookies.some(cookieHasDomain)) {
+          headers.delete("Set-Cookie");
+          for (const cookie of setCookies) {
+            headers.append("Set-Cookie", cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie);
+          }
+        }
+
         headers.set("Vary", "Host");
         headers.set("X-Sandbox-Id", sandboxId);
         response = new Response(response.body, {
