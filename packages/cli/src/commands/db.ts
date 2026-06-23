@@ -174,10 +174,14 @@ const migrateCommand = defineCommand({
     description: "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order.",
   },
   args: {
+    // Accept the database name either as the first positional (`db migrate
+    // <NAME>`) or as `--name <NAME>` — both spellings appear in docs/examples.
+    // Defined as an option (not a positional) so `--name` parses; the bare
+    // positional is read from args._ in run().
     name: {
-      type: "positional",
-      description: "Database name (as shown by `creek db ls`)",
-      required: true,
+      type: "string",
+      description: "Database name (as shown by `creek db ls`). May also be given as the first positional argument.",
+      required: false,
     },
     dir: {
       type: "string",
@@ -193,6 +197,13 @@ const migrateCommand = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    const dbName = args.name ?? (args._ as string[] | undefined)?.[0];
+    if (!dbName) {
+      const msg = "Database name required. Usage: `creek db migrate <NAME>` (or `--name <NAME>`).";
+      if (jsonMode) jsonOutput({ ok: false, error: "missing_name", message: msg }, 1);
+      consola.error(msg);
+      process.exit(1);
+    }
     const token = getToken();
     if (!token) {
       if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
@@ -203,10 +214,10 @@ const migrateCommand = defineCommand({
 
     // 1. Resolve database name → resource ID
     const { resources } = await client.listResources();
-    const db = resources.find((r) => r.name === args.name && r.kind === "database");
+    const db = resources.find((r) => r.name === dbName && r.kind === "database");
     if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${args.name}"` }, 1);
-      consola.error(`No database named "${args.name}"`);
+      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${dbName}"` }, 1);
+      consola.error(`No database named "${dbName}"`);
       process.exit(1);
     }
 
@@ -270,7 +281,7 @@ const migrateCommand = defineCommand({
           pending: pending.map((f) => f.name),
         }, 0);
       } else if (pending.length === 0) {
-        consola.success(`Database "${args.name}" is up to date (${appliedSet.size} applied)`);
+        consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
       } else {
         consola.info(`${pending.length} pending migration(s):\n`);
         for (const f of pending) {
@@ -288,7 +299,7 @@ const migrateCommand = defineCommand({
       return;
     }
 
-    consola.info(`Migrating "${args.name}": ${pending.length} pending of ${files.length} total\n`);
+    consola.info(`Migrating "${dbName}": ${pending.length} pending of ${files.length} total\n`);
 
     let migrated = 0;
     for (const file of pending) {

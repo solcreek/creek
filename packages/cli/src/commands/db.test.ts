@@ -225,6 +225,41 @@ describe("creek db migrate", () => {
     expect(d1.calls).not.toContain("track");
   });
 
+  it("accepts the database name as a bare positional (args._)", async () => {
+    const d1 = makeD1();
+    server.use(...d1Handlers(d1));
+    writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
+
+    // No `name` option — the name arrives as the first positional, like
+    // `creek db migrate mydb`.
+    const code = await runMigrate({ name: undefined, _: ["mydb"] });
+
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, migrated: 1 });
+  });
+
+  it("accepts the database name via --name", async () => {
+    const d1 = makeD1();
+    server.use(...d1Handlers(d1));
+    writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
+
+    const code = await runMigrate({ name: "mydb" });
+
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, migrated: 1 });
+  });
+
+  it("exits missing_name when no database name is given", async () => {
+    const d1 = makeD1();
+    server.use(...d1Handlers(d1));
+    writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
+
+    const code = await runMigrate({ name: undefined, _: [] });
+
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "missing_name" });
+  });
+
   it("exits not_found for an unknown database name", async () => {
     const d1 = makeD1();
     server.use(...d1Handlers(d1));
