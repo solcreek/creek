@@ -115,6 +115,29 @@ export interface CustomDomain {
   createdAt: number;
 }
 
+/** The DNS record a tenant must create to point a hostname at Creek. */
+export interface DomainDnsInstruction {
+  cname: { name: string; target: string };
+}
+
+/** A single custom domain plus its (always-retrievable) DNS instruction. */
+export interface DomainDetail extends CustomDomain {
+  dns: DomainDnsInstruction;
+}
+
+/**
+ * Result of `activateDomain`. activate is honest: it only reports `active`
+ * when the edge confirms the hostname. `pending_dns` means Creek is ready but
+ * DNS isn't resolving yet; `manual` flags an activation with no edge to verify
+ * against (self-hosted / zone not configured).
+ */
+export interface ActivateDomainResult {
+  ok: boolean;
+  status?: "active" | "pending_dns";
+  message?: string;
+  manual?: boolean;
+}
+
 export interface ApiError {
   error: string;
   message: string;
