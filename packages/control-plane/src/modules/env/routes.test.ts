@@ -195,7 +195,7 @@ describe("CSRF origin guard on /env routes", () => {
     expect(res.status).toBe(403);
   });
 
-  test("first-party Origin (app.creek.dev) is allowed through the guard", async () => {
+  test("first-party Origin (app.creek.dev) is allowed through and the write lands", async () => {
     seedTestProject();
     const res = await reqWithOrigin(
       "POST",
@@ -204,6 +204,11 @@ describe("CSRF origin guard on /env routes", () => {
       "application/json",
       { key: "OK_KEY", value: "v" },
     );
-    expect(res.status).not.toBe(403);
+    // Not just "not 403" — prove the legitimate write actually completes.
+    expect(res.status).toBe(201);
+    const row = testEnv.db.db.prepare(
+      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
+    ).get(PROJECT_ID, "OK_KEY");
+    expect(row).toBeDefined();
   });
 });
