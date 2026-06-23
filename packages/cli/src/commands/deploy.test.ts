@@ -1,12 +1,64 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
+import consola from "consola";
 import { CreekAuthError, CreekApiError } from "@solcreek/sdk";
 import {
   patchBareNodeImports,
   findNewDeployment,
+  makeProgress,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
 } from "./deploy.js";
+
+describe("makeProgress (deploy --json stdout hygiene)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test("in JSON mode every banner method is a no-op", () => {
+    // Regression guard for the --json pollution bug: deploySandbox /
+    // deployAuthenticated routed "[Detect]", "ℹ Mode: spa", "ℹ N assets"
+    // etc. straight to stdout via section()/consola.*, breaking a
+    // downstream JSON.parse. In JSON mode nothing but jsonOutput may write.
+    const log = vi.spyOn(consola, "log").mockImplementation(() => {});
+    const info = vi.spyOn(consola, "info").mockImplementation(() => {});
+    const start = vi.spyOn(consola, "start").mockImplementation(() => {});
+    const success = vi.spyOn(consola, "success").mockImplementation(() => {});
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+
+    const p = makeProgress(true);
+    p.section("Detect");
+    p.info("  Mode: spa");
+    p.start("  Deploying...");
+    p.success("  done");
+    p.warn("  heads up");
+
+    expect(log).not.toHaveBeenCalled(); // section() writes via consola.log
+    expect(info).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(success).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("in human mode banners are emitted", () => {
+    const log = vi.spyOn(consola, "log").mockImplementation(() => {});
+    const info = vi.spyOn(consola, "info").mockImplementation(() => {});
+    const start = vi.spyOn(consola, "start").mockImplementation(() => {});
+    const success = vi.spyOn(consola, "success").mockImplementation(() => {});
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+
+    const p = makeProgress(false);
+    p.section("Detect");
+    p.info("  Mode: spa");
+    p.start("  Deploying...");
+    p.success("  done");
+    p.warn("  heads up");
+
+    expect(log).toHaveBeenCalledTimes(1); // section()
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(success).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("CreekAuthError", () => {
   test("is thrown on 401 and has correct name", () => {

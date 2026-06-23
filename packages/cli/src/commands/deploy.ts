@@ -52,6 +52,29 @@ function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
 }
 
+/**
+ * Human-readable progress emitter for the deploy flow.
+ *
+ * In JSON mode every method is a no-op: `jsonOutput` is the only writer
+ * that may touch stdout, so agents/pipes receive pure JSON. consola's
+ * BasicReporter (used in non-TTY/CI — exactly where --json is parsed)
+ * routes info/log/success/start to stdout, so an ungated `section()` or
+ * `consola.info()` ahead of the JSON payload (e.g. "[Detect]",
+ * "ℹ Mode: spa", "ℹ N assets") would break a downstream JSON.parse.
+ * deploySandbox/deployAuthenticated route their banners through here so
+ * stdout stays clean — mirroring the `if (!jsonMode)` guards deployCreekd
+ * already uses.
+ */
+export function makeProgress(jsonMode: boolean) {
+  return {
+    section: (name: string) => { if (!jsonMode) section(name); },
+    info: (msg: string) => { if (!jsonMode) consola.info(msg); },
+    start: (msg: string) => { if (!jsonMode) consola.start(msg); },
+    success: (msg: string) => { if (!jsonMode) consola.success(msg); },
+    warn: (msg: string) => { if (!jsonMode) consola.warn(msg); },
+  };
+}
+
 function assetSummary(fileList: string[]): string {
   const byExt: Record<string, number> = {};
   for (const f of fileList) {
@@ -1095,6 +1118,7 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
 // ============================================================================
 
 async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, resolved?: ResolvedConfig, tos?: TosAcceptance) {
+  const progress = makeProgress(jsonMode);
   // Static-site fast path: when resolveConfig fell back to index.html, the cwd
   // has no build step and may have no package.json. Delegate to deployDirectory
   // which just uploads the cwd as-is. This handles the simplest possible
@@ -1152,15 +1176,15 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   const nextjsMode = framework === "nextjs" ? detectNextjsMode(pkg, cwd) : null;
   const monorepo = detectMonorepo(cwd);
 
-  section("Detect");
-  consola.info(`  Framework: ${framework ?? "static site"}`);
-  if (nextjsMode) consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
-  consola.info("  Mode: sandbox (60 min preview)");
+  progress.section("Detect");
+  progress.info(`  Framework: ${framework ?? "static site"}`);
+  if (nextjsMode) progress.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
+  progress.info("  Mode: sandbox (60 min preview)");
 
   // Pre-build header so the section banner ("Build") still appears
   // before build output streams. Then prepareDeployBundle owns the
   // actual build + plan + collect + bundle pipeline.
-  if (!skipBuild) section("Build");
+  if (!skipBuild) progress.section("Build");
   const prepared = await prepareDeployBundle({
     cwd,
     resolved: resolved ?? ({} as ResolvedConfig), // sandbox path can be called without resolved when delegating; guarded above
@@ -1168,17 +1192,15 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   });
   const { plan, fileList, assets: clientAssets, serverFiles, effectiveRenderMode } = prepared;
 
-  section("Upload");
-  consola.info(`  Mode: ${effectiveRenderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
+  progress.section("Upload");
+  progress.info(`  Mode: ${effectiveRenderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
   if (plan.assets.enabled) {
-    consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
+    progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
   }
 
   // Deploy to sandbox
-  if (!jsonMode) {
-    section("Deploy");
-    consola.start("  Deploying to edge...");
-  }
+  progress.section("Deploy");
+  progress.start("  Deploying to edge...");
   // An adapter build records the exact compat it was built against in its
   // manifest; deploy with that so the worker validates at upload (e.g.
   // node:http server modules need nodejs_compat + compatibility_date
@@ -1365,17 +1387,18 @@ function cleanupDir(dir: string): void {
 // ============================================================================
 
 async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token: string, skipBuild: boolean, jsonMode = false, noCache = false) {
+  const progress = makeProgress(jsonMode);
   try {
     const client = new CreekClient(getApiUrl(), token);
 
-    section("Auth");
+    progress.section("Auth");
     const session = await client.getSession();
     if (!session?.user) {
       consola.error("Token is invalid or expired. Run `creek login` to re-authenticate.");
       process.exit(1);
     }
-    consola.info(`  Deploying as ${session.user.email}`);
-    consola.info(`  Project: ${resolved.projectName}`);
+    progress.info(`  Deploying as ${session.user.email}`);
+    progress.info(`  Project: ${resolved.projectName}`);
 
     // Ensure project exists — confirm before auto-creating
     let project: { id: string; slug: string };
@@ -1428,7 +1451,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     // Single source of truth for build → plan → collect → bundle. Both
     // sandbox and authenticated paths call the same function; they
     // diverge only in where the bundle gets POSTed.
-    if (!skipBuild && resolved.buildCommand) section("Build");
+    if (!skipBuild && resolved.buildCommand) progress.section("Build");
     const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild });
     const {
       plan,
@@ -1453,11 +1476,11 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       );
     }
 
-    section("Upload");
-    consola.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
+    progress.section("Upload");
+    progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
 
-    section("Deploy");
-    consola.start("  Creating deployment...");
+    progress.section("Deploy");
+    progress.start("  Creating deployment...");
     const { deployment } = await client.createDeployment(project.id);
 
     // Collect a minimal structured build log for the dashboard. We emit
@@ -1475,7 +1498,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     }
     buildLog.info("bundle", `${fileList.length} assets (${assetSummary(fileList)})`);
 
-    consola.start("  Uploading bundle...");
+    progress.start("  Uploading bundle...");
     const effectiveHasWorker = serverFiles !== undefined;
     // Prefer the compat the adapter built the worker against (recorded in its
     // manifest) so the deploy matches the build — node:http server modules
@@ -1533,10 +1556,10 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
       if (status !== lastStatus) {
         if (lastStatus && STEP_LABELS[lastStatus]) {
-          consola.success(STEP_LABELS[lastStatus].replace("...", ""));
+          progress.success(STEP_LABELS[lastStatus].replace("...", ""));
         }
         if (!TERMINAL.has(status) && STEP_LABELS[status]) {
-          consola.start(STEP_LABELS[status]);
+          progress.start(STEP_LABELS[status]);
         }
         // Map server-side phase transitions into build-log steps so
         // the dashboard timeline shows what happened after upload.
