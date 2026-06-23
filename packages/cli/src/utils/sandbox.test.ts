@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { gunzipSync } from "node:zlib";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { sandboxDeploy, pollSandboxStatus, expiresInMinutes } from "./sandbox";
+import { sandboxDeploy, pollSandboxStatus, expiresInMinutes, SandboxTimeoutError } from "./sandbox";
 
 // MSW mocks the sandbox API so we can assert the request the CLI sends
 // (body, ToS + agent headers) and how it handles deploy/poll responses —
@@ -173,6 +173,28 @@ describe("pollSandboxStatus", () => {
   it("throws on a non-ok status response", async () => {
     server.use(http.get(STATUS, () => new HttpResponse(null, { status: 503 })));
     await expect(pollSandboxStatus(STATUS)).rejects.toThrow("Status check failed (503)");
+  });
+
+  it("throws a tagged SandboxTimeoutError when activation never completes", async () => {
+    // Status stays non-terminal forever; a tight injected window times out fast.
+    server.use(
+      http.get(STATUS, () =>
+        HttpResponse.json({
+          sandboxId: "sb-1",
+          status: "deploying",
+          previewUrl: "",
+          expiresAt: "",
+          expiresInSeconds: 0,
+          claimable: false,
+        }),
+      ),
+    );
+    const err = await pollSandboxStatus(STATUS, { timeoutMs: 40, intervalMs: 10 }).catch((e) => e);
+    expect(err).toBeInstanceOf(SandboxTimeoutError);
+    // The `code` is what deploy.ts keys off to avoid a misleading "just retry".
+    expect(err.code).toBe("deploy_timeout");
+    expect(err.message).toMatch(/timed out/i);
+    expect(err.message).toMatch(/upload volume|asset/i);
   });
 });
 
