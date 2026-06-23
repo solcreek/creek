@@ -1199,6 +1199,8 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   }
   const sandboxApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled);
   if (sandboxApiHint) progress.info(`  ℹ ${sandboxApiHint}`);
+  const sandboxHasDb = !!resolved?.bindings.some((b) => b.type === "d1");
+  const ephemeralDbWarning = ephemeralSandboxDbWarning(sandboxHasDb);
 
   // Deploy to sandbox
   progress.section("Deploy");
@@ -1256,12 +1258,15 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
         mode: "sandbox",
         sameOriginApi: sandboxApiHint !== null,
         ...(sandboxApiHint ? { sameOriginApiHint: sandboxApiHint } : {}),
+        ephemeralData: sandboxHasDb,
+        ...(ephemeralDbWarning ? { ephemeralDataWarning: ephemeralDbWarning } : {}),
       }, 0, [
         { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
         { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
       ]);
     }
 
+    if (ephemeralDbWarning) progress.warn(`  ${ephemeralDbWarning}`);
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sandbox deploy failed";
@@ -1726,6 +1731,18 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 export function sameOriginApiHint(renderMode: string, assetsEnabled: boolean): string | null {
   if (renderMode !== "worker" || !assetsEnabled) return null;
   return 'Same-origin: this worker serves your SPA and API together — call the API with relative paths (fetch("/api/...")). The build runs without VITE_API_URL, so a hardcoded localhost fallback breaks in the browser; set VITE_API_URL="" for production if your frontend reads it.';
+}
+
+/**
+ * Sandbox deploys get a brand-new, empty D1 every time — the database is
+ * ephemeral and scoped to the 60-minute sandbox, so a redeploy starts
+ * from zero and any demo data is gone. Only `creek login` + production
+ * gets a stable database. Returns a warning when the deploy has a
+ * database binding, else null (no data to lose).
+ */
+export function ephemeralSandboxDbWarning(hasDatabase: boolean): string | null {
+  if (!hasDatabase) return null;
+  return "Sandbox database is ephemeral — each deploy provisions a fresh, empty D1, so data does not persist across redeploys (and is gone when the 60-min sandbox expires). Run `creek login` then `creek deploy` for a persistent production database.";
 }
 
 /**

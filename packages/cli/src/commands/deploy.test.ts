@@ -6,6 +6,7 @@ import {
   findNewDeployment,
   makeProgress,
   sameOriginApiHint,
+  ephemeralSandboxDbWarning,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
@@ -74,6 +75,19 @@ describe("sameOriginApiHint", () => {
     expect(sameOriginApiHint("ssr", true)).toBeNull();
     // worker with no static assets isn't the SPA-same-origin footgun
     expect(sameOriginApiHint("worker", false)).toBeNull();
+  });
+});
+
+describe("ephemeralSandboxDbWarning", () => {
+  test("warns when the sandbox deploy has a database", () => {
+    const warn = ephemeralSandboxDbWarning(true);
+    expect(warn).not.toBeNull();
+    expect(warn).toMatch(/ephemeral/i);
+    expect(warn).toContain("creek login");
+  });
+
+  test("is silent when there is no database (no data to lose)", () => {
+    expect(ephemeralSandboxDbWarning(false)).toBeNull();
   });
 });
 
