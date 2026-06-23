@@ -62,4 +62,17 @@ describe("creek init --db (non-interactive)", () => {
     expect(payload.databasePromptSkipped).toBe(true);
     expect(JSON.stringify(payload.breadcrumbs)).toContain("creek init --db");
   });
+
+  it("discloses the .gitignore mutation in the --json payload", async () => {
+    await runInit({ name: "demo", yes: true });
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    // init silently appended Creek + AI-agent entries before this fix.
+    // The agent/CI path must learn that .gitignore was touched.
+    expect(Array.isArray(payload.gitignoreAdded)).toBe(true);
+    expect(payload.gitignoreAdded).toContain(".creek");
+    expect(payload.gitignoreAdded).toContain(".claude");
+    expect(existsSync(join(dir, ".gitignore"))).toBe(true);
+  });
 });

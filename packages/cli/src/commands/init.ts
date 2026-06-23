@@ -113,7 +113,10 @@ export const initCommand = defineCommand({
 
     writeFileSync(configPath, stringify(config));
 
-    ensureGitignoreEntries(cwd);
+    // init appends Creek + AI-agent entries to .gitignore. Capture what
+    // changed so we can disclose it — a silent mutation of the user's
+    // .gitignore is surprising, doubly so in agent/CI runs.
+    const gitignoreAdded = ensureGitignoreEntries(cwd);
 
     // Scaffold worker + d1-schema example when database enabled
     if (useDb) {
@@ -167,7 +170,7 @@ export default app;
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath }, 0, [
+      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded }, 0, [
         ...(dbPromptSkipped
           ? [{ command: "creek init --db", description: "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts" }]
           : []),
@@ -179,6 +182,9 @@ export default app;
     consola.success(`Created creek.toml for "${name}"`);
 
     if (!jsonMode) {
+      if (gitignoreAdded.length > 0) {
+        consola.info(`Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`);
+      }
       if (dbPromptSkipped) {
         consola.info("Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.");
       }
