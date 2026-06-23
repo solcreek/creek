@@ -135,4 +135,25 @@ describe("creek claim <id>", () => {
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "not_claimable", status: "expired" });
   });
+
+  it("on success makes clear the project is a shell with no deployment", async () => {
+    process.env.CREEK_TOKEN = "tok";
+    server.use(
+      http.get(`${SBX}/api/sandbox/sb-ok/status`, () =>
+        HttpResponse.json({ sandboxId: "sb-ok", status: "active", claimable: true, framework: "vite", templateId: "landing" }),
+      ),
+      http.post(`${API}/projects`, () =>
+        HttpResponse.json({ project: { id: "proj-1", slug: "landing" } }),
+      ),
+      http.post(`${SBX}/api/sandbox/sb-ok/claim`, () => HttpResponse.json({ ok: true })),
+    );
+    const code = await runExit(claimCommand.run!({ args: { sandboxId: "sb-ok" } } as never));
+    expect(code).toBe(0);
+    // Claim only reserves the project — agents must not assume it's live.
+    const out = json();
+    expect(out).toMatchObject({ ok: true, project: "landing", deployed: false, productionDeploymentId: null });
+    expect(out.note).toMatch(/deploy/i);
+    const deployCrumb = out.breadcrumbs.find((b: { command: string }) => b.command === "creek deploy");
+    expect(deployCrumb.description).toMatch(/required/i);
+  });
 });

@@ -96,17 +96,33 @@ export const claimCommand = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, sandboxId, project: project.slug, projectId: project.id }, 0, [
-        { command: "creek init", description: "Initialize creek.toml for local development" },
-        { command: "creek deploy", description: "Deploy permanently" },
-      ]);
+      jsonOutput(
+        {
+          ok: true,
+          sandboxId,
+          project: project.slug,
+          projectId: project.id,
+          // Claim reserves the project name only. It does NOT promote the
+          // sandbox deploy: production starts with no deployment, and the
+          // sandbox's ephemeral D1 does not transfer. A deploy is required.
+          productionDeploymentId: null,
+          deployed: false,
+          note: "Claim reserved the project only — no deployment was created and sandbox data (its ephemeral D1) does not carry over. Run `creek deploy` to create the production deployment.",
+        },
+        0,
+        [
+          { command: "creek init", description: "Initialize creek.toml for local development" },
+          { command: "creek deploy", description: "Required — claim only reserved the project; this creates the production deployment (sandbox data does not transfer)" },
+        ],
+      );
     }
 
-    consola.success("Sandbox claimed!");
+    consola.success(`Reserved project: ${project.slug}`);
     consola.info("");
-    consola.info("Next steps:");
+    consola.warn("Claim reserved the project name only — it has no deployment yet, and the sandbox's data (ephemeral D1) does not carry over.");
+    consola.info("Run `creek deploy` to create the production deployment:");
     consola.info(`  cd your-project`);
     consola.info(`  creek init`);
-    consola.info(`  creek deploy    # deploy permanently`);
+    consola.info(`  creek deploy    # creates the production deployment`);
   },
 });
