@@ -135,6 +135,16 @@ export function stripCookieDomain(setCookie: string): string {
     .join("; ");
 }
 
+/** Narrow every Set-Cookie Domain attribute on `headers` to host-only, in place. */
+export function narrowSetCookieDomains(headers: Headers): void {
+  const setCookies = headers.getSetCookie();
+  if (!setCookies.some(cookieHasDomain)) return;
+  headers.delete("Set-Cookie");
+  for (const cookie of setCookies) {
+    headers.append("Set-Cookie", cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie);
+  }
+}
+
 // --- MIME type inference ---
 // WfP Static Assets does not set Content-Type on responses.
 
@@ -391,6 +401,9 @@ export default {
 
       if (nullBodyStatus) {
         const headers = new Headers(response.headers);
+        // 204/304/etc. can still carry Set-Cookie — narrow it here too,
+        // since this branch returns before the main rebuild below.
+        narrowSetCookieDomains(headers);
         headers.set("X-Sandbox-Id", sandboxId);
         return new Response(null, {
           status: response.status,
@@ -449,13 +462,7 @@ export default {
 
         // Narrow Set-Cookie Domain to host-only so one sandbox cannot scope a
         // cookie to creeksandbox.com and have it land on a sibling sandbox.
-        const setCookies = headers.getSetCookie();
-        if (setCookies.some(cookieHasDomain)) {
-          headers.delete("Set-Cookie");
-          for (const cookie of setCookies) {
-            headers.append("Set-Cookie", cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie);
-          }
-        }
+        narrowSetCookieDomains(headers);
 
         headers.set("Vary", "Host");
         headers.set("X-Sandbox-Id", sandboxId);

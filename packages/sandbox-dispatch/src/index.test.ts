@@ -575,8 +575,12 @@ describe("Set-Cookie Domain narrowing (cross-sandbox isolation)", () => {
     pathname: string;
     method?: string;
     responseHeaders?: HeadersInit;
+    responseStatus?: number;
   }) {
     const headers = new Headers(opts.responseHeaders ?? {});
+    const status = opts.responseStatus ?? 200;
+    // 204/205/304/101 are null-body statuses — must not pass a body.
+    const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
     const { env } = createEnv({
       d1Rows: {
         [opts.sandboxId]: {
@@ -589,7 +593,7 @@ describe("Set-Cookie Domain narrowing (cross-sandbox isolation)", () => {
       },
       scriptHandlers: {
         [`${opts.sandboxId}-sandbox`]: async () =>
-          new Response("ok", { status: 200, headers }),
+          new Response(nullBody ? null : "ok", { status, headers }),
       },
     });
     return worker.fetch(
@@ -642,6 +646,31 @@ describe("Set-Cookie Domain narrowing (cross-sandbox isolation)", () => {
     expect(cookie).toContain("astro-session=xyz");
     expect(cookie.toLowerCase()).not.toContain("domain=");
     expect(res.headers.get("Cache-Control")).not.toMatch(/public/);
+  });
+
+  test("null-body status (304) with Domain cookie is still narrowed", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/cached",
+      responseStatus: 304,
+      responseHeaders: { "Set-Cookie": "sid=abc; Domain=.creeksandbox.com; Path=/" },
+    });
+    expect(res.status).toBe(304);
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("sid=abc");
+    expect(cookie.toLowerCase()).not.toContain("domain=");
+  });
+
+  test("204 with Domain cookie is narrowed", async () => {
+    const res = await dispatch({
+      sandboxId: "abc12345",
+      pathname: "/api/noop",
+      method: "POST",
+      responseStatus: 204,
+      responseHeaders: { "Set-Cookie": "t=1; Domain=.creeksandbox.com" },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Set-Cookie")).toBe("t=1");
   });
 
   test("multiple Set-Cookie: narrows the one with Domain, leaves the other", async () => {
