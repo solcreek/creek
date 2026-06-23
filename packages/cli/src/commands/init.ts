@@ -118,6 +118,15 @@ export const initCommand = defineCommand({
     // .gitignore is surprising, doubly so in agent/CI runs.
     const gitignoreAdded = ensureGitignoreEntries(cwd);
 
+    // The scaffolded worker imports these — they are NOT installed by
+    // init (and aren't in the project's package.json yet), so the very
+    // next `creek deploy` fails at bundle time with "Could not resolve"
+    // unless the user installs them first. Surface this as a real next
+    // step in every mode (the human hint used to be the only signal, and
+    // it was suppressed in the agent/CI --json path that needs it most).
+    const WORKER_SCAFFOLD_DEPS = ["hono", "creek", "d1-schema"];
+    let scaffoldedWorker = false;
+
     // Scaffold worker + d1-schema example when database enabled
     if (useDb) {
       const workerDir = join(cwd, "worker");
@@ -125,6 +134,7 @@ export const initCommand = defineCommand({
 
       if (!existsSync(workerFile)) {
         mkdirSync(workerDir, { recursive: true });
+        scaffoldedWorker = true;
         writeFileSync(
           workerFile,
           `import { Hono } from "hono";
@@ -164,15 +174,21 @@ export default app;
 
         if (!jsonMode) {
           consola.success("Created worker/index.ts with database example");
-          consola.info("  Install dependencies: npm install hono creek d1-schema");
         }
       }
     }
 
+    const installCommand = `npm install ${WORKER_SCAFFOLD_DEPS.join(" ")}`;
+
     if (jsonMode) {
-      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded }, 0, [
+      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded, ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}) }, 0, [
         ...(dbPromptSkipped
           ? [{ command: "creek init --db", description: "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts" }]
+          : []),
+        // Install MUST come before deploy: the scaffolded worker imports
+        // these and `creek deploy` fails to bundle without them.
+        ...(scaffoldedWorker
+          ? [{ command: installCommand, description: "Install the scaffolded worker's dependencies — required before deploy" }]
           : []),
         { command: "creek deploy", description: "Deploy the project" },
         { command: "creek dev", description: "Start local development server" },
@@ -190,6 +206,9 @@ export default app;
       }
       console.log("");
       consola.info("  Next steps:");
+      if (scaffoldedWorker) {
+        consola.info(`    ${installCommand}   Install worker deps (required before deploy)`);
+      }
       consola.info("    creek deploy    Deploy to production");
       consola.info("    creek dev       Start local development");
     }

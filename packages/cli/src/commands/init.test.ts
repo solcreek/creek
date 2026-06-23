@@ -48,6 +48,33 @@ describe("creek init --db (non-interactive)", () => {
     expect(existsSync(join(dir, "worker", "index.ts"))).toBe(true);
   });
 
+  it("--db surfaces the dependency-install step as a breadcrumb before deploy", async () => {
+    await runInit({ name: "demo", db: true, yes: true });
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    // The scaffolded worker imports hono/creek/d1-schema which init does
+    // not install — the next deploy fails without them. The agent/CI path
+    // must learn this, and the install step must precede `creek deploy`.
+    expect(payload.workerDependencies).toEqual(["hono", "creek", "d1-schema"]);
+    const commands = payload.breadcrumbs.map((b: { command: string }) => b.command);
+    const installIdx = commands.findIndex((c: string) => c.startsWith("npm install"));
+    const deployIdx = commands.indexOf("creek deploy");
+    expect(installIdx).toBeGreaterThanOrEqual(0);
+    expect(commands[installIdx]).toContain("hono creek d1-schema");
+    expect(installIdx).toBeLessThan(deployIdx);
+  });
+
+  it("without --db emits no worker-dependency install breadcrumb", async () => {
+    await runInit({ name: "demo", yes: true });
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    expect(payload.workerDependencies).toBeUndefined();
+    const commands = payload.breadcrumbs.map((b: { command: string }) => b.command);
+    expect(commands.some((c: string) => c.startsWith("npm install"))).toBe(false);
+  });
+
   it("without --db, skips the prompt and surfaces a --db breadcrumb", async () => {
     await runInit({ name: "demo", yes: true });
 
