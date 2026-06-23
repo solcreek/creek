@@ -4,10 +4,12 @@ import { setupServer } from "msw/node";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CreekClient } from "@solcreek/sdk";
 import { statusCommand } from "./status.js";
 import { opsCommand } from "./ops.js";
 import { claimCommand } from "./claim.js";
 import { envCommand } from "./env.js";
+import { resolveShellDatabase } from "./db.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -212,5 +214,63 @@ describe("creek env", () => {
     expect(out).toMatchObject({ ok: true, key: "DEMO_PROBE", applied: false, pendingDeploy: true });
     // The redeploy step must remain in the breadcrumbs.
     expect(JSON.stringify(out.breadcrumbs)).toContain("creek deploy");
+  });
+});
+
+describe("db shell resolution (resolveShellDatabase)", () => {
+  const client = () => new CreekClient(API, "tok");
+
+  it("--project resolves the single bound D1 without naming it", async () => {
+    server.use(
+      http.get(`${API}/projects/hivemind/bindings`, () =>
+        HttpResponse.json({
+          bindings: [
+            { bindingName: "DB", resourceId: "res-d1", kind: "database", name: "creek-97d8c075", status: "active", createdAt: 0 },
+            { bindingName: "ASSETS", resourceId: "res-r2", kind: "storage", name: "bucket-1", status: "active", createdAt: 0 },
+          ],
+        }),
+      ),
+    );
+    const db = await resolveShellDatabase(client(), { project: "hivemind", jsonMode: true });
+    expect(db).toEqual({ id: "res-d1", name: "creek-97d8c075" });
+  });
+
+  it("--project with no bound database exits with a structured error", async () => {
+    server.use(
+      http.get(`${API}/projects/empty/bindings`, () => HttpResponse.json({ bindings: [] })),
+    );
+    const code = await runExit(resolveShellDatabase(client(), { project: "empty", jsonMode: true }));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "no_database_bound", project: "empty" });
+  });
+
+  it("--project with multiple databases exits asking for an explicit name", async () => {
+    server.use(
+      http.get(`${API}/projects/multi/bindings`, () =>
+        HttpResponse.json({
+          bindings: [
+            { bindingName: "DB", resourceId: "r1", kind: "database", name: "db-a", status: "active", createdAt: 0 },
+            { bindingName: "DB2", resourceId: "r2", kind: "database", name: "db-b", status: "active", createdAt: 0 },
+          ],
+        }),
+      ),
+    );
+    const code = await runExit(resolveShellDatabase(client(), { project: "multi", jsonMode: true }));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "ambiguous_database", databases: ["db-a", "db-b"] });
+  });
+
+  it("an explicit name still resolves via listResources", async () => {
+    server.use(
+      http.get(`${API}/resources`, () =>
+        HttpResponse.json({
+          resources: [
+            { id: "res-x", teamId: "t", kind: "database", name: "creek-abc", cfResourceId: null, cfResourceType: null, status: "active", createdAt: 0, updatedAt: 0 },
+          ],
+        }),
+      ),
+    );
+    const db = await resolveShellDatabase(client(), { name: "creek-abc", jsonMode: true });
+    expect(db).toEqual({ id: "res-x", name: "creek-abc" });
   });
 });

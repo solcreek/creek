@@ -3,7 +3,7 @@ import consola from "consola";
 import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
-import { CreekClient } from "@solcreek/sdk";
+import { CreekClient, parseConfig } from "@solcreek/sdk";
 import { createResourceCommand } from "./resource-cmd.js";
 import { detectMigrationDir, parseMigrationFiles, splitStatements, computePending, batchStatements } from "./migrate.js";
 import { getToken, getApiUrl } from "../utils/config.js";
@@ -23,8 +23,13 @@ const shellCommand = defineCommand({
   args: {
     name: {
       type: "positional",
-      description: "Database name (as shown by `creek db ls`)",
-      required: true,
+      description: "Database name (as shown by `creek db ls`). Optional when --project is given or run inside a project directory.",
+      required: false,
+    },
+    project: {
+      type: "string",
+      description: "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given.",
+      required: false,
     },
     sql: {
       type: "string",
@@ -43,14 +48,11 @@ const shellCommand = defineCommand({
     }
     const client = new CreekClient(getApiUrl(), token);
 
-    // Resolve name → resource ID
-    const { resources } = await client.listResources();
-    const db = resources.find((r) => r.name === args.name && r.kind === "database");
-    if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${args.name}"` }, 1);
-      consola.error(`No database named "${args.name}"`);
-      process.exit(1);
-    }
+    const db = await resolveShellDatabase(client, {
+      name: args.name as string | undefined,
+      project: args.project as string | undefined,
+      jsonMode,
+    });
 
     // Single query mode
     if (args.sql) {
@@ -59,7 +61,7 @@ const shellCommand = defineCommand({
     }
 
     // Interactive REPL
-    consola.info(`Connected to ${args.name} (${db.id.slice(0, 8)})`);
+    consola.info(`Connected to ${db.name} (${db.id.slice(0, 8)})`);
     consola.info("Type SQL and press Enter. Use .exit to quit.\n");
 
     const rl = createInterface({
@@ -106,6 +108,73 @@ const shellCommand = defineCommand({
     });
   },
 });
+
+/**
+ * Resolve which database `db shell` should open. Three inputs, in order:
+ *   1. an explicit `name` positional (existing behaviour),
+ *   2. `--project <slug>` → the single D1 bound to that project,
+ *   3. neither → the project in ./creek.toml, same single-binding rule.
+ *
+ * The point is to not force the user to look up the auto-generated DB
+ * name (e.g. creek-97d8c075) when the project binds exactly one D1.
+ * Exits the process with a structured error if resolution is ambiguous
+ * or empty.
+ */
+export async function resolveShellDatabase(
+  client: CreekClient,
+  opts: { name?: string; project?: string; jsonMode: boolean },
+): Promise<{ id: string; name: string }> {
+  const { name, jsonMode } = opts;
+
+  // 1. Explicit name → look up by name (unchanged path).
+  if (name) {
+    const { resources } = await client.listResources();
+    const db = resources.find((r) => r.name === name && r.kind === "database");
+    if (!db) {
+      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${name}"` }, 1);
+      consola.error(`No database named "${name}"`);
+      process.exit(1);
+    }
+    return { id: db.id, name: db.name };
+  }
+
+  // 2/3. Resolve via project bindings.
+  const slug = opts.project ?? projectFromCreekToml();
+  if (!slug) {
+    const msg = "Provide a database name, pass --project <slug>, or run inside a project directory with creek.toml.";
+    if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+
+  const { bindings } = await client.listBindings(slug);
+  const dbs = bindings.filter((b) => b.kind === "database");
+  if (dbs.length === 0) {
+    const msg = `Project "${slug}" has no database bound. Attach one with \`creek db attach\`.`;
+    if (jsonMode) jsonOutput({ ok: false, error: "no_database_bound", project: slug, message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+  if (dbs.length > 1) {
+    const names = dbs.map((b) => b.name).join(", ");
+    const msg = `Project "${slug}" binds ${dbs.length} databases (${names}). Pass the name explicitly: creek db shell <name> --sql "…".`;
+    if (jsonMode) jsonOutput({ ok: false, error: "ambiguous_database", project: slug, databases: dbs.map((b) => b.name), message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
+  return { id: dbs[0].resourceId, name: dbs[0].name };
+}
+
+/** Read the project name from ./creek.toml, or null if absent/unparseable. */
+function projectFromCreekToml(): string | null {
+  const configPath = resolve(process.cwd(), "creek.toml");
+  if (!existsSync(configPath)) return null;
+  try {
+    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+  } catch {
+    return null;
+  }
+}
 
 async function executeAndPrint(
   client: CreekClient,
