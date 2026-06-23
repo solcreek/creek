@@ -34,6 +34,7 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
+import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
@@ -1548,6 +1549,15 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             // Silent — build log is best-effort for now.
           });
 
+        // Deploy ships code, not schema. Check whether the bound database is
+        // behind the project's local migrations so a "successful" deploy
+        // doesn't 500 at runtime (D1_ERROR: no such column). Best-effort —
+        // detectMigrationDrift never throws, but guard the call anyway.
+        const drift = await detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
+          () => null,
+        );
+        const driftMsg = drift ? driftWarning(drift) : null;
+
         if (jsonMode) {
           const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
           jsonOutput({
@@ -1564,6 +1574,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             mode: "production",
             rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
+            ...(drift && drift.status === "pending"
+              ? { migrations: { status: drift.status, pending: drift.pending } }
+              : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },
             { command: `creek deployments --project ${project.slug}`, description: "View deployment history" },
@@ -1579,6 +1592,13 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         }
         if (resolved.queue) {
           consola.info("  Queue: enabled");
+        }
+
+        // Surface a lagging database schema right after the success line, so
+        // it isn't buried — this is the gap where a deploy "succeeds" but the
+        // app 500s on a missing column until migrations are applied.
+        if (driftMsg) {
+          consola.warn(`  ${driftMsg}`);
         }
 
         // Contextual next-step hints (non-JSON only)
