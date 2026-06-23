@@ -1,5 +1,61 @@
 # @solcreek/cli
 
+## 0.4.36
+
+### Fixes / DX
+
+Deploy & init:
+
+- **`creek init --db` lists the worker's dependencies as an explicit
+  install step before deploy.** The scaffolded `worker/index.ts` imports
+  `hono`, `creek`, and `d1-schema`; init now surfaces `npm install hono
+  creek d1-schema` ahead of `creek deploy` in both the human output and the
+  `--json` breadcrumbs (with a `workerDependencies` field), so the
+  scaffold-then-deploy path no longer fails at bundle time. Previously the
+  hint only appeared in interactive runs.
+- **`creek init` discloses the `.gitignore` entries it adds.** Init appends
+  Creek + AI-agent ignore entries; it now reports them in the output and a
+  new `gitignoreAdded` `--json` field instead of editing `.gitignore`
+  silently.
+- **`creek deploy --json` keeps stdout free of human progress banners,** so
+  the output is always valid JSON for scripts and agents.
+- **`creek deploy` hints about same-origin APIs.** When one worker serves
+  both the SPA and the API, it points you at relative API paths — the build
+  runs without `VITE_API_URL`, so a hardcoded dev fallback would break in
+  the browser.
+- **`creek deploy` warns that a sandbox database is ephemeral.** Each
+  sandbox deploy provisions a fresh, empty D1 that resets on redeploy; sign
+  in for a persistent production database.
+- **`creek claim` is clear that it only reserves the project.** No
+  deployment or sandbox data carries over, and `creek deploy` is required —
+  surfaced in the human output and `--json` (`deployed: false`,
+  `productionDeploymentId: null`).
+
+Doctor:
+
+- **`creek doctor` flags worker imports missing from `package.json`** (for
+  example the init scaffold's `hono`/`creek`/`d1-schema` before install),
+  instead of reporting a clean bill of health before a deploy that can't
+  bundle.
+- **`creek doctor` warns when a sibling backend won't be deployed.** A
+  `server/`, `mcp/`, or `backend/` directory with no declared worker entry
+  is flagged, since the deploy ships a single worker plus static assets.
+
+Day-2 operations:
+
+- **`creek env unset` is accepted as an alias of `creek env rm`.**
+- **`creek env set`/`rm` signal that the change is pending a deploy** in
+  `--json` (`applied: false`, `pendingDeploy: true`) — env vars apply at
+  deploy time, not on the running worker until you redeploy.
+- **`creek db shell` accepts `--project`** to open the database bound to a
+  project instead of requiring its generated name, and defaults to the
+  project in `./creek.toml`.
+- **`creek projects delete` removes a project** (the SDK gains
+  `deleteProject`). Team-owned databases and buckets are left intact.
+- **Unknown or incomplete commands return a structured JSON error** on
+  stdout with a non-zero exit under `--json` or in non-interactive use,
+  instead of printing usage text that breaks JSON parsing.
+
 ## 0.4.24
 
 ### Fixes / DX
