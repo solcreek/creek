@@ -15,11 +15,13 @@ export function isAllowedOrigin(origin: string): boolean {
     return false;
   }
   const host = url.hostname;
-  // localhost dev runs over http; every other allowed origin must be https
-  // to match the production model (Secure cookies). This keeps the guard
-  // from treating http://app.creek.dev the same as https://app.creek.dev.
+  // localhost dev runs over http on arbitrary ports; everything else must be
+  // https on the default port. Validating scheme + host + port keeps the
+  // guard from treating http://app.creek.dev or https://app.creek.dev:444 the
+  // same as the real https://app.creek.dev origin.
   if (host === "localhost") return true;
   if (url.protocol !== "https:") return false;
+  if (url.port !== "") return false; // non-default port widens the origin
   if (host === "creek.dev") return true;
   if (host.endsWith(".creek.dev")) return true;
   return false;

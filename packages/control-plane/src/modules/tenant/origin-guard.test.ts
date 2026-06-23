@@ -27,6 +27,7 @@ describe("isAllowedOrigin", () => {
     "https://localhost.evil.com",
     "http://app.creek.dev", // non-localhost must be https to match the prod model
     "http://creek.dev",
+    "https://app.creek.dev:444", // non-default port widens the origin — reject
     "not-a-url",
     "",
   ])("rejects %s", (origin) => {
