@@ -162,6 +162,37 @@ function inferContentType(pathname: string): string {
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
 
+// --- Cross-tenant cookie isolation ---
+
+/** True if a Set-Cookie value carries an explicit `Domain=` attribute. */
+function cookieHasDomain(setCookie: string): boolean {
+  return setCookie
+    .split(";")
+    .slice(1) // skip name=value
+    .some((seg) => seg.trim().split("=", 1)[0].trim().toLowerCase() === "domain");
+}
+
+/**
+ * Drop the `Domain=...` attribute from a Set-Cookie value, forcing the cookie
+ * host-only. Without this, one shared-domain tenant (`a.bycreek.com`) could
+ * set a parent-scoped cookie (`Domain=.bycreek.com`) that the browser then
+ * sends to a sibling tenant (`b.bycreek.com`) — cross-tenant cookie injection
+ * / session fixation. The cookie is preserved; only its scope is narrowed.
+ * The Set-Cookie header is NEVER dropped (see the EmDash regression in
+ * cache-passthrough.test.ts).
+ *
+ * Applied ONLY to shared `*.bycreek.com` subdomains. On a tenant's own custom
+ * domain they own the whole registrable domain, so their `Domain=` attributes
+ * are legitimate and pass through untouched.
+ */
+function stripCookieDomain(setCookie: string): string {
+  return setCookie
+    .split(";")
+    .filter((seg, i) => i === 0 || seg.trim().split("=", 1)[0].trim().toLowerCase() !== "domain")
+    .map((seg) => seg.trim())
+    .join("; ");
+}
+
 // --- Main handler ---
 
 export default {
@@ -195,12 +226,32 @@ export default {
       const userWorker = env.DISPATCHER.get(scriptName, {}, { limits });
       let response = await userWorker.fetch(forwarded);
 
-      // WfP Static Assets does not set Content-Type — infer from URL extension
-      if (response.ok && !response.headers.get("Content-Type")) {
-        const pathname = new URL(request.url).pathname;
-        const contentType = inferContentType(pathname);
+      // The only response mutations dispatch-worker is allowed to make (locked
+      // by cache-passthrough.test.ts):
+      //   1. infer Content-Type when WfP Static Assets omitted it
+      //   2. narrow Set-Cookie Domain to host-only on shared *.bycreek.com
+      //      subdomains, so one tenant cannot scope a cookie to the parent and
+      //      have it land on a sibling tenant. Custom domains are exempt.
+      const needsContentType = response.ok && !response.headers.get("Content-Type");
+
+      const setCookies = response.headers.getSetCookie();
+      const narrowCookies =
+        parsed.type !== "custom" && setCookies.some(cookieHasDomain);
+
+      if (needsContentType || narrowCookies) {
         const headers = new Headers(response.headers);
-        headers.set("Content-Type", contentType);
+
+        if (needsContentType) {
+          headers.set("Content-Type", inferContentType(new URL(request.url).pathname));
+        }
+
+        if (narrowCookies) {
+          headers.delete("Set-Cookie");
+          for (const cookie of setCookies) {
+            headers.append("Set-Cookie", cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie);
+          }
+        }
+
         response = new Response(response.body, {
           status: response.status,
           statusText: response.statusText,

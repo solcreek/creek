@@ -10,6 +10,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
+import { isAllowedOrigin } from "../tenant/origin-guard.js";
 import { buildAndDeploy, fetchCommitSha, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
 
 type AppEnv = { Bindings: Env };
@@ -18,19 +19,10 @@ export const webDeploy = new Hono<AppEnv>();
 
 // POST /web-deploy — trigger build
 webDeploy.post("/", async (c) => {
-  // CSRF: only allow creek.dev origins
+  // CSRF: only allow creek.dev origins (shared allowlist with originGuard)
   const origin = c.req.header("origin");
-  if (origin) {
-    try {
-      const url = new URL(origin);
-      const allowed =
-        url.hostname === "creek.dev" ||
-        url.hostname.endsWith(".creek.dev") ||
-        url.hostname === "localhost";
-      if (!allowed) return c.json({ error: "forbidden" }, 403);
-    } catch {
-      return c.json({ error: "forbidden" }, 403);
-    }
+  if (origin && !isAllowedOrigin(origin)) {
+    return c.json({ error: "forbidden" }, 403);
   }
 
   let body: DeployRequest;

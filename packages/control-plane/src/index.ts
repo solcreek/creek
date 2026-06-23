@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Env } from "./types.js";
 import type { AuthUser } from "./modules/tenant/types.js";
-import { createAuth, tenantMiddleware } from "./modules/tenant/index.js";
+import { createAuth, tenantMiddleware, originGuard, isAllowedOrigin } from "./modules/tenant/index.js";
 import { auditContextMiddleware } from "./modules/audit/middleware.js";
 import { purgeAuditIpLogs } from "./modules/audit/service.js";
 import { projects } from "./modules/projects/routes.js";
@@ -31,11 +31,10 @@ const app = new Hono<AppEnv>();
 
 app.use("*", cors({
   origin: (origin) => {
-    // Allow localhost dev + production domains
+    // Single source of truth with originGuard: localhost dev + https
+    // creek.dev origins only. Non-https *.creek.dev is rejected here too.
     if (!origin) return origin;
-    if (origin.startsWith("http://localhost:")) return origin;
-    if (origin === "https://creek.dev" || origin.endsWith(".creek.dev")) return origin;
-    return null;
+    return isAllowedOrigin(origin) ? origin : null;
   },
   allowHeaders: ["Content-Type", "Authorization", "x-creek-team"],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -43,6 +42,12 @@ app.use("*", cors({
   maxAge: 600,
 }));
 app.use("*", logger());
+
+// CSRF defense-in-depth: reject state-changing requests that carry a foreign
+// Origin. Runs after cors() (so the OPTIONS preflight is still answered) and
+// before any route. Non-browser callers (CLI, CI, GitHub webhooks, internal
+// service-to-service) omit Origin and pass through; see origin-guard.ts.
+app.use("*", originGuard);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));

@@ -32,12 +32,20 @@ interface ProjectRow {
   productionDeploymentId: string | null;
 }
 
+interface CustomDomainRow {
+  slug: string;
+  team_slug: string;
+  plan: string;
+}
+
 function createMockD1(opts: {
   orgs?: OrgRow[];
   productionDeployments?: Record<string, ProjectRow>;
+  customDomains?: Record<string, CustomDomainRow>;
 }) {
   const orgs = opts.orgs ?? [];
   const productionDeployments = opts.productionDeployments ?? {};
+  const customDomains = opts.customDomains ?? {};
 
   return {
     prepare(sql: string) {
@@ -52,6 +60,13 @@ function createMockD1(opts: {
           if (sql.includes("p.productionDeploymentId")) {
             const [project, team] = boundArgs as [string, string];
             return (productionDeployments[`${project}|${team}`] ?? null) as T | null;
+          }
+          // custom-domain lookup (resolveScriptName + resolveTeamPlan) keys on
+          // hostname; the row carries slug/team_slug/plan so both callers read
+          // what they need.
+          if (sql.includes("FROM custom_domain")) {
+            const [hostname] = boundArgs as [string];
+            return (customDomains[hostname] ?? null) as T | null;
           }
           return null;
         },
@@ -86,6 +101,7 @@ function createMockDispatcher(
 function createEnv(opts: {
   orgs?: OrgRow[];
   productionDeployments?: Record<string, ProjectRow>;
+  customDomains?: Record<string, CustomDomainRow>;
   scriptHandlers: Record<string, (req: Request) => Promise<Response>>;
 }) {
   return {
@@ -93,6 +109,7 @@ function createEnv(opts: {
     DB: createMockD1({
       orgs: opts.orgs,
       productionDeployments: opts.productionDeployments,
+      customDomains: opts.customDomains,
     }),
     CREEK_DOMAIN: "bycreek.com",
   } as unknown as Parameters<typeof worker.fetch>[1];
@@ -223,6 +240,103 @@ describe("dispatch-worker — Set-Cookie passthrough invariants", () => {
     // here. If it ever does, CF will strip the cookie.
     const cc = res.headers.get("Cache-Control");
     expect(cc).toBeNull(); // no override → user controls fully
+  });
+});
+
+/**
+ * Exercise dispatch-worker for a tenant's own custom domain. The tenant owns
+ * the whole registrable domain there, so Set-Cookie Domain narrowing must NOT
+ * apply.
+ */
+async function dispatchCustom(opts: {
+  hostname: string;
+  pathname: string;
+  responseHeaders?: HeadersInit;
+}) {
+  return worker.fetch(
+    new Request(`https://${opts.hostname}${opts.pathname}`),
+    createEnv({
+      customDomains: {
+        [opts.hostname]: { slug: "site", team_slug: "acme", plan: "pro" },
+      },
+      scriptHandlers: {
+        "site-acme": async () =>
+          new Response("ok", { headers: new Headers(opts.responseHeaders ?? {}) }),
+      },
+    }),
+  );
+}
+
+describe("dispatch-worker — Set-Cookie Domain narrowing (cross-tenant isolation)", () => {
+  test("strips Domain=.bycreek.com on a shared tenant host, keeps the cookie + other attrs", async () => {
+    const res = await dispatchProduction({
+      pathname: "/login",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "sid=abc; Domain=.bycreek.com; Path=/; HttpOnly; Secure; SameSite=Lax",
+      },
+    });
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("sid=abc");
+    expect(cookie.toLowerCase()).not.toContain("domain=");
+    // Surrounding attributes survive — only Domain is removed.
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Path=/");
+    expect(cookie).toContain("SameSite=Lax");
+  });
+
+  test("strips Domain regardless of value (e.g. a sibling-targeted Domain)", async () => {
+    const res = await dispatchProduction({
+      pathname: "/x",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "evil=1; Domain=victim.bycreek.com",
+      },
+    });
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toBe("evil=1");
+  });
+
+  test("host-only cookie (no Domain) passes through byte-for-byte", async () => {
+    const res = await dispatchProduction({
+      pathname: "/x",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax",
+      },
+    });
+    expect(res.headers.get("Set-Cookie")).toBe(
+      "sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax",
+    );
+  });
+
+  test("multiple Set-Cookie: narrows the one with Domain, leaves the other intact", async () => {
+    const res = await dispatchProduction({
+      pathname: "/x",
+      responseHeaders: [
+        ["Content-Type", "text/html"],
+        ["Set-Cookie", "a=1; Domain=.bycreek.com; Path=/"],
+        ["Set-Cookie", "b=2; HttpOnly"],
+      ],
+    });
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toContain("a=1; Path=/");
+    expect(cookies).toContain("b=2; HttpOnly");
+    expect(cookies).toHaveLength(2);
+  });
+
+  test("custom domain is EXEMPT — tenant owns the zone, Domain is preserved", async () => {
+    const res = await dispatchCustom({
+      hostname: "app.acme-corp.com",
+      pathname: "/login",
+      responseHeaders: {
+        "Content-Type": "text/html",
+        "Set-Cookie": "sid=abc; Domain=.acme-corp.com; Path=/",
+      },
+    });
+    expect(res.headers.get("Set-Cookie")).toBe(
+      "sid=abc; Domain=.acme-corp.com; Path=/",
+    );
   });
 });
 

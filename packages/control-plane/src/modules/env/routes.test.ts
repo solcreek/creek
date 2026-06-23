@@ -147,3 +147,70 @@ describe("DELETE /projects/:id/env/:key", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// Regression for the SameSite=none CSRF gap: a cross-site page must not be
+// able to drive a state-changing control-plane route even with the victim's
+// session cookie attached. originGuard rejects before the route runs.
+describe("CSRF origin guard on /env routes", () => {
+  function reqWithOrigin(
+    method: string,
+    path: string,
+    origin: string,
+    contentType: string,
+    body?: unknown,
+  ) {
+    const init: RequestInit = {
+      method,
+      headers: { Origin: origin, "Content-Type": contentType },
+    };
+    if (body) {
+      init.body = JSON.stringify(body);
+    }
+    return app.request(path, init, testEnv.env);
+  }
+
+  test("cross-origin POST with text/plain (no-preflight trick) → 403", async () => {
+    seedTestProject();
+    const res = await reqWithOrigin(
+      "POST",
+      `/projects/${PROJECT_ID}/env`,
+      "https://evil.com",
+      "text/plain",
+      { key: "STOLEN", value: "x" },
+    );
+    expect(res.status).toBe(403);
+
+    // The write must not have landed.
+    const row = testEnv.db.db.prepare(
+      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
+    ).get(PROJECT_ID, "STOLEN");
+    expect(row).toBeUndefined();
+  });
+
+  test("cross-origin DELETE → 403", async () => {
+    const res = await reqWithOrigin(
+      "DELETE",
+      `/projects/${PROJECT_ID}/env/DATABASE_URL`,
+      "https://evil.com",
+      "application/json",
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("first-party Origin (app.creek.dev) is allowed through and the write lands", async () => {
+    seedTestProject();
+    const res = await reqWithOrigin(
+      "POST",
+      `/projects/${PROJECT_ID}/env`,
+      "https://app.creek.dev",
+      "application/json",
+      { key: "OK_KEY", value: "v" },
+    );
+    // Not just "not 403" — prove the legitimate write actually completes.
+    expect(res.status).toBe(201);
+    const row = testEnv.db.db.prepare(
+      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
+    ).get(PROJECT_ID, "OK_KEY");
+    expect(row).toBeDefined();
+  });
+});

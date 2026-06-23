@@ -10,6 +10,7 @@ import {
   resourceBindings,
 } from "./modules/resources/routes.js";
 import { buildLogsRead } from "./modules/build-logs/routes.js";
+import { originGuard } from "./modules/tenant/origin-guard.js";
 import type { Env } from "./types.js";
 import type { AuthUser } from "./modules/tenant/types.js";
 import type { AuditRequestContext } from "./modules/audit/types.js";
@@ -184,6 +185,8 @@ export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) 
 
   const app = new Hono<TestEnv>();
   app.use("*", cors());
+  // Mirror production: CSRF origin guard runs before every route.
+  app.use("*", originGuard);
 
   // Health check (no auth)
   app.get("/health", (c) => c.json({ status: "ok" }));

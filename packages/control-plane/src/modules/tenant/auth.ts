@@ -95,7 +95,13 @@ export function createAuth(env: Env): any {
       defaultCookieAttributes: {
         secure: env.BETTER_AUTH_URL.startsWith("https"),
         httpOnly: true,
-        sameSite: env.BETTER_AUTH_URL.startsWith("https") ? "none" as const : "lax" as const,
+        // SameSite=Lax (not None): the dashboard (app.creek.dev) and this API
+        // (api.creek.dev) are the same site, so Lax cookies are still sent on
+        // dashboard -> API requests. Lax keeps the session cookie OFF
+        // genuinely cross-site requests, which removes the CSRF vector that
+        // None opens for any external page hitting the API with the user's
+        // logged-in session.
+        sameSite: "lax" as const,
       },
     },
 
