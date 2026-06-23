@@ -18,6 +18,7 @@ import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { storeBuildLog } from "./storage.js";
+import { classifyDeployFailure } from "./classify.js";
 import type { BuildLogLine, BuildLogStatus, BuildLogStep } from "./types.js";
 
 type BuildLogsEnv = {
@@ -165,6 +166,10 @@ buildLogsRead.get(
 
       if (dep?.status === "failed") {
         const ts = dep.updatedAt ?? Date.now();
+        // The deploying/activation stages upload no build log, so this is the
+        // only structured signal for those failures. Classify the recorded
+        // reason into a stable code + actionable hint.
+        const reason = classifyDeployFailure(dep.failedStep, dep.errorMessage);
         const entry: BuildLogLine = {
           ts,
           step: mapFailedStep(dep.failedStep),
@@ -182,12 +187,12 @@ buildLogsRead.get(
             bytes: 0,
             lines: 1,
             truncated: false,
-            errorCode: null,
+            errorCode: reason.code,
             errorStep: dep.failedStep,
             r2Key: null,
             synthesized: true,
           },
-          message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}.`,
+          message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}. ${reason.hint}`,
         });
       }
 
