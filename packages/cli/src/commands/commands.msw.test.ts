@@ -1,9 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { statusCommand } from "./status.js";
 import { opsCommand } from "./ops.js";
 import { claimCommand } from "./claim.js";
+import { envCommand } from "./env.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -155,5 +159,43 @@ describe("creek claim <id>", () => {
     expect(out.note).toMatch(/deploy/i);
     const deployCrumb = out.breadcrumbs.find((b: { command: string }) => b.command === "creek deploy");
     expect(deployCrumb.description).toMatch(/required/i);
+  });
+});
+
+describe("creek env", () => {
+  // env reads the project slug from creek.toml in cwd, so set up a temp
+  // project and chdir into it for these tests.
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-env-test-"));
+    writeFileSync(
+      join(projDir, "creek.toml"),
+      '[project]\nname = "demo"\n[build]\ncommand = "npm run build"\noutput = "dist"\n',
+    );
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("`unset` is an alias of `rm` and actually removes the var", async () => {
+    // Wiring: the unset subcommand must dispatch to the same remove handler.
+    expect(envCommand.subCommands!.unset).toBe(envCommand.subCommands!.rm);
+
+    let deleted = "";
+    server.use(
+      http.delete(`${API}/projects/demo/env/:key`, ({ params }) => {
+        deleted = String(params.key);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(envCommand.subCommands!.unset.run!({ args: { key: "DEMO_PROBE", _: [] } } as never));
+    expect(code).toBe(0);
+    expect(deleted).toBe("DEMO_PROBE");
+    expect(json()).toMatchObject({ ok: true, key: "DEMO_PROBE", removed: true });
   });
 });

@@ -124,5 +124,9 @@ export const envCommand = defineCommand({
     set: envSet,
     ls: envGet,
     rm: envRm,
+    // `unset` is a common muscle-memory verb (shell, Vercel, Fly). Without
+    // this alias, `creek env unset KEY` hit citty's "unknown command" path,
+    // printed usage, and left the var in place — reading as if it worked.
+    unset: envRm,
   },
 });
