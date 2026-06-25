@@ -110,6 +110,12 @@ describe("resolveDeployEnv (production-safety gate)", () => {
     expect(await resolveDeployEnv({ ...base, sandbox: true, yes: true })).toBe("sandbox");
   });
 
+  test("prod + sandbox together is rejected at the source of truth", async () => {
+    await expect(
+      resolveDeployEnv({ ...base, prod: true, sandbox: true }),
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
   test("not signed in deploys to sandbox (the only option)", async () => {
     expect(await resolveDeployEnv({ ...base, authenticated: false })).toBe("sandbox");
   });

@@ -324,6 +324,12 @@ export async function resolveDeployEnv(opts: {
   /** Whether a human is present to confirm. Defaults to the real stdout TTY. */
   interactive?: boolean;
 }): Promise<DeployEnv> {
+  // Enforce the invariant at the source of truth: the command layer already
+  // rejects --prod --sandbox, but resolveDeployEnv is exported, so guard
+  // here too rather than silently resolving the contradiction to "sandbox".
+  if (opts.prod && opts.sandbox) {
+    throw new Error("resolveDeployEnv: prod and sandbox are mutually exclusive");
+  }
   if (opts.sandbox) return "sandbox";
   if (!opts.authenticated) return "sandbox";
   if (opts.prod) return "production";
@@ -372,7 +378,7 @@ export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
     description:
-      "Deploy the current project to Creek. Signed-in: publishes to your team's production slot — a confirm prompt (or --prod) gates it, and --sandbox previews instead. Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing.",
+      "Deploy the current project to Creek. Signed-in: publishes to your team's production slot — an interactive confirm gates it, while --prod, --yes, or --json proceed without the prompt (--sandbox previews instead). Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing.",
   },
   args: {
     dir: {
