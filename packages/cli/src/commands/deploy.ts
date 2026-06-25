@@ -196,7 +196,7 @@ async function dryRunPlan(
       description:
         targetType === "production"
           ? implicitProduction
-            ? "Your team's production slot (permanent URL). Implied by being signed in without --prod: an interactive run asks you to confirm; a non-interactive run is refused unless you pass --prod (deploy), --sandbox (preview), or --yes (deploy with a deprecation warning)."
+            ? "Your team's production slot (permanent URL). Implied by being signed in without --prod: an interactive terminal asks you to confirm, while --yes or --json deploys with a deprecation warning instead; a non-interactive run with no flag is refused (pass --prod to deploy or --sandbox to preview)."
             : "Your team's production slot (permanent URL via creek.toml)"
           : "Free 60-minute sandbox (no signup required)",
     },
