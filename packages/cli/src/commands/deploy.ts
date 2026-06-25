@@ -164,8 +164,9 @@ async function dryRunPlan(
   // or implicitly.
   const targetType: "production" | "sandbox" =
     explicitSandbox || !authenticated ? "sandbox" : "production";
-  // Signed in but no --prod: deploy reaches production only after a confirm
-  // (TTY) or a deprecation warning (--yes/--json).
+  // Signed in but no --prod: an interactive run confirms before deploying;
+  // a non-interactive run is refused unless --prod/--sandbox/--yes is given
+  // (--yes deploys with a deprecation warning).
   const implicitProduction = targetType === "production" && !explicitProd;
   const bindings = resolved
     ? resolvedConfigToBindingRequirements(resolved).map((b) => ({
