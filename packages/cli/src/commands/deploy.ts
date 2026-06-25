@@ -158,8 +158,12 @@ async function dryRunPlan(
   const wouldDeploy = !!(resolved || buildOutputFallback);
   const explicitSandbox = args.sandbox === true;
   const explicitProd = args.prod === true;
+  // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
+  // logged-out --prod can't reach production, since there is no token);
+  // otherwise the authenticated path goes to production, whether via --prod
+  // or implicitly.
   const targetType: "production" | "sandbox" =
-    explicitSandbox ? "sandbox" : explicitProd || authenticated ? "production" : "sandbox";
+    explicitSandbox || !authenticated ? "sandbox" : "production";
   // Signed in but no --prod: deploy reaches production only after a confirm
   // (TTY) or a deprecation warning (--yes/--json).
   const implicitProduction = targetType === "production" && !explicitProd;
@@ -480,10 +484,11 @@ export const deployCommand = defineCommand({
     // don't want it to happen by accident. In a TTY a human is present to
     // see and abort; in a non-TTY (AI agent, CI, pipe) there is no prompt,
     // so a bare `creek deploy` would otherwise just ship. Require an
-    // explicit --yes there instead. This is what makes the "safe to run
-    // from an AI coding agent" promise true: a bare call refuses and points
-    // at --dry-run / --yes rather than publishing on its own. Documented CI
-    // already passes --yes, so this doesn't regress automated deploys.
+    // explicit target there instead — --prod, --sandbox, or --yes. This is
+    // what makes the "safe to run from an AI coding agent" promise true: a
+    // bare call refuses and points at --dry-run / --prod / --sandbox rather
+    // than publishing on its own. Documented CI already passes --yes, so
+    // this doesn't regress automated deploys.
     if (!isTTY && !args.yes && !args.prod && !args.sandbox) {
       const breadcrumbs: Breadcrumb[] = [
         { command: "creek deploy --dry-run", description: "Preview the plan without executing (no network, no uploads)" },

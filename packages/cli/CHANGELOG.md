@@ -17,10 +17,12 @@
 - **In non-interactive runs (CI, agents, pipes), `--prod` or `--sandbox`
   now states intent.** The "nothing happens without confirmation" guidance
   points at these flags so an automated deploy declares where it's going.
-- **Deprecation:** deploying to production just because you're signed in
-  (without `--prod`) now prints a warning to stderr — `--json` output stays
-  clean. This still deploys to production today; a future version will
-  require `--prod`. Pass `--prod` to opt in now, or `--sandbox` to preview.
+- **Deprecation:** relying on being signed in to mean "production" (without
+  `--prod`) is deprecated. In a non-interactive run (`--yes`, `--json`, or a
+  pipe) it still deploys to production but prints a warning to stderr, so
+  `--json` stdout stays clean; in an interactive terminal you're asked to
+  confirm the production target instead. A future version will require
+  `--prod` — pass it to opt in now, or `--sandbox` to preview.
 
 ## 0.4.36
 
