@@ -40,7 +40,7 @@ import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
 import { prepareDeployBundle } from "../utils/prepare-bundle.js";
 import { BuildLogEmitter, flushBuildLog } from "../utils/build-log.js";
-import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
+import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, exitError, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput, readAdapterCompat } from "../utils/nextjs.js";
 import { isRepoUrl, parseRepoUrl, validateRepoUrl, validateSubpath, RepoUrlError } from "../utils/repo-url.js";
@@ -156,7 +156,13 @@ async function dryRunPlan(
   }
 
   const wouldDeploy = !!(resolved || buildOutputFallback);
-  const targetType = authenticated ? "production" : "sandbox";
+  const explicitSandbox = args.sandbox === true;
+  const explicitProd = args.prod === true;
+  const targetType: "production" | "sandbox" =
+    explicitSandbox ? "sandbox" : explicitProd || authenticated ? "production" : "sandbox";
+  // Signed in but no --prod: deploy reaches production only after a confirm
+  // (TTY) or a deprecation warning (--yes/--json).
+  const implicitProduction = targetType === "production" && !explicitProd;
   const bindings = resolved
     ? resolvedConfigToBindingRequirements(resolved).map((b) => ({
         name: b.bindingName,
@@ -181,9 +187,12 @@ async function dryRunPlan(
     authenticated,
     target: {
       type: targetType,
+      implicitProduction,
       description:
         targetType === "production"
-          ? "Your team's production slot (permanent URL via creek.toml)"
+          ? implicitProduction
+            ? "Your team's production slot (permanent URL). Signed in without --prod: a confirm prompt (TTY) or deprecation warning (--yes/--json) precedes deploy. Pass --prod to make intent explicit, or --sandbox to preview."
+            : "Your team's production slot (permanent URL via creek.toml)"
           : "Free 60-minute sandbox (no signup required)",
     },
     config: resolved
@@ -283,11 +292,82 @@ async function dryRunPlan(
   consola.log(`\n  Next step:        ${plan.nextStep}\n`);
 }
 
+type DeployEnv = "production" | "sandbox" | "abort";
+
+/**
+ * Production-safety decision for the CF target. Decides whether an
+ * authenticated `creek deploy` publishes to the team's production slot or
+ * to an ephemeral sandbox, and surfaces production intent before it happens:
+ *
+ *   --sandbox                  → sandbox, even when signed in
+ *   --prod                     → production, explicit intent (no prompt)
+ *   signed in, no flag, TTY     → confirm before touching production
+ *   signed in, no flag, --yes   → production, but warn that implicit
+ *                                 production is deprecated (a future version
+ *                                 will require --prod)
+ *   not signed in              → sandbox (the only option without login)
+ *
+ * Returns "abort" when an interactive user declines the confirm.
+ */
+export async function resolveDeployEnv(opts: {
+  authenticated: boolean;
+  prod: boolean;
+  sandbox: boolean;
+  yes: boolean;
+  jsonMode: boolean;
+  projectName: string;
+  /** Whether a human is present to confirm. Defaults to the real stdout TTY. */
+  interactive?: boolean;
+}): Promise<DeployEnv> {
+  if (opts.sandbox) return "sandbox";
+  if (!opts.authenticated) return "sandbox";
+  if (opts.prod) return "production";
+
+  // Signed in, no explicit target flag — production is about to happen.
+  // In an interactive terminal, confirm first (showing the target). With
+  // --json or --yes there is no human to prompt, so proceed but warn that
+  // relying on sign-in state to mean "production" is deprecated.
+  const interactive = opts.interactive ?? isTTY;
+  if (interactive && !opts.yes && !opts.jsonMode) {
+    const confirmed = await consola.prompt(
+      `Deploy "${opts.projectName}" to PRODUCTION? This publishes to your team's permanent URL.`,
+      { type: "confirm" },
+    );
+    if (!confirmed) {
+      consola.info(
+        "  Deploy cancelled. Use --sandbox for an ephemeral preview, or --prod to skip this prompt.",
+      );
+      return "abort";
+    }
+    return "production";
+  }
+
+  emitProductionDeprecationWarning(opts.jsonMode);
+  return "production";
+}
+
+/**
+ * Warn that a deploy reached production only because the caller was signed
+ * in (no explicit --prod). Written to stderr so it never pollutes --json
+ * stdout; both humans and agents see it and should migrate to --prod.
+ */
+function emitProductionDeprecationWarning(jsonMode: boolean): void {
+  const msg =
+    "[deprecation] Deployed to PRODUCTION because you are signed in. " +
+    "A future version will require an explicit --prod flag. " +
+    "Pass --prod to opt in now, or --sandbox for an ephemeral preview.";
+  if (jsonMode) {
+    process.stderr.write(msg + "\n");
+  } else {
+    consola.warn(`  ${msg}`);
+  }
+}
+
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
     description:
-      "Deploy the current project to Creek. Signed-in: deploys to your team's production slot. Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing.",
+      "Deploy the current project to Creek. Signed-in: publishes to your team's production slot — a confirm prompt (or --prod) gates it, and --sandbox previews instead. Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing.",
   },
   args: {
     dir: {
@@ -357,9 +437,31 @@ export const deployCommand = defineCommand({
         "Client-side watch budget in milliseconds (default 300000 = 5min). Independent of the daemon's progressing_timeout.",
       required: false,
     },
+    prod: {
+      type: "boolean",
+      description:
+        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Mutually exclusive with --sandbox.",
+      default: false,
+    },
+    sandbox: {
+      type: "boolean",
+      description:
+        "Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Mutually exclusive with --prod.",
+      default: false,
+    },
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+
+    // --prod and --sandbox are opposite intents; refuse the contradiction
+    // up front rather than silently picking one.
+    if (args.prod === true && args.sandbox === true) {
+      return exitError(
+        jsonMode,
+        "conflicting_flags",
+        "--prod and --sandbox are mutually exclusive. Pick one target.",
+      );
+    }
 
     // --- Dry-run short-circuit ---
     // No ToS prompt, no network, no file uploads, no builds. Pure config
@@ -382,13 +484,14 @@ export const deployCommand = defineCommand({
     // from an AI coding agent" promise true: a bare call refuses and points
     // at --dry-run / --yes rather than publishing on its own. Documented CI
     // already passes --yes, so this doesn't regress automated deploys.
-    if (!isTTY && !args.yes) {
+    if (!isTTY && !args.yes && !args.prod && !args.sandbox) {
       const breadcrumbs: Breadcrumb[] = [
         { command: "creek deploy --dry-run", description: "Preview the plan without executing (no network, no uploads)" },
-        { command: "creek deploy --yes", description: "Confirm and deploy without an interactive prompt" },
+        { command: "creek deploy --prod", description: "Confirm and publish to your team's production slot" },
+        { command: "creek deploy --sandbox", description: "Deploy to an ephemeral 60-minute sandbox preview" },
       ];
       const message =
-        "Refusing to deploy from a non-interactive environment without confirmation. Re-run with --dry-run to preview the plan, or --yes to deploy.";
+        "Refusing to deploy from a non-interactive environment without an explicit target. Re-run with --dry-run to preview, --prod to publish to production, or --sandbox for an ephemeral preview.";
       if (jsonMode) {
         jsonOutput({ ok: false, error: "confirmation_required", message }, 1, breadcrumbs);
       }
@@ -429,6 +532,9 @@ export const deployCommand = defineCommand({
         path: args.path ?? null,
         skipBuild: args["skip-build"],
         json: jsonMode,
+        prod: args.prod === true,
+        sandbox: args.sandbox === true,
+        yes: args.yes === true,
       });
     }
 
@@ -486,7 +592,18 @@ export const deployCommand = defineCommand({
         });
       }
 
-      if (token) {
+      // Production-safety gate (Path B): explicit intent or a confirm
+      // before publishing to the team's permanent URL.
+      const env = await resolveDeployEnv({
+        authenticated: !!token,
+        prod: args.prod === true,
+        sandbox: args.sandbox === true,
+        yes: args.yes === true,
+        jsonMode,
+        projectName: resolved.projectName,
+      });
+      if (env === "abort") return;
+      if (env === "production" && token) {
         return await deployAuthenticated(cwd, resolved, token, args["skip-build"], jsonMode, args["no-cache"]);
       }
       return await deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
@@ -974,6 +1091,9 @@ interface RepoDeployOptions {
   path: string | null;
   skipBuild: boolean;
   json: boolean;
+  prod: boolean;
+  sandbox: boolean;
+  yes: boolean;
 }
 
 async function deployRepoUrl(input: string, options: RepoDeployOptions) {
@@ -1027,9 +1147,18 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
         consola.success(`  Dependencies installed`);
       }
 
-      // 6. Route to authenticated or sandbox deploy
+      // 6. Route to authenticated or sandbox deploy (Path B safety gate)
       const token = getToken();
-      if (token) {
+      const env = await resolveDeployEnv({
+        authenticated: !!token,
+        prod: options.prod,
+        sandbox: options.sandbox,
+        yes: options.yes,
+        jsonMode,
+        projectName: resolved.projectName,
+      });
+      if (env === "abort") return;
+      if (env === "production" && token) {
         return await deployAuthenticated(workDir, resolved, token, skipBuild, jsonMode);
       }
       return await deploySandbox(workDir, skipBuild, jsonMode, resolved);

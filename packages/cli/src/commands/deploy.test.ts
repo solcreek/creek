@@ -7,6 +7,7 @@ import {
   makeProgress,
   sameOriginApiHint,
   ephemeralSandboxDbWarning,
+  resolveDeployEnv,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
@@ -88,6 +89,74 @@ describe("ephemeralSandboxDbWarning", () => {
 
   test("is silent when there is no database (no data to lose)", () => {
     expect(ephemeralSandboxDbWarning(false)).toBeNull();
+  });
+});
+
+describe("resolveDeployEnv (production-safety gate)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const base = {
+    authenticated: true,
+    prod: false,
+    sandbox: false,
+    yes: false,
+    jsonMode: false,
+    projectName: "hivemind",
+  };
+
+  test("--sandbox always wins, even when signed in", async () => {
+    expect(await resolveDeployEnv({ ...base, sandbox: true, interactive: true })).toBe("sandbox");
+    // and even with --yes / non-interactive
+    expect(await resolveDeployEnv({ ...base, sandbox: true, yes: true })).toBe("sandbox");
+  });
+
+  test("not signed in deploys to sandbox (the only option)", async () => {
+    expect(await resolveDeployEnv({ ...base, authenticated: false })).toBe("sandbox");
+  });
+
+  test("--prod is explicit production intent, no prompt or warning", async () => {
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+    const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(true as never);
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    expect(await resolveDeployEnv({ ...base, prod: true, interactive: true })).toBe("production");
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  test("signed in + interactive confirm: yes → production", async () => {
+    const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(true as never);
+    expect(await resolveDeployEnv({ ...base, interactive: true })).toBe("production");
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(prompt.mock.calls[0]?.[0]).toMatch(/PRODUCTION/);
+  });
+
+  test("signed in + interactive confirm: declined → abort", async () => {
+    vi.spyOn(consola, "info").mockImplementation(() => {});
+    vi.spyOn(consola, "prompt").mockResolvedValue(false as never);
+    expect(await resolveDeployEnv({ ...base, interactive: true })).toBe("abort");
+  });
+
+  test("signed in + --yes (no --prod): production but deprecation-warns", async () => {
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+    expect(await resolveDeployEnv({ ...base, yes: true, interactive: true })).toBe("production");
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toMatch(/deprecation/i);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/--prod/);
+  });
+
+  test("signed in + --json (no --prod): production, deprecation to stderr (clean stdout)", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+
+    expect(await resolveDeployEnv({ ...base, jsonMode: true, interactive: true })).toBe("production");
+
+    // warning goes to stderr, never consola (which could land on stdout)
+    expect(stderr).toHaveBeenCalledOnce();
+    expect(String(stderr.mock.calls[0]?.[0])).toMatch(/deprecation/i);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

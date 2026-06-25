@@ -1,5 +1,27 @@
 # @solcreek/cli
 
+## 0.4.37
+
+### Deploy
+
+- **`creek deploy` now asks before publishing to production.** When you're
+  signed in, a bare `creek deploy` in an interactive terminal confirms the
+  target ("Deploy <project> to PRODUCTION?") before touching your team's
+  permanent URL, so a deploy you meant as a preview can't reach production
+  by accident. Decline and nothing is published.
+- **New `--prod` and `--sandbox` flags make the target explicit.** Pass
+  `--prod` to publish to production with no prompt, or `--sandbox` to deploy
+  to an ephemeral 60-minute preview even while signed in. The two are
+  mutually exclusive. `creek deploy --dry-run` reports which target it would
+  use, including when production is only implied by being signed in.
+- **In non-interactive runs (CI, agents, pipes), `--prod` or `--sandbox`
+  now states intent.** The "nothing happens without confirmation" guidance
+  points at these flags so an automated deploy declares where it's going.
+- **Deprecation:** deploying to production just because you're signed in
+  (without `--prod`) now prints a warning to stderr — `--json` output stays
+  clean. This still deploys to production today; a future version will
+  require `--prod`. Pass `--prod` to opt in now, or `--sandbox` to preview.
+
 ## 0.4.36
 
 ### Fixes / DX
