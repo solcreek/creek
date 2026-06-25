@@ -195,7 +195,7 @@ async function dryRunPlan(
       description:
         targetType === "production"
           ? implicitProduction
-            ? "Your team's production slot (permanent URL). Signed in without --prod: a confirm prompt (TTY) or deprecation warning (--yes/--json) precedes deploy. Pass --prod to make intent explicit, or --sandbox to preview."
+            ? "Your team's production slot (permanent URL). Implied by being signed in without --prod: an interactive run asks you to confirm; a non-interactive run is refused unless you pass --prod (deploy), --sandbox (preview), or --yes (deploy with a deprecation warning)."
             : "Your team's production slot (permanent URL via creek.toml)"
           : "Free 60-minute sandbox (no signup required)",
     },
@@ -460,11 +460,10 @@ export const deployCommand = defineCommand({
     // --prod and --sandbox are opposite intents; refuse the contradiction
     // up front rather than silently picking one.
     if (args.prod === true && args.sandbox === true) {
-      return exitError(
-        jsonMode,
-        "conflicting_flags",
-        "--prod and --sandbox are mutually exclusive. Pick one target.",
-      );
+      const message = "--prod and --sandbox are mutually exclusive. Pick one target.";
+      // exitError only prints in JSON mode; surface the reason to a human too.
+      if (!jsonMode) consola.error(message);
+      return exitError(jsonMode, "conflicting_flags", message);
     }
 
     // --- Dry-run short-circuit ---
