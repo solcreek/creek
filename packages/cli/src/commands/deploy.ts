@@ -445,7 +445,7 @@ export const deployCommand = defineCommand({
     prod: {
       type: "boolean",
       description:
-        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Mutually exclusive with --sandbox.",
+        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Only takes effect when signed in; without a session the deploy falls back to a sandbox. Mutually exclusive with --sandbox.",
       default: false,
     },
     sandbox: {
@@ -492,7 +492,7 @@ export const deployCommand = defineCommand({
     if (!isTTY && !args.yes && !args.prod && !args.sandbox) {
       const breadcrumbs: Breadcrumb[] = [
         { command: "creek deploy --dry-run", description: "Preview the plan without executing (no network, no uploads)" },
-        { command: "creek deploy --prod", description: "Confirm and publish to your team's production slot" },
+        { command: "creek deploy --prod", description: "Publish to your team's production slot (no prompt; requires sign-in)" },
         { command: "creek deploy --sandbox", description: "Deploy to an ephemeral 60-minute sandbox preview" },
       ];
       const message =
