@@ -176,6 +176,7 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
     !!ctx.packageJson?.devDependencies?.["better-sqlite3"] &&
     !ctx.packageJson?.dependencies?.["better-sqlite3"];
 
+  const workerEntry = ctx.resolved?.workerEntry;
   if (hasDualDriverOrm && devOnly) {
     return [
       {
@@ -185,8 +186,10 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
         detail:
           "better-sqlite3 is in devDependencies and an ORM with a D1 adapter (Drizzle/Kysely) is also present. This is the recommended dual-driver shape: the same Hono routes run locally against a SQLite file and on Workers against env.DB.",
         fix:
-          "No action needed. Verify: server/local.ts should import from `drizzle-orm/better-sqlite3` (or `kysely`'s SQLite dialect) while server/worker.ts imports from `drizzle-orm/d1`. Reference: examples/vite-react-drizzle.",
-        references: ["package.json"],
+          "No action needed. The dual-driver shape: your dev/Node entry imports from `drizzle-orm/better-sqlite3` (or `kysely`'s SQLite dialect), while your Workers entry" +
+          (workerEntry ? ` (${workerEntry})` : "") +
+          " imports from `drizzle-orm/d1`. Reference: https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle",
+        references: workerEntry ? [workerEntry, "package.json"] : ["package.json"],
       },
     ];
   }
@@ -203,7 +206,7 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
           ? "\n\nPrisma is also in your dependencies (see CK-PRISMA-SQLITE) — these two findings are the same underlying issue (sync/Node SQLite doesn't run on Workers), not separate problems. Settle on one ORM and one migration path."
           : ""),
       fix:
-        "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example: examples/vite-react-drizzle/ (zero @solcreek/* deps in the runtime).",
+        "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example (zero @solcreek/* deps in the runtime): https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle",
       references: ["package.json"],
     },
   ];
@@ -251,7 +254,14 @@ const CK_RUNTIME_LOCKIN: Rule = (ctx) => {
       detail:
         `Your production dependencies include: ${offenders.join(", ")}. These aren't wrong per se — the Creek runtime helpers (db, kv, room) work — but they bind your app's code to Creek. Plain Cloudflare Workers, wrangler deploy, Vercel, etc. can't run this code without the Creek runtime.`,
       fix:
-        "If portability matters (it usually should): use platform-native APIs in your handler — `env.DB` directly, or an ORM with a standard adapter. See examples/vite-react-drizzle for the zero-lock-in pattern. Move these deps to devDependencies if only used during build/dev.",
+        // NOTE: do NOT advise moving `creek` to devDependencies. When the
+        // worker is Creek-bundled (esbuild-bundle strategy), the generated
+        // .creek/__worker_entry.js imports `creek` at bundle time, so it
+        // MUST stay in dependencies — demoting it breaks the next deploy
+        // (esbuild: Could not resolve "creek"). See CK-RUNTIME-DEP-MISSING.
+        (offenders.includes("creek")
+          ? "`creek` must stay in `dependencies` if you deploy a Creek-bundled worker — the generated wrapper imports it. To reduce lock-in, migrate your handler to platform-native APIs (`env.DB` directly, or an ORM with a standard adapter), and only then drop the dep. See https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle for the zero-lock-in pattern."
+          : "If portability matters (it usually should): use platform-native APIs in your handler — `env.DB` directly, or an ORM with a standard adapter. See https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle for the zero-lock-in pattern."),
       references: ["package.json"],
     },
   ];
@@ -421,19 +431,19 @@ const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
       severity: "info",
       title: `Split database driver files detected (${hit[0]} + ${hit[1]})`,
       detail:
-        "You have two database setup files named `db.local` + `db.prod` (or " +
-        "equivalent). The recommended Creek pattern keeps **schema and query " +
-        "code shared** and splits only the **boot files** — see examples/vite-" +
-        "react-drizzle where `server/routes.ts` and `server/schema.ts` run " +
-        "unchanged in both environments, while `server/local.ts` (better-" +
-        "sqlite3) and `server/worker.ts` (D1) handle driver setup. A db.local/" +
-        "db.prod split often signals duplicated schema or queries, which drifts " +
-        "over time.",
+        `You have two database setup files (${hit[0]} + ${hit[1]}). The ` +
+        "recommended Creek pattern keeps **schema and query code shared** and " +
+        "splits only the **boot files**: shared routes + schema run unchanged in " +
+        "both environments, while a dev boot file (better-sqlite3) and a Workers " +
+        "boot file (D1) handle driver setup. A db.local/db.prod split often " +
+        "signals duplicated schema or queries, which drifts over time. Reference: " +
+        "https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle",
       fix:
-        "Extract schema into `server/schema.ts` and queries into `server/routes.ts` " +
-        "— driver-agnostic. Keep one `server/local.ts` for dev (Node + better-" +
-        "sqlite3) and one `server/worker.ts` for prod (CF Worker + D1); each " +
-        "imports the shared schema/routes. Delete the old db.local/db.prod files.",
+        "Extract schema and queries into driver-agnostic shared modules (e.g. " +
+        "`schema.ts` + `routes.ts`). Keep one dev boot file (Node + better-" +
+        "sqlite3) and one Workers boot file (CF Worker + D1); each imports the " +
+        `shared schema/routes. Delete the old ${hit[0]}/${hit[1]} files once ` +
+        "the shared modules are in place.",
       references: [hit[0], hit[1]],
     },
   ];
@@ -547,6 +557,45 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: `creek` runtime missing for a Creek-bundled worker ───────────
+//
+// CK_WORKER_UNRESOLVED_IMPORTS scans the USER's worker source. But when
+// Creek bundles a TS/JSX worker (the "esbuild-bundle" strategy), it also
+// generates .creek/__worker_entry.js with an injected
+// `import { _runRequest, generateWsToken } from "creek"`. That import is
+// invisible to the source scan, so a project whose own code never imports
+// `creek` (e.g. a dual-driver Drizzle worker) passes every other rule yet
+// fails the real deploy with esbuild: Could not resolve "creek". This is
+// the dogfood "dry-run false green" gap — dry-run runs doctor, so surfacing
+// it here makes the plan honest. Pre-bundled workers (.js/.mjs/.cjs) are
+// uploaded as-is with no wrapper, so they're out of scope.
+
+const CK_RUNTIME_DEP_MISSING: Rule = (ctx) => {
+  const worker = ctx.resolved?.workerEntry;
+  if (!worker) return [];
+  // Only the esbuild-bundle path injects the wrapper. Pre-bundled outputs
+  // (.js/.mjs/.cjs) are uploaded verbatim — mirror deploy-plan's
+  // isPrebundledExt so we don't false-flag them.
+  if (/\.(js|mjs|cjs)$/.test(worker)) return [];
+  // No package.json → CK-NO-CONFIG / install guidance owns that case.
+  if (!ctx.packageJson) return [];
+  // `creek` resolvable from deps or devDeps satisfies esbuild at bundle
+  // time — either is fine for resolution.
+  if (ctx.allDeps["creek"]) return [];
+  return [
+    {
+      code: "CK-RUNTIME-DEP-MISSING",
+      severity: "error",
+      title: "Worker bundle needs the `creek` runtime, but it isn't installed",
+      detail:
+        `Creek bundles ${worker} and injects a wrapper (.creek/__worker_entry.js) that imports the runtime: \`import { _runRequest, generateWsToken } from "creek"\`. \`creek\` is not in your package.json, so \`creek deploy\` will fail at esbuild with \`Could not resolve "creek"\` — even though \`creek deploy --dry-run\` reports wouldDeploy. Your own worker code doesn't have to import \`creek\` for this to bite: the wrapper always does.`,
+      fix:
+        "Install the runtime in `dependencies`:\n  npm install creek\n\nKeep it in `dependencies` (not devDependencies) — the generated wrapper imports it at bundle time. Re-run `creek doctor` to confirm.",
+      references: ["package.json", "creek.toml"],
+    },
+  ];
+};
+
 // ─── Rule: sibling service directory that the deploy won't ship ─────────
 //
 // The multi-service blind spot: a repo has a root frontend (Vite SPA)
@@ -620,6 +669,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
   CK_WORKER_UNRESOLVED_IMPORTS,
+  CK_RUNTIME_DEP_MISSING,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
   CK_UNDEPLOYED_SERVICES,
@@ -638,6 +688,7 @@ export const rules = {
   CK_RESOURCES_KEYS,
   CK_WORKER_MISSING,
   CK_WORKER_UNRESOLVED_IMPORTS,
+  CK_RUNTIME_DEP_MISSING,
   CK_RESOURCES_NO_WORKER,
   CK_WORKER_UNDECLARED,
   CK_UNDEPLOYED_SERVICES,
