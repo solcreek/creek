@@ -271,6 +271,40 @@ cache = false       # KV
 storage = false     # R2
 ```
 
+#### Reference
+
+Every supported key. Unknown keys are ignored on parse.
+
+| Section / key | Type | Default | Notes |
+|---|---|---|---|
+| `[project] name` | string | — | **Required.** Lowercase alphanumeric + hyphens (`^[a-z0-9-]+$`). |
+| `[project] framework` | string | auto-detected | Pin the framework instead of auto-detecting (e.g. `vite-react`, `nextjs`, `astro`). |
+| `[project] target` | `cf` \| `creekd` | inferred | Deploy target. Inferred from drivers when omitted; `postgres`/`mysql`/`redis` drivers imply `creekd`. |
+| `[build] command` | string | `npm run build` | Build script run before deploy. |
+| `[build] output` | string | `dist` | Directory of built static assets. |
+| `[build] worker` | string | — | Worker entry (e.g. `worker/index.ts`). Enables `creek dev` and Worker deploys. |
+| `[resources] database` | bool | `false` | Provision and bind a D1 database (`env.DB`). |
+| `[resources] cache` | bool | `false` | Provision and bind a KV namespace (`env.KV`). |
+| `[resources] storage` | bool | `false` | Provision and bind an R2 bucket (`env.STORAGE`). |
+| `[resources] ai` | bool | `false` | Bind Workers AI (`env.AI`). |
+| `[database] driver` | `sqlite` \| `postgres` \| `mysql` | `sqlite` | Semantic driver (v2). `sqlite` → D1 on `cf`. |
+| `[cache] driver` | `sqlite` \| `redis` | `sqlite` | Semantic cache driver (v2). |
+| `[storage] driver` | `fs` \| … | `fs` | Semantic storage driver (v2). |
+| `[email] enabled` | bool | `false` | Enable the email binding. |
+| `[release] command` | string | — | Command run once per deploy after build (e.g. migrations). |
+| `[release] timeout` | number | `60` | Release-command timeout, in seconds. |
+| `[triggers] cron` | string[] | `[]` | Cron schedules for the worker's `scheduled()` handler. |
+| `[triggers] queue` | bool | `false` | Enable the queue producer/consumer binding. |
+
+Use the semantic `[resources]` names (`database`/`cache`/`storage`/`ai`) — **not** the
+Cloudflare service names (`d1`/`kv`/`r2`); the CF-native names are silently ignored.
+
+**Cloudflare-native settings** — `compatibility_date`, `compatibility_flags`, and
+explicit bindings are read from `wrangler.toml` / `wrangler.jsonc` when present, not
+from `creek.toml`. Creek layers on top of an existing wrangler config. Database
+**migrations** are plain `.sql` files in a migrations directory applied with
+`creek db migrate`, not a config key.
+
 ## For AI Agents
 
 Creek is designed for programmatic use:
