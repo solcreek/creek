@@ -235,6 +235,49 @@ const CK_PRISMA_SQLITE: Rule = (ctx) => {
   ];
 };
 
+// ─── Rule: Node HTTP-server framework — doesn't run on Workers ──────────
+//
+// Express/Fastify/Koa/etc. are Node HTTP servers built on node:net + the
+// `http` server API. workerd has no listening sockets — a Worker is a
+// `fetch(request)` handler, not a server you `.listen()` on. This is the
+// stack-mismatch wall the dogfood report hit: it's only discovered at
+// deploy/build time, after the app is written. Surfacing it from `creek
+// init` / `creek doctor` up front saves a from-scratch rewrite. Fire on
+// production `dependencies` only — a dev-only Express (local mock, test
+// harness) is fine and shouldn't nag.
+
+const NODE_HTTP_SERVERS: Array<{ pkg: string; name: string }> = [
+  { pkg: "express", name: "Express" },
+  { pkg: "fastify", name: "Fastify" },
+  { pkg: "koa", name: "Koa" },
+  { pkg: "@hapi/hapi", name: "hapi" },
+  { pkg: "restify", name: "restify" },
+];
+
+const CK_NODE_HTTP_SERVER: Rule = (ctx) => {
+  const deps = ctx.packageJson?.dependencies ?? {};
+  const offenders = NODE_HTTP_SERVERS.filter((s) => deps[s.pkg]);
+  if (offenders.length === 0) return [];
+  const names = offenders.map((o) => o.name).join(", ");
+  const pkgs = offenders.map((o) => o.pkg).join(", ");
+  const hasHono = !!ctx.allDeps["hono"];
+  return [
+    {
+      code: "CK-NODE-HTTP-SERVER",
+      severity: "warn",
+      title: `${names} won't run on Cloudflare Workers`,
+      detail:
+        `${names} (${pkgs}) ${offenders.length === 1 ? "is a" : "are"} Node HTTP server framework${offenders.length === 1 ? "" : "s"} built on \`node:net\`/\`http.createServer().listen()\`. workerd has no listening sockets — a Worker is a \`fetch(request)\` handler, not a server. \`creek deploy\` will bundle it and fail (or the routes simply never run). This is a build-first-then-rewrite trap, so it's flagged here up front.` +
+        (hasHono
+          ? "\n\nHono is already installed — porting the routes to it is the path. Hono runs on both Node (@hono/node-server) and Workers from one codebase."
+          : ""),
+      fix:
+        "Port your routes to Hono — its `fetch`-based API runs unchanged on Node (`@hono/node-server`) and Workers, so you keep local dev and gain a Workers-deployable app. Express middleware/route handlers map almost 1:1. If the server is dev-only tooling, move it to devDependencies to silence this.",
+      references: ["package.json"],
+    },
+  ];
+};
+
 // ─── Rule: @solcreek/* imports in user runtime code (portability leak) ──
 
 const CK_RUNTIME_LOCKIN: Rule = (ctx) => {
@@ -679,6 +722,7 @@ export const BUILTIN_RULES: Rule[] = [
   CK_UNDEPLOYED_SERVICES,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
+  CK_NODE_HTTP_SERVER,
   CK_RUNTIME_LOCKIN,
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
@@ -698,6 +742,7 @@ export const rules = {
   CK_UNDEPLOYED_SERVICES,
   CK_SYNC_SQLITE,
   CK_PRISMA_SQLITE,
+  CK_NODE_HTTP_SERVER,
   CK_RUNTIME_LOCKIN,
   CK_CONFIG_OVERLAP,
   CK_NOTHING_TO_DEPLOY,
