@@ -15,7 +15,7 @@ import { bundleSSRServer } from "./ssr-bundle.js";
 export function generateWorkerWrapper(
   entryPoint: string,
   wrapperDir: string,
-  options?: { hasClientAssets?: boolean },
+  options?: { hasClientAssets?: boolean; spaFallbackHtml?: string },
 ): string {
   let importPath = relative(wrapperDir, entryPoint).replace(/\\/g, "/");
   // Remove .ts/.tsx extension — esbuild resolves it
@@ -24,15 +24,24 @@ export function generateWorkerWrapper(
 
   const hasAssets = options?.hasClientAssets ?? false;
 
-  // When client assets exist (Worker + SPA hybrid):
-  // - Try static assets first for non-API paths
-  // - Fall back to the worker handler for API routes
-  // - SPA fallback: serve index.html for extensionless paths
+  // Worker + static-assets hybrid. Routing model: Cloudflare Static Assets
+  // serves matching files at the edge BEFORE the worker runs, so the only
+  // requests that reach here are API calls and asset MISSES. env.ASSETS is
+  // NOT bound to the dispatched worker under Workers for Platforms, so the
+  // SPA deep-link fallback can't fetch index.html at runtime — we embed the
+  // built index.html and return it for unmatched GET navigations (the same
+  // mechanism the pure-SPA deploy path uses). When there's no index.html to
+  // embed, spaShell is null and behaviour is unchanged (handler 404 stands).
   if (hasAssets) {
+    const spaShell =
+      options?.spaFallbackHtml != null
+        ? JSON.stringify(options.spaFallbackHtml)
+        : "null";
     return `import { _runRequest, generateWsToken } from "creek";
 import userModule from "${importPath}";
 
 const handler = userModule.default ?? userModule;
+const SPA_SHELL = ${spaShell};
 
 function isApiPath(pathname) {
   return pathname.startsWith("/api/") || pathname === "/__creek/config";
@@ -41,6 +50,21 @@ function isApiPath(pathname) {
 function hasExtension(pathname) {
   const last = pathname.split("/").pop() || "";
   return last.includes(".");
+}
+
+// Only browser document navigations should get the SPA shell. An XHR/fetch
+// to a missing route (Sec-Fetch-Dest "empty", Accept application/json) must
+// keep its real 404 — this mode has a backend, so a miss isn't always a
+// client-side route.
+function isNavigation(request) {
+  if (request.headers.get("Sec-Fetch-Dest") === "document") return true;
+  return (request.headers.get("Accept") || "").includes("text/html");
+}
+
+async function callHandler(request, env, ctx) {
+  if (typeof handler.fetch === "function") return handler.fetch(request, env, ctx);
+  if (typeof handler === "function") return handler(request, env, ctx);
+  return null;
 }
 
 export default {
@@ -58,38 +82,31 @@ export default {
         }), { headers: { "Content-Type": "application/json" } });
       }
 
-      // API routes → always go to the worker handler
+      const res = await callHandler(request, env, ctx);
+      if (res && res.status !== 404) return res;
+
+      // A 404 under /api/* is a real API 404 — never serve the SPA shell.
       if (isApiPath(url.pathname)) {
-        if (typeof handler.fetch === "function") return handler.fetch(request, env, ctx);
-        if (typeof handler === "function") return handler(request, env, ctx);
+        return res ?? new Response("Not Found", { status: 404 });
       }
 
-      // Static assets → try WfP Static Assets API
-      if (env.ASSETS) {
-        try {
-          const assetResponse = await env.ASSETS.fetch(request);
-          if (assetResponse.status !== 404) return assetResponse;
-        } catch {}
-
-        // SPA fallback: extensionless paths → index.html
-        if (!hasExtension(url.pathname)) {
-          try {
-            const indexReq = new Request(new URL("/index.html", request.url), request);
-            const indexResponse = await env.ASSETS.fetch(indexReq);
-            if (indexResponse.status !== 404) {
-              return new Response(indexResponse.body, {
-                status: 200,
-                headers: indexResponse.headers,
-              });
-            }
-          } catch {}
-        }
+      // SPA deep-link fallback: an unmatched browser navigation (GET) to an
+      // extensionless path (e.g. /tickets/123 on hard refresh) gets the
+      // client app shell so the router can take over. XHR/fetch misses keep
+      // their real 404.
+      if (
+        SPA_SHELL !== null &&
+        request.method === "GET" &&
+        !hasExtension(url.pathname) &&
+        isNavigation(request)
+      ) {
+        return new Response(SPA_SHELL, {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
       }
 
-      // Fallback: pass to worker handler
-      if (typeof handler.fetch === "function") return handler.fetch(request, env, ctx);
-      if (typeof handler === "function") return handler(request, env, ctx);
-      return new Response("Not Found", { status: 404 });
+      return res ?? new Response("Not Found", { status: 404 });
     });
   },
   ${generateScheduledHandler()}
@@ -155,7 +172,7 @@ function generateQueueHandler(): string {
 export async function bundleWorker(
   entryPoint: string,
   cwd: string,
-  options?: { hasClientAssets?: boolean },
+  options?: { hasClientAssets?: boolean; spaFallbackHtml?: string },
 ): Promise<string> {
   const wrapperDir = join(cwd, ".creek");
   mkdirSync(wrapperDir, { recursive: true });

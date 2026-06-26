@@ -270,8 +270,19 @@ export async function prepareDeployBundle(
   } else if (plan.worker.strategy === "esbuild-bundle" && plan.worker.entry) {
     const workerEntryPath = resolve(cwd, plan.worker.entry);
     consola.start("  Bundling worker...");
+    // When the worker ships alongside static assets, embed the built
+    // index.html so the wrapper can serve SPA deep-links on a miss. CF
+    // Static Assets serves real files at the edge and env.ASSETS isn't bound
+    // to the dispatched worker, so the shell must travel inside the bundle.
+    const indexHtmlB64 =
+      clientAssets["index.html"] ?? clientAssets["/index.html"];
+    const spaFallbackHtml =
+      plan.assets.enabled && indexHtmlB64
+        ? Buffer.from(indexHtmlB64, "base64").toString("utf-8")
+        : undefined;
     const bundled = await bundleWorker(workerEntryPath, cwd, {
       hasClientAssets: plan.assets.enabled,
+      spaFallbackHtml,
     });
     serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
     consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);

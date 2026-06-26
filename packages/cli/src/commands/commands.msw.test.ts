@@ -274,6 +274,18 @@ describe("db shell resolution (resolveShellDatabase)", () => {
     const db = await resolveShellDatabase(client(), { name: "creek-abc", jsonMode: true });
     expect(db).toEqual({ id: "res-x", name: "creek-abc" });
   });
+
+  it("a stale/unknown project slug exits with a structured error, not a raw throw", async () => {
+    // creek.toml names a project that doesn't exist (renamed/never deployed).
+    server.use(
+      http.get(`${API}/projects/ghost/bindings`, () =>
+        HttpResponse.json({ error: "not_found", message: "project not found" }, { status: 404 }),
+      ),
+    );
+    const code = await runExit(resolveShellDatabase(client(), { project: "ghost", jsonMode: true }));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "project_lookup_failed", project: "ghost" });
+  });
 });
 
 describe("creek projects delete", () => {

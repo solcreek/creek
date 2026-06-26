@@ -129,4 +129,61 @@ describe("generateWorkerWrapper", () => {
     expect(wrapper).toContain("async scheduled(event, env, ctx)");
     expect(wrapper).toContain("async queue(batch, env, ctx)");
   });
+
+  describe("SPA deep-link fallback (worker + assets)", () => {
+    test("embeds the provided index.html as the SPA shell", () => {
+      const html = "<!doctype html><html><body><div id=root></div></body></html>";
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: html },
+      );
+      // Embedded verbatim as a JSON string literal.
+      expect(wrapper).toContain(`const SPA_SHELL = ${JSON.stringify(html)}`);
+      expect(wrapper).toContain('"Content-Type": "text/html; charset=utf-8"');
+    });
+
+    test("does NOT rely on env.ASSETS (unbound under WfP)", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      expect(wrapper).not.toContain("env.ASSETS");
+    });
+
+    test("excludes /api/* from the SPA fallback so API 404s stay 404", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      expect(wrapper).toContain("isApiPath(url.pathname)");
+      // The shell is only served for GET requests to extensionless paths.
+      expect(wrapper).toContain('request.method === "GET"');
+      expect(wrapper).toContain("!hasExtension(url.pathname)");
+    });
+
+    test("only serves the shell for browser navigations, not XHR/fetch 404s", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      // Gated on a document-navigation signal so an XHR/fetch to a missing
+      // route keeps its real 404 instead of getting HTML.
+      expect(wrapper).toContain("isNavigation(request)");
+      expect(wrapper).toContain("Sec-Fetch-Dest");
+      expect(wrapper).toContain('"text/html"');
+    });
+
+    test("SPA_SHELL is null when no index.html is available (no regression)", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true },
+      );
+      expect(wrapper).toContain("const SPA_SHELL = null");
+    });
+  });
 });
