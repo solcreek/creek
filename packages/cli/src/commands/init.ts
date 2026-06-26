@@ -3,7 +3,8 @@ import consola from "consola";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { stringify } from "smol-toml";
-import { detectFramework } from "@solcreek/sdk";
+import { detectFramework, runDoctor, type Finding } from "@solcreek/sdk";
+import { buildDoctorContext } from "../utils/doctor-context.js";
 import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm } from "../utils/output.js";
 import { readHosts, writeHosts, upsertHost, HOSTS_SCHEMA_VERSION, type HostEntry } from "../utils/hosts.js";
 import {
@@ -180,8 +181,28 @@ export default app;
 
     const installCommand = `npm install ${WORKER_SCAFFOLD_DEPS.join(" ")}`;
 
+    // Pre-flight: surface stack-compatibility blockers up front. This is the
+    // dogfood report's biggest hidden cost — discovering only at deploy time
+    // that Express / better-sqlite3 / Prisma-on-SQLite don't run on Workers,
+    // after the whole app exists. Scoped to that "needs a rewrite" family on
+    // purpose: the full diagnostic set belongs to `creek doctor` /
+    // `creek deploy --dry-run`, and init already breadcrumbs the install step.
+    const STACK_COMPAT_CODES = new Set([
+      "CK-NODE-HTTP-SERVER",
+      "CK-SYNC-SQLITE",
+      "CK-PRISMA-SQLITE",
+    ]);
+    let compatBlockers: Finding[] = [];
+    try {
+      compatBlockers = runDoctor(buildDoctorContext(cwd)).findings.filter(
+        (f) => STACK_COMPAT_CODES.has(f.code) && f.severity !== "info",
+      );
+    } catch {
+      // Doctor is best-effort here — never let a diagnostic hiccup fail init.
+    }
+
     if (jsonMode) {
-      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded, ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}) }, 0, [
+      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded, ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}), ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}) }, 0, [
         ...(dbPromptSkipped
           ? [{ command: "creek init --db", description: "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts" }]
           : []),
@@ -189,6 +210,9 @@ export default app;
         // these and `creek deploy` fails to bundle without them.
         ...(scaffoldedWorker
           ? [{ command: installCommand, description: "Install the scaffolded worker's dependencies — required before deploy" }]
+          : []),
+        ...(compatBlockers.length
+          ? [{ command: "creek doctor", description: "Review stack-compatibility warnings before building further" }]
           : []),
         { command: "creek deploy", description: "Deploy the project" },
         { command: "creek dev", description: "Start local development server" },
@@ -203,6 +227,16 @@ export default app;
       }
       if (dbPromptSkipped) {
         consola.info("Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.");
+      }
+      if (compatBlockers.length > 0) {
+        console.log("");
+        consola.warn(
+          "Heads up — parts of your stack won't run on Cloudflare Workers:",
+        );
+        for (const f of compatBlockers) {
+          consola.log(`    • ${f.title}`);
+        }
+        consola.info("    Run `creek doctor` for the fixes (porting these now avoids a rewrite later).");
       }
       console.log("");
       consola.info("  Next steps:");
