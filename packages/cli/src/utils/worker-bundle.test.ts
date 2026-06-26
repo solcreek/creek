@@ -129,4 +129,47 @@ describe("generateWorkerWrapper", () => {
     expect(wrapper).toContain("async scheduled(event, env, ctx)");
     expect(wrapper).toContain("async queue(batch, env, ctx)");
   });
+
+  describe("SPA deep-link fallback (worker + assets)", () => {
+    test("embeds the provided index.html as the SPA shell", () => {
+      const html = "<!doctype html><html><body><div id=root></div></body></html>";
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: html },
+      );
+      // Embedded verbatim as a JSON string literal.
+      expect(wrapper).toContain(`const SPA_SHELL = ${JSON.stringify(html)}`);
+      expect(wrapper).toContain('"Content-Type": "text/html; charset=utf-8"');
+    });
+
+    test("does NOT rely on env.ASSETS (unbound under WfP)", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      expect(wrapper).not.toContain("env.ASSETS");
+    });
+
+    test("excludes /api/* from the SPA fallback so API 404s stay 404", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      expect(wrapper).toContain("isApiPath(url.pathname)");
+      // The shell is only served for GET navigations to extensionless paths.
+      expect(wrapper).toContain('request.method === "GET" && !hasExtension(url.pathname)');
+    });
+
+    test("SPA_SHELL is null when no index.html is available (no regression)", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true },
+      );
+      expect(wrapper).toContain("const SPA_SHELL = null");
+    });
+  });
 });
