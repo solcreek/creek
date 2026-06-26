@@ -289,7 +289,7 @@ Every supported key. Unknown keys are ignored on parse.
 | `[resources] ai` | bool | `false` | Bind Workers AI (`env.AI`). |
 | `[database] driver` | `sqlite` \| `postgres` \| `mysql` | `sqlite` | Semantic driver (v2). `sqlite` → D1 on `cf`. |
 | `[cache] driver` | `sqlite` \| `redis` | `sqlite` | Semantic cache driver (v2). |
-| `[storage] driver` | `fs` \| … | `fs` | Semantic storage driver (v2). |
+| `[storage] driver` | `fs` \| `s3` | `fs` | Semantic storage driver (v2). |
 | `[email] enabled` | bool | `false` | Enable the email binding. |
 | `[release] command` | string | — | Command run once per deploy after build (e.g. migrations). |
 | `[release] timeout` | number | `60` | Release-command timeout, in seconds. |

@@ -164,12 +164,12 @@ Creek auto-detects and configures the build for:
 | **Sandbox** | Signed out, or `--sandbox` | No | 60 min |
 | **Production** | Signed in (`creek login`) | Yes | Permanent |
 
-The target is decided by **sign-in state**, not by whether `creek.toml` exists.
-A full-stack app (Worker + D1/R2/KV) still deploys to the sandbox when you're
-signed out — its resources are provisioned ephemerally and reset on each deploy
-(and expire with the 60-minute sandbox). Sign in (`creek login`) for a
-persistent production database. `creek deploy --dry-run` prints which target a
-run will use.
+The target is decided by **sign-in state**, not by whether `creek.toml` exists
+(pass `--sandbox` to force a preview even when signed in). A full-stack app
+(Worker + D1/R2/KV) still deploys to the sandbox when you're signed out — its
+resources are provisioned ephemerally and reset on each deploy (and expire with
+the 60-minute sandbox). Sign in (`creek login`) for a persistent production
+database. `creek deploy --dry-run` prints which target a run will use.
 
 ## Configuration
 
