@@ -150,7 +150,19 @@ export async function resolveProjectDatabase(
     process.exit(1);
   }
 
-  const { bindings } = await client.listBindings(slug);
+  // A stale/typo'd creek.toml project name (or one never deployed) makes
+  // listBindings throw — turn that into a clean structured error instead of
+  // a raw stack trace, and point at the explicit-name escape hatch.
+  let bindings: Awaited<ReturnType<typeof client.listBindings>>["bindings"];
+  try {
+    ({ bindings } = await client.listBindings(slug));
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const msg = `Couldn't load bindings for project "${slug}" (${detail}). Check the project exists (\`creek projects\`) or pass an explicit database name (${usage}).`;
+    if (jsonMode) jsonOutput({ ok: false, error: "project_lookup_failed", project: slug, message: msg }, 1);
+    consola.error(msg);
+    process.exit(1);
+  }
   const dbs = bindings.filter((b) => b.kind === "database");
   if (dbs.length === 0) {
     const msg = `Project "${slug}" has no database bound. Attach one with \`creek db attach\`.`;
