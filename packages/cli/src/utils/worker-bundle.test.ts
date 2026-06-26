@@ -159,8 +159,22 @@ describe("generateWorkerWrapper", () => {
         { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
       );
       expect(wrapper).toContain("isApiPath(url.pathname)");
-      // The shell is only served for GET navigations to extensionless paths.
-      expect(wrapper).toContain('request.method === "GET" && !hasExtension(url.pathname)');
+      // The shell is only served for GET requests to extensionless paths.
+      expect(wrapper).toContain('request.method === "GET"');
+      expect(wrapper).toContain("!hasExtension(url.pathname)");
+    });
+
+    test("only serves the shell for browser navigations, not XHR/fetch 404s", () => {
+      const wrapper = generateWorkerWrapper(
+        "/project/worker/index.ts",
+        "/project/.creek",
+        { hasClientAssets: true, spaFallbackHtml: "<html></html>" },
+      );
+      // Gated on a document-navigation signal so an XHR/fetch to a missing
+      // route keeps its real 404 instead of getting HTML.
+      expect(wrapper).toContain("isNavigation(request)");
+      expect(wrapper).toContain("Sec-Fetch-Dest");
+      expect(wrapper).toContain('"text/html"');
     });
 
     test("SPA_SHELL is null when no index.html is available (no regression)", () => {

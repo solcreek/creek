@@ -52,6 +52,15 @@ function hasExtension(pathname) {
   return last.includes(".");
 }
 
+// Only browser document navigations should get the SPA shell. An XHR/fetch
+// to a missing route (Sec-Fetch-Dest "empty", Accept application/json) must
+// keep its real 404 — this mode has a backend, so a miss isn't always a
+// client-side route.
+function isNavigation(request) {
+  if (request.headers.get("Sec-Fetch-Dest") === "document") return true;
+  return (request.headers.get("Accept") || "").includes("text/html");
+}
+
 async function callHandler(request, env, ctx) {
   if (typeof handler.fetch === "function") return handler.fetch(request, env, ctx);
   if (typeof handler === "function") return handler(request, env, ctx);
@@ -81,10 +90,16 @@ export default {
         return res ?? new Response("Not Found", { status: 404 });
       }
 
-      // SPA deep-link fallback: an unmatched GET navigation to an
+      // SPA deep-link fallback: an unmatched browser navigation (GET) to an
       // extensionless path (e.g. /tickets/123 on hard refresh) gets the
-      // client app shell so the router can take over.
-      if (SPA_SHELL !== null && request.method === "GET" && !hasExtension(url.pathname)) {
+      // client app shell so the router can take over. XHR/fetch misses keep
+      // their real 404.
+      if (
+        SPA_SHELL !== null &&
+        request.method === "GET" &&
+        !hasExtension(url.pathname) &&
+        isNavigation(request)
+      ) {
         return new Response(SPA_SHELL, {
           status: 200,
           headers: { "Content-Type": "text/html; charset=utf-8" },
