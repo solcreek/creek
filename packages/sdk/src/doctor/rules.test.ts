@@ -281,6 +281,35 @@ describe("CK-RUNTIME-DEP-MISSING", () => {
     expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
   });
 
+  // Regression: a `.js` SOURCE worker outside the build output is still
+  // esbuild-bundled (the wrapper is injected), so the runtime dep is needed.
+  // Extension alone must not classify it as pre-bundled.
+  test("fires for a .js source worker outside the build output", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        workerEntry: "src/worker.js",
+        buildOutput: "dist",
+      }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    const findings = rules.CK_RUNTIME_DEP_MISSING(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-RUNTIME-DEP-MISSING");
+  });
+
+  test("silent for a pre-bundled .js worker inside the build output", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        workerEntry: "dist/worker.js",
+        buildOutput: "dist",
+      }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+
   test("silent when no worker entry is declared", () => {
     const ctx = buildCtx({
       resolved: resolvedConfig({ workerEntry: null }),

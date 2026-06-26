@@ -13,6 +13,7 @@
 
 import type { DoctorContext, Finding, Rule } from "./types.js";
 import { isSSRFramework } from "../types/index.js";
+import { isPrebundledWorker } from "../framework/deploy-plan.js";
 
 // ─── Rule: no config at all ──────────────────────────────────────────────
 
@@ -442,8 +443,8 @@ const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
         "Extract schema and queries into driver-agnostic shared modules (e.g. " +
         "`schema.ts` + `routes.ts`). Keep one dev boot file (Node + better-" +
         "sqlite3) and one Workers boot file (CF Worker + D1); each imports the " +
-        `shared schema/routes. Delete the old ${hit[0]}/${hit[1]} files once ` +
-        "the shared modules are in place.",
+        `shared schema/routes. Delete the two old files (${hit[0]} and ` +
+        `${hit[1]}) once the shared modules are in place.`,
       references: [hit[0], hit[1]],
     },
   ];
@@ -571,12 +572,15 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
 // uploaded as-is with no wrapper, so they're out of scope.
 
 const CK_RUNTIME_DEP_MISSING: Rule = (ctx) => {
-  const worker = ctx.resolved?.workerEntry;
-  if (!worker) return [];
-  // Only the esbuild-bundle path injects the wrapper. Pre-bundled outputs
-  // (.js/.mjs/.cjs) are uploaded verbatim — mirror deploy-plan's
-  // isPrebundledExt so we don't false-flag them.
-  if (/\.(js|mjs|cjs)$/.test(worker)) return [];
+  const resolved = ctx.resolved;
+  const worker = resolved?.workerEntry;
+  if (!resolved || !worker) return [];
+  // Only the esbuild-bundle path injects the wrapper. A worker is uploaded
+  // as-is (no wrapper) ONLY when it's a pre-bundled JS file INSIDE the build
+  // output — not merely by extension: a `.js` source worker outside the
+  // build output is still esbuild-bundled. Reuse deploy-plan's predicate so
+  // the two never drift.
+  if (isPrebundledWorker(worker, resolved.buildOutput)) return [];
   // No package.json → CK-NO-CONFIG / install guidance owns that case.
   if (!ctx.packageJson) return [];
   // `creek` resolvable from deps or devDeps satisfies esbuild at bundle

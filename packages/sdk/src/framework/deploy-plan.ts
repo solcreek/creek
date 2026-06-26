@@ -108,6 +108,26 @@ function isPrebundledExt(path: string): boolean {
   return /\.(js|mjs|cjs)$/.test(path);
 }
 
+/**
+ * A user-declared worker is uploaded as-is (no esbuild bundle, no Creek
+ * wrapper injection) ONLY when it's a pre-bundled JS file (.js/.mjs/.cjs)
+ * that already lives inside the build-output dir. A JS/TS *source* worker
+ * outside the build output (e.g. `src/worker.js`) is still esbuild-bundled,
+ * which injects `.creek/__worker_entry.js` (it imports the `creek` runtime).
+ *
+ * Shared with the doctor's CK-RUNTIME-DEP-MISSING rule so the two never
+ * drift on what "pre-bundled" means.
+ */
+export function isPrebundledWorker(
+  workerEntry: string,
+  buildOutput: string,
+): boolean {
+  return (
+    isPrebundledExt(workerEntry) &&
+    workerInsideAssets(workerEntry, buildOutput) !== null
+  );
+}
+
 function normalize(p: string): string {
   return p.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
 }
@@ -162,7 +182,7 @@ export function planDeploy(input: PlanDeployInput): PlanDeployResult {
   //    framework). This is the Workers + (optional) Static Assets case.
   if (hasWorker && workerEntry) {
     const insideAssets = workerInsideAssets(workerEntry, buildOutput);
-    const prebundled = isPrebundledExt(workerEntry) && insideAssets !== null;
+    const prebundled = isPrebundledWorker(workerEntry, buildOutput);
     const strategy: WorkerStrategy = prebundled ? "upload-asis" : "esbuild-bundle";
 
     // Asset collection: enabled when buildOutput exists and contains
