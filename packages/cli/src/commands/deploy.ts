@@ -1957,7 +1957,15 @@ async function tryTurboDeploy(
   // 1. Read git HEAD SHA
   let sha: string;
   try {
-    sha = execSync("git rev-parse HEAD", { cwd, encoding: "utf-8" }).trim();
+    // stdio: silence stderr — a non-git directory is an expected,
+    // non-error condition here (we just skip the cache). Without this,
+    // git's "fatal: not a git repository" leaks to the user's terminal
+    // on every deploy and reads as a failure.
+    sha = execSync("git rev-parse HEAD", {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (!sha || sha.length < 12) return false;
   } catch {
     return false; // not a git repo or git not installed
@@ -1965,7 +1973,11 @@ async function tryTurboDeploy(
 
   // 2. Check working tree is clean
   try {
-    const dirty = execSync("git status --porcelain", { cwd, encoding: "utf-8" }).trim();
+    const dirty = execSync("git status --porcelain", {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (dirty) {
       // Uncommitted changes → can't trust cache (source differs from commit)
       return false;
@@ -1977,7 +1989,11 @@ async function tryTurboDeploy(
   // 3. Detect branch
   let branch = "main";
   try {
-    branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8" }).trim();
+    branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     // default to main
   }

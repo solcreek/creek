@@ -244,6 +244,90 @@ export default new Hono();`;
   });
 });
 
+// ─── CK-RUNTIME-DEP-MISSING ─────────────────────────────────────────────
+
+describe("CK-RUNTIME-DEP-MISSING", () => {
+  test("fires when a TS worker is bundled but 'creek' isn't installed", () => {
+    // The dogfood case: a dual-driver Drizzle worker whose own source never
+    // imports `creek`, so CK-WORKER-UNRESOLVED-IMPORTS passes — but the
+    // injected wrapper still imports it.
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "src/worker.ts" }),
+      packageJson: pkg({ hono: "^4", "drizzle-orm": "^0.30" }),
+      allDeps: { hono: "^4", "drizzle-orm": "^0.30" },
+    });
+    const findings = rules.CK_RUNTIME_DEP_MISSING(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-RUNTIME-DEP-MISSING");
+    expect(findings[0].severity).toBe("error");
+    expect(findings[0].detail).toContain("src/worker.ts");
+  });
+
+  test("silent when 'creek' is installed (deps or devDeps)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "src/worker.ts" }),
+      packageJson: pkg({ creek: "^0.4.36" }),
+      allDeps: { creek: "^0.4.36" },
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+
+  test("silent for pre-bundled workers (uploaded as-is, no wrapper)", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "dist/_worker.mjs" }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+
+  // Regression: a `.js` SOURCE worker outside the build output is still
+  // esbuild-bundled (the wrapper is injected), so the runtime dep is needed.
+  // Extension alone must not classify it as pre-bundled.
+  test("fires for a .js source worker outside the build output", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        workerEntry: "src/worker.js",
+        buildOutput: "dist",
+      }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    const findings = rules.CK_RUNTIME_DEP_MISSING(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-RUNTIME-DEP-MISSING");
+  });
+
+  test("silent for a pre-bundled .js worker inside the build output", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({
+        workerEntry: "dist/worker.js",
+        buildOutput: "dist",
+      }),
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+
+  test("silent when no worker entry is declared", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: null }),
+      packageJson: pkg(),
+      allDeps: {},
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+
+  test("silent when there is no package.json", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ workerEntry: "src/worker.ts" }),
+      packageJson: null,
+    });
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+  });
+});
+
 // ─── CK-RESOURCES-NO-WORKER ─────────────────────────────────────────────
 
 describe("CK-RESOURCES-NO-WORKER", () => {
@@ -586,6 +670,16 @@ describe("CK-RUNTIME-LOCKIN", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0].detail).toContain("creek");
     expect(findings[0].detail).toContain("@solcreek/runtime");
+  });
+
+  // R2 regression: when `creek` is the offender, the fix must NOT tell the
+  // user to demote it to devDependencies — the Creek-injected worker wrapper
+  // imports it at bundle time, so that advice breaks the next deploy.
+  test("does not advise moving 'creek' to devDependencies", () => {
+    const ctx = buildCtx({ packageJson: pkg({ creek: "^0.4.36" }) });
+    const fix = rules.CK_RUNTIME_LOCKIN(ctx)[0].fix;
+    expect(fix).not.toMatch(/devDependencies/);
+    expect(fix).toContain("must stay in `dependencies`");
   });
 });
 
