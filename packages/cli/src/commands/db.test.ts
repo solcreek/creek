@@ -264,15 +264,39 @@ describe("creek db migrate", () => {
     expect(json()).toMatchObject({ ok: true, migrated: 1 });
   });
 
-  it("exits missing_name when no database name is given", async () => {
+  it("exits no_database_specified when no name, --project, or creek.toml is available", async () => {
     const d1 = makeD1();
     server.use(...d1Handlers(d1));
     writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
 
+    // No name, no --project, and the cwd has no creek.toml → same unified
+    // resolution error `db shell` gives.
     const code = await runMigrate({ name: undefined, _: [] });
 
     expect(code).toBe(1);
-    expect(json()).toMatchObject({ ok: false, error: "missing_name" });
+    expect(json()).toMatchObject({ ok: false, error: "no_database_specified" });
+  });
+
+  it("infers the database from --project when no name is given", async () => {
+    const d1 = makeD1();
+    server.use(
+      http.get(`${API}/projects/myproj/bindings`, () =>
+        HttpResponse.json({
+          bindings: [
+            { bindingName: "DB", resourceId: DB_ID, kind: "database", name: "mydb", status: "active", createdAt: 0 },
+          ],
+        }),
+      ),
+      ...d1Handlers(d1),
+    );
+    writeMigration("0001_init", "CREATE TABLE A (id INTEGER PRIMARY KEY);");
+
+    // `creek db migrate --project myproj` — no DB name repeated.
+    const code = await runMigrate({ name: undefined, _: [], project: "myproj" });
+
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, migrated: 1 });
+    expect(d1.applied).toEqual(new Set(["0001_init"]));
   });
 
   it("exits not_found for an unknown database name", async () => {

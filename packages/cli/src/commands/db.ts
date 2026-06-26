@@ -48,7 +48,7 @@ const shellCommand = defineCommand({
     }
     const client = new CreekClient(getApiUrl(), token);
 
-    const db = await resolveShellDatabase(client, {
+    const db = await resolveProjectDatabase(client, {
       name: args.name as string | undefined,
       project: args.project as string | undefined,
       jsonMode,
@@ -110,21 +110,24 @@ const shellCommand = defineCommand({
 });
 
 /**
- * Resolve which database `db shell` should open. Three inputs, in order:
+ * Resolve which database a command (`db shell`, `db migrate`, …) should
+ * target. Three inputs, in order:
  *   1. an explicit `name` positional (existing behaviour),
  *   2. `--project <slug>` → the single D1 bound to that project,
  *   3. neither → the project in ./creek.toml, same single-binding rule.
  *
  * The point is to not force the user to look up the auto-generated DB
  * name (e.g. creek-97d8c075) when the project binds exactly one D1.
- * Exits the process with a structured error if resolution is ambiguous
- * or empty.
+ * `usage` tailors the error hints to the calling command. Exits the
+ * process with a structured error if resolution is ambiguous or empty.
  */
-export async function resolveShellDatabase(
+export async function resolveProjectDatabase(
   client: CreekClient,
-  opts: { name?: string; project?: string; jsonMode: boolean },
+  opts: { name?: string; project?: string; jsonMode: boolean; usage?: string },
 ): Promise<{ id: string; name: string }> {
   const { name, jsonMode } = opts;
+  // How to name the DB explicitly — varies per command (shell vs migrate).
+  const usage = opts.usage ?? "creek db shell <name>";
 
   // 1. Explicit name → look up by name (unchanged path).
   if (name) {
@@ -141,7 +144,7 @@ export async function resolveShellDatabase(
   // 2/3. Resolve via project bindings.
   const slug = opts.project ?? projectFromCreekToml();
   if (!slug) {
-    const msg = "Provide a database name, pass --project <slug>, or run inside a project directory with creek.toml.";
+    const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory with creek.toml.`;
     if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
     consola.error(msg);
     process.exit(1);
@@ -157,13 +160,16 @@ export async function resolveShellDatabase(
   }
   if (dbs.length > 1) {
     const names = dbs.map((b) => b.name).join(", ");
-    const msg = `Project "${slug}" binds ${dbs.length} databases (${names}). Pass the name explicitly: creek db shell <name> --sql "…".`;
+    const msg = `Project "${slug}" binds ${dbs.length} databases (${names}). Pass the name explicitly: ${usage}.`;
     if (jsonMode) jsonOutput({ ok: false, error: "ambiguous_database", project: slug, databases: dbs.map((b) => b.name), message: msg }, 1);
     consola.error(msg);
     process.exit(1);
   }
   return { id: dbs[0].resourceId, name: dbs[0].name };
 }
+
+/** @deprecated Use {@link resolveProjectDatabase}. Kept for back-compat. */
+export const resolveShellDatabase = resolveProjectDatabase;
 
 /** Read the project name from ./creek.toml, or null if absent/unparseable. */
 function projectFromCreekToml(): string | null {
@@ -254,7 +260,12 @@ const migrateCommand = defineCommand({
     // positional is read from args._ in run().
     name: {
       type: "string",
-      description: "Database name (as shown by `creek db ls`). May also be given as the first positional argument.",
+      description: "Database name (as shown by `creek db ls`). May also be given as the first positional argument. Optional when --project is given or run inside a project directory with a single bound database.",
+      required: false,
+    },
+    project: {
+      type: "string",
+      description: "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given.",
       required: false,
     },
     dir: {
@@ -276,13 +287,6 @@ const migrateCommand = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const dbName = args.name ?? (args._ as string[] | undefined)?.[0];
-    if (!dbName) {
-      const msg = "Database name required. Usage: `creek db migrate <NAME>` (or `--name <NAME>`).";
-      if (jsonMode) jsonOutput({ ok: false, error: "missing_name", message: msg }, 1);
-      consola.error(msg);
-      process.exit(1);
-    }
     const token = getToken();
     if (!token) {
       if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
@@ -291,14 +295,16 @@ const migrateCommand = defineCommand({
     }
     const client = new CreekClient(getApiUrl(), token);
 
-    // 1. Resolve database name → resource ID
-    const { resources } = await client.listResources();
-    const db = resources.find((r) => r.name === dbName && r.kind === "database");
-    if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${dbName}"` }, 1);
-      consola.error(`No database named "${dbName}"`);
-      process.exit(1);
-    }
+    // 1. Resolve database → resource ID. Explicit name wins; otherwise infer
+    // the single database bound to the project (--project or ./creek.toml),
+    // so `creek db migrate` works from a project dir without repeating the
+    // generated DB name.
+    const db = await resolveProjectDatabase(client, {
+      name: (args.name ?? (args._ as string[] | undefined)?.[0]) as string | undefined,
+      project: args.project as string | undefined,
+      jsonMode,
+      usage: "creek db migrate <name>",
+    });
 
     // 2. Find migration directory
     const cwd = process.cwd();
@@ -360,7 +366,7 @@ const migrateCommand = defineCommand({
           pending: pending.map((f) => f.name),
         }, 0);
       } else if (pending.length === 0) {
-        consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
+        consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       } else {
         consola.info(`${pending.length} pending migration(s):\n`);
         for (const f of pending) {
@@ -374,11 +380,11 @@ const migrateCommand = defineCommand({
     // 6. Apply pending
     if (pending.length === 0) {
       if (jsonMode) jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
-      consola.success(`Database "${dbName}" is up to date (${appliedSet.size} applied)`);
+      consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       return;
     }
 
-    consola.info(`Migrating "${dbName}": ${pending.length} pending of ${files.length} total\n`);
+    consola.info(`Migrating "${db.name}": ${pending.length} pending of ${files.length} total\n`);
 
     let migrated = 0;
     let resumed = 0;
