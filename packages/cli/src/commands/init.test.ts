@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initCommand } from "./init.js";
@@ -88,6 +88,37 @@ describe("creek init --db (non-interactive)", () => {
     expect(payload.database).toBe(false);
     expect(payload.databasePromptSkipped).toBe(true);
     expect(JSON.stringify(payload.breadcrumbs)).toContain("creek init --db");
+  });
+
+  it("flags a Node HTTP-server stack (Express) as a compatibility warning up front", async () => {
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "x", dependencies: { express: "^4.19.0" } }),
+    );
+    await runInit({ name: "demo", yes: true });
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    expect(Array.isArray(payload.compatibilityWarnings)).toBe(true);
+    const codes = payload.compatibilityWarnings.map((f: { code: string }) => f.code);
+    expect(codes).toContain("CK-NODE-HTTP-SERVER");
+    // And points the user at the full diagnostic.
+    const cmds = payload.breadcrumbs.map((b: { command: string }) => b.command);
+    expect(cmds).toContain("creek doctor");
+  });
+
+  it("emits no compatibility warnings for a Workers-compatible (Hono) stack", async () => {
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "x", dependencies: { hono: "^4.6.0" } }),
+    );
+    await runInit({ name: "demo", yes: true });
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    expect(payload.compatibilityWarnings).toBeUndefined();
+    const cmds = payload.breadcrumbs.map((b: { command: string }) => b.command);
+    expect(cmds).not.toContain("creek doctor");
   });
 
   it("discloses the .gitignore mutation in the --json payload", async () => {

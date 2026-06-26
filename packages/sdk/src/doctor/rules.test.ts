@@ -562,6 +562,59 @@ describe("CK-PRISMA-SQLITE", () => {
   });
 });
 
+// ─── CK-NODE-HTTP-SERVER ────────────────────────────────────────────────
+
+describe("CK-NODE-HTTP-SERVER", () => {
+  test("fires (warn) when Express is a production dependency", () => {
+    const ctx = buildCtx({
+      packageJson: pkg({ express: "^4.19.0" }),
+      allDeps: { express: "^4.19.0" },
+    });
+    const findings = rules.CK_NODE_HTTP_SERVER(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].code).toBe("CK-NODE-HTTP-SERVER");
+    expect(findings[0].severity).toBe("warn");
+    expect(findings[0].title).toContain("Express");
+    expect(findings[0].fix).toContain("Hono");
+  });
+
+  test("lists multiple offenders in one finding", () => {
+    const ctx = buildCtx({
+      packageJson: pkg({ express: "^4", koa: "^2" }),
+      allDeps: { express: "^4", koa: "^2" },
+    });
+    const findings = rules.CK_NODE_HTTP_SERVER(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].title).toContain("Express");
+    expect(findings[0].title).toContain("Koa");
+  });
+
+  test("mentions Hono migration when Hono is already installed", () => {
+    const ctx = buildCtx({
+      packageJson: pkg({ express: "^4", hono: "^4" }),
+      allDeps: { express: "^4", hono: "^4" },
+    });
+    const findings = rules.CK_NODE_HTTP_SERVER(ctx);
+    expect(findings[0].detail).toContain("Hono is already installed");
+  });
+
+  test("silent when Express is only a devDependency (local tooling)", () => {
+    const ctx = buildCtx({
+      packageJson: pkg({}, { express: "^4.19.0" }),
+      allDeps: { express: "^4.19.0" },
+    });
+    expect(rules.CK_NODE_HTTP_SERVER(ctx)).toEqual([]);
+  });
+
+  test("silent for a Hono-only project", () => {
+    const ctx = buildCtx({
+      packageJson: pkg({ hono: "^4" }),
+      allDeps: { hono: "^4" },
+    });
+    expect(rules.CK_NODE_HTTP_SERVER(ctx)).toEqual([]);
+  });
+});
+
 // ─── CK-AUTH-SECRET ─────────────────────────────────────────────────────
 
 describe("CK-AUTH-SECRET", () => {
