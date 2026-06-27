@@ -203,7 +203,8 @@ function validateStructure(assetPaths: string[], hasWorker: boolean): ScanResult
   if (assetPaths.length === 0) {
     // A pure-worker deploy (API-only Hono app, webhook relay, etc.)
     // legitimately ships zero static assets — there's simply nothing to
-    // phishing-scan. Only a bundle with neither assets nor a worker is empty.
+    // phishing-scan. Only a bundle with neither assets nor a server runtime
+    // (worker and/or serverFiles, signalled by hasWorker) is truly empty.
     if (hasWorker) return { ok: true };
     return { ok: false, reason: "validation", detail: "No assets in bundle" };
   }
