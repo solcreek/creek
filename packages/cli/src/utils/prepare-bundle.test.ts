@@ -19,7 +19,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ResolvedConfig } from "@solcreek/sdk";
-import { prepareDeployBundle } from "./prepare-bundle.js";
+import { prepareDeployBundle, packageScriptName } from "./prepare-bundle.js";
 
 let cwd: string;
 
@@ -150,6 +150,43 @@ describe("prepareDeployBundle", () => {
     expect(result.assets).toEqual({});
   });
 
+  test("API-only worker with no build script — skips build, bundles worker", async () => {
+    // An API-only worker (no frontend) has no "build" script but the
+    // command defaults to `npm run build`. The deploy must skip the build
+    // instead of failing with npm's cryptic "Missing script: build".
+    const infoSpy = vi.spyOn(consola, "info").mockImplementation(() => undefined);
+    writeFixture({
+      "package.json": JSON.stringify({
+        name: "api-only",
+        dependencies: { hono: "*" },
+        // no "scripts" — the F-03 scenario
+      }),
+      "worker/index.ts": `export default { async fetch() { return new Response("ok"); } };`,
+      "node_modules/creek/package.json": JSON.stringify({
+        name: "creek",
+        type: "module",
+        main: "index.js",
+      }),
+      "node_modules/creek/index.js":
+        "export const _runRequest = async (_e, _c, fn) => fn(); export const generateWsToken = async () => '';",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        workerEntry: "worker/index.ts",
+        buildCommand: "npm run build",
+      }),
+      skipBuild: false, // exercise the real build gate
+    });
+
+    expect(result.effectiveRenderMode).toBe("worker");
+    expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
+    const info = infoSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(info).toContain('No "build" script');
+    infoSpy.mockRestore();
+  });
+
   test("worker entry pointing at missing file — exits with explicit reason", async () => {
     writeFixture({
       "package.json": JSON.stringify({ name: "missing-worker" }),
@@ -241,6 +278,25 @@ describe("prepareDeployBundle", () => {
 
 import { vi } from "vitest";
 import consola from "consola";
+
+describe("packageScriptName", () => {
+  test("extracts the script name from package-manager run commands", () => {
+    expect(packageScriptName("npm run build")).toBe("build");
+    expect(packageScriptName("pnpm run build")).toBe("build");
+    expect(packageScriptName("yarn run build")).toBe("build");
+    expect(packageScriptName("bun run build")).toBe("build");
+    expect(packageScriptName("  npm run build:prod  ")).toBe("build:prod");
+  });
+
+  test("returns null for non-script shell commands", () => {
+    expect(packageScriptName("vite build")).toBeNull();
+    expect(packageScriptName("tsc && vite build")).toBeNull();
+    expect(packageScriptName("")).toBeNull();
+    // bare `pnpm build` shorthand is intentionally not treated as a known
+    // script invocation — only the explicit `run` form is unambiguous.
+    expect(packageScriptName("pnpm build")).toBeNull();
+  });
+});
 
 describe("spa-with-resources warning", () => {
   test("warns when resource bindings are declared but the deploy is a static SPA", async () => {

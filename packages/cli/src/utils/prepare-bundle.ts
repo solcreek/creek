@@ -85,6 +85,17 @@ export interface PreparedDeployBundle {
   serverFiles?: Record<string, string>;
 }
 
+/**
+ * If a build command is a package-manager script invocation
+ * (`npm run <name>`, `pnpm run <name>`, `yarn run <name>`, `bun run <name>`),
+ * return the script name so the caller can verify it exists before running.
+ * Returns null for any other command (a real shell command we run as-is).
+ */
+export function packageScriptName(command: string): string | null {
+  const m = command.trim().match(/^(?:npm|pnpm|yarn|bun)\s+run\s+(\S+)/);
+  return m ? m[1] : null;
+}
+
 export async function prepareDeployBundle(
   input: PrepareDeployBundleInput,
 ): Promise<PreparedDeployBundle> {
@@ -121,14 +132,26 @@ export async function prepareDeployBundle(
         consola.error("Invalid build command (too long)");
         process.exit(1);
       }
-      consola.start(`  ${buildCmd}`);
-      try {
-        execSync(buildCmd, { cwd, stdio: "inherit" });
-      } catch {
-        consola.error("Build failed");
-        process.exit(1);
+      // An API-only worker (no frontend) has no build script, but the
+      // command defaults to `npm run build`. Running it fails with a
+      // cryptic "Missing script: build". When the command is a
+      // package-manager script that doesn't exist, skip the build — the
+      // worker is bundled downstream regardless.
+      const scriptName = packageScriptName(buildCmd);
+      const scriptMissing =
+        scriptName !== null && !(pkg?.scripts && scriptName in pkg.scripts);
+      if (scriptMissing) {
+        consola.info(`  No "${scriptName}" script in package.json — skipping build step`);
+      } else {
+        consola.start(`  ${buildCmd}`);
+        try {
+          execSync(buildCmd, { cwd, stdio: "inherit" });
+        } catch {
+          consola.error("Build failed");
+          process.exit(1);
+        }
+        consola.success("  Build complete");
       }
-      consola.success("  Build complete");
     }
   }
 
