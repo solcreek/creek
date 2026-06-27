@@ -21,13 +21,21 @@ export function localProjectName(cwd: string): string | null {
   }
 }
 
-/** Coerce an arbitrary name into a valid project slug (`^[a-z0-9-]+$`). */
+/**
+ * Coerce an arbitrary name into a valid project slug: the server charset
+ * (`^[a-z0-9][a-z0-9-]*[a-z0-9]$`) with the reserved `-git-` infix stripped
+ * (the control-plane reserves it for branch preview URLs).
+ */
 export function normalizeSlug(name: string): string {
-  return name
+  let slug = name
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+  // "-git-" is reserved for branch URLs (e.g. app-git-feat.bycreek.com); the
+  // server rejects it. Collapse it out, looping for overlaps like "-git-git-".
+  while (slug.includes("-git-")) slug = slug.replace("-git-", "-");
+  return slug.replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 export const claimCommand = defineCommand({
@@ -99,8 +107,8 @@ export const claimCommand = defineCommand({
     // --name, else the local creek.toml project name, else the sandbox
     // template/id. Without this, claim reserves "<templateId|sandboxId>" while
     // a later deploy uses creek.toml's name — creating a separate, orphaned
-    // project. Normalize to the project-slug charset (^[a-z0-9-]+$) so a
-    // user-supplied --name can't fail the server's stricter validation.
+    // project. Normalize to the server's slug rules (charset + reserved
+    // `-git-` infix) so a user-supplied --name resolves to an acceptable slug.
     const rawSlug =
       (args.name as string | undefined) ?? localProjectName(process.cwd()) ?? sandbox.templateId ?? sandboxId;
     const slug = normalizeSlug(rawSlug) || sandboxId;

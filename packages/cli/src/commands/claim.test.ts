@@ -19,6 +19,14 @@ describe("normalizeSlug", () => {
     expect(normalizeSlug("crisp-slack-sync")).toBe("crisp-slack-sync");
   });
 
+  it("strips the reserved -git- infix (server rejects it)", () => {
+    expect(normalizeSlug("my-git-app")).toBe("my-app");
+    // overlapping occurrences collapse fully
+    expect(normalizeSlug("a-git-git-b")).toBe("a-b");
+    // a leading/standalone "git" segment isn't the reserved infix — keep it
+    expect(normalizeSlug("git-app")).toBe("git-app");
+  });
+
   it("returns empty string when nothing valid remains", () => {
     // Caller falls back to the sandbox id in this case.
     expect(normalizeSlug("@@@")).toBe("");
