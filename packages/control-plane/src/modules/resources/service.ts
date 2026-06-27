@@ -15,6 +15,7 @@
 import type { Env } from "../../types.js";
 import {
   BINDING_NAMES,
+  DEPRECATED_BINDING_ALIASES,
   INTERNAL_VARS,
 } from "@solcreek/sdk";
 import {
@@ -269,28 +270,33 @@ export function buildBindings(
   const bindings: WfPBinding[] = [];
 
   for (const [, resolved] of resolvedBindings) {
-    switch (resolved.cfType) {
-      case "d1":
-        bindings.push({
-          type: "d1",
-          name: resolved.bindingName,
-          id: resolved.cfResourceId,
-        });
-        break;
-      case "r2":
-        bindings.push({
-          type: "r2_bucket",
-          name: resolved.bindingName,
-          bucket_name: resolved.cfResourceId,
-        });
-        break;
-      case "kv":
-        bindings.push({
-          type: "kv_namespace",
-          name: resolved.bindingName,
-          namespace_id: resolved.cfResourceId,
-        });
-        break;
+    // Bind under the primary name, plus any deprecated alias (e.g. DB for
+    // DATABASE) pointing at the same resource, so Workers reading the old
+    // CF-primitive name keep working through the v1.0 deprecation window.
+    const names = [resolved.bindingName];
+    const alias = DEPRECATED_BINDING_ALIASES[resolved.bindingName];
+    if (alias) names.push(alias);
+
+    for (const name of names) {
+      switch (resolved.cfType) {
+        case "d1":
+          bindings.push({ type: "d1", name, id: resolved.cfResourceId });
+          break;
+        case "r2":
+          bindings.push({
+            type: "r2_bucket",
+            name,
+            bucket_name: resolved.cfResourceId,
+          });
+          break;
+        case "kv":
+          bindings.push({
+            type: "kv_namespace",
+            name,
+            namespace_id: resolved.cfResourceId,
+          });
+          break;
+      }
     }
   }
 
