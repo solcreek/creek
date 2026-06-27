@@ -90,10 +90,17 @@ export interface PreparedDeployBundle {
  * (`npm run <name>`, `pnpm run <name>`, `yarn run <name>`, `bun run <name>`),
  * return the script name so the caller can verify it exists before running.
  * Returns null for any other command (a real shell command we run as-is).
+ *
+ * Option flags between `run` and the script name (`npm run --silent build`,
+ * `npm run -s build`, `npm run --if-present build`) are skipped so the flag
+ * isn't mistaken for the script name.
  */
 export function packageScriptName(command: string): string | null {
-  const m = command.trim().match(/^(?:npm|pnpm|yarn|bun)\s+run\s+(\S+)/);
-  return m ? m[1] : null;
+  const tokens = command.trim().split(/\s+/);
+  const [pm, sub, ...rest] = tokens;
+  if (!/^(?:npm|pnpm|yarn|bun)$/.test(pm ?? "") || sub !== "run") return null;
+  const script = rest.find((t) => !t.startsWith("-"));
+  return script ?? null;
 }
 
 export async function prepareDeployBundle(

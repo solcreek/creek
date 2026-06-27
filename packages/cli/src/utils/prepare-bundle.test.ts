@@ -288,6 +288,12 @@ describe("packageScriptName", () => {
     expect(packageScriptName("  npm run build:prod  ")).toBe("build:prod");
   });
 
+  test("skips boolean option flags between run and the script name", () => {
+    expect(packageScriptName("npm run --silent build")).toBe("build");
+    expect(packageScriptName("npm run -s build")).toBe("build");
+    expect(packageScriptName("npm run --if-present build")).toBe("build");
+  });
+
   test("returns null for non-script shell commands", () => {
     expect(packageScriptName("vite build")).toBeNull();
     expect(packageScriptName("tsc && vite build")).toBeNull();
