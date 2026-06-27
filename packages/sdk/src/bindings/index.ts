@@ -24,7 +24,7 @@ export const BINDING_NAMES = {
  *
  * (storage/ai/queue already matched the semantic key, so they have no alias.)
  */
-export const DEPRECATED_BINDING_ALIASES: Record<string, string> = {
+export const DEPRECATED_BINDING_ALIASES: Record<string, string | undefined> = {
   DATABASE: "DB",
   CACHE: "KV",
 };
