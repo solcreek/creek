@@ -117,7 +117,9 @@ export async function ensureProjectBindings(
   for (const existing of existingRows.results) {
     if (!existing.cfResourceId) continue;
     const cfType = existing.cfResourceType ?? KIND_TO_CF[existing.kind];
-    if (!cfType) continue;
+    // Only seed types buildBindings actually emits (d1/r2/kv). Others (e.g.
+    // queue) are wired separately and would otherwise sit unused in `result`.
+    if (cfType !== "d1" && cfType !== "r2" && cfType !== "kv") continue;
     result.set(existing.bindingName, {
       bindingName: existing.bindingName,
       cfResourceId: existing.cfResourceId,
@@ -129,11 +131,13 @@ export async function ensureProjectBindings(
     const existing = existingByName.get(req.bindingName);
 
     if (existing && existing.cfResourceId) {
-      // Binding exists with a provisioned CF resource — use it
+      // Binding exists with a provisioned CF resource — use it. Trust the
+      // resource's own type (stored, else derived from its kind) over the
+      // bundle's requirement type, which may diverge.
       result.set(req.bindingName, {
         bindingName: req.bindingName,
         cfResourceId: existing.cfResourceId,
-        cfType: existing.cfResourceType ?? req.type,
+        cfType: existing.cfResourceType ?? KIND_TO_CF[existing.kind] ?? req.type,
       });
       continue;
     }

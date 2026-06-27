@@ -80,6 +80,29 @@ describe("ensureProjectBindings — server attachment merge", () => {
     expect(result.get("SESSIONS")?.cfType).toBe("kv");
   });
 
+  test("does not seed a queue attachment (buildBindings emits only d1/r2/kv)", async () => {
+    const env = envWithBindings([
+      { bindingName: "QUEUE", resourceId: "res-q", kind: "queue", cfResourceId: "q-1", cfResourceType: "queue" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
+
+    expect(result.has("QUEUE")).toBe(false);
+  });
+
+  test("an existing provisioned binding trusts its kind over a divergent requirement type", async () => {
+    const env = envWithBindings([
+      { bindingName: "CACHE", resourceId: "res-c", kind: "cache", cfResourceId: "kv-x", cfResourceType: null },
+    ]);
+
+    // The bundle wrongly claims CACHE is a d1 — the resource's kind (cache -> kv) wins.
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "d1", bindingName: "CACHE" },
+    ]);
+
+    expect(result.get("CACHE")?.cfType).toBe("kv");
+  });
+
   test("a config requirement and a separate attachment both resolve", async () => {
     const env = envWithBindings([
       { bindingName: "SESSIONS", resourceId: "res-a", kind: "cache", cfResourceId: "kv-aaa", cfResourceType: "kv" },
