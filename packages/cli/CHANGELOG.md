@@ -24,6 +24,47 @@
   confirm the production target instead. A future version will require
   `--prod` — pass it to opt in now, or `--sandbox` to preview.
 
+### Diagnostics
+
+- **`creek deploy --dry-run` now flags a missing `creek` runtime dependency
+  before bundling.** A worker that imports `creek` but doesn't list it in
+  `dependencies` used to fail deep inside the bundler with an opaque
+  `Could not resolve "creek"`; the dry-run now reports the missing package
+  up front so you can `npm install creek` before deploying.
+- **New compatibility check for Node HTTP-server stacks.** `creek doctor`
+  (and `creek init`) now warns when a project depends on a server framework
+  that expects a long-running Node process — Express, Fastify, Koa, Hapi,
+  restify — which doesn't run on Workers, and points you at Hono as the
+  Workers-native equivalent.
+- **`creek init` surfaces stack-compatibility blockers up front.** Before
+  writing `creek.toml`, init runs the relevant doctor checks and prints any
+  hard incompatibilities (with a `creek doctor` breadcrumb), so an
+  unsupported stack is caught at scaffold time instead of at deploy time.
+- Corrected the wording of the runtime lock-in doctor advice.
+
+### Routing
+
+- **Deep links work in worker + static-assets mode.** Refreshing or sharing
+  a client-routed URL (e.g. `/dashboard/settings`) now serves the SPA shell
+  instead of returning 404. The fallback fires only on browser navigations
+  (an HTML document request) — `/api/*` and non-document requests are
+  unaffected, so API routes still return their real responses.
+
+### Database
+
+- **`creek db migrate` infers the target database from your project
+  config.** You no longer have to pass the database name explicitly when the
+  project declares one; an explicit `--project` is still honored.
+- **Clearer error when a project's resource bindings can't be resolved.**
+  `creek db` now returns a structured `project_lookup_failed` error instead
+  of surfacing a raw lookup failure.
+
+### Docs
+
+- Added a full `creek.toml` configuration reference table to the CLI docs,
+  documented the `s3` storage driver, and corrected the deploy-target /
+  `--sandbox` override documentation.
+
 ## 0.4.36
 
 ### Fixes / DX
