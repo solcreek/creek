@@ -2,9 +2,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { resolveConfig, formatDetectionSummary, resolvedConfigToBindingRequirements, type ResolvedConfig, ConfigNotFoundError, parseConfig } from "@solcreek/sdk";
+import { resolveConfig, formatDetectionSummary, resolvedConfigToBindingRequirements, type ResolvedConfig, ConfigNotFoundError } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS } from "../utils/output.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 
