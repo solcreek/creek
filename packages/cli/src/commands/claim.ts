@@ -11,7 +11,7 @@ import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../ut
  * Claiming under this name keeps claim and the subsequent deploy pointed at
  * the same project instead of leaving an orphan reserved under the sandbox id.
  */
-function localProjectName(cwd: string): string | null {
+export function localProjectName(cwd: string): string | null {
   try {
     const tomlPath = join(cwd, "creek.toml");
     if (!existsSync(tomlPath)) return null;
@@ -22,7 +22,7 @@ function localProjectName(cwd: string): string | null {
 }
 
 /** Coerce an arbitrary name into a valid project slug (`^[a-z0-9-]+$`). */
-function normalizeSlug(name: string): string {
+export function normalizeSlug(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -146,7 +146,7 @@ export const claimCommand = defineCommand({
           // sandbox's ephemeral D1 does not transfer. A deploy is required.
           productionDeploymentId: null,
           deployed: false,
-          note: `Claim reserved the project only — no deployment was created and sandbox data (its ephemeral D1) does not carry over. Run \`creek deploy\` to create the production deployment, with creek.toml [project].name set to "${project.slug}" so it targets this project rather than creating a separate one.`,
+          note: `Claim reserved the project only — no deployment was created and sandbox data (its ephemeral D1) does not carry over. Run \`creek deploy\` to create the production deployment, with your local project config name (creek.toml/wrangler.*/package.json) set to "${project.slug}" so it targets this project rather than creating a separate one.`,
         },
         0,
         [
@@ -164,6 +164,6 @@ export const claimCommand = defineCommand({
     consola.info(`  creek init`);
     consola.info(`  creek deploy    # creates the production deployment`);
     consola.info("");
-    consola.info(`Make sure creek.toml's [project].name is "${project.slug}" — \`creek deploy\` deploys by that name, and a different name creates a separate project.`);
+    consola.info(`Make sure your local project config name is "${project.slug}" — \`creek deploy\` resolves the name from creek.toml/wrangler.*/package.json and deploys by it; a different name creates a separate project.`);
   },
 });
