@@ -187,6 +187,38 @@ describe("prepareDeployBundle", () => {
     infoSpy.mockRestore();
   });
 
+  test("malformed package.json scripts — skips build without crashing", async () => {
+    // A non-object "scripts" field would make `name in scripts` throw a
+    // TypeError. The build gate must treat it as "no scripts" and skip,
+    // not crash the deploy.
+    writeFixture({
+      "package.json": JSON.stringify({
+        name: "bad-scripts",
+        dependencies: { hono: "*" },
+        scripts: "this should be an object",
+      }),
+      "worker/index.ts": `export default { async fetch() { return new Response("ok"); } };`,
+      "node_modules/creek/package.json": JSON.stringify({
+        name: "creek",
+        type: "module",
+        main: "index.js",
+      }),
+      "node_modules/creek/index.js":
+        "export const _runRequest = async (_e, _c, fn) => fn(); export const generateWsToken = async () => '';",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        workerEntry: "worker/index.ts",
+        buildCommand: "npm run build",
+      }),
+      skipBuild: false,
+    });
+
+    expect(result.effectiveRenderMode).toBe("worker");
+  });
+
   test("worker entry pointing at missing file — exits with explicit reason", async () => {
     writeFixture({
       "package.json": JSON.stringify({ name: "missing-worker" }),

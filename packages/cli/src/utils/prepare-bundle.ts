@@ -145,8 +145,12 @@ export async function prepareDeployBundle(
       // package-manager script that doesn't exist, skip the build — the
       // worker is bundled downstream regardless.
       const scriptName = packageScriptName(buildCmd);
+      const scripts = pkg?.scripts;
+      const hasScripts =
+        typeof scripts === "object" && scripts !== null && !Array.isArray(scripts);
       const scriptMissing =
-        scriptName !== null && !(pkg?.scripts && scriptName in pkg.scripts);
+        scriptName !== null &&
+        !(hasScripts && Object.prototype.hasOwnProperty.call(scripts, scriptName));
       if (scriptMissing) {
         consola.info(`  No "${scriptName}" script in package.json — skipping build step`);
       } else {
