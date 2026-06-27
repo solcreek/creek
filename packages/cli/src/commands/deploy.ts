@@ -1573,18 +1573,18 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
     }
 
-    // Surface resource bindings attached to this project that aren't declared
-    // in creek.toml. Deploy sends only creek.toml-derived bindings, so an
+    // Surface resource bindings attached to this project that aren't part of
+    // the deploy config. Deploy sends only config-derived bindings, so an
     // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
     // never reaches the worker — env.SESSIONS would be silently undefined.
     const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
     const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
     if (bindingDrift.length > 0 && !jsonMode) {
       consola.warn(
-        `  ${bindingDrift.length} attached binding(s) not declared in creek.toml: ${formatBindingDrift(bindingDrift)}`,
+        `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
       );
-      consola.info("  These won't reach your worker — deploy uses creek.toml, not attachments.");
-      consola.info("  Declare them under [resources] (matching the binding name) or detach them.");
+      consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
+      consola.info("  Detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
     }
 
     // Framework is resolved upstream; everything else (SSR / worker /

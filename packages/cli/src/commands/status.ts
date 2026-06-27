@@ -115,9 +115,9 @@ async function projectStatus(jsonMode: boolean) {
     process.exit(1);
   }
 
-  // Resource bindings attached server-side but not declared in creek.toml
-  // won't reach the worker on deploy. Surface them so `creek status` reflects
-  // the real attachment state, not just the local config.
+  // Resource bindings attached server-side but not in the deploy config won't
+  // reach the worker on deploy. Surface them so `creek status` reflects the
+  // real attachment state, not just the local config.
   const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
   const undeclaredBindings = await findUndeclaredBindings(client, project.slug, declaredNames);
 
@@ -158,9 +158,9 @@ async function projectStatus(jsonMode: boolean) {
 
   if (undeclaredBindings.length > 0) {
     consola.warn(
-      `Attached but not in creek.toml: ${formatBindingDrift(undeclaredBindings)}`,
+      `Attached but not in your deploy config: ${formatBindingDrift(undeclaredBindings)}`,
     );
-    consola.info("  These won't reach your worker on deploy — declare them under [resources] or detach them.");
+    consola.info("  These won't reach your worker on deploy — detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
     consola.log("");
   }
 }
