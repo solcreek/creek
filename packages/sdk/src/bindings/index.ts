@@ -1,19 +1,33 @@
 /**
- * Canonical binding names used when deploying user workers via WfP.
- * The "creek" runtime package reads these same names from `env`.
+ * Binding names a deployed Worker sees, keyed by the underlying CF resource
+ * type. The rule is uniform: the env-var name is the semantic config key,
+ * uppercased (`database` → `DATABASE`, `cache` → `CACHE`, ...). Nothing is
+ * translated to a CF primitive name.
  *
- * IMPORTANT: If you change a name here, update packages/runtime/src/index.ts
- * to match. The invariant test in tests/invariants/ verifies they stay in sync.
+ * The "creek" runtime package reads these same names from `env` — keep
+ * packages/runtime/src/index.ts in sync if you change a value here.
  */
 
-/** WfP binding name → resource type mapping */
+/** CF resource type → env-var binding name the Worker sees */
 export const BINDING_NAMES = {
-  d1: "DB",
+  d1: "DATABASE",
   r2: "STORAGE",
-  kv: "KV",
+  kv: "CACHE",
   ai: "AI",
   queue: "QUEUE",
 } as const;
+
+/**
+ * Deprecated env-var aliases, kept bound alongside the primary name through
+ * the v1.0 deprecation window so Workers that still read the old CF-primitive
+ * names keep working. Maps primary name → deprecated alias. Removed at v1.0.
+ *
+ * (storage/ai/queue already matched the semantic key, so they have no alias.)
+ */
+export const DEPRECATED_BINDING_ALIASES: Record<string, string> = {
+  DATABASE: "DB",
+  CACHE: "KV",
+};
 
 /** Internal env vars injected into every user worker */
 export const INTERNAL_VARS = {
