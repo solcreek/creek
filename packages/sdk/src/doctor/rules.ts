@@ -58,7 +58,7 @@ const CK_RESOURCES_KEYS: Rule = (ctx) => {
       severity: "error",
       title: "[resources] uses CF-native key names (ignored by Creek)",
       detail:
-        "Creek's [resources] block uses semantic names (database / cache / storage / ai), not CF service names (d1 / kv / r2). The keys you wrote are silently dropped — nothing gets provisioned, and at runtime env.DB / env.KV / env.BUCKET will be undefined.",
+        "Creek's [resources] block uses semantic names (database / cache / storage / ai), not CF service names (d1 / kv / r2). The keys you wrote are silently dropped — nothing gets provisioned, and at runtime env.DATABASE / env.CACHE / env.STORAGE will be undefined.",
       fix:
         "Rename in creek.toml:\n" +
         offenders.map((o) => `  ${o}`).join("\n") +

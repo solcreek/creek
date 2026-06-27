@@ -175,7 +175,9 @@ function createDbProxy(): CreekDatabase {
     get(_, prop) {
       const env = getEnv();
       if (!env) return typeof prop === "symbol" ? undefined : () => {};
-      const binding = env.DB as D1Database | undefined;
+      // env.DATABASE is the primary name; env.DB is the deprecated alias kept
+      // bound through the v1.0 window.
+      const binding = (env.DATABASE ?? env.DB) as D1Database | undefined;
       if (!binding) {
         throw new Error(
           "[creek] Database is not enabled. Add `database = true` to [resources] in creek.toml",
@@ -239,18 +241,26 @@ function createDbProxy(): CreekDatabase {
 // ─── Simple binding proxies ─────────────────────────────────────────────────
 
 function createBinding<T extends object>(
-  bindingName: string,
+  names: string[],
   label: string,
+  enableHint: string,
 ): T {
   return new Proxy({} as T, {
     get(_, prop) {
       const env = getEnv();
       if (!env) return typeof prop === "symbol" ? undefined : () => {};
-      const binding = env[bindingName];
+      // First name is primary; the rest are deprecated aliases kept bound
+      // through the v1.0 window. Loop (not map().find()) to avoid allocating
+      // on every proxy access.
+      let binding: unknown;
+      for (const n of names) {
+        if (env[n] != null) {
+          binding = env[n];
+          break;
+        }
+      }
       if (!binding) {
-        throw new Error(
-          `[creek] ${label} is not enabled. Add \`${bindingName.toLowerCase()} = true\` to [resources] in creek.toml`,
-        );
+        throw new Error(`[creek] ${label} is not enabled. ${enableHint}`);
       }
       const value = (binding as Record<string | symbol, unknown>)[prop];
       return typeof value === "function"
@@ -337,21 +347,37 @@ export async function generateWsToken(): Promise<string | null> {
 // ─── Queue binding proxy ──────────────────────────────────────────────────
 
 /** Queue producer — send messages to the project's queue */
-export const queue: Queue = createBinding("QUEUE", "Queue");
+export const queue: Queue = createBinding(
+  ["QUEUE"],
+  "Queue",
+  "Add `queue = true` to [triggers] in creek.toml",
+);
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 /** D1 Database with auto-realtime on writes */
 export const db: CreekDatabase = createDbProxy();
 
-/** KV Namespace */
-export const kv: KVNamespace = createBinding("KV", "KV Storage");
+/** KV Namespace (cache). Reads env.CACHE; env.KV is the deprecated alias. */
+export const kv: KVNamespace = createBinding(
+  ["CACHE", "KV"],
+  "Cache (KV)",
+  "Add `cache = true` to [resources] in creek.toml",
+);
 
 /** R2 Bucket */
-export const storage: R2Bucket = createBinding("STORAGE", "Object Storage (R2)");
+export const storage: R2Bucket = createBinding(
+  ["STORAGE"],
+  "Object Storage (R2)",
+  "Add `storage = true` to [resources] in creek.toml",
+);
 
 /** Workers AI */
-export const ai: Ai = createBinding("AI", "AI");
+export const ai: Ai = createBinding(
+  ["AI"],
+  "AI",
+  "Add `ai = true` to [resources] in creek.toml",
+);
 
 /** Re-export column helpers from d1-schema for convenience */
 export { column } from "d1-schema";

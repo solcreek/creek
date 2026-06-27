@@ -130,7 +130,7 @@ describe("resolveConfig detection chain", () => {
 // --- creek.toml conversion ---
 
 describe("fromCreekConfig", () => {
-  test("converts resources booleans to bindings with canonical names", () => {
+  test("converts resources booleans to bindings with semantic names (key uppercased)", () => {
     writeFileSync(
       join(cwd, "creek.toml"),
       `[project]\nname = "my-app"\n\n[resources]\ndatabase = true\nstorage = true\ncache = false\nai = true\n`,
@@ -138,7 +138,7 @@ describe("fromCreekConfig", () => {
 
     const config = resolveConfig(cwd);
     expect(config.bindings).toEqual([
-      { type: "d1", name: "DB" },
+      { type: "d1", name: "DATABASE" },
       { type: "r2", name: "STORAGE" },
       { type: "ai", name: "AI" },
     ]);
