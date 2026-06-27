@@ -113,10 +113,10 @@ async function projectStatus(jsonMode: boolean) {
     process.exit(1);
   }
 
-  // Resource bindings attached server-side but not in the deploy config still
-  // reach the worker (the control-plane merges server attachments), but they
-  // live outside the local config. Surface them so `creek status` reflects the
-  // real attachment state and flags what a fresh clone wouldn't recreate.
+  // Resource bindings attached server-side but not in the local config. A
+  // provisioned attachment binds at deploy time, but it lives outside the
+  // config. Surface them so `creek status` reflects the real attachment state
+  // and flags what a fresh clone wouldn't recreate.
   // CF-only: the creekd target resolves no CF bindings (injected at runtime),
   // so the drift concept doesn't apply and every attachment would look
   // undeclared.
@@ -168,7 +168,7 @@ async function projectStatus(jsonMode: boolean) {
     consola.info(
       `Attached but not in your config: ${formatBindingDrift(undeclaredBindings)}`,
     );
-    consola.info("  These reach your worker via server-side attachment. Declare them in your config so a fresh clone deploys the same, or detach them.");
+    consola.info("  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.");
     consola.log("");
   }
 }

@@ -1574,10 +1574,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     }
 
     // Surface resource bindings attached server-side (`creek <kind> attach`)
-    // that aren't in the local deploy config. The control-plane merges server
-    // attachments into the deploy, so these DO reach the worker — but they
-    // live outside your config, so flag them for reproducibility (a fresh
-    // clone wouldn't recreate them).
+    // that aren't in the local deploy config. The control-plane binds a
+    // provisioned attachment at deploy time, but it lives outside your config,
+    // so flag it for reproducibility (a fresh clone wouldn't recreate it).
     // CF-only: on the creekd target the SDK resolves no CF bindings (they're
     // injected at runtime), so every attachment would look "undeclared" — the
     // drift concept doesn't apply there.
@@ -1589,9 +1588,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
       if (bindingDrift.length > 0) {
         consola.info(
-          `  ${bindingDrift.length} attached binding(s) active but not in your config: ${formatBindingDrift(bindingDrift)}`,
+          `  ${bindingDrift.length} attached binding(s) not in your config: ${formatBindingDrift(bindingDrift)}`,
         );
-        consola.info("  These reach your worker via server-side attachment. Declare them in your config so a fresh clone deploys the same, or detach them.");
+        consola.info("  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.");
       }
     }
 

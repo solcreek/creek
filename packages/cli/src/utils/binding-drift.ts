@@ -15,10 +15,10 @@ export interface BindingClient {
  * `creek db/cache/storage attach`) whose names aren't declared in the local
  * config.
  *
- * The control-plane merges server-side attachments into the deploy, so these
- * DO reach the worker at runtime — but they live outside the local config, so
- * a fresh clone or a teammate wouldn't recreate them. Surfacing the drift
- * flags that reproducibility gap (declare them in config, or detach).
+ * The control-plane binds a provisioned server-side attachment at deploy time,
+ * but it lives outside the local config — a fresh clone or a teammate wouldn't
+ * recreate it. Surfacing the drift flags that reproducibility gap (declare it
+ * in config, or detach).
  *
  * Best-effort: returns `[]` on any lookup error so it never blocks a deploy
  * or status check.
