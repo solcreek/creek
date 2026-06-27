@@ -35,7 +35,10 @@ export function normalizeSlug(name: string): string {
   // "-git-" is reserved for branch URLs (e.g. app-git-feat.bycreek.com); the
   // server rejects it. Collapse it out, looping for overlaps like "-git-git-".
   while (slug.includes("-git-")) slug = slug.replace("-git-", "-");
-  return slug.replace(/-+/g, "-").replace(/^-|-$/g, "");
+  slug = slug.replace(/-+/g, "-").replace(/^-|-$/g, "");
+  // The server regex (^[a-z0-9][a-z0-9-]*[a-z0-9]$) requires >= 2 chars; a
+  // shorter result is unusable, so return "" and let the caller fall back.
+  return slug.length >= 2 ? slug : "";
 }
 
 export const claimCommand = defineCommand({

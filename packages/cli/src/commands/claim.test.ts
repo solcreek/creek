@@ -31,6 +31,13 @@ describe("normalizeSlug", () => {
     // Caller falls back to the sandbox id in this case.
     expect(normalizeSlug("@@@")).toBe("");
   });
+
+  it("rejects a sub-2-char result (server requires >= 2 chars)", () => {
+    // The caller falls back to the sandbox id rather than send "a".
+    expect(normalizeSlug("a")).toBe("");
+    expect(normalizeSlug("a!")).toBe("");
+    expect(normalizeSlug("ab")).toBe("ab");
+  });
 });
 
 describe("localProjectName", () => {
