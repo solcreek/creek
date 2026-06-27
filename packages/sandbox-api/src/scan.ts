@@ -196,10 +196,16 @@ function scanHtml(content: string): ScanResult {
 
 /**
  * Validate bundle structure — check that it resembles legitimate framework output.
- * Not a hard block, but raises suspicion score.
+ * Most checks are advisory, but a truly empty bundle (no static assets and no
+ * server runtime) is rejected outright.
  */
-function validateStructure(assetPaths: string[]): ScanResult {
+function validateStructure(assetPaths: string[], hasWorker: boolean): ScanResult {
   if (assetPaths.length === 0) {
+    // A pure-worker deploy (API-only Hono app, webhook relay, etc.)
+    // legitimately ships zero static assets — there's simply nothing to
+    // phishing-scan. Only a bundle with neither assets nor a server runtime
+    // (worker and/or serverFiles, signalled by hasWorker) is truly empty.
+    if (hasWorker) return { ok: true };
     return { ok: false, reason: "validation", detail: "No assets in bundle" };
   }
 
@@ -232,13 +238,20 @@ function validateStructure(assetPaths: string[]): ScanResult {
  * Main scan entry point. Runs all checks on the deploy bundle.
  *
  * @param assets - Record<path, base64-encoded content>
+ * @param opts.hasWorker - whether the bundle ships a server runtime (a
+ *   worker and/or serverFiles). When true, a deploy with zero static assets
+ *   is valid — there's a runtime to serve it and nothing to phishing-scan.
+ *   Callers pass `manifest.hasWorker || hasServerFiles`.
  * @returns ScanResult — ok:true if clean, ok:false with reason if blocked
  */
-export function scanBundle(assets: Record<string, string>): ScanResult {
+export function scanBundle(
+  assets: Record<string, string>,
+  opts: { hasWorker?: boolean } = {},
+): ScanResult {
   const assetPaths = Object.keys(assets);
 
   // 1. Structure validation
-  const structureResult = validateStructure(assetPaths);
+  const structureResult = validateStructure(assetPaths, opts.hasWorker ?? false);
   if (!structureResult.ok) return structureResult;
 
   // 2. Scan HTML files for phishing patterns

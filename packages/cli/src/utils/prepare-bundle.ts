@@ -85,6 +85,26 @@ export interface PreparedDeployBundle {
   serverFiles?: Record<string, string>;
 }
 
+/**
+ * If a build command is a package-manager script invocation
+ * (`npm run <name>`, `pnpm run <name>`, `yarn run <name>`, `bun run <name>`),
+ * return the script name so the caller can verify it exists before running.
+ * Returns null for any other command (a real shell command we run as-is).
+ *
+ * Leading boolean option flags between `run` and the script name
+ * (`npm run --silent build`, `npm run -s build`, `npm run --if-present build`)
+ * are skipped so the flag isn't mistaken for the script name. Value-bearing
+ * flags (e.g. `--workspace <name>`) are not understood — the first non-flag
+ * token is taken as the script — but those are rare in a build command.
+ */
+export function packageScriptName(command: string): string | null {
+  const tokens = command.trim().split(/\s+/);
+  const [pm, sub, ...rest] = tokens;
+  if (!/^(?:npm|pnpm|yarn|bun)$/.test(pm ?? "") || sub !== "run") return null;
+  const script = rest.find((t) => !t.startsWith("-"));
+  return script ?? null;
+}
+
 export async function prepareDeployBundle(
   input: PrepareDeployBundleInput,
 ): Promise<PreparedDeployBundle> {
@@ -121,14 +141,30 @@ export async function prepareDeployBundle(
         consola.error("Invalid build command (too long)");
         process.exit(1);
       }
-      consola.start(`  ${buildCmd}`);
-      try {
-        execSync(buildCmd, { cwd, stdio: "inherit" });
-      } catch {
-        consola.error("Build failed");
-        process.exit(1);
+      // An API-only worker (no frontend) has no build script, but the
+      // command defaults to `npm run build`. Running it fails with a
+      // cryptic "Missing script: build". When the command is a
+      // package-manager script that doesn't exist, skip the build — the
+      // worker is bundled downstream regardless.
+      const scriptName = packageScriptName(buildCmd);
+      const scripts = pkg?.scripts;
+      const hasScripts =
+        typeof scripts === "object" && scripts !== null && !Array.isArray(scripts);
+      const scriptMissing =
+        scriptName !== null &&
+        !(hasScripts && Object.prototype.hasOwnProperty.call(scripts, scriptName));
+      if (scriptMissing) {
+        consola.info(`  No "${scriptName}" script in package.json — skipping build step`);
+      } else {
+        consola.start(`  ${buildCmd}`);
+        try {
+          execSync(buildCmd, { cwd, stdio: "inherit" });
+        } catch {
+          consola.error("Build failed");
+          process.exit(1);
+        }
+        consola.success("  Build complete");
       }
-      consola.success("  Build complete");
     }
   }
 

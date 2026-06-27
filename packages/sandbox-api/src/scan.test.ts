@@ -216,10 +216,17 @@ describe("scanBundle", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("rejects empty assets object", () => {
+  test("rejects empty assets object with no worker", () => {
     const result = scanBundle({});
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("validation");
+  });
+
+  test("accepts empty assets for a pure-worker deploy", () => {
+    // An API-only Hono worker (webhook relay, etc.) ships zero static
+    // assets — there's nothing to phishing-scan, so it must pass.
+    const result = scanBundle({}, { hasWorker: true });
+    expect(result.ok).toBe(true);
   });
 
   test("rejects invalid base64 in HTML file", () => {

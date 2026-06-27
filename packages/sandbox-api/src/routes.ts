@@ -190,8 +190,12 @@ routes.post("/deploy", async (c) => {
     }
   }
 
-  // Static content scan (agent-friendly, no CAPTCHA)
-  const scanResult = scanBundle(body.assets);
+  // Static content scan (agent-friendly, no CAPTCHA). A pure-worker deploy
+  // ships zero static assets — pass hasWorker so the scan doesn't reject it
+  // as empty (it has a worker / serverFiles to serve).
+  const scanResult = scanBundle(body.assets, {
+    hasWorker: manifest.hasWorker || hasServerFiles,
+  });
   if (!scanResult.ok) {
     return c.json(
       { error: scanResult.reason, message: scanResult.detail ?? "Content policy violation" },
