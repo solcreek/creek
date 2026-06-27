@@ -1,8 +1,25 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { CreekClient, parseConfig } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+
+/**
+ * The project name `creek deploy` will use from a local creek.toml, if any.
+ * Claiming under this name keeps claim and the subsequent deploy pointed at
+ * the same project instead of leaving an orphan reserved under the sandbox id.
+ */
+function localProjectName(cwd: string): string | null {
+  try {
+    const tomlPath = join(cwd, "creek.toml");
+    if (!existsSync(tomlPath)) return null;
+    return parseConfig(readFileSync(tomlPath, "utf-8")).project.name ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const claimCommand = defineCommand({
   meta: {
@@ -14,6 +31,11 @@ export const claimCommand = defineCommand({
       type: "positional",
       description: "Sandbox ID to claim (shown after sandbox deploy)",
       required: true,
+    },
+    name: {
+      type: "string",
+      description: "Project name to reserve (defaults to creek.toml's [project].name, then the sandbox template/id)",
+      required: false,
     },
     ...globalArgs,
   },
@@ -64,7 +86,13 @@ export const claimCommand = defineCommand({
     consola.start("Creating permanent project...");
     const client = new CreekClient(getApiUrl(), token);
 
-    const slug = sandbox.templateId ?? sandboxId;
+    // Align the reserved name with what `creek deploy` will use: an explicit
+    // --name, else the local creek.toml project name, else the sandbox
+    // template/id. Without this, claim reserves "<templateId|sandboxId>" while
+    // a later deploy uses creek.toml's name — creating a separate, orphaned
+    // project.
+    const slug =
+      (args.name as string | undefined) ?? localProjectName(process.cwd()) ?? sandbox.templateId ?? sandboxId;
     let project: { id: string; slug: string };
 
     try {
@@ -107,7 +135,7 @@ export const claimCommand = defineCommand({
           // sandbox's ephemeral D1 does not transfer. A deploy is required.
           productionDeploymentId: null,
           deployed: false,
-          note: "Claim reserved the project only — no deployment was created and sandbox data (its ephemeral D1) does not carry over. Run `creek deploy` to create the production deployment.",
+          note: `Claim reserved the project only — no deployment was created and sandbox data (its ephemeral D1) does not carry over. Run \`creek deploy\` to create the production deployment, with creek.toml [project].name set to "${project.slug}" so it targets this project rather than creating a separate one.`,
         },
         0,
         [
@@ -124,5 +152,7 @@ export const claimCommand = defineCommand({
     consola.info(`  cd your-project`);
     consola.info(`  creek init`);
     consola.info(`  creek deploy    # creates the production deployment`);
+    consola.info("");
+    consola.info(`Make sure creek.toml's [project].name is "${project.slug}" — \`creek deploy\` deploys by that name, and a different name creates a separate project.`);
   },
 });
