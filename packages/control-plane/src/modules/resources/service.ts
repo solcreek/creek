@@ -77,12 +77,14 @@ const CF_TO_KIND: Record<string, string> = {
 // --- Core: ensure bindings for deploy ---
 
 /**
- * Ensure all binding requirements are satisfied for a project deploy.
- *
- * For each requirement from the CLI bundle:
- *   - If a `project_resource_binding` already exists for that bindingName,
- *     use the linked resource (provision CF if needed)
- *   - Otherwise, auto-create a resource + binding
+ * Resolves bindings from two sources:
+ *   - Server-side attachments (`creek <kind> attach`): every existing
+ *     `project_resource_binding` with a provisioned CF resource is bound,
+ *     so an attached resource reaches the worker even when the bundle's
+ *     config doesn't declare it.
+ *   - The CLI bundle's requirements: for each, reuse the existing binding
+ *     (provisioning CF if needed) or auto-create a resource + binding.
+ *     A requirement overrides a server attachment of the same name.
  *
  * Returns resolved resource rows keyed by binding name.
  */
@@ -92,8 +94,6 @@ export async function ensureProjectBindings(
   teamId: string,
   requirements: BundleBindingRequirement[],
 ): Promise<Map<string, { bindingName: string; cfResourceId: string; cfType: string }>> {
-  if (requirements.length === 0) return new Map();
-
   // Fetch existing bindings for this project
   const existingRows = await env.DB.prepare(
     `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
@@ -109,6 +109,18 @@ export async function ensureProjectBindings(
   );
 
   const result = new Map<string, { bindingName: string; cfResourceId: string; cfType: string }>();
+
+  // Seed with server-side attachments that already have a provisioned CF
+  // resource. Requirements below override these by binding name.
+  for (const existing of existingRows.results) {
+    if (existing.cfResourceId) {
+      result.set(existing.bindingName, {
+        bindingName: existing.bindingName,
+        cfResourceId: existing.cfResourceId,
+        cfType: existing.cfResourceType ?? KIND_TO_CF[existing.kind] ?? "kv",
+      });
+    }
+  }
 
   for (const req of requirements) {
     const existing = existingByName.get(req.bindingName);
