@@ -35,6 +35,7 @@ import { collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
+import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
@@ -1570,6 +1571,20 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       });
       project = res.project;
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
+    }
+
+    // Surface resource bindings attached to this project that aren't declared
+    // in creek.toml. Deploy sends only creek.toml-derived bindings, so an
+    // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
+    // never reaches the worker — env.SESSIONS would be silently undefined.
+    const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
+    const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
+    if (bindingDrift.length > 0 && !jsonMode) {
+      consola.warn(
+        `  ${bindingDrift.length} attached binding(s) not declared in creek.toml: ${formatBindingDrift(bindingDrift)}`,
+      );
+      consola.info("  These won't reach your worker — deploy uses creek.toml, not attachments.");
+      consola.info("  Declare them under [resources] (matching the binding name) or detach them.");
     }
 
     // Framework is resolved upstream; everything else (SSR / worker /

@@ -4,8 +4,9 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveConfig, formatDetectionSummary, type ResolvedConfig, ConfigNotFoundError, parseConfig } from "@solcreek/sdk";
+import { resolveConfig, formatDetectionSummary, resolvedConfigToBindingRequirements, type ResolvedConfig, ConfigNotFoundError, parseConfig } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS } from "../utils/output.js";
+import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 
 export const statusCommand = defineCommand({
   meta: {
@@ -114,6 +115,12 @@ async function projectStatus(jsonMode: boolean) {
     process.exit(1);
   }
 
+  // Resource bindings attached server-side but not declared in creek.toml
+  // won't reach the worker on deploy. Surface them so `creek status` reflects
+  // the real attachment state, not just the local config.
+  const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
+  const undeclaredBindings = await findUndeclaredBindings(client, project.slug, declaredNames);
+
   if (jsonMode) {
     jsonOutput({
       ok: true,
@@ -123,6 +130,7 @@ async function projectStatus(jsonMode: boolean) {
       framework: project.framework,
       productionDeploymentId: project.production_deployment_id,
       bindings: resolved.bindings.map((b) => b.type),
+      undeclaredBindings,
       cron: resolved.cron,
       queue: resolved.queue,
       createdAt: project.created_at,
@@ -147,4 +155,12 @@ async function projectStatus(jsonMode: boolean) {
     consola.log("  Queue:   enabled");
   }
   consola.log("");
+
+  if (undeclaredBindings.length > 0) {
+    consola.warn(
+      `Attached but not in creek.toml: ${formatBindingDrift(undeclaredBindings)}`,
+    );
+    consola.info("  These won't reach your worker on deploy — declare them under [resources] or detach them.");
+    consola.log("");
+  }
 }
