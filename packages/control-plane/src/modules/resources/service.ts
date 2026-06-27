@@ -79,9 +79,10 @@ const CF_TO_KIND: Record<string, string> = {
 /**
  * Resolves bindings from two sources:
  *   - Server-side attachments (`creek <kind> attach`): every existing
- *     `project_resource_binding` with a provisioned CF resource is bound,
- *     so an attached resource reaches the worker even when the bundle's
- *     config doesn't declare it.
+ *     d1/r2/kv `project_resource_binding` with a provisioned CF resource is
+ *     bound, so an attached resource reaches the worker even when the bundle's
+ *     config doesn't declare it. (Other kinds like queues are wired
+ *     separately and aren't seeded here.)
  *   - The CLI bundle's requirements: for each, reuse the existing binding
  *     (provisioning CF if needed) or auto-create a resource + binding.
  *     A requirement overrides a server attachment of the same name.
