@@ -35,6 +35,7 @@ import { collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
+import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
 import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
@@ -1570,6 +1571,28 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       });
       project = res.project;
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
+    }
+
+    // Surface resource bindings attached to this project that aren't part of
+    // the deploy config. Deploy sends only config-derived bindings, so an
+    // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
+    // never reaches the worker — env.SESSIONS would be silently undefined.
+    // CF-only: on the creekd target the SDK resolves no CF bindings (they're
+    // injected at runtime), so every attachment would look "undeclared" — the
+    // drift concept doesn't apply there.
+    // Human-only: skip the lookup under --json so automated deploys don't pay
+    // an extra round-trip for a warning they'd never see (`creek status --json`
+    // carries the structured `undeclaredBindings` field for agents).
+    if (!jsonMode && resolved.target === "cf") {
+      const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
+      const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
+      if (bindingDrift.length > 0) {
+        consola.warn(
+          `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
+        );
+        consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
+        consola.info("  Detach them, or declare the resource in your config under the same binding name.");
+      }
     }
 
     // Framework is resolved upstream; everything else (SSR / worker /
