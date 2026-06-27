@@ -91,9 +91,11 @@ export interface PreparedDeployBundle {
  * return the script name so the caller can verify it exists before running.
  * Returns null for any other command (a real shell command we run as-is).
  *
- * Option flags between `run` and the script name (`npm run --silent build`,
- * `npm run -s build`, `npm run --if-present build`) are skipped so the flag
- * isn't mistaken for the script name.
+ * Leading boolean option flags between `run` and the script name
+ * (`npm run --silent build`, `npm run -s build`, `npm run --if-present build`)
+ * are skipped so the flag isn't mistaken for the script name. Value-bearing
+ * flags (e.g. `--workspace <name>`) are not understood — the first non-flag
+ * token is taken as the script — but those are rare in a build command.
  */
 export function packageScriptName(command: string): string | null {
   const tokens = command.trim().split(/\s+/);
