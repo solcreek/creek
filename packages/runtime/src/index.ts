@@ -250,8 +250,15 @@ function createBinding<T extends object>(
       const env = getEnv();
       if (!env) return typeof prop === "symbol" ? undefined : () => {};
       // First name is primary; the rest are deprecated aliases kept bound
-      // through the v1.0 window.
-      const binding = names.map((n) => env[n]).find((b) => b != null);
+      // through the v1.0 window. Loop (not map().find()) to avoid allocating
+      // on every proxy access.
+      let binding: unknown;
+      for (const n of names) {
+        if (env[n] != null) {
+          binding = env[n];
+          break;
+        }
+      }
       if (!binding) {
         throw new Error(`[creek] ${label} is not enabled. ${enableHint}`);
       }
