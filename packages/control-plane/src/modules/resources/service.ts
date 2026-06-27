@@ -111,15 +111,18 @@ export async function ensureProjectBindings(
   const result = new Map<string, { bindingName: string; cfResourceId: string; cfType: string }>();
 
   // Seed with server-side attachments that already have a provisioned CF
-  // resource. Requirements below override these by binding name.
+  // resource. Requirements below override these by binding name. Skip a row
+  // whose CF type can't be determined rather than guessing — a wrong guess
+  // would mis-bind the resource (e.g. a non-KV resource as KV).
   for (const existing of existingRows.results) {
-    if (existing.cfResourceId) {
-      result.set(existing.bindingName, {
-        bindingName: existing.bindingName,
-        cfResourceId: existing.cfResourceId,
-        cfType: existing.cfResourceType ?? KIND_TO_CF[existing.kind] ?? "kv",
-      });
-    }
+    if (!existing.cfResourceId) continue;
+    const cfType = existing.cfResourceType ?? KIND_TO_CF[existing.kind];
+    if (!cfType) continue;
+    result.set(existing.bindingName, {
+      bindingName: existing.bindingName,
+      cfResourceId: existing.cfResourceId,
+      cfType,
+    });
   }
 
   for (const req of requirements) {
@@ -281,34 +284,48 @@ export function buildBindings(
 ): WfPBinding[] {
   const bindings: WfPBinding[] = [];
 
-  for (const [, resolved] of resolvedBindings) {
-    // Bind under the primary name, plus any deprecated alias (e.g. DB for
-    // DATABASE) pointing at the same resource, so Workers reading the old
-    // CF-primitive name keep working through the v1.0 deprecation window.
-    const names = [resolved.bindingName];
-    const alias = DEPRECATED_BINDING_ALIASES[resolved.bindingName];
-    if (alias) names.push(alias);
+  const seen = new Set<string>();
+  const emit = (
+    name: string,
+    resolved: { bindingName: string; cfResourceId: string; cfType: string },
+  ): void => {
+    switch (resolved.cfType) {
+      case "d1":
+        bindings.push({ type: "d1", name, id: resolved.cfResourceId });
+        break;
+      case "r2":
+        bindings.push({
+          type: "r2_bucket",
+          name,
+          bucket_name: resolved.cfResourceId,
+        });
+        break;
+      case "kv":
+        bindings.push({
+          type: "kv_namespace",
+          name,
+          namespace_id: resolved.cfResourceId,
+        });
+        break;
+    }
+  };
 
-    for (const name of names) {
-      switch (resolved.cfType) {
-        case "d1":
-          bindings.push({ type: "d1", name, id: resolved.cfResourceId });
-          break;
-        case "r2":
-          bindings.push({
-            type: "r2_bucket",
-            name,
-            bucket_name: resolved.cfResourceId,
-          });
-          break;
-        case "kv":
-          bindings.push({
-            type: "kv_namespace",
-            name,
-            namespace_id: resolved.cfResourceId,
-          });
-          break;
-      }
+  // Primary names first — they always win over a deprecated alias of the same
+  // name (resolvedBindings is keyed by binding name, so primaries are unique).
+  for (const [, resolved] of resolvedBindings) {
+    emit(resolved.bindingName, resolved);
+    seen.add(resolved.bindingName);
+  }
+
+  // Deprecated aliases (e.g. DB for DATABASE) pointing at the same resource,
+  // so Workers reading the old CF-primitive name keep working through the
+  // v1.0 window — but only when the alias name isn't already taken, to avoid
+  // duplicate Worker env binding names.
+  for (const [, resolved] of resolvedBindings) {
+    const alias = DEPRECATED_BINDING_ALIASES[resolved.bindingName];
+    if (alias && !seen.has(alias)) {
+      emit(alias, resolved);
+      seen.add(alias);
     }
   }
 

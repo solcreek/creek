@@ -59,6 +59,16 @@ describe("ensureProjectBindings — server attachment merge", () => {
     expect(result.has("DATA")).toBe(false);
   });
 
+  test("skips a provisioned attachment whose CF type can't be determined", async () => {
+    const env = envWithBindings([
+      { bindingName: "WAT", resourceId: "res-w", kind: "mystery", cfResourceId: "x-1", cfResourceType: null },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
+
+    expect(result.has("WAT")).toBe(false);
+  });
+
   test("derives cfType from kind when cfResourceType is missing", async () => {
     const env = envWithBindings([
       { bindingName: "SESSIONS", resourceId: "res-3", kind: "cache", cfResourceId: "kv-9", cfResourceType: null },
