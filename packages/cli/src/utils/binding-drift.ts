@@ -39,7 +39,11 @@ export async function findUndeclaredBindings(
   }
 }
 
-/** One-line human summary, e.g. `SESSIONS (kv), CACHE (kv)`. */
+/**
+ * One-line human summary, e.g. `SESSIONS (cache), DATA (database)`.
+ * `kind` is the semantic resource kind from the API (database/storage/cache/ai),
+ * not the CF-native type.
+ */
 export function formatBindingDrift(drift: BindingDrift[]): string {
   return drift.map((b) => `${b.bindingName} (${b.kind})`).join(", ");
 }

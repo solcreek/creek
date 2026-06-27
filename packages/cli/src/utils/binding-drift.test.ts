@@ -21,21 +21,22 @@ describe("findUndeclaredBindings", () => {
   it("flags a server binding whose name isn't declared locally", async () => {
     // `creek cache attach --as=SESSIONS` lives server-side as "SESSIONS",
     // but creek.toml `cache = true` declares "KV" — so SESSIONS is undeclared.
+    // `kind` is the semantic resource kind from the API ("cache"), not "kv".
     const client = fakeClient({
       bindings: [
-        { bindingName: "KV", kind: "kv" },
-        { bindingName: "SESSIONS", kind: "kv" },
+        { bindingName: "KV", kind: "cache" },
+        { bindingName: "SESSIONS", kind: "cache" },
       ],
     });
     const drift = await findUndeclaredBindings(client, "app", ["KV"]);
-    expect(drift).toEqual([{ bindingName: "SESSIONS", kind: "kv" }]);
+    expect(drift).toEqual([{ bindingName: "SESSIONS", kind: "cache" }]);
   });
 
   it("returns nothing when every attachment is declared", async () => {
     const client = fakeClient({
       bindings: [
-        { bindingName: "DB", kind: "d1" },
-        { bindingName: "STORAGE", kind: "r2" },
+        { bindingName: "DB", kind: "database" },
+        { bindingName: "STORAGE", kind: "storage" },
       ],
     });
     const drift = await findUndeclaredBindings(client, "app", ["DB", "STORAGE"]);
@@ -51,9 +52,9 @@ describe("findUndeclaredBindings", () => {
   it("formats drift as a readable one-liner", () => {
     expect(
       formatBindingDrift([
-        { bindingName: "SESSIONS", kind: "kv" },
-        { bindingName: "CACHE", kind: "kv" },
+        { bindingName: "SESSIONS", kind: "cache" },
+        { bindingName: "DATA", kind: "database" },
       ]),
-    ).toBe("SESSIONS (kv), CACHE (kv)");
+    ).toBe("SESSIONS (cache), DATA (database)");
   });
 });
