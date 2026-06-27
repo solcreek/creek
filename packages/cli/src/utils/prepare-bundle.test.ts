@@ -14,10 +14,11 @@
  * the actual bundleWorker path.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import consola from "consola";
 import type { ResolvedConfig } from "@solcreek/sdk";
 import { prepareDeployBundle, packageScriptName } from "./prepare-bundle.js";
 
@@ -307,9 +308,6 @@ describe("prepareDeployBundle", () => {
     expect(result.assets["edge/_worker.mjs"]).toBeUndefined();
   });
 });
-
-import { vi } from "vitest";
-import consola from "consola";
 
 describe("packageScriptName", () => {
   test("extracts the script name from package-manager run commands", () => {
