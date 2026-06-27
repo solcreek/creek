@@ -1577,10 +1577,13 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     // the deploy config. Deploy sends only config-derived bindings, so an
     // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
     // never reaches the worker — env.SESSIONS would be silently undefined.
+    // CF-only: on the creekd target the SDK resolves no CF bindings (they're
+    // injected at runtime), so every attachment would look "undeclared" — the
+    // drift concept doesn't apply there.
     // Human-only: skip the lookup under --json so automated deploys don't pay
     // an extra round-trip for a warning they'd never see (`creek status --json`
     // carries the structured `undeclaredBindings` field for agents).
-    if (!jsonMode) {
+    if (!jsonMode && resolved.target === "cf") {
       const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
       const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
       if (bindingDrift.length > 0) {

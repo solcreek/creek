@@ -115,9 +115,17 @@ async function projectStatus(jsonMode: boolean) {
 
   // Resource bindings attached server-side but not in the deploy config won't
   // reach the worker on deploy. Surface them so `creek status` reflects the
-  // real attachment state, not just the local config.
-  const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
-  const undeclaredBindings = await findUndeclaredBindings(client, project.slug, declaredNames);
+  // real attachment state, not just the local config. CF-only: the creekd
+  // target resolves no CF bindings (injected at runtime), so the drift concept
+  // doesn't apply and every attachment would look undeclared.
+  const undeclaredBindings =
+    resolved.target === "cf"
+      ? await findUndeclaredBindings(
+          client,
+          project.slug,
+          resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName),
+        )
+      : [];
 
   if (jsonMode) {
     jsonOutput({
