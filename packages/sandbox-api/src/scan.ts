@@ -236,8 +236,10 @@ function validateStructure(assetPaths: string[], hasWorker: boolean): ScanResult
  * Main scan entry point. Runs all checks on the deploy bundle.
  *
  * @param assets - Record<path, base64-encoded content>
- * @param opts.hasWorker - whether the bundle ships a worker; a worker-only
- *   deploy with zero static assets is valid (nothing to phishing-scan).
+ * @param opts.hasWorker - whether the bundle ships a server runtime (a
+ *   worker and/or serverFiles). When true, a deploy with zero static assets
+ *   is valid — there's a runtime to serve it and nothing to phishing-scan.
+ *   Callers pass `manifest.hasWorker || hasServerFiles`.
  * @returns ScanResult — ok:true if clean, ok:false with reason if blocked
  */
 export function scanBundle(
