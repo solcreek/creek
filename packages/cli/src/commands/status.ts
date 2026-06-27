@@ -158,7 +158,7 @@ async function projectStatus(jsonMode: boolean) {
     consola.warn(
       `Attached but not in your deploy config: ${formatBindingDrift(undeclaredBindings)}`,
     );
-    consola.info("  These won't reach your worker on deploy — detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
+    consola.info("  These won't reach your worker on deploy — detach them, or declare the resource in your config under the same binding name.");
     consola.log("");
   }
 }

@@ -1588,7 +1588,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
           `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
         );
         consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
-        consola.info("  Detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
+        consola.info("  Detach them, or declare the resource in your config under the same binding name.");
       }
     }
 
