@@ -1577,14 +1577,19 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     // the deploy config. Deploy sends only config-derived bindings, so an
     // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
     // never reaches the worker — env.SESSIONS would be silently undefined.
-    const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
-    const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
-    if (bindingDrift.length > 0 && !jsonMode) {
-      consola.warn(
-        `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
-      );
-      consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
-      consola.info("  Detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
+    // Human-only: skip the lookup under --json so automated deploys don't pay
+    // an extra round-trip for a warning they'd never see (`creek status --json`
+    // carries the structured `undeclaredBindings` field for agents).
+    if (!jsonMode) {
+      const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
+      const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
+      if (bindingDrift.length > 0) {
+        consola.warn(
+          `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
+        );
+        consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
+        consola.info("  Detach them, or declare the resource in your config under a name deploy emits (DB/STORAGE/KV/AI).");
+      }
     }
 
     // Framework is resolved upstream; everything else (SSR / worker /
