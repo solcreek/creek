@@ -23,7 +23,7 @@ import { context, type BuildContext } from "esbuild";
 // still work in-repo, but the published package.json excludes it.
 import type { Miniflare } from "miniflare";
 import { generateWorkerWrapper } from "../utils/worker-bundle.js";
-import type { BindingDeclaration } from "@solcreek/sdk";
+import { DEPRECATED_BINDING_ALIASES, type BindingDeclaration } from "@solcreek/sdk";
 
 /**
  * Thrown by `creek dev` when no local runtime package can be resolved from
@@ -248,11 +248,21 @@ export class WorkerRunner {
     const hasR2 = bindings.some((b) => b.type === "r2");
 
     const d1BindingName =
-      bindings.find((b) => b.type === "d1")?.name ?? "DB";
+      bindings.find((b) => b.type === "d1")?.name ?? "DATABASE";
     const kvBindingName =
-      bindings.find((b) => b.type === "kv")?.name ?? "KV";
+      bindings.find((b) => b.type === "kv")?.name ?? "CACHE";
     const r2BindingName =
       bindings.find((b) => b.type === "r2")?.name ?? "STORAGE";
+
+    // Bind each resource under its name plus any deprecated alias (DATABASE→DB,
+    // CACHE→KV) pointing at the same local store, matching production so
+    // `env.DB`/`env.KV` resolve in dev too during the deprecation window.
+    const withAlias = (name: string, store: string): Record<string, string> => {
+      const map: Record<string, string> = { [name]: store };
+      const alias = DEPRECATED_BINDING_ALIASES[name];
+      if (alias) map[alias] = store;
+      return map;
+    };
 
     const opts: Record<string, unknown> = {
       modules: true,
@@ -271,19 +281,19 @@ export class WorkerRunner {
 
     // D1 — SQLite-backed
     if (hasD1) {
-      opts.d1Databases = { [d1BindingName]: "creek-dev-db" };
+      opts.d1Databases = withAlias(d1BindingName, "creek-dev-db");
       opts.d1Persist = persistDir ? join(persistDir, "d1") : false;
     }
 
     // KV
     if (hasKV) {
-      opts.kvNamespaces = { [kvBindingName]: "creek-dev-kv" };
+      opts.kvNamespaces = withAlias(kvBindingName, "creek-dev-kv");
       opts.kvPersist = persistDir ? join(persistDir, "kv") : false;
     }
 
     // R2
     if (hasR2) {
-      opts.r2Buckets = { [r2BindingName]: "creek-dev-r2" };
+      opts.r2Buckets = withAlias(r2BindingName, "creek-dev-r2");
       opts.r2Persist = persistDir ? join(persistDir, "r2") : false;
     }
 
@@ -407,8 +417,8 @@ export function buildMiniflareBindingOptions(
     hasD1: bindings.some((b) => b.type === "d1"),
     hasKV: bindings.some((b) => b.type === "kv"),
     hasR2: bindings.some((b) => b.type === "r2"),
-    d1BindingName: bindings.find((b) => b.type === "d1")?.name ?? "DB",
-    kvBindingName: bindings.find((b) => b.type === "kv")?.name ?? "KV",
+    d1BindingName: bindings.find((b) => b.type === "d1")?.name ?? "DATABASE",
+    kvBindingName: bindings.find((b) => b.type === "kv")?.name ?? "CACHE",
     r2BindingName: bindings.find((b) => b.type === "r2")?.name ?? "STORAGE",
   };
 }

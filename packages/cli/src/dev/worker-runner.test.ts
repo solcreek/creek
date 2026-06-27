@@ -43,8 +43,8 @@ describe("buildMiniflareBindingOptions", () => {
     expect(result.hasD1).toBe(false);
     expect(result.hasKV).toBe(false);
     expect(result.hasR2).toBe(false);
-    expect(result.d1BindingName).toBe("DB");
-    expect(result.kvBindingName).toBe("KV");
+    expect(result.d1BindingName).toBe("DATABASE");
+    expect(result.kvBindingName).toBe("CACHE");
     expect(result.r2BindingName).toBe("STORAGE");
   });
 });
