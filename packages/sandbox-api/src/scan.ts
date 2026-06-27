@@ -196,7 +196,8 @@ function scanHtml(content: string): ScanResult {
 
 /**
  * Validate bundle structure — check that it resembles legitimate framework output.
- * Not a hard block, but raises suspicion score.
+ * Most checks are advisory, but a truly empty bundle (no static assets and no
+ * server runtime) is rejected outright.
  */
 function validateStructure(assetPaths: string[], hasWorker: boolean): ScanResult {
   if (assetPaths.length === 0) {
