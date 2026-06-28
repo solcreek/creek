@@ -73,6 +73,18 @@ describe("buildMiniflareBindingOptions", () => {
     });
   });
 
+  it("skips an alias when a binding of a *different* kind already claims the name", () => {
+    // env is a flat namespace: a KV named DB must keep env.DB, so D1 DATABASE's
+    // DATABASE→DB alias is dropped globally rather than colliding.
+    const bindings: BindingDeclaration[] = [
+      { type: "d1", name: "DATABASE" },
+      { type: "kv", name: "DB" },
+    ];
+    const result = buildMiniflareBindingOptions(bindings);
+    expect(result.d1Databases).toEqual({ DATABASE: "creek-dev-db" });
+    expect(result.kvNamespaces).toEqual({ DB: "creek-dev-kv" });
+  });
+
   it("treats a __proto__ binding name as a plain own key (no prototype pollution)", () => {
     const bindings: BindingDeclaration[] = [{ type: "kv", name: "__proto__" }];
     const result = buildMiniflareBindingOptions(bindings);

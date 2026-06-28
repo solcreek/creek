@@ -397,40 +397,58 @@ export function buildMiniflareBindingOptions(
 } {
   // Map every resource of a kind to a local store. The first keeps the legacy
   // store id so existing dev data is preserved; each additional resource gets
-  // its own store so they stay isolated. A deprecated alias (DATABASE→DB,
-  // CACHE→KV) points at the same store, but — mirroring production — is skipped
-  // when a real binding already claims that name, so `env.DB`/`env.KV` can't be
-  // clobbered when both the new and legacy names exist.
-  const storeMap = (
-    type: BindingDeclaration["type"],
-    legacyId: string,
-  ): Record<string, string> => {
-    const kind = bindings.filter((b) => b.type === type);
-    // Object.create(null): binding names are user-controlled (wrangler config),
-    // so a name like `__proto__` must become a plain own key here rather than
-    // mutate a prototype (prototype pollution).
-    const map: Record<string, string> = Object.create(null);
-    const seen = new Set<string>();
-    for (let i = 0; i < kind.length; i++) {
-      const store = i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
-      map[kind[i].name] = store;
-      seen.add(kind[i].name);
-    }
-    for (let i = 0; i < kind.length; i++) {
-      const alias = DEPRECATED_BINDING_ALIASES[kind[i].name];
-      if (alias && !seen.has(alias)) {
-        map[alias] = i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
-        seen.add(alias);
-      }
-    }
-    return map;
+  // its own store so they stay isolated.
+  //
+  // Worker `env` is a single flat namespace, so binding names are deduped
+  // GLOBALLY across kinds — not per kind. A deprecated alias (DATABASE→DB,
+  // CACHE→KV) points at the same store as its primary, but — mirroring
+  // production buildBindings — is skipped when any real binding of any kind
+  // already claims that name, so `env.DB`/`env.KV` can't be clobbered.
+  //
+  // Object.create(null): binding names are user-controlled (wrangler config),
+  // so a name like `__proto__` must become a plain own key rather than mutate a
+  // prototype (prototype pollution).
+  const KINDS = [
+    { type: "d1" as const, legacyId: "creek-dev-db" },
+    { type: "kv" as const, legacyId: "creek-dev-kv" },
+    { type: "r2" as const, legacyId: "creek-dev-r2" },
+  ];
+  const maps: Record<string, Record<string, string>> = {
+    d1: Object.create(null),
+    kv: Object.create(null),
+    r2: Object.create(null),
   };
+  const storeFor = (kind: BindingDeclaration[], i: number, legacyId: string) =>
+    i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
+
+  // A real binding always wins its env name, so collect every primary name
+  // (across all kinds) before emitting any alias.
+  const claimed = new Set<string>();
+  for (const { type } of KINDS) {
+    for (const b of bindings.filter((x) => x.type === type)) claimed.add(b.name);
+  }
+  for (const { type, legacyId } of KINDS) {
+    const kind = bindings.filter((b) => b.type === type);
+    kind.forEach((b, i) => {
+      maps[type][b.name] = storeFor(kind, i, legacyId);
+    });
+  }
+  for (const { type, legacyId } of KINDS) {
+    const kind = bindings.filter((b) => b.type === type);
+    kind.forEach((b, i) => {
+      const alias = DEPRECATED_BINDING_ALIASES[b.name];
+      if (alias && !claimed.has(alias)) {
+        maps[type][alias] = storeFor(kind, i, legacyId);
+        claimed.add(alias);
+      }
+    });
+  }
   return {
     hasD1: bindings.some((b) => b.type === "d1"),
     hasKV: bindings.some((b) => b.type === "kv"),
     hasR2: bindings.some((b) => b.type === "r2"),
-    d1Databases: storeMap("d1", "creek-dev-db"),
-    kvNamespaces: storeMap("kv", "creek-dev-kv"),
-    r2Buckets: storeMap("r2", "creek-dev-r2"),
+    d1Databases: maps.d1,
+    kvNamespaces: maps.kv,
+    r2Buckets: maps.r2,
   };
 }
