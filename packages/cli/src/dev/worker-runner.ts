@@ -398,8 +398,8 @@ export function buildMiniflareBindingOptions(
   // Map every resource of a kind to a local store. The first keeps the legacy
   // store id so existing dev data is preserved; each additional resource gets
   // its own store so they stay isolated. A deprecated alias (DATABASE→DB,
-  // CACHE→KV) points at the same store, but — mirroring production — never over
-  // a name a real binding already claims, so `env.DB`/`env.KV` can't be
+  // CACHE→KV) points at the same store, but — mirroring production — is skipped
+  // when a real binding already claims that name, so `env.DB`/`env.KV` can't be
   // clobbered when both the new and legacy names exist.
   const storeMap = (
     type: BindingDeclaration["type"],

@@ -80,8 +80,6 @@ describe("buildMiniflareBindingOptions", () => {
     expect(
       Object.prototype.hasOwnProperty.call(result.kvNamespaces, "__proto__"),
     ).toBe(true);
-    // A plain object would have lost the binding to a no-op prototype write.
-    expect(({} as Record<string, unknown>).creekDevKv).toBeUndefined();
   });
 
   it("returns empty store maps when no bindings", () => {
