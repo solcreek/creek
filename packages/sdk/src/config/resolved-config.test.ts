@@ -341,4 +341,29 @@ describe("resolvedConfigToBindingRequirements", () => {
     // Only D1, not durable_object
     expect(reqs).toEqual([{ type: "d1", bindingName: "DB" }]);
   });
+
+  test("binds every d1/kv/r2 when multiple of the same kind are declared", () => {
+    // Previously only the first of each kind was bound (silent drop).
+    writeFileSync(
+      join(cwd, "wrangler.toml"),
+      `name = "app"\nmain = "src/index.ts"\n\n` +
+        `[[d1_databases]]\nbinding = "PRIMARY"\ndatabase_id = "x"\n\n` +
+        `[[d1_databases]]\nbinding = "ANALYTICS"\ndatabase_id = "y"\n\n` +
+        `[[kv_namespaces]]\nbinding = "SESSIONS"\nid = "k1"\n\n` +
+        `[[kv_namespaces]]\nbinding = "RATE"\nid = "k2"\n`,
+    );
+    const config = resolveConfig(cwd);
+    expect(config.bindings).toEqual([
+      { type: "d1", name: "PRIMARY" },
+      { type: "d1", name: "ANALYTICS" },
+      { type: "kv", name: "SESSIONS" },
+      { type: "kv", name: "RATE" },
+    ]);
+    expect(resolvedConfigToBindingRequirements(config)).toEqual([
+      { type: "d1", bindingName: "PRIMARY" },
+      { type: "d1", bindingName: "ANALYTICS" },
+      { type: "kv", bindingName: "SESSIONS" },
+      { type: "kv", bindingName: "RATE" },
+    ]);
+  });
 });
