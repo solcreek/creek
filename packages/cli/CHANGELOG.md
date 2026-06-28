@@ -1,5 +1,17 @@
 # @solcreek/cli
 
+## 0.4.38
+
+### Bindings
+
+- **Resource binding env vars now match your `creek.toml` keys.** `database`
+  binds `env.DATABASE`, `cache` binds `env.CACHE`, `storage` binds
+  `env.STORAGE`. The older `env.DB` and `env.KV` names still resolve during the
+  deprecation window and will be removed in v1.0 (see `ROADMAP.md`).
+- **Declaring more than one database, namespace, or bucket now binds all of
+  them.** Previously only the first resource of each kind reached the worker and
+  the rest were dropped silently; `creek dev` now wires them all locally too.
+
 ## 0.4.37
 
 ### Deploy
