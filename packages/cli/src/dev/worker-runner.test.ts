@@ -73,6 +73,17 @@ describe("buildMiniflareBindingOptions", () => {
     });
   });
 
+  it("treats a __proto__ binding name as a plain own key (no prototype pollution)", () => {
+    const bindings: BindingDeclaration[] = [{ type: "kv", name: "__proto__" }];
+    const result = buildMiniflareBindingOptions(bindings);
+    expect(Object.getPrototypeOf(result.kvNamespaces)).toBeNull();
+    expect(
+      Object.prototype.hasOwnProperty.call(result.kvNamespaces, "__proto__"),
+    ).toBe(true);
+    // A plain object would have lost the binding to a no-op prototype write.
+    expect(({} as Record<string, unknown>).creekDevKv).toBeUndefined();
+  });
+
   it("returns empty store maps when no bindings", () => {
     const result = buildMiniflareBindingOptions([]);
     expect(result.hasD1).toBe(false);

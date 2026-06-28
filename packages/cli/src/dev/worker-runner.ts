@@ -406,7 +406,10 @@ export function buildMiniflareBindingOptions(
     legacyId: string,
   ): Record<string, string> => {
     const kind = bindings.filter((b) => b.type === type);
-    const map: Record<string, string> = {};
+    // Object.create(null): binding names are user-controlled (wrangler config),
+    // so a name like `__proto__` must become a plain own key here rather than
+    // mutate a prototype (prototype pollution).
+    const map: Record<string, string> = Object.create(null);
     const seen = new Set<string>();
     for (let i = 0; i < kind.length; i++) {
       const store = i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
