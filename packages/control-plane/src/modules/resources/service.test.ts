@@ -64,4 +64,22 @@ describe("buildBindings — deprecated aliases", () => {
       { type: "kv_namespace", name: "SESSIONS", namespace_id: "kv-id" },
     ]);
   });
+
+  test("an alias yields to a primary binding of the same name (no duplicate env name)", () => {
+    // Project has a DATABASE binding and a separate legacy DB binding. DATABASE's
+    // deprecated alias is also DB — emit DB once, with the legacy primary winning.
+    const bindings = buildBindings(
+      resolved([
+        { bindingName: "DATABASE", cfResourceId: "d1-new", cfType: "d1" },
+        { bindingName: "DB", cfResourceId: "d1-legacy", cfType: "d1" },
+      ]),
+      [],
+      baseOptions,
+    );
+    const d1 = bindings.filter((b) => b.type === "d1");
+    expect(d1).toEqual([
+      { type: "d1", name: "DATABASE", id: "d1-new" },
+      { type: "d1", name: "DB", id: "d1-legacy" },
+    ]);
+  });
 });

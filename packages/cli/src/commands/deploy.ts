@@ -1573,25 +1573,24 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
     }
 
-    // Surface resource bindings attached to this project that aren't part of
-    // the deploy config. Deploy sends only config-derived bindings, so an
-    // attached-but-undeclared binding (e.g. `creek cache attach --as=SESSIONS`)
-    // never reaches the worker — env.SESSIONS would be silently undefined.
+    // Surface resource bindings attached server-side (`creek <kind> attach`)
+    // that aren't in the local deploy config. The control-plane binds a
+    // provisioned attachment at deploy time, but it lives outside your config,
+    // so flag it for reproducibility (a fresh clone wouldn't recreate it).
     // CF-only: on the creekd target the SDK resolves no CF bindings (they're
     // injected at runtime), so every attachment would look "undeclared" — the
     // drift concept doesn't apply there.
     // Human-only: skip the lookup under --json so automated deploys don't pay
-    // an extra round-trip for a warning they'd never see (`creek status --json`
+    // an extra round-trip for a note they'd never see (`creek status --json`
     // carries the structured `undeclaredBindings` field for agents).
     if (!jsonMode && resolved.target === "cf") {
       const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
       const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
       if (bindingDrift.length > 0) {
-        consola.warn(
-          `  ${bindingDrift.length} attached binding(s) not in your deploy config: ${formatBindingDrift(bindingDrift)}`,
+        consola.info(
+          `  ${bindingDrift.length} attached binding(s) not in your config: ${formatBindingDrift(bindingDrift)}`,
         );
-        consola.info("  These won't reach your worker — deploy binds only what your project config declares.");
-        consola.info("  Detach them, or declare the resource in your config under the same binding name.");
+        consola.info("  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.");
       }
     }
 

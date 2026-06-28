@@ -15,10 +15,10 @@ export interface BindingClient {
  * `creek db/cache/storage attach`) whose names aren't declared in the local
  * config.
  *
- * Deploy derives the worker's bindings from creek.toml, not from server-side
- * attachments, so an attached-but-undeclared binding never reaches the
- * deployed worker — `env.X` is silently undefined at runtime with no error.
- * Surfacing the drift turns that silent failure into an actionable warning.
+ * The control-plane binds a provisioned server-side attachment at deploy time,
+ * but it lives outside the local config — a fresh clone or a teammate wouldn't
+ * recreate it. Surfacing the drift flags that reproducibility gap (declare it
+ * in config, or detach).
  *
  * Best-effort: returns `[]` on any lookup error so it never blocks a deploy
  * or status check.
