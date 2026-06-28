@@ -350,7 +350,9 @@ describe("resolvedConfigToBindingRequirements", () => {
         `[[d1_databases]]\nbinding = "PRIMARY"\ndatabase_id = "x"\n\n` +
         `[[d1_databases]]\nbinding = "ANALYTICS"\ndatabase_id = "y"\n\n` +
         `[[kv_namespaces]]\nbinding = "SESSIONS"\nid = "k1"\n\n` +
-        `[[kv_namespaces]]\nbinding = "RATE"\nid = "k2"\n`,
+        `[[kv_namespaces]]\nbinding = "RATE"\nid = "k2"\n\n` +
+        `[[r2_buckets]]\nbinding = "UPLOADS"\nbucket_name = "b1"\n\n` +
+        `[[r2_buckets]]\nbinding = "BACKUPS"\nbucket_name = "b2"\n`,
     );
     const config = resolveConfig(cwd);
     expect(config.bindings).toEqual([
@@ -358,12 +360,16 @@ describe("resolvedConfigToBindingRequirements", () => {
       { type: "d1", name: "ANALYTICS" },
       { type: "kv", name: "SESSIONS" },
       { type: "kv", name: "RATE" },
+      { type: "r2", name: "UPLOADS" },
+      { type: "r2", name: "BACKUPS" },
     ]);
     expect(resolvedConfigToBindingRequirements(config)).toEqual([
       { type: "d1", bindingName: "PRIMARY" },
       { type: "d1", bindingName: "ANALYTICS" },
       { type: "kv", bindingName: "SESSIONS" },
       { type: "kv", bindingName: "RATE" },
+      { type: "r2", bindingName: "UPLOADS" },
+      { type: "r2", bindingName: "BACKUPS" },
     ]);
   });
 });
