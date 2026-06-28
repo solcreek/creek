@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { db, queue, _setEnv, _setRoom, notifyRealtime } from "./index.js";
+import { db, queue, _setEnv, _setRoom, notifyRealtime, projectSlug, projectId } from "./index.js";
 import type { CreekDatabase } from "./index.js";
 
 // ── Mock D1 binding ──
@@ -339,5 +339,23 @@ describe("queue binding", () => {
   test("throws when QUEUE is not configured", () => {
     _setEnv({});
     expect(() => queue.send("test")).toThrow("Queue is not enabled");
+  });
+});
+
+describe("project identity accessors", () => {
+  test("projectSlug() reads the injected CREEK_PROJECT_SLUG", () => {
+    _setEnv({ CREEK_PROJECT_SLUG: "my-app" });
+    expect(projectSlug()).toBe("my-app");
+  });
+
+  test("projectId() reads the injected CREEK_PROJECT_ID", () => {
+    _setEnv({ CREEK_PROJECT_ID: "proj-123" });
+    expect(projectId()).toBe("proj-123");
+  });
+
+  test("return undefined when not injected", () => {
+    _setEnv({});
+    expect(projectSlug()).toBeUndefined();
+    expect(projectId()).toBeUndefined();
   });
 });
