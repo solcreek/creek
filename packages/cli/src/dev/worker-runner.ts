@@ -243,38 +243,8 @@ export class WorkerRunner {
   ): Record<string, unknown> {
     const { bindings, projectSlug, realtimeUrl, vars } = this.options;
 
-    const hasD1 = bindings.some((b) => b.type === "d1");
-    const hasKV = bindings.some((b) => b.type === "kv");
-    const hasR2 = bindings.some((b) => b.type === "r2");
-
-    // Bind each resource under its name plus any deprecated alias (DATABASE→DB,
-    // CACHE→KV) pointing at the same local store, matching production so
-    // `env.DB`/`env.KV` resolve in dev too during the deprecation window.
-    const withAlias = (name: string, store: string): Record<string, string> => {
-      const map: Record<string, string> = { [name]: store };
-      const alias = DEPRECATED_BINDING_ALIASES[name];
-      if (alias) map[alias] = store;
-      return map;
-    };
-
-    // Bind every resource of a kind, not just the first. The first keeps the
-    // legacy store id so existing local data is preserved; each additional
-    // resource gets its own store so they stay isolated.
-    const storeMap = (
-      type: BindingDeclaration["type"],
-      legacyId: string,
-    ): Record<string, string> => {
-      const map: Record<string, string> = {};
-      bindings
-        .filter((b) => b.type === type)
-        .forEach((b, i) => {
-          Object.assign(
-            map,
-            withAlias(b.name, i === 0 ? legacyId : `${legacyId}-${b.name}`),
-          );
-        });
-      return map;
-    };
+    const { hasD1, hasKV, hasR2, d1Databases, kvNamespaces, r2Buckets } =
+      buildMiniflareBindingOptions(bindings);
 
     const opts: Record<string, unknown> = {
       modules: true,
@@ -293,19 +263,19 @@ export class WorkerRunner {
 
     // D1 — SQLite-backed
     if (hasD1) {
-      opts.d1Databases = storeMap("d1", "creek-dev-db");
+      opts.d1Databases = d1Databases;
       opts.d1Persist = persistDir ? join(persistDir, "d1") : false;
     }
 
     // KV
     if (hasKV) {
-      opts.kvNamespaces = storeMap("kv", "creek-dev-kv");
+      opts.kvNamespaces = kvNamespaces;
       opts.kvPersist = persistDir ? join(persistDir, "kv") : false;
     }
 
     // R2
     if (hasR2) {
-      opts.r2Buckets = storeMap("r2", "creek-dev-r2");
+      opts.r2Buckets = r2Buckets;
       opts.r2Persist = persistDir ? join(persistDir, "r2") : false;
     }
 
@@ -421,18 +391,43 @@ export function buildMiniflareBindingOptions(
   hasD1: boolean;
   hasKV: boolean;
   hasR2: boolean;
-  d1BindingNames: string[];
-  kvBindingNames: string[];
-  r2BindingNames: string[];
+  d1Databases: Record<string, string>;
+  kvNamespaces: Record<string, string>;
+  r2Buckets: Record<string, string>;
 } {
-  const namesOf = (type: BindingDeclaration["type"]): string[] =>
-    bindings.filter((b) => b.type === type).map((b) => b.name);
+  // Map every resource of a kind to a local store. The first keeps the legacy
+  // store id so existing dev data is preserved; each additional resource gets
+  // its own store so they stay isolated. A deprecated alias (DATABASE→DB,
+  // CACHE→KV) points at the same store, but — mirroring production — never over
+  // a name a real binding already claims, so `env.DB`/`env.KV` can't be
+  // clobbered when both the new and legacy names exist.
+  const storeMap = (
+    type: BindingDeclaration["type"],
+    legacyId: string,
+  ): Record<string, string> => {
+    const kind = bindings.filter((b) => b.type === type);
+    const map: Record<string, string> = {};
+    const seen = new Set<string>();
+    for (let i = 0; i < kind.length; i++) {
+      const store = i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
+      map[kind[i].name] = store;
+      seen.add(kind[i].name);
+    }
+    for (let i = 0; i < kind.length; i++) {
+      const alias = DEPRECATED_BINDING_ALIASES[kind[i].name];
+      if (alias && !seen.has(alias)) {
+        map[alias] = i === 0 ? legacyId : `${legacyId}-${kind[i].name}`;
+        seen.add(alias);
+      }
+    }
+    return map;
+  };
   return {
     hasD1: bindings.some((b) => b.type === "d1"),
     hasKV: bindings.some((b) => b.type === "kv"),
     hasR2: bindings.some((b) => b.type === "r2"),
-    d1BindingNames: namesOf("d1"),
-    kvBindingNames: namesOf("kv"),
-    r2BindingNames: namesOf("r2"),
+    d1Databases: storeMap("d1", "creek-dev-db"),
+    kvNamespaces: storeMap("kv", "creek-dev-kv"),
+    r2Buckets: storeMap("r2", "creek-dev-r2"),
   };
 }

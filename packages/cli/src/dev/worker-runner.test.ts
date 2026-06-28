@@ -19,11 +19,14 @@ const RUNTIME_PKG = resolve(import.meta.dirname, "../../../runtime");
 // ─── Unit Tests ───────────────────────────────────────────────────────────────
 
 describe("buildMiniflareBindingOptions", () => {
-  it("detects D1 binding", () => {
-    const bindings: BindingDeclaration[] = [{ type: "d1", name: "DB" }];
+  it("binds D1 under its name plus the deprecated DATABASE→DB alias", () => {
+    const bindings: BindingDeclaration[] = [{ type: "d1", name: "DATABASE" }];
     const result = buildMiniflareBindingOptions(bindings);
     expect(result.hasD1).toBe(true);
-    expect(result.d1BindingNames).toEqual(["DB"]);
+    expect(result.d1Databases).toEqual({
+      DATABASE: "creek-dev-db",
+      DB: "creek-dev-db",
+    });
   });
 
   it("detects KV and R2 bindings", () => {
@@ -33,12 +36,12 @@ describe("buildMiniflareBindingOptions", () => {
     ];
     const result = buildMiniflareBindingOptions(bindings);
     expect(result.hasKV).toBe(true);
-    expect(result.kvBindingNames).toEqual(["MY_KV"]);
+    expect(result.kvNamespaces).toEqual({ MY_KV: "creek-dev-kv" });
     expect(result.hasR2).toBe(true);
-    expect(result.r2BindingNames).toEqual(["MY_BUCKET"]);
+    expect(result.r2Buckets).toEqual({ MY_BUCKET: "creek-dev-r2" });
   });
 
-  it("collects every binding of each kind, not just the first", () => {
+  it("binds every resource of a kind to its own store, not just the first", () => {
     const bindings: BindingDeclaration[] = [
       { type: "d1", name: "PRIMARY" },
       { type: "d1", name: "ANALYTICS" },
@@ -46,18 +49,38 @@ describe("buildMiniflareBindingOptions", () => {
       { type: "kv", name: "RATE" },
     ];
     const result = buildMiniflareBindingOptions(bindings);
-    expect(result.d1BindingNames).toEqual(["PRIMARY", "ANALYTICS"]);
-    expect(result.kvBindingNames).toEqual(["SESSIONS", "RATE"]);
+    expect(result.d1Databases).toEqual({
+      PRIMARY: "creek-dev-db",
+      ANALYTICS: "creek-dev-db-ANALYTICS",
+    });
+    expect(result.kvNamespaces).toEqual({
+      SESSIONS: "creek-dev-kv",
+      RATE: "creek-dev-kv-RATE",
+    });
   });
 
-  it("returns empty name lists when no bindings", () => {
+  it("never lets a deprecated alias overwrite a real primary of the same name", () => {
+    // A legacy DB resource alongside the new DATABASE: DATABASE's alias is also
+    // DB, but the real DB binding must keep its own store.
+    const bindings: BindingDeclaration[] = [
+      { type: "d1", name: "DATABASE" },
+      { type: "d1", name: "DB" },
+    ];
+    const result = buildMiniflareBindingOptions(bindings);
+    expect(result.d1Databases).toEqual({
+      DATABASE: "creek-dev-db",
+      DB: "creek-dev-db-DB",
+    });
+  });
+
+  it("returns empty store maps when no bindings", () => {
     const result = buildMiniflareBindingOptions([]);
     expect(result.hasD1).toBe(false);
     expect(result.hasKV).toBe(false);
     expect(result.hasR2).toBe(false);
-    expect(result.d1BindingNames).toEqual([]);
-    expect(result.kvBindingNames).toEqual([]);
-    expect(result.r2BindingNames).toEqual([]);
+    expect(result.d1Databases).toEqual({});
+    expect(result.kvNamespaces).toEqual({});
+    expect(result.r2Buckets).toEqual({});
   });
 });
 
