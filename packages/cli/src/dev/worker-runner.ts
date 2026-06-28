@@ -247,13 +247,6 @@ export class WorkerRunner {
     const hasKV = bindings.some((b) => b.type === "kv");
     const hasR2 = bindings.some((b) => b.type === "r2");
 
-    const d1BindingName =
-      bindings.find((b) => b.type === "d1")?.name ?? "DATABASE";
-    const kvBindingName =
-      bindings.find((b) => b.type === "kv")?.name ?? "CACHE";
-    const r2BindingName =
-      bindings.find((b) => b.type === "r2")?.name ?? "STORAGE";
-
     // Bind each resource under its name plus any deprecated alias (DATABASE→DB,
     // CACHE→KV) pointing at the same local store, matching production so
     // `env.DB`/`env.KV` resolve in dev too during the deprecation window.
@@ -261,6 +254,25 @@ export class WorkerRunner {
       const map: Record<string, string> = { [name]: store };
       const alias = DEPRECATED_BINDING_ALIASES[name];
       if (alias) map[alias] = store;
+      return map;
+    };
+
+    // Bind every resource of a kind, not just the first. The first keeps the
+    // legacy store id so existing local data is preserved; each additional
+    // resource gets its own store so they stay isolated.
+    const storeMap = (
+      type: BindingDeclaration["type"],
+      legacyId: string,
+    ): Record<string, string> => {
+      const map: Record<string, string> = {};
+      bindings
+        .filter((b) => b.type === type)
+        .forEach((b, i) => {
+          Object.assign(
+            map,
+            withAlias(b.name, i === 0 ? legacyId : `${legacyId}-${b.name}`),
+          );
+        });
       return map;
     };
 
@@ -281,19 +293,19 @@ export class WorkerRunner {
 
     // D1 — SQLite-backed
     if (hasD1) {
-      opts.d1Databases = withAlias(d1BindingName, "creek-dev-db");
+      opts.d1Databases = storeMap("d1", "creek-dev-db");
       opts.d1Persist = persistDir ? join(persistDir, "d1") : false;
     }
 
     // KV
     if (hasKV) {
-      opts.kvNamespaces = withAlias(kvBindingName, "creek-dev-kv");
+      opts.kvNamespaces = storeMap("kv", "creek-dev-kv");
       opts.kvPersist = persistDir ? join(persistDir, "kv") : false;
     }
 
     // R2
     if (hasR2) {
-      opts.r2Buckets = withAlias(r2BindingName, "creek-dev-r2");
+      opts.r2Buckets = storeMap("r2", "creek-dev-r2");
       opts.r2Persist = persistDir ? join(persistDir, "r2") : false;
     }
 
@@ -409,16 +421,18 @@ export function buildMiniflareBindingOptions(
   hasD1: boolean;
   hasKV: boolean;
   hasR2: boolean;
-  d1BindingName: string;
-  kvBindingName: string;
-  r2BindingName: string;
+  d1BindingNames: string[];
+  kvBindingNames: string[];
+  r2BindingNames: string[];
 } {
+  const namesOf = (type: BindingDeclaration["type"]): string[] =>
+    bindings.filter((b) => b.type === type).map((b) => b.name);
   return {
     hasD1: bindings.some((b) => b.type === "d1"),
     hasKV: bindings.some((b) => b.type === "kv"),
     hasR2: bindings.some((b) => b.type === "r2"),
-    d1BindingName: bindings.find((b) => b.type === "d1")?.name ?? "DATABASE",
-    kvBindingName: bindings.find((b) => b.type === "kv")?.name ?? "CACHE",
-    r2BindingName: bindings.find((b) => b.type === "r2")?.name ?? "STORAGE",
+    d1BindingNames: namesOf("d1"),
+    kvBindingNames: namesOf("kv"),
+    r2BindingNames: namesOf("r2"),
   };
 }

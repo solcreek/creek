@@ -23,7 +23,7 @@ describe("buildMiniflareBindingOptions", () => {
     const bindings: BindingDeclaration[] = [{ type: "d1", name: "DB" }];
     const result = buildMiniflareBindingOptions(bindings);
     expect(result.hasD1).toBe(true);
-    expect(result.d1BindingName).toBe("DB");
+    expect(result.d1BindingNames).toEqual(["DB"]);
   });
 
   it("detects KV and R2 bindings", () => {
@@ -33,19 +33,31 @@ describe("buildMiniflareBindingOptions", () => {
     ];
     const result = buildMiniflareBindingOptions(bindings);
     expect(result.hasKV).toBe(true);
-    expect(result.kvBindingName).toBe("MY_KV");
+    expect(result.kvBindingNames).toEqual(["MY_KV"]);
     expect(result.hasR2).toBe(true);
-    expect(result.r2BindingName).toBe("MY_BUCKET");
+    expect(result.r2BindingNames).toEqual(["MY_BUCKET"]);
   });
 
-  it("returns defaults when no bindings", () => {
+  it("collects every binding of each kind, not just the first", () => {
+    const bindings: BindingDeclaration[] = [
+      { type: "d1", name: "PRIMARY" },
+      { type: "d1", name: "ANALYTICS" },
+      { type: "kv", name: "SESSIONS" },
+      { type: "kv", name: "RATE" },
+    ];
+    const result = buildMiniflareBindingOptions(bindings);
+    expect(result.d1BindingNames).toEqual(["PRIMARY", "ANALYTICS"]);
+    expect(result.kvBindingNames).toEqual(["SESSIONS", "RATE"]);
+  });
+
+  it("returns empty name lists when no bindings", () => {
     const result = buildMiniflareBindingOptions([]);
     expect(result.hasD1).toBe(false);
     expect(result.hasKV).toBe(false);
     expect(result.hasR2).toBe(false);
-    expect(result.d1BindingName).toBe("DATABASE");
-    expect(result.kvBindingName).toBe("CACHE");
-    expect(result.r2BindingName).toBe("STORAGE");
+    expect(result.d1BindingNames).toEqual([]);
+    expect(result.kvBindingNames).toEqual([]);
+    expect(result.r2BindingNames).toEqual([]);
   });
 });
 
