@@ -11,11 +11,11 @@ the "one D1 per project, name derived from project id" model.
 # 1. Create a team-level database (unattached, not yet provisioned in CF)
 creek db create users --json
 
-# 2. Attach it to one project as env.DB
-creek db attach users --to my-api --as DB --json
+# 2. Attach it to one project as env.DATABASE
+creek db attach users --to my-api --as DATABASE --json
 
 # 3. Optionally share the same database with another project
-creek db attach users --to dashboard --as DB --json
+creek db attach users --to dashboard --as DATABASE --json
 
 # 4. Inspect what's attached
 creek db ls --json

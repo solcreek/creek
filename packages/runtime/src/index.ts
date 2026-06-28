@@ -344,6 +344,23 @@ export async function generateWsToken(): Promise<string | null> {
   return `${timestamp}.${hmac}`;
 }
 
+// ─── Project identity ────────────────────────────────────────────────────────
+
+/**
+ * This project's slug on Creek (the `{project}` in its URL). Reads the
+ * platform-injected value so app code never has to hardcode the env-var name.
+ * Returns undefined when the value isn't present in the request env — outside
+ * a Creek deployment, or before the platform (or a dev/test harness) injects it.
+ */
+export function projectSlug(): string | undefined {
+  return getEnv()?.CREEK_PROJECT_SLUG as string | undefined;
+}
+
+/** This project's stable id on Creek. */
+export function projectId(): string | undefined {
+  return getEnv()?.CREEK_PROJECT_ID as string | undefined;
+}
+
 // ─── Queue binding proxy ──────────────────────────────────────────────────
 
 /** Queue producer — send messages to the project's queue */

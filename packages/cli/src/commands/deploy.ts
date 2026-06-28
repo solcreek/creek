@@ -1643,7 +1643,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       fileList.some((f) => /\.(db|sqlite)$/i.test(f));
     if (!jsonMode && dbDeps) {
       consola.info(
-        "  ℹ Database: Creek uses the portable driver — better-sqlite3 locally, D1 remotely. Your code reads env.DB in both. Do NOT rewrite for D1 manually; `creek db attach` wires the binding.",
+        "  ℹ Database: Creek uses the portable driver — better-sqlite3 locally, D1 remotely. Your code reads env.DATABASE in both (the legacy env.DB alias still works). Do NOT rewrite for D1 manually; `creek db attach` wires the binding.",
       );
     }
 

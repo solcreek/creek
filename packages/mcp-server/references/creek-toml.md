@@ -11,10 +11,10 @@ output = "dist"              # Build output directory
 worker = "worker/index.ts"   # Optional: custom Worker entry point
 
 [resources]
-database = true              # D1 database   → env.DB    + `import { db } from 'creek'`
-storage  = true              # R2 bucket     → env.BUCKET + `import { storage } from 'creek'`
-cache    = true              # KV namespace  → env.KV    + `import { cache } from 'creek'`
-ai       = true              # Workers AI    → env.AI    + `import { ai } from 'creek'`
+database = true              # D1 database   → env.DATABASE + `import { db } from 'creek'`
+storage  = true              # R2 bucket     → env.STORAGE  + `import { storage } from 'creek'`
+cache    = true              # KV namespace  → env.CACHE    + `import { kv } from 'creek'`
+ai       = true              # Workers AI    → env.AI       + `import { ai } from 'creek'`
 
 [triggers]
 cron  = ["0 */6 * * *"]      # One or more cron expressions. Standard 5-field format.
