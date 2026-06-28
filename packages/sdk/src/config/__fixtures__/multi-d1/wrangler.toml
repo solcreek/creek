@@ -1,4 +1,4 @@
-# Synthetic fixture: multiple D1 databases (Creek takes first, warns about rest)
+# Synthetic fixture: multiple D1 databases (Creek binds all of them)
 name = "multi-db-app"
 main = "src/index.ts"
 compatibility_date = "2025-01-15"

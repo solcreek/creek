@@ -157,19 +157,19 @@ function fromWranglerConfig(
   const bindings: BindingDeclaration[] = [];
   const unsupportedBindings: { type: string; name: string }[] = [];
 
-  // D1 — take first if multiple
-  if (wrangler.d1_databases?.length) {
-    bindings.push({ type: "d1", name: wrangler.d1_databases[0].binding });
+  // D1 — bind every declared database (each has its own binding name)
+  for (const d of wrangler.d1_databases ?? []) {
+    bindings.push({ type: "d1", name: d.binding });
   }
 
-  // KV — take first if multiple
-  if (wrangler.kv_namespaces?.length) {
-    bindings.push({ type: "kv", name: wrangler.kv_namespaces[0].binding });
+  // KV
+  for (const k of wrangler.kv_namespaces ?? []) {
+    bindings.push({ type: "kv", name: k.binding });
   }
 
-  // R2 — take first if multiple
-  if (wrangler.r2_buckets?.length) {
-    bindings.push({ type: "r2", name: wrangler.r2_buckets[0].binding });
+  // R2
+  for (const b of wrangler.r2_buckets ?? []) {
+    bindings.push({ type: "r2", name: b.binding });
   }
 
   // AI
