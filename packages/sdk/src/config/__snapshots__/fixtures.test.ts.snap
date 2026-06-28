@@ -119,11 +119,15 @@ exports[`real-world wrangler config fixtures > jsonc-basic (Synthetic: JSONC for
 }
 `;
 
-exports[`real-world wrangler config fixtures > multi-d1 (Synthetic: multiple D1 databases + KV + AI (Creek takes first D1)) > matches snapshot 1`] = `
+exports[`real-world wrangler config fixtures > multi-d1 (Synthetic: multiple D1 databases + KV + AI (Creek binds all)) > matches snapshot 1`] = `
 {
   "bindings": [
     {
       "name": "PRIMARY_DB",
+      "type": "d1",
+    },
+    {
+      "name": "ANALYTICS_DB",
       "type": "d1",
     },
     {

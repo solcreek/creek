@@ -1,12 +1,13 @@
 {
   "source": "synthetic",
   "license": "N/A",
-  "description": "Synthetic: multiple D1 databases + KV + AI (Creek takes first D1)",
+  "description": "Synthetic: multiple D1 databases + KV + AI (Creek binds all)",
   "expectedBindings": [
     { "type": "d1", "name": "PRIMARY_DB" },
+    { "type": "d1", "name": "ANALYTICS_DB" },
     { "type": "kv", "name": "CACHE" },
     { "type": "ai", "name": "AI" }
   ],
   "expectedFramework": null,
-  "notes": "Tests that Creek takes the first D1 binding when multiple are declared"
+  "notes": "Tests that Creek binds every D1 when multiple are declared"
 }
