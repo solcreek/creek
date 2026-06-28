@@ -78,7 +78,7 @@ initial command before doing anything else:
 |---|---|
 | "deploy this" (no context) | `creek deploy --dry-run --json`, then `creek deploy --json` |
 | "deploy failed" / "something broke" | See Failure Diagnosis below |
-| "add a database" / "need a DB" | `creek db create <name>` then `creek db attach <name> --to <project> --as DB` |
+| "add a database" / "need a DB" | `creek db create <name>` then `creek db attach <name> --to <project> --as DATABASE` |
 | "how do I run this locally" | `creek dev` |
 | "rollback the last deploy" | `creek rollback --json` |
 | "add a domain" | `creek domains add <host>`, DNS CNAME → `cname.creek.dev`, then `creek domains activate` |
@@ -209,7 +209,7 @@ Run `<command> --help` for the full argument list.
 
 - `import { db } from 'creek'` — database (D1)
 - `import { storage } from 'creek'` — R2 object storage
-- `import { cache } from 'creek'` — KV namespace
+- `import { kv } from 'creek'` — KV namespace (cache)
 - `import { ai } from 'creek'` — Workers AI
 - `import { queue } from 'creek'` — Queue producer
 - `import { useLiveQuery, db } from 'creek/react'` — realtime sync

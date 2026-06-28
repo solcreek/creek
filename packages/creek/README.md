@@ -56,7 +56,7 @@ npm install d1-schema
 ```ts
 import { define } from "d1-schema";
 
-await define(env.DB, {
+await define(env.DATABASE, {
   todos: {
     id: "text primary key",
     text: "text not null",

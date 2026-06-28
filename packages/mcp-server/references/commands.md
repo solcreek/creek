@@ -39,7 +39,7 @@ common multi-command flows.
 | Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
 | List team databases | `creek db ls --json` |
 | Create a team database | `creek db create <NAME> --json` |
-| Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DB --json` |
+| Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DATABASE --json` |
 | Detach database from project | `creek db detach <NAME> --from <PROJECT> --json` |
 | Rename a database | `creek db rename <NAME> --to <NEW-NAME> --json` |
 | Delete a database | `creek db delete <NAME> --json` |
