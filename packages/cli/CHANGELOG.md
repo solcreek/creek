@@ -1,5 +1,29 @@
 # @solcreek/cli
 
+## 0.4.39
+
+### Agent- & CI-friendly failures
+
+- **A failed deploy now fails loudly.** In `--json` mode (auto-enabled for
+  CI, pipes, and agents) a build or plan error emits a structured
+  `{ ok: false, error, message }` on stdout instead of only a human line, and
+  a server-side "turbo" cache deploy that fails or times out exits non-zero
+  instead of returning as if it succeeded. Build/bundle progress no longer
+  leaks onto stdout in JSON mode, so the final JSON stays parseable.
+- **Structured errors across the board.** `domains`, `env`, `queue`,
+  `rollback`, `projects`, `db`/`cache`/`storage`, and `claim` now emit
+  `{ ok: false, error, message }` on their common failures (not authenticated,
+  no `creek.toml`, a malformed `creek.toml`, an API error, a missing resource)
+  rather than human-only text or an unstructured crash.
+
+### Migrations
+
+- **Migration-drift is correct for projects that bind more than one D1.**
+  Deploy now evaluates every bound database and reports against the most
+  up-to-date one, so an empty spare no longer triggers a phantom "N migrations
+  pending" on every deploy. A bound database that genuinely lags the others is
+  called out so a lagging production DB isn't silently hidden.
+
 ## 0.4.38
 
 ### Bindings

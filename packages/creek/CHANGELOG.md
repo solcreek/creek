@@ -4,6 +4,14 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.39
+
+- Bundles [`@solcreek/cli@0.4.39`](../cli/CHANGELOG.md#0439): structured
+  `{ ok: false, error, message }` output on failures in `--json` mode across
+  deploy and the resource/project commands, a non-zero exit when a turbo cache
+  deploy fails or times out, and correct migration-drift reporting for projects
+  that bind more than one D1.
+
 ## 0.4.24
 
 ### Changes
