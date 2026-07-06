@@ -51,6 +51,7 @@ import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
 import { hasAdapterOutput, buildNextjs, patchBundledWorker } from "./nextjs.js";
 import { patchBareNodeImports } from "../commands/deploy.js";
+import { jsonOutput } from "./output.js";
 
 export interface PrepareDeployBundleInput {
   /** Absolute project directory. */
@@ -59,6 +60,14 @@ export interface PrepareDeployBundleInput {
   resolved: ResolvedConfig;
   /** When true, skip the build script. Caller is asserting dist/ is current. */
   skipBuild: boolean;
+  /**
+   * Whether the invocation wants JSON output. When true, a build/plan failure
+   * emits a structured `{ ok: false, error, message }` to stdout (exit 1)
+   * instead of only a human error line — so CI / scripts / agents that parse
+   * stdout get a machine-readable failure rather than having to grep text.
+   * Defaults to false (human output) when omitted.
+   */
+  jsonMode?: boolean;
 }
 
 export interface PreparedDeployBundle {
@@ -108,7 +117,7 @@ export function packageScriptName(command: string): string | null {
 export async function prepareDeployBundle(
   input: PrepareDeployBundleInput,
 ): Promise<PreparedDeployBundle> {
-  const { cwd, resolved, skipBuild } = input;
+  const { cwd, resolved, skipBuild, jsonMode = false } = input;
 
   // 1. Framework detection. Trust the resolved config if it carries
   // one (creek.toml can pin it); otherwise re-read package.json. We
@@ -132,12 +141,14 @@ export async function prepareDeployBundle(
       try {
         buildNextjs(cwd, monorepo.isMonorepo);
       } catch {
+        if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
         consola.error("Next.js build failed");
         process.exit(1);
       }
     } else {
       const buildCmd = resolved.buildCommand;
       if (buildCmd.length > 500) {
+        if (jsonMode) jsonOutput({ ok: false, error: "invalid_build_command", message: "Invalid build command (too long)" }, 1);
         consola.error("Invalid build command (too long)");
         process.exit(1);
       }
@@ -160,6 +171,7 @@ export async function prepareDeployBundle(
         try {
           execSync(buildCmd, { cwd, stdio: "inherit" });
         } catch {
+          if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: `Build failed: ${buildCmd}` }, 1);
           consola.error("Build failed");
           process.exit(1);
         }
@@ -195,6 +207,7 @@ export async function prepareDeployBundle(
     astroCF: astroAdapter,
   });
   if (!planResult.ok) {
+    if (jsonMode) jsonOutput({ ok: false, error: "nothing_to_deploy", message: planResult.reason }, 1);
     consola.error(planResult.reason);
     process.exit(1);
   }

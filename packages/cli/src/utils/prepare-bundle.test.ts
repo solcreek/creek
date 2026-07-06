@@ -263,6 +263,64 @@ describe("prepareDeployBundle", () => {
     exitSpy.mockRestore();
   });
 
+  // B8: a JSON-mode caller (CI / scripts / agents) must get a structured
+  // `{ ok: false, error, message }` on stdout, not only a human error line.
+  test("jsonMode: a plan failure prints structured JSON and exits 1", async () => {
+    writeFixture({ "package.json": JSON.stringify({ name: "empty" }) });
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      prepareDeployBundle({
+        cwd,
+        resolved: baseConfig(),
+        skipBuild: true,
+        jsonMode: true,
+      }),
+    ).rejects.toThrow("process.exit called");
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const payload = JSON.parse(stdout.mock.calls[0]![0] as string);
+    expect(payload).toMatchObject({ ok: false, error: "nothing_to_deploy" });
+    expect(typeof payload.message).toBe("string");
+
+    stdout.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  test("jsonMode: a failing build command prints structured JSON and exits 1", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({
+        name: "build-fails",
+        scripts: { build: "node -e \"process.exit(3)\"" },
+      }),
+    });
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ buildCommand: "npm run build" }),
+        skipBuild: false,
+        jsonMode: true,
+      }),
+    ).rejects.toThrow("process.exit called");
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const payload = JSON.parse(stdout.mock.calls[0]![0] as string);
+    expect(payload).toMatchObject({ ok: false, error: "build_failed" });
+
+    stdout.mockRestore();
+    exitSpy.mockRestore();
+  });
+
   test("framework auto-detection from package.json — no resolved.framework", async () => {
     writeFixture({
       "package.json": JSON.stringify({

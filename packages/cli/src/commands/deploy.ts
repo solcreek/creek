@@ -1330,6 +1330,7 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     cwd,
     resolved: resolved ?? ({} as ResolvedConfig), // sandbox path can be called without resolved when delegating; guarded above
     skipBuild,
+    jsonMode,
   });
   const { plan, fileList, assets: clientAssets, serverFiles, effectiveRenderMode } = prepared;
 
@@ -1623,7 +1624,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
     // sandbox and authenticated paths call the same function; they
     // diverge only in where the bundle gets POSTed.
     if (!skipBuild && resolved.buildCommand) progress.section("Build");
-    const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild });
+    const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild, jsonMode });
     const {
       plan,
       framework: detectedFramework,
