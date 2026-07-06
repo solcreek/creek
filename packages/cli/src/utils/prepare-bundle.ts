@@ -51,6 +51,7 @@ import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
 import { hasAdapterOutput, buildNextjs, patchBundledWorker } from "./nextjs.js";
 import { patchBareNodeImports } from "../commands/deploy.js";
+import { jsonOutput } from "./output.js";
 
 export interface PrepareDeployBundleInput {
   /** Absolute project directory. */
@@ -59,6 +60,14 @@ export interface PrepareDeployBundleInput {
   resolved: ResolvedConfig;
   /** When true, skip the build script. Caller is asserting dist/ is current. */
   skipBuild: boolean;
+  /**
+   * Whether the invocation wants JSON output. When true, a build/plan failure
+   * emits a structured `{ ok: false, error, message }` to stdout (exit 1)
+   * instead of only a human error line — so CI / scripts / agents that parse
+   * stdout get a machine-readable failure rather than having to grep text.
+   * Defaults to false (human output) when omitted.
+   */
+  jsonMode?: boolean;
 }
 
 export interface PreparedDeployBundle {
@@ -108,7 +117,17 @@ export function packageScriptName(command: string): string | null {
 export async function prepareDeployBundle(
   input: PrepareDeployBundleInput,
 ): Promise<PreparedDeployBundle> {
-  const { cwd, resolved, skipBuild } = input;
+  const { cwd, resolved, skipBuild, jsonMode = false } = input;
+
+  // consola's start/info/success write to STDOUT in a non-TTY (CI/pipes),
+  // where jsonMode is auto-enabled. Route build/bundle progress through a
+  // guard so stdout stays JSON-only and the final jsonOutput is parseable
+  // (mirrors deploy.ts's makeProgress). error/warn go to stderr — left as-is.
+  const say = {
+    start: (m: string) => { if (!jsonMode) consola.start(m); },
+    info: (m: string) => { if (!jsonMode) consola.info(m); },
+    success: (m: string) => { if (!jsonMode) consola.success(m); },
+  };
 
   // 1. Framework detection. Trust the resolved config if it carries
   // one (creek.toml can pin it); otherwise re-read package.json. We
@@ -132,12 +151,14 @@ export async function prepareDeployBundle(
       try {
         buildNextjs(cwd, monorepo.isMonorepo);
       } catch {
+        if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
         consola.error("Next.js build failed");
         process.exit(1);
       }
     } else {
       const buildCmd = resolved.buildCommand;
       if (buildCmd.length > 500) {
+        if (jsonMode) jsonOutput({ ok: false, error: "invalid_build_command", message: "Invalid build command (too long)" }, 1);
         consola.error("Invalid build command (too long)");
         process.exit(1);
       }
@@ -154,16 +175,17 @@ export async function prepareDeployBundle(
         scriptName !== null &&
         !(hasScripts && Object.prototype.hasOwnProperty.call(scripts, scriptName));
       if (scriptMissing) {
-        consola.info(`  No "${scriptName}" script in package.json — skipping build step`);
+        say.info(`  No "${scriptName}" script in package.json — skipping build step`);
       } else {
-        consola.start(`  ${buildCmd}`);
+        say.start(`  ${buildCmd}`);
         try {
           execSync(buildCmd, { cwd, stdio: "inherit" });
         } catch {
+          if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: `Build failed: ${buildCmd}` }, 1);
           consola.error("Build failed");
           process.exit(1);
         }
-        consola.success("  Build complete");
+        say.success("  Build complete");
       }
     }
   }
@@ -195,6 +217,7 @@ export async function prepareDeployBundle(
     astroCF: astroAdapter,
   });
   if (!planResult.ok) {
+    if (jsonMode) jsonOutput({ ok: false, error: "nothing_to_deploy", message: planResult.reason }, 1);
     consola.error(planResult.reason);
     process.exit(1);
   }
@@ -233,16 +256,16 @@ export async function prepareDeployBundle(
     // Astro CF adapter writes a pre-bundled worker we just upload.
     const serverDir = resolve(cwd, astroAdapter.serverDir);
     if (existsSync(serverDir)) {
-      consola.start("  Collecting Astro CF server files...");
+      say.start("  Collecting Astro CF server files...");
       const collected = collectServerFiles(serverDir);
       serverFiles = base64ServerFiles(collected);
-      consola.success(`  Astro CF worker: ${Object.keys(collected).length} files`);
+      say.success(`  Astro CF worker: ${Object.keys(collected).length} files`);
     }
   } else if (isSSRFramework(framework) && framework) {
     if (framework === "nextjs" && hasAdapterOutput(cwd)) {
       // Next.js adapter output → patch bare imports, upload as-is.
       const adapterServerDir = resolve(cwd, ".creek/adapter-output/server");
-      consola.start("  Collecting adapter output...");
+      say.start("  Collecting adapter output...");
       const collected: Record<string, Buffer> = {};
       if (existsSync(adapterServerDir)) {
         for (const f of readdirSync(adapterServerDir)) {
@@ -256,13 +279,13 @@ export async function prepareDeployBundle(
         }
       }
       serverFiles = base64ServerFiles(collected);
-      consola.success(
+      say.success(
         `  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`,
       );
     } else if (framework === "nextjs") {
       // Legacy Next.js: wrangler dry-run produces the bundle.
       const bundleDir = resolve(cwd, ".creek/bundled");
-      consola.start("  Bundling Next.js worker (legacy)...");
+      say.start("  Bundling Next.js worker (legacy)...");
       execSync(`npx wrangler deploy --dry-run --outdir "${bundleDir}"`, { cwd, stdio: "pipe" });
       patchBundledWorker(bundleDir, resolve(cwd, ".open-next"));
       const collected: Record<string, Buffer> = {};
@@ -274,7 +297,7 @@ export async function prepareDeployBundle(
         }
       }
       serverFiles = base64ServerFiles(collected);
-      consola.success(
+      say.success(
         `  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`,
       );
     } else if (isPreBundledFramework(framework)) {
@@ -284,10 +307,10 @@ export async function prepareDeployBundle(
       if (serverDirRel) {
         const serverDir = resolve(cwd, serverDirRel);
         if (existsSync(serverDir)) {
-          consola.start("  Collecting SSR server files...");
+          say.start("  Collecting SSR server files...");
           const collected = collectServerFiles(serverDir);
           serverFiles = base64ServerFiles(collected);
-          consola.success(`  SSR server: ${Object.keys(collected).length} files`);
+          say.success(`  SSR server: ${Object.keys(collected).length} files`);
         }
       }
     } else {
@@ -296,16 +319,16 @@ export async function prepareDeployBundle(
       if (serverEntry) {
         const serverEntryPath = resolve(outputDir, serverEntry);
         if (existsSync(serverEntryPath)) {
-          consola.start("  Bundling SSR server...");
+          say.start("  Bundling SSR server...");
           const bundled = await bundleSSRServer(serverEntryPath);
           serverFiles = { "server.js": Buffer.from(bundled).toString("base64") };
-          consola.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
+          say.success(`  SSR bundled (${Math.round(bundled.length / 1024)}KB)`);
         }
       }
     }
   } else if (plan.worker.strategy === "esbuild-bundle" && plan.worker.entry) {
     const workerEntryPath = resolve(cwd, plan.worker.entry);
-    consola.start("  Bundling worker...");
+    say.start("  Bundling worker...");
     // When the worker ships alongside static assets, embed the built
     // index.html so the wrapper can serve SPA deep-links on a miss. CF
     // Static Assets serves real files at the edge and env.ASSETS isn't bound
@@ -321,7 +344,7 @@ export async function prepareDeployBundle(
       spaFallbackHtml,
     });
     serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
-    consola.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
+    say.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
   } else if (plan.worker.strategy === "upload-asis" && plan.worker.entry) {
     // Pre-bundled worker (e.g. dist/_worker.mjs from the user's own
     // esbuild step). Ship verbatim — no Creek runtime wrapper, no
@@ -329,7 +352,7 @@ export async function prepareDeployBundle(
     // any @solcreek/* dependency.
     const bytes = readFileSync(resolve(cwd, plan.worker.entry));
     serverFiles = { "worker.js": bytes.toString("base64") };
-    consola.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
+    say.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
   }
 
   // 8. When the worker bundle lives INSIDE the asset dir
