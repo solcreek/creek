@@ -106,21 +106,22 @@ export function buildR2Key(team: string, project: string, deploymentId: string):
   return `builds/${team}/${project}/${deploymentId}.ndjson.gz`;
 }
 
-/**
- * Run the full pipeline. Returns metadata for the upserted row.
- * Caller is responsible for authentication + ownership checks.
- */
-export async function storeBuildLog(env: StoreEnv, input: StoreInput): Promise<StoreResult> {
-  if (!env.LOGS_BUCKET) {
-    throw new Error("LOGS_BUCKET binding not configured");
-  }
-
-  const { text: capped, truncated, lines } = truncateByBytes(input.body, MAX_LOG_BYTES);
+/** Truncate → scrub → gzip the body into the bytes we persist. */
+async function compressLog(body: string): Promise<{ compressed: Uint8Array; lines: number; truncated: boolean }> {
+  const { text: capped, truncated, lines } = truncateByBytes(body, MAX_LOG_BYTES);
   const { text: scrubbed } = scrubNdjson(capped);
   const compressed = await gzip(scrubbed);
-  const r2Key = buildR2Key(input.team, input.project, input.deploymentId);
+  return { compressed, lines, truncated };
+}
 
-  await env.LOGS_BUCKET.put(r2Key, compressed, {
+/** Write the compressed log object to R2 under its deterministic key. */
+async function putLogObject(
+  bucket: R2Bucket,
+  r2Key: string,
+  compressed: Uint8Array,
+  input: StoreInput,
+): Promise<void> {
+  await bucket.put(r2Key, compressed, {
     httpMetadata: {
       contentType: "application/x-ndjson",
       contentEncoding: "gzip",
@@ -132,6 +133,21 @@ export async function storeBuildLog(env: StoreEnv, input: StoreInput): Promise<S
       status: input.status,
     },
   });
+}
+
+/**
+ * Run the full pipeline. Returns metadata for the upserted row.
+ * Caller is responsible for authentication + ownership checks.
+ */
+export async function storeBuildLog(env: StoreEnv, input: StoreInput): Promise<StoreResult> {
+  if (!env.LOGS_BUCKET) {
+    throw new Error("LOGS_BUCKET binding not configured");
+  }
+
+  const { compressed, lines, truncated } = await compressLog(input.body);
+  const r2Key = buildR2Key(input.team, input.project, input.deploymentId);
+
+  await putLogObject(env.LOGS_BUCKET, r2Key, compressed, input);
 
   // INSERT OR REPLACE — idempotent on retries (e.g. CLI POST after a
   // remote-builder POST also lands).
@@ -161,6 +177,61 @@ export async function storeBuildLog(env: StoreEnv, input: StoreInput): Promise<S
       r2Key,
     )
     .run();
+
+  return {
+    bytes: compressed.byteLength,
+    lines,
+    truncated,
+    r2Key,
+  };
+}
+
+/**
+ * Like {@link storeBuildLog}, but writes only when no build_log row exists yet.
+ * Used by the server-side deploy job so it never clobbers a richer client /
+ * remote-builder log for the same deployment.
+ *
+ * The claim is atomic — `INSERT … ON CONFLICT DO NOTHING` decides ownership in
+ * a single statement — and the R2 object is written ONLY when this call
+ * actually inserted the row. So a concurrent full upsert never has its R2
+ * object overwritten by ours: either we won the insert (their upsert then
+ * overwrites both row and object consistently) or we lost it and touch nothing.
+ * Returns null when another writer already owns the row.
+ */
+export async function storeBuildLogIfAbsent(env: StoreEnv, input: StoreInput): Promise<StoreResult | null> {
+  if (!env.LOGS_BUCKET) {
+    throw new Error("LOGS_BUCKET binding not configured");
+  }
+
+  const { compressed, lines, truncated } = await compressLog(input.body);
+  const r2Key = buildR2Key(input.team, input.project, input.deploymentId);
+
+  // Claim the row first. DO NOTHING => someone else already owns it, in which
+  // case we must NOT touch R2 (the object under r2Key belongs to their log).
+  const res = await env.DB.prepare(
+    `INSERT INTO build_log (deploymentId, status, startedAt, endedAt, bytes, lines, truncated, errorCode, errorStep, r2Key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(deploymentId) DO NOTHING`,
+  )
+    .bind(
+      input.deploymentId,
+      input.status,
+      input.startedAt,
+      input.endedAt,
+      compressed.byteLength,
+      lines,
+      truncated ? 1 : 0,
+      input.errorCode ?? null,
+      input.errorStep ?? null,
+      r2Key,
+    )
+    .run();
+
+  if (!(res.meta?.changes && res.meta.changes > 0)) {
+    return null; // another writer owns this deployment's log — leave it alone
+  }
+
+  await putLogObject(env.LOGS_BUCKET, r2Key, compressed, input);
 
   return {
     bytes: compressed.byteLength,

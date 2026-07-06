@@ -1,8 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { gunzipSync } from "node:zlib";
 import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
 import { runDeployJob, withDeployHeartbeat } from "./deploy-job.js";
+import { buildR2Key } from "../build-logs/storage.js";
+import type { BuildLogLine } from "../build-logs/types.js";
 
 // Integration: drives the full async deploy pipeline (read R2 bundle ->
 // provision -> deploy to WfP -> status) against a real test DB + R2, with
@@ -57,6 +60,27 @@ function deploymentRow() {
     failedStep: string | null;
     errorMessage: string | null;
   };
+}
+
+function buildLogRow() {
+  return testEnv.db.db
+    .prepare("SELECT status, lines, errorCode, errorStep, r2Key, bytes FROM build_log WHERE deploymentId = 'dep-1'")
+    .get() as
+    | { status: string; lines: number; errorCode: string | null; errorStep: string | null; r2Key: string; bytes: number }
+    | undefined;
+}
+
+/** Fetch + gunzip the stored ndjson log and parse its lines. */
+async function readLogEntries(): Promise<BuildLogLine[]> {
+  const key = buildR2Key("team", "myapp", "dep-1");
+  const obj = await testEnv.env.LOGS_BUCKET!.get(key);
+  if (!obj) return [];
+  const gz = Buffer.from(await obj.arrayBuffer());
+  const ndjson = gunzipSync(gz).toString("utf-8");
+  return ndjson
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as BuildLogLine);
 }
 
 describe("runDeployJob (integration via MSW)", () => {
@@ -131,6 +155,90 @@ describe("runDeployJob (integration via MSW)", () => {
     // a whole multiple of the 7 buckets (once per deployed script).
     expect(uploadCalls).toBeGreaterThanOrEqual(BUCKETS.length);
     expect(uploadCalls % BUCKETS.length).toBe(0);
+  });
+});
+
+describe("runDeployJob deploy-stage logging (B2)", () => {
+  const okHandlers = () => [
+    http.post(`${NS}/assets-upload-session`, () =>
+      HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+    ),
+    http.put(NS, () => HttpResponse.json({ success: true, result: { id: "script" }, errors: [] })),
+  ];
+
+  it("persists a server-side stage log on a successful deploy", async () => {
+    server.use(...okHandlers());
+    await stageBundle();
+    await runDeployJob(testEnv.env, input);
+
+    const row = buildLogRow();
+    expect(row?.status).toBe("success");
+    expect(row?.lines).toBeGreaterThan(0);
+
+    const entries = await readLogEntries();
+    const steps = entries.map((e) => e.step);
+    expect(steps).toContain("upload");
+    expect(steps).toContain("provision");
+    expect(steps).toContain("activate");
+    // The last line marks the terminal state so a reader sees it went active.
+    expect(entries.at(-1)?.msg).toMatch(/active/i);
+    expect(entries.every((e) => e.level !== "error")).toBe(true);
+  });
+
+  it("persists a failure log with the failing step and an error line", async () => {
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+      ),
+      http.put(NS, () =>
+        HttpResponse.json({ success: false, errors: [{ code: 10000, message: "namespace boom" }] }),
+      ),
+    );
+    await stageBundle();
+    await runDeployJob(testEnv.env, input);
+
+    const row = buildLogRow();
+    expect(row?.status).toBe("failed");
+    expect(row?.errorStep).toBe("deploying");
+    expect(row?.errorCode).toBe("deploy_error");
+
+    const entries = await readLogEntries();
+    const errorLine = entries.find((e) => e.level === "error");
+    expect(errorLine?.step).toBe("activate");
+    expect(errorLine?.msg).toContain("namespace boom");
+  });
+
+  it("attributes a malformed bundle to the uploading step, not deploying", async () => {
+    // Invalid JSON in staging — the failure belongs to the upload stage.
+    await testEnv.env.ASSETS.put("bundles/dep-1.json", "{ not valid json");
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().failedStep).toBe("uploading");
+    const row = buildLogRow();
+    expect(row?.status).toBe("failed");
+    expect(row?.errorStep).toBe("uploading");
+    const errorLine = (await readLogEntries()).find((e) => e.level === "error");
+    expect(errorLine?.step).toBe("upload");
+  });
+
+  it("does not clobber an existing client/remote-builder build log", async () => {
+    // Simulate a build_log row the CLI/remote-builder already uploaded.
+    testEnv.db.db.exec(
+      `INSERT INTO build_log (deploymentId, status, startedAt, endedAt, bytes, lines, truncated, errorCode, errorStep, r2Key)
+       VALUES ('dep-1', 'success', ${Date.now()}, ${Date.now()}, 4242, 99, 0, NULL, NULL, 'client/sentinel/key')`,
+    );
+
+    server.use(...okHandlers());
+    await stageBundle();
+    await runDeployJob(testEnv.env, input);
+
+    // Deploy still succeeds…
+    expect(deploymentRow().status).toBe("active");
+    // …but the pre-existing (richer) log row is untouched — not overwritten.
+    const row = buildLogRow();
+    expect(row?.bytes).toBe(4242);
+    expect(row?.lines).toBe(99);
+    expect(row?.r2Key).toBe("client/sentinel/key");
   });
 });
 

@@ -4,6 +4,9 @@ import { setQueueConsumer } from "../resources/cloudflare.js";
 import { deployWithAssets } from "./deploy.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
+import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
+import { classifyDeployFailure } from "../build-logs/classify.js";
+import type { BuildLogLine, BuildLogLevel, BuildLogStep, BuildLogStatus } from "../build-logs/types.js";
 
 /**
  * Bundle as stored in R2 staging.
@@ -51,9 +54,25 @@ interface DeployJobInput {
 export async function runDeployJob(env: Env, input: DeployJobInput): Promise<void> {
   const { deploymentId, projectId, projectSlug, teamId, teamSlug, plan, branch, productionBranch } = input;
 
+  // Accumulate a structured server-side log across the deploy stages so a
+  // deploy that fails at upload/provision/activate isn't log-less. Persisted
+  // at terminal time (best-effort) — see persistDeployLog for why it never
+  // overwrites a client/remote-builder log.
+  const startedAt = Date.now();
+  const logLines: BuildLogLine[] = [];
+  const log = (step: BuildLogStep, level: BuildLogLevel, msg: string, code?: string) => {
+    logLines.push({ ts: Date.now(), step, stream: "creek", level, msg, ...(code ? { code } : {}) });
+  };
+  let outcome: { status: BuildLogStatus; errorStep: string | null; errorCode: string | null } = {
+    status: "success",
+    errorStep: null,
+    errorCode: null,
+  };
+
   try {
     // --- Step 1: Read bundle from R2 staging ---
     await setDeploymentStatus(env, deploymentId, "uploading");
+    log("upload", "info", "Reading bundle from staging");
 
     const bundleKey = `bundles/${deploymentId}.json`;
     const bundleObj = await env.ASSETS.get(bundleKey);
@@ -61,16 +80,19 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       throw new StepError("uploading", "Bundle not found in staging");
     }
 
-    const bundle: StagedBundle = JSON.parse(await bundleObj.text());
-
-    // Decode assets from base64 to ArrayBuffer
-    const decodedClientAssets: Record<string, ArrayBuffer> = {};
-    for (const [path, b64] of Object.entries(bundle.assets)) {
-      decodedClientAssets[path] = base64ToArrayBuffer(b64);
-    }
-
-    const decodedServerFiles: Record<string, ArrayBuffer> | undefined =
-      bundle.serverFiles
+    // Parse + base64-decode the bundle. A malformed bundle (bad JSON, invalid
+    // base64) is an "uploading"-stage failure — attribute it there rather than
+    // letting it fall through to the outer catch's default "deploying" step.
+    let bundle: StagedBundle;
+    let decodedClientAssets: Record<string, ArrayBuffer>;
+    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
+    try {
+      bundle = JSON.parse(await bundleObj.text());
+      decodedClientAssets = {};
+      for (const [path, b64] of Object.entries(bundle.assets)) {
+        decodedClientAssets[path] = base64ToArrayBuffer(b64);
+      }
+      decodedServerFiles = bundle.serverFiles
         ? Object.fromEntries(
             Object.entries(bundle.serverFiles).map(([path, b64]) => [
               path,
@@ -78,11 +100,22 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
             ]),
           )
         : undefined;
+    } catch (err) {
+      throw new StepError("uploading", `Malformed bundle: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    log(
+      "upload",
+      "info",
+      `Bundle read: ${Object.keys(bundle.assets).length} asset(s)` +
+        (bundle.serverFiles ? `, ${Object.keys(bundle.serverFiles).length} server file(s)` : ""),
+    );
 
     const renderMode = bundle.manifest.renderMode ?? "spa";
 
     // --- Step 2: Provision resources ---
     await setDeploymentStatus(env, deploymentId, "provisioning");
+    log("provision", "info", "Provisioning resources");
 
     const requirements = bundle.bindings ?? [];
 
@@ -92,12 +125,14 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     } catch (err) {
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
     }
+    log("provision", "info", `Bindings ready (${requirements.length} declared)`);
 
     // Provision queue if needed
     let queueResource;
     if (bundle.queue) {
       try {
         queueResource = await ensureQueue(env, projectId, teamId);
+        log("provision", "info", "Queue provisioned");
       } catch (err) {
         throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
       }
@@ -147,6 +182,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
 
     // --- Step 3: Deploy to WfP ---
     await setDeploymentStatus(env, deploymentId, "deploying");
+    log("activate", "info", "Deploying to the edge (Workers for Platforms)");
 
     try {
       // Uploading an asset-heavy app's files to the edge can legitimately run
@@ -183,6 +219,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     } catch (err) {
       throw new StepError("deploying", err instanceof Error ? err.message : String(err));
     }
+    log("activate", "info", "Edge deploy complete");
 
     // Register production script as queue consumer (after deploy succeeds)
     if (queueResource && (!branch || branch === productionBranch)) {
@@ -231,17 +268,82 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
 
     // Clean up staging bundle
     await env.ASSETS.delete(bundleKey);
+
+    log("activate", "info", isProduction ? "Deployment active (production)" : "Deployment active");
   } catch (err) {
-    if (err instanceof StepError) {
-      await failDeployment(env, deploymentId, err.step, err.message);
-    } else {
-      await failDeployment(
-        env,
-        deploymentId,
-        "deploying",
-        err instanceof Error ? err.message : "Unknown error",
-      );
-    }
+    const step = err instanceof StepError ? err.step : "deploying";
+    const message = err instanceof Error ? err.message : "Unknown error";
+    // Record the failure into the log/outcome FIRST, so the finally persists
+    // the real failure even if failDeployment's DB write itself throws.
+    const code = classifyDeployFailure(step, message).code;
+    log(stepToBuildLogStep(step), "error", message, code);
+    outcome = { status: "failed", errorStep: step, errorCode: code };
+    await failDeployment(env, deploymentId, step, message);
+  } finally {
+    await persistDeployLog(env, input, {
+      startedAt,
+      lines: logLines,
+      status: outcome.status,
+      errorStep: outcome.errorStep,
+      errorCode: outcome.errorCode,
+    });
+  }
+}
+
+/** Map a server-side deploy stage name onto the shared BuildLogStep vocab. */
+function stepToBuildLogStep(step: string): BuildLogStep {
+  switch (step) {
+    case "uploading":
+      return "upload";
+    case "provisioning":
+      return "provision";
+    case "deploying":
+      return "activate";
+    default:
+      return "activate";
+  }
+}
+
+/**
+ * Persist the accumulated deploy-stage log so `creek deployments logs` can show
+ * what the server did — not just the deployment row's one-line error.
+ *
+ * Best-effort and, crucially, no-clobber: the build_log row is keyed by
+ * deploymentId, but the CLI and remote-builder also upload their own (richer,
+ * build-stage) logs for the same deployment. storeBuildLogIfAbsent claims the
+ * row atomically and only writes when nothing else has — i.e. GitHub-push
+ * deploys and CLI deploys where the client already disconnected, which is
+ * exactly the case B2 is about. Never throws.
+ */
+async function persistDeployLog(
+  env: Env,
+  input: DeployJobInput,
+  opts: {
+    startedAt: number;
+    lines: BuildLogLine[];
+    status: BuildLogStatus;
+    errorStep: string | null;
+    errorCode: string | null;
+  },
+): Promise<void> {
+  if (!env.LOGS_BUCKET) return; // logs are optional infra
+  try {
+    const body = opts.lines.length ? opts.lines.map((l) => JSON.stringify(l)).join("\n") + "\n" : "";
+    // Atomic no-clobber: only writes if no client/remote-builder log already
+    // owns this deployment (they carry the richer build-stage log).
+    await storeBuildLogIfAbsent(env, {
+      team: input.teamSlug,
+      project: input.projectSlug,
+      deploymentId: input.deploymentId,
+      status: opts.status,
+      startedAt: opts.startedAt,
+      endedAt: Date.now(),
+      body,
+      errorCode: opts.errorCode,
+      errorStep: opts.errorStep,
+    });
+  } catch {
+    // Log persistence must never break or mask a deploy outcome.
   }
 }
 
