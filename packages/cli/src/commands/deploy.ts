@@ -1784,7 +1784,17 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
             ...(drift && drift.status === "pending"
-              ? { migrations: { status: drift.status, pending: drift.pending } }
+              ? {
+                  migrations: {
+                    status: drift.status,
+                    pending: drift.pending,
+                    // Name the evaluated DB (and how many are bound) so a
+                    // multi-D1 project can tell which database the status is
+                    // for rather than guessing.
+                    database: drift.databaseName,
+                    databaseCount: drift.databaseCount,
+                  },
+                }
               : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },

@@ -18,10 +18,17 @@ function writeMigration(name: string, sql = "CREATE TABLE T (id INTEGER);") {
   writeFileSync(join(dir, "migration.sql"), sql);
 }
 
-/** A fake client with a bound database and a fixed applied set. */
+/**
+ * A fake client with a bound database and a fixed applied set.
+ *
+ * `applied` sets the applied migrations for the single default DB (res-1).
+ * For multi-DB scenarios, pass explicit `bindings` plus `appliedByResource`
+ * (resourceId → applied names, or an Error to make that DB unreadable).
+ */
 function fakeClient(opts: {
   bindings?: Array<{ resourceId: string; kind: string; name: string }>;
   applied?: string[];
+  appliedByResource?: Record<string, string[] | Error>;
   queryError?: Error;
   bindingsError?: Error;
 }): DriftClient {
@@ -33,8 +40,13 @@ function fakeClient(opts: {
           opts.bindings ?? [{ resourceId: "res-1", kind: "database", name: "mydb" }],
       };
     },
-    async queryDatabase() {
+    async queryDatabase(resourceId: string) {
       if (opts.queryError) throw opts.queryError;
+      if (opts.appliedByResource) {
+        const entry = opts.appliedByResource[resourceId];
+        if (entry instanceof Error) throw entry;
+        return { rows: (entry ?? []).map((name) => ({ name })) };
+      }
       return { rows: (opts.applied ?? []).map((name) => ({ name })) };
     },
   };
@@ -149,5 +161,132 @@ describe("detectMigrationDrift", () => {
       client: fakeClient({ applied: [] }),
     });
     expect(driftWarning(drift)).toContain("1 migration not yet applied");
+  });
+
+  it("reports databaseCount 1 and no multi-db scope for a single database", async () => {
+    writeMigration("0001_init");
+    const drift = await detectMigrationDrift({
+      cwd: testDir,
+      projectSlug: "proj",
+      client: fakeClient({ applied: [] }),
+    });
+    expect(drift.databaseCount).toBe(1);
+    expect(driftWarning(drift)).not.toContain("bound databases");
+  });
+
+  // --- B10: a project binding more than one D1 ---
+  describe("multiple bound databases", () => {
+    const twoDbs = [
+      { resourceId: "real", kind: "database", name: "creek-real" },
+      { resourceId: "spare", kind: "database", name: "creek-spare" },
+    ];
+
+    it("reports in-sync against the migrated DB, ignoring an empty spare", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: { real: ["0001_init", "0002_add"], spare: [] },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.pending).toEqual([]);
+      expect(drift.databaseName).toBe("creek-real");
+      expect(drift.databaseCount).toBe(2);
+      expect(driftWarning(drift)).toBeNull();
+    });
+
+    it("does not depend on binding order (empty DB listed first)", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: [twoDbs[1], twoDbs[0]], // spare first
+          appliedByResource: { real: ["0001_init", "0002_add"], spare: [] },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.databaseName).toBe("creek-real");
+    });
+
+    it("warns against the least-behind DB when every bound DB lags", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      writeMigration("0003_more");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: ["0001_init", "0002_add"], // 1 pending
+            spare: ["0001_init"], // 2 pending
+          },
+        }),
+      });
+      expect(drift.status).toBe("pending");
+      expect(drift.pending).toEqual(["0003_more"]);
+      expect(drift.databaseName).toBe("creek-real");
+      expect(driftWarning(drift)).toContain("1 migration not yet applied");
+      expect(driftWarning(drift)).toContain("most up-to-date of 2 bound databases");
+    });
+
+    it("skips an unreadable DB and evaluates the readable one", async () => {
+      writeMigration("0001_init");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: new Error("503 upstream unavailable"),
+            spare: ["0001_init"],
+          },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.databaseName).toBe("creek-spare");
+    });
+
+    it("treats a missing tracking table on one DB as everything-pending", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: new Error("D1_ERROR: no such table: _creek_migrations"),
+            spare: ["0001_init"], // 1 pending — least behind, wins
+          },
+        }),
+      });
+      expect(drift.status).toBe("pending");
+      expect(drift.databaseName).toBe("creek-spare");
+      expect(drift.pending).toEqual(["0002_add"]);
+    });
+
+    it("degrades to unknown when every bound DB is unreadable", async () => {
+      writeMigration("0001_init");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: new Error("503"),
+            spare: new Error("network"),
+          },
+        }),
+      });
+      expect(drift.status).toBe("unknown");
+      expect(driftWarning(drift)).toBeNull();
+    });
   });
 });
