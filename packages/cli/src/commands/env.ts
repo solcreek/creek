@@ -1,28 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
-import { getToken, getApiUrl } from "../utils/config.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-
-function getProjectSlug(): string {
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    consola.error("No creek.toml found. Run `creek init` first.");
-    process.exit(1);
-  }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-}
-
-function getClient(): CreekClient {
-  const token = getToken();
-  if (!token) {
-    consola.error("Not authenticated. Run `creek login` first.");
-    process.exit(1);
-  }
-  return new CreekClient(getApiUrl(), token);
-}
+import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
 
 const envSet = defineCommand({
   meta: { name: "set", description: "Set an environment variable" },
@@ -33,9 +12,9 @@ const envSet = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug();
-    await client.setEnvVar(slug, args.key, args.value);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(undefined, jsonMode);
+    await apiCall(jsonMode, "set_failed", () => client.setEnvVar(slug, args.key, args.value));
     // Env vars are injected at deploy time — the change is stored but NOT
     // live on the running worker until the next deploy. Signal that
     // structurally so an agent doesn't assume it took effect immediately.
@@ -63,9 +42,9 @@ const envGet = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug();
-    const vars = await client.listEnvVars(slug);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(undefined, jsonMode);
+    const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
 
     if (jsonMode) {
       const crumbs: Breadcrumb[] = [
@@ -106,9 +85,9 @@ const envRm = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug();
-    await client.deleteEnvVar(slug, args.key);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(undefined, jsonMode);
+    await apiCall(jsonMode, "rm_failed", () => client.deleteEnvVar(slug, args.key));
     // Same deploy-time injection as `set`: the var is removed from the
     // store but the running worker keeps the old value until redeploy.
     if (jsonMode) jsonOutput({ ok: true, key: args.key, removed: true, project: slug, applied: false, pendingDeploy: true }, 0, [

@@ -75,10 +75,22 @@ export const claimCommand = defineCommand({
     // 1. Fetch sandbox info
     consola.start("Looking up sandbox...");
     const sandboxApiUrl = getSandboxApiUrl();
-    const statusRes = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
+    let statusRes: Response;
+    try {
+      statusRes = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
+    } catch (err) {
+      const msg = `Couldn't reach the sandbox API: ${err instanceof Error ? err.message : String(err)}`;
+      if (jsonMode) jsonOutput({ ok: false, error: "sandbox_api_unreachable", message: msg }, 1, []);
+      consola.error(msg);
+      process.exit(1);
+    }
 
     if (!statusRes.ok) {
-      consola.error("Sandbox not found. It may have expired.");
+      const msg = "Sandbox not found. It may have expired.";
+      if (jsonMode) jsonOutput({ ok: false, error: "sandbox_not_found", sandboxId, message: msg }, 1, [
+        { command: "creek deploy", description: "Deploy your project permanently" },
+      ]);
+      consola.error(msg);
       process.exit(1);
     }
 
@@ -124,12 +136,21 @@ export const claimCommand = defineCommand({
       });
       project = res.project;
     } catch {
-      // Slug might conflict, try with sandbox ID suffix
-      const res = await client.createProject({
-        slug: `${slug}-${sandboxId}`,
-        framework: sandbox.framework as any,
-      });
-      project = res.project;
+      // Slug might conflict, try with sandbox ID suffix. A failure of the retry
+      // itself is terminal — surface it structured rather than letting it
+      // escape to the top-level catch as unstructured text.
+      try {
+        const res = await client.createProject({
+          slug: `${slug}-${sandboxId}`,
+          framework: sandbox.framework as any,
+        });
+        project = res.project;
+      } catch (err) {
+        const msg = `Couldn't create a project for this sandbox: ${err instanceof Error ? err.message : String(err)}`;
+        if (jsonMode) jsonOutput({ ok: false, error: "create_project_failed", sandboxId, message: msg }, 1, []);
+        consola.error(msg);
+        process.exit(1);
+      }
     }
 
     consola.success(`Created project: ${project.slug}`);

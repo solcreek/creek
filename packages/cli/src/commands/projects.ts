@@ -1,18 +1,8 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, CreekApiError } from "@solcreek/sdk";
-import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm, AUTH_BREADCRUMBS, isTTY } from "../utils/output.js";
-
-function requireClient(jsonMode: boolean): CreekClient {
-  const token = getToken();
-  if (!token) {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
-    consola.error("Not authenticated. Run `creek login` first.");
-    process.exit(1);
-  }
-  return new CreekClient(getApiUrl(), token);
-}
+import { CreekApiError } from "@solcreek/sdk";
+import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm, isTTY } from "../utils/output.js";
+import { requireClient, apiCall } from "../utils/command-context.js";
 
 const projectsList = defineCommand({
   meta: { name: "list", description: "List all projects" },
@@ -20,7 +10,7 @@ const projectsList = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const projects = await client.listProjects();
+    const projects = await apiCall(jsonMode, "api_error", () => client.listProjects());
 
     if (jsonMode) {
       const crumbs = projects.length > 0
