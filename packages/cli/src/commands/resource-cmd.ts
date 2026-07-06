@@ -53,8 +53,11 @@ async function findByName(
   client: CreekClient,
   name: string,
   kind: string,
+  jsonMode: boolean,
 ): Promise<Resource | null> {
-  const { resources } = await client.listResources();
+  // Called before the ops' own try/catch, so wrap the list here — otherwise a
+  // rejection escapes to the top-level catch as unstructured text in JSON mode.
+  const { resources } = await apiCall(jsonMode, "api_error", () => client.listResources());
   return (resources.find((r) => r.name === name && r.kind === kind) as Resource | undefined) ?? null;
 }
 
@@ -126,7 +129,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const token = requireToken(jsonMode);
       const client = new CreekClient(getApiUrl(), token);
 
-      const resource = await findByName(client, args.name, kind);
+      const resource = await findByName(client, args.name, kind, jsonMode);
       if (!resource) {
         const msg = `No ${label} named "${args.name}"`;
         if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: msg }, 1);
@@ -185,7 +188,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const token = requireToken(jsonMode);
       const client = new CreekClient(getApiUrl(), token);
 
-      const resource = await findByName(client, args.name, kind);
+      const resource = await findByName(client, args.name, kind, jsonMode);
       if (!resource) {
         const msg = `No ${label} named "${args.name}"`;
         if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: msg }, 1);
@@ -217,7 +220,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const token = requireToken(jsonMode);
       const client = new CreekClient(getApiUrl(), token);
 
-      const resource = await findByName(client, args.name, kind);
+      const resource = await findByName(client, args.name, kind, jsonMode);
       if (!resource) {
         const msg = `No ${label} named "${args.name}"`;
         if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: msg }, 1);

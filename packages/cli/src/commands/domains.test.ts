@@ -192,6 +192,13 @@ describe("creek domains structured errors (JSON mode)", () => {
     expect(json()).toMatchObject({ ok: false, error: "no_project" });
   });
 
+  it("emits invalid_config when creek.toml is malformed", async () => {
+    writeFileSync(join(testDir, "creek.toml"), "this is not = valid = toml ===");
+    const code = await runExit(lsCmd.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "invalid_config" });
+  });
+
   it("emits api_error when the API call fails", async () => {
     server.use(
       http.get(`${API}/projects/${SLUG}/domains`, () => new HttpResponse(null, { status: 500 })),

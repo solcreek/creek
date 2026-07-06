@@ -45,7 +45,16 @@ export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolea
     consola.error(message);
     process.exit(1);
   }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+  try {
+    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+  } catch (err) {
+    // An unreadable or malformed creek.toml would otherwise throw past the
+    // structured-error contract and surface as a raw stack trace in JSON mode.
+    const message = `Couldn't read creek.toml: ${err instanceof Error ? err.message : String(err)}`;
+    if (jsonMode) jsonOutput({ ok: false, error: "invalid_config", message }, 1);
+    consola.error(message);
+    process.exit(1);
+  }
 }
 
 /**
