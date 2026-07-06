@@ -292,12 +292,7 @@ describe("prepareDeployBundle", () => {
   });
 
   test("jsonMode: a failing build command prints structured JSON and exits 1", async () => {
-    writeFixture({
-      "package.json": JSON.stringify({
-        name: "build-fails",
-        scripts: { build: "node -e \"process.exit(3)\"" },
-      }),
-    });
+    writeFixture({ "package.json": JSON.stringify({ name: "build-fails" }) });
 
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit called");
@@ -307,7 +302,9 @@ describe("prepareDeployBundle", () => {
     await expect(
       prepareDeployBundle({
         cwd,
-        resolved: baseConfig({ buildCommand: "npm run build" }),
+        // A direct command (not `npm run …`) runs via execSync as-is — no npm
+        // subprocess, matching this file's "avoid real build scripts" strategy.
+        resolved: baseConfig({ buildCommand: 'node -e "process.exit(3)"' }),
         skipBuild: false,
         jsonMode: true,
       }),
@@ -319,6 +316,38 @@ describe("prepareDeployBundle", () => {
 
     stdout.mockRestore();
     exitSpy.mockRestore();
+  });
+
+  // consola's start/success write to stdout in non-TTY; in jsonMode they must
+  // be suppressed so they don't precede and corrupt the final JSON payload.
+  test("jsonMode: suppresses consola progress so stdout stays JSON-only", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({
+        name: "spa",
+        dependencies: { react: "*", vite: "*" },
+      }),
+      "dist/index.html": "<!doctype html><html><body>spa</body></html>",
+      "dist/assets/app.js": "console.log('app')",
+    });
+
+    const startSpy = vi.spyOn(consola, "start").mockImplementation(() => undefined);
+    const successSpy = vi.spyOn(consola, "success").mockImplementation(() => undefined);
+    const infoSpy = vi.spyOn(consola, "info").mockImplementation(() => undefined);
+
+    await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react" }),
+      skipBuild: true,
+      jsonMode: true,
+    });
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(successSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+
+    startSpy.mockRestore();
+    successSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 
   test("framework auto-detection from package.json — no resolved.framework", async () => {
