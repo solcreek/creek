@@ -288,5 +288,137 @@ describe("detectMigrationDrift", () => {
       expect(drift.status).toBe("unknown");
       expect(driftWarning(drift)).toBeNull();
     });
+
+    // The evaluated DB is in sync, but a bound peer lags it — a single-DB
+    // check (or silently trusting the most-migrated DB) would miss this and
+    // the app would 500 if it queries the laggard.
+    it("warns when the evaluated DB is in sync but a bound peer lags", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      writeMigration("0003_more");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: ["0001_init", "0002_add", "0003_more"], // in sync
+            spare: ["0001_init"], // 2 behind
+          },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.databaseName).toBe("creek-real");
+      expect(drift.laggingDatabases).toEqual([{ name: "creek-spare", pending: 2 }]);
+      const warning = driftWarning(drift);
+      expect(warning).not.toBeNull();
+      expect(warning).toContain('Database "creek-real" is up to date');
+      expect(warning).toContain("creek-spare");
+      expect(warning).toContain("2 migrations behind");
+      expect(warning).toContain("500");
+    });
+
+    it("lists every lagging peer when several bound DBs are behind", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      writeMigration("0003_more");
+      const threeDbs = [
+        { resourceId: "a", kind: "database", name: "db-a" },
+        { resourceId: "b", kind: "database", name: "db-b" },
+        { resourceId: "c", kind: "database", name: "db-c" },
+      ];
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: threeDbs,
+          appliedByResource: {
+            a: ["0001_init", "0002_add", "0003_more"], // leader, in sync
+            b: ["0001_init", "0002_add"], // in use, 1 behind
+            c: ["0001_init"], // in use, 2 behind
+          },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.databaseName).toBe("db-a");
+      expect(drift.laggingDatabases).toEqual([
+        { name: "db-b", pending: 1 },
+        { name: "db-c", pending: 2 },
+      ]);
+      const warning = driftWarning(drift);
+      expect(warning).toContain("db-b");
+      expect(warning).toContain("db-c");
+      expect(warning).toContain("lag the schema");
+    });
+
+    // The B10 anti-phantom-warning premise must survive the lagging-peer
+    // warning: a pristine empty spare (0 applied) is treated as an idle spare,
+    // not a laggard, so it stays silent.
+    it("does not flag an empty (never-migrated) spare as a lagging peer", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: { real: ["0001_init", "0002_add"], spare: [] },
+        }),
+      });
+      expect(drift.status).toBe("in-sync");
+      expect(drift.laggingDatabases).toEqual([]);
+      expect(driftWarning(drift)).toBeNull();
+    });
+
+    // Copilot review: don't claim "most up-to-date of N bound databases" when
+    // some of those N were unreadable — we only compared the readable ones.
+    it("does not overclaim the DB count when a bound DB was unreadable", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: twoDbs,
+          appliedByResource: {
+            real: new Error("503 upstream unavailable"), // unreadable
+            spare: ["0001_init"], // readable, 1 pending
+          },
+        }),
+      });
+      expect(drift.status).toBe("pending");
+      expect(drift.databaseName).toBe("creek-spare");
+      expect(drift.databaseCount).toBe(2);
+      expect(drift.databasesEvaluated).toBe(1);
+      const warning = driftWarning(drift);
+      expect(warning).toContain("1 of 2 bound databases was readable");
+      expect(warning).not.toContain("most up-to-date of 2 bound databases");
+    });
+
+    it("says 'R readable of M bound' when more than one DB was readable but some weren't", async () => {
+      writeMigration("0001_init");
+      writeMigration("0002_add");
+      const threeDbs = [
+        { resourceId: "a", kind: "database", name: "db-a" },
+        { resourceId: "b", kind: "database", name: "db-b" },
+        { resourceId: "c", kind: "database", name: "db-c" },
+      ];
+      const drift = await detectMigrationDrift({
+        cwd: testDir,
+        projectSlug: "proj",
+        client: fakeClient({
+          bindings: threeDbs,
+          appliedByResource: {
+            a: ["0001_init"], // readable, 1 pending (leader)
+            b: [], // readable, 2 pending (laggard)
+            c: new Error("network"), // unreadable
+          },
+        }),
+      });
+      expect(drift.status).toBe("pending");
+      expect(drift.databaseCount).toBe(3);
+      expect(drift.databasesEvaluated).toBe(2);
+      expect(driftWarning(drift)).toContain("most up-to-date of 2 readable of 3 bound databases");
+    });
   });
 });

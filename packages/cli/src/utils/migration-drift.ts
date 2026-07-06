@@ -30,6 +30,18 @@ export interface MigrationDrift {
   databaseName: string | null;
   /** How many databases are bound to the project. */
   databaseCount: number;
+  /**
+   * How many of the bound databases were actually readable. Status is
+   * evaluated over these — an unreadable DB is skipped and could, in
+   * principle, be more up-to-date than the one reported.
+   */
+  databasesEvaluated: number;
+  /**
+   * Readable bound databases that lag the evaluated one, with their pending
+   * count. Non-empty means the bound databases disagree on applied migrations:
+   * if the app queries a laggard it 500s even when the reported DB is in sync.
+   */
+  laggingDatabases: Array<{ name: string; pending: number }>;
 }
 
 /** The slice of CreekClient this check needs — narrowed so tests can fake it. */
@@ -95,6 +107,8 @@ export async function detectMigrationDrift(opts: {
     total: 0,
     databaseName: null,
     databaseCount: 0,
+    databasesEvaluated: 0,
+    laggingDatabases: [],
   };
   if (!migrationDir) return base;
 
@@ -113,24 +127,44 @@ export async function detectMigrationDrift(opts: {
   base.databaseCount = dbs.length;
   if (dbs.length === 0) return { ...base, status: "no-database" };
 
-  // Evaluate each bound database, keeping the most up-to-date one — fewest
-  // pending migrations, breaking ties toward more applied. Unreadable
-  // databases are skipped; if every one is unreadable we degrade to "unknown".
-  let best: { name: string; applied: Set<string>; pending: string[] } | null = null;
+  // Read every bound database's applied state. Unreadable ones are skipped;
+  // if none are readable we degrade to "unknown".
+  const evaluated: Array<{ name: string; applied: Set<string>; pending: string[] }> = [];
   for (const db of dbs) {
     const appliedSet = await readAppliedSet(opts.client, db.resourceId);
     if (!appliedSet) continue;
-    const pending = computePending(files, appliedSet).map((f) => f.name);
+    evaluated.push({
+      name: db.name,
+      applied: appliedSet,
+      pending: computePending(files, appliedSet).map((f) => f.name),
+    });
+  }
+  if (evaluated.length === 0) return { ...base, status: "unknown" };
+  base.databasesEvaluated = evaluated.length;
+
+  // Report against the most up-to-date database — fewest pending migrations,
+  // breaking ties toward more applied.
+  let best = evaluated[0];
+  for (const e of evaluated.slice(1)) {
     if (
-      !best ||
-      pending.length < best.pending.length ||
-      (pending.length === best.pending.length && appliedSet.size > best.applied.size)
+      e.pending.length < best.pending.length ||
+      (e.pending.length === best.pending.length && e.applied.size > best.applied.size)
     ) {
-      best = { name: db.name, applied: appliedSet, pending };
+      best = e;
     }
   }
 
-  if (!best) return { ...base, status: "unknown" };
+  // A readable database that has applied SOME migrations but fewer than the
+  // leader is genuinely in use and lagging — if the app queries it, it 500s
+  // even when the reported database is in sync. We require applied > 0 so a
+  // pristine empty/never-migrated D1 (an idle spare — the B10 case) doesn't
+  // resurrect the phantom "pending" warning this whole check set out to kill.
+  // The empty spare and a lagging live DB are otherwise indistinguishable
+  // here; "has been migrated at all" is the best signal we have to tell them
+  // apart without knowing which DB the app queries at runtime.
+  const laggingDatabases = evaluated
+    .filter((e) => e !== best && e.applied.size > 0 && e.pending.length > best.pending.length)
+    .map((e) => ({ name: e.name, pending: e.pending.length }));
 
   return {
     ...base,
@@ -138,32 +172,69 @@ export async function detectMigrationDrift(opts: {
     pending: best.pending,
     applied: best.applied.size,
     databaseName: best.name,
+    laggingDatabases,
   };
 }
 
 /**
+ * Describe which database the status is about when several are bound, without
+ * overclaiming: status is only evaluated over the *readable* databases, so an
+ * unreadable one (skipped) could in principle be more up-to-date.
+ */
+function scopeSuffix(drift: MigrationDrift): string {
+  const { databaseCount, databasesEvaluated } = drift;
+  if (databaseCount <= 1) return "";
+  if (databasesEvaluated <= 1) {
+    // The others couldn't be read — don't claim "most up-to-date of N".
+    return ` (${databasesEvaluated} of ${databaseCount} bound databases was readable)`;
+  }
+  if (databasesEvaluated < databaseCount) {
+    return ` (most up-to-date of ${databasesEvaluated} readable of ${databaseCount} bound databases)`;
+  }
+  return ` (most up-to-date of ${databaseCount} bound databases)`;
+}
+
+/** "database \"x\" is 2 behind" / "databases \"x\" (2 behind), \"y\" (5 behind) lag". */
+function laggardClause(lagging: MigrationDrift["laggingDatabases"]): string {
+  if (lagging.length === 1) {
+    const l = lagging[0];
+    return `bound database "${l.name}" is ${l.pending} migration${l.pending === 1 ? "" : "s"} behind`;
+  }
+  const names = lagging.map((l) => `"${l.name}" (${l.pending} behind)`).join(", ");
+  return `bound databases ${names} lag the schema`;
+}
+
+/**
  * A one-line, actionable warning for a drift result — or null when there's
- * nothing worth saying (in sync, no migrations). The deploy command prints this
- * after a successful deploy so a lagging schema doesn't go unnoticed.
+ * nothing worth saying (in sync with no lagging peer, no migrations). The
+ * deploy command prints this after a successful deploy so a lagging schema
+ * doesn't go unnoticed.
  */
 export function driftWarning(drift: MigrationDrift): string | null {
+  const lagging = drift.laggingDatabases;
   switch (drift.status) {
     case "pending": {
       const db = drift.databaseName ?? "<db>";
       const n = drift.pending.length;
-      // When several DBs are bound, say which one this status is about — it's
-      // the most up-to-date of them, so the user knows it's not a phantom
-      // count against an empty spare.
-      const scope =
-        drift.databaseCount > 1
-          ? ` (most up-to-date of ${drift.databaseCount} bound databases)`
-          : "";
-      return `${n} migration${n === 1 ? "" : "s"} not yet applied to database "${db}"${scope}. Deploy does not apply migrations — run \`creek db migrate ${db}\` or your DB lags the code (e.g. D1_ERROR: no such column).`;
+      let msg = `${n} migration${n === 1 ? "" : "s"} not yet applied to database "${db}"${scopeSuffix(drift)}. Deploy does not apply migrations — run \`creek db migrate ${db}\` or your DB lags the code (e.g. D1_ERROR: no such column).`;
+      // Other bound DBs even further behind are worth naming too.
+      if (lagging.length > 0) {
+        msg += ` Also, ${laggardClause(lagging)} — run \`creek db migrate\` on ${lagging.length === 1 ? "it" : "each"}.`;
+      }
+      return msg;
     }
+    case "in-sync":
+      // The most up-to-date DB is current, but a bound peer lags it — if the
+      // app queries that peer it 500s. This is the signal a single-DB check
+      // (or picking the most-migrated DB and staying silent) would miss.
+      if (lagging.length > 0) {
+        const db = drift.databaseName ?? "<db>";
+        return `Database "${db}" is up to date, but ${laggardClause(lagging)}. Deploy does not apply migrations — if your app queries a lagging database it will 500 (D1_ERROR: no such column); run \`creek db migrate\` on ${lagging.length === 1 ? "it" : "each"}.`;
+      }
+      return null;
     case "no-database":
       return `Local migrations found but no database is bound to this project. Run \`creek db attach\` and \`creek db migrate\` so the schema matches your code.`;
     case "unknown":
-    case "in-sync":
     case "no-migrations":
       return null;
   }
