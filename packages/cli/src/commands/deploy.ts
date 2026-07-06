@@ -1783,8 +1783,24 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
             rollbackCommand: `creek rollback --project ${project.slug}`,
             ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
-            ...(drift && drift.status === "pending"
-              ? { migrations: { status: drift.status, pending: drift.pending } }
+            ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
+              ? {
+                  migrations: {
+                    status: drift.status,
+                    pending: drift.pending,
+                    // Name the evaluated DB (and how many are bound / were
+                    // readable) so a multi-D1 project can tell which database
+                    // the status is for rather than guessing.
+                    database: drift.databaseName,
+                    databaseCount: drift.databaseCount,
+                    databasesEvaluated: drift.databasesEvaluated,
+                    // Bound DBs behind the evaluated one — a lagging peer 500s
+                    // the app even when the reported DB is in sync.
+                    ...(drift.laggingDatabases.length > 0
+                      ? { lagging: drift.laggingDatabases }
+                      : {}),
+                  },
+                }
               : {}),
           }, 0, [
             { command: `creek status`, description: "Check deployment status" },
