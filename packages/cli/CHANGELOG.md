@@ -157,6 +157,93 @@ Day-2 operations:
   stdout with a non-zero exit under `--json` or in non-interactive use,
   instead of printing usage text that breaks JSON parsing.
 
+## 0.4.35
+
+### Sandbox
+
+- **Sandbox previews seed their ephemeral D1 with your migrations.** A
+  `--sandbox` deploy now ships the project's migrations in the bundle and
+  applies them to the throwaway database, so a preview reflects your current
+  schema instead of an empty one.
+
+## 0.4.34
+
+### Sandbox
+
+- **Wider deploy windows for asset-heavy apps.** Raised the sandbox
+  deploy/activation timeouts so a project with many static assets isn't killed
+  mid-upload.
+
+## 0.4.33
+
+### Deploy
+
+- **Large sandbox uploads are compressed and given more time.** Bundle uploads
+  to a sandbox are gzipped and the activation poll timeout was raised, fixing
+  the deterministic "Sandbox deploy timed out" on asset-heavy projects.
+
+## 0.4.32
+
+### Next.js
+
+- **Requires adapter ≥ 0.2.12**, which forces the fix that never scans a stale
+  `.next/dev` build into the worker bundle (the cause of a multi-hundred-MB
+  `worker.js` and "Payload Too Large" at upload).
+- **Prisma is detected from your declared dependencies**, not module
+  resolution, so the Prisma-on-D1 build path fires reliably.
+
+## 0.4.31
+
+### Next.js
+
+- **Only reuses a cached adapter ≥ 0.2.10** from `.creek`, so a stale
+  lazily-installed adapter can't slip through and produce an oversized worker.
+
+## 0.4.30
+
+### Deploy
+
+- **Database preflight before deploy.** Deploy generates the Prisma client
+  automatically and runs a database preflight, so schema/client problems
+  surface before the upload instead of as a runtime error afterward.
+
+## 0.4.29
+
+### Migrations
+
+- **`creek db migrate` detects Prisma's nested layout**
+  (`prisma/migrations/<name>/migration.sql`), not just flat `.sql` files.
+
+## 0.4.28
+
+### Next.js
+
+- **Lazily installs `@prisma/adapter-d1`** for Prisma-on-D1 builds, so you
+  don't have to add it by hand.
+
+## 0.4.27
+
+### Next.js
+
+- **Deploys with the compatibility date/flags the adapter declared**, instead
+  of a hardcoded default that could drift from what the worker was built
+  against.
+
+## 0.4.26
+
+### Next.js
+
+- **The adapter build completes under the lazy install.** Fixed the worker
+  bundling step that couldn't find `wrangler` when npm hoisted it to the top of
+  `.creek/node_modules`.
+
+## 0.4.25
+
+### Next.js
+
+- **Forces adapter ≥ 0.2.1 and invalidates stale `.creek` installs**, so a
+  cached older adapter can't break the build.
+
 ## 0.4.24
 
 ### Fixes / DX
