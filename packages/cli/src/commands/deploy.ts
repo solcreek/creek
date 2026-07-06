@@ -2095,17 +2095,42 @@ async function tryTurboDeploy(
           consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
           return true;
         }
-        // Failed — don't fall back to normal build (server already tried)
-        if (!jsonMode) consola.error(`  Deploy from cache failed: ${status.deployment.error_message || "unknown"}`);
-        return true; // return true to prevent double-deploy attempt
+        // Failed — the server already tried, so don't fall back to a local
+        // build. This is a terminal failure: exit non-zero (and emit
+        // structured JSON) rather than returning "handled", which would let
+        // the caller return and exit 0 — a failed deploy reading as success.
+        const errMsg = status.deployment.error_message || "unknown";
+        if (jsonMode) {
+          jsonOutput({
+            ok: false,
+            error: "deploy_failed",
+            message: `Deploy from cache failed: ${errMsg}`,
+            deploymentId: res.deployment.id,
+            project: project.slug,
+          }, 1, []);
+        }
+        consola.error(`  Deploy from cache failed: ${errMsg}`);
+        process.exit(1);
       }
 
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
     }
 
-    // Timeout — deploy might still complete, but CLI gives up waiting
-    if (!jsonMode) consola.warn("  Cache deploy timed out — check `creek status`");
-    return true;
+    // Timeout — the CLI gave up waiting; the deploy may still complete, but we
+    // can't confirm success. Treat like the non-turbo poll timeout: structured
+    // JSON + non-zero exit so automation doesn't read an unconfirmed deploy as
+    // a green success.
+    if (jsonMode) {
+      jsonOutput({
+        ok: false,
+        error: "timeout",
+        message: "Cache deploy timed out; the deploy may still be in progress. Check `creek status`.",
+        deploymentId: res.deployment.id,
+        project: project.slug,
+      }, 1, []);
+    }
+    consola.warn("  Cache deploy timed out — check `creek status`");
+    process.exit(1);
   } catch {
     // API error — fall through to normal build
     return false;
