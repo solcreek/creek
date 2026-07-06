@@ -4,7 +4,7 @@ import { setQueueConsumer } from "../resources/cloudflare.js";
 import { deployWithAssets } from "./deploy.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
-import { storeBuildLog } from "../build-logs/storage.js";
+import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 import type { BuildLogLine, BuildLogLevel, BuildLogStep, BuildLogStatus } from "../build-logs/types.js";
 
@@ -80,22 +80,19 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       throw new StepError("uploading", "Bundle not found in staging");
     }
 
-    const bundle: StagedBundle = JSON.parse(await bundleObj.text());
-    log(
-      "upload",
-      "info",
-      `Bundle read: ${Object.keys(bundle.assets).length} asset(s)` +
-        (bundle.serverFiles ? `, ${Object.keys(bundle.serverFiles).length} server file(s)` : ""),
-    );
-
-    // Decode assets from base64 to ArrayBuffer
-    const decodedClientAssets: Record<string, ArrayBuffer> = {};
-    for (const [path, b64] of Object.entries(bundle.assets)) {
-      decodedClientAssets[path] = base64ToArrayBuffer(b64);
-    }
-
-    const decodedServerFiles: Record<string, ArrayBuffer> | undefined =
-      bundle.serverFiles
+    // Parse + base64-decode the bundle. A malformed bundle (bad JSON, invalid
+    // base64) is an "uploading"-stage failure — attribute it there rather than
+    // letting it fall through to the outer catch's default "deploying" step.
+    let bundle: StagedBundle;
+    let decodedClientAssets: Record<string, ArrayBuffer>;
+    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
+    try {
+      bundle = JSON.parse(await bundleObj.text());
+      decodedClientAssets = {};
+      for (const [path, b64] of Object.entries(bundle.assets)) {
+        decodedClientAssets[path] = base64ToArrayBuffer(b64);
+      }
+      decodedServerFiles = bundle.serverFiles
         ? Object.fromEntries(
             Object.entries(bundle.serverFiles).map(([path, b64]) => [
               path,
@@ -103,6 +100,16 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
             ]),
           )
         : undefined;
+    } catch (err) {
+      throw new StepError("uploading", `Malformed bundle: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    log(
+      "upload",
+      "info",
+      `Bundle read: ${Object.keys(bundle.assets).length} asset(s)` +
+        (bundle.serverFiles ? `, ${Object.keys(bundle.serverFiles).length} server file(s)` : ""),
+    );
 
     const renderMode = bundle.manifest.renderMode ?? "spa";
 
@@ -266,10 +273,12 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
   } catch (err) {
     const step = err instanceof StepError ? err.step : "deploying";
     const message = err instanceof Error ? err.message : "Unknown error";
-    await failDeployment(env, deploymentId, step, message);
+    // Record the failure into the log/outcome FIRST, so the finally persists
+    // the real failure even if failDeployment's DB write itself throws.
     const code = classifyDeployFailure(step, message).code;
     log(stepToBuildLogStep(step), "error", message, code);
     outcome = { status: "failed", errorStep: step, errorCode: code };
+    await failDeployment(env, deploymentId, step, message);
   } finally {
     await persistDeployLog(env, input, {
       startedAt,
@@ -299,12 +308,12 @@ function stepToBuildLogStep(step: string): BuildLogStep {
  * Persist the accumulated deploy-stage log so `creek deployments logs` can show
  * what the server did — not just the deployment row's one-line error.
  *
- * Best-effort and, crucially, SKIP-IF-ABSENT: the build_log row is keyed by
- * deploymentId and storeBuildLog upserts, but the CLI and remote-builder also
- * upload their own (richer, build-stage) logs for the same deployment. Writing
- * unconditionally would clobber those. We only fill the gap when nothing else
- * has — i.e. GitHub-push deploys and CLI deploys where the client already
- * disconnected, which is exactly the case B2 is about. Never throws.
+ * Best-effort and, crucially, no-clobber: the build_log row is keyed by
+ * deploymentId, but the CLI and remote-builder also upload their own (richer,
+ * build-stage) logs for the same deployment. storeBuildLogIfAbsent claims the
+ * row atomically and only writes when nothing else has — i.e. GitHub-push
+ * deploys and CLI deploys where the client already disconnected, which is
+ * exactly the case B2 is about. Never throws.
  */
 async function persistDeployLog(
   env: Env,
@@ -319,13 +328,10 @@ async function persistDeployLog(
 ): Promise<void> {
   if (!env.LOGS_BUCKET) return; // logs are optional infra
   try {
-    const existing = await env.DB.prepare("SELECT 1 FROM build_log WHERE deploymentId = ?")
-      .bind(input.deploymentId)
-      .first();
-    if (existing) return; // a client/remote-builder log already covers this deploy
-
     const body = opts.lines.length ? opts.lines.map((l) => JSON.stringify(l)).join("\n") + "\n" : "";
-    await storeBuildLog(env, {
+    // Atomic no-clobber: only writes if no client/remote-builder log already
+    // owns this deployment (they carry the richer build-stage log).
+    await storeBuildLogIfAbsent(env, {
       team: input.teamSlug,
       project: input.projectSlug,
       deploymentId: input.deploymentId,

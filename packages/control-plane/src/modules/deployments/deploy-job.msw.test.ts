@@ -208,6 +208,19 @@ describe("runDeployJob deploy-stage logging (B2)", () => {
     expect(errorLine?.msg).toContain("namespace boom");
   });
 
+  it("attributes a malformed bundle to the uploading step, not deploying", async () => {
+    // Invalid JSON in staging — the failure belongs to the upload stage.
+    await testEnv.env.ASSETS.put("bundles/dep-1.json", "{ not valid json");
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().failedStep).toBe("uploading");
+    const row = buildLogRow();
+    expect(row?.status).toBe("failed");
+    expect(row?.errorStep).toBe("uploading");
+    const errorLine = (await readLogEntries()).find((e) => e.level === "error");
+    expect(errorLine?.step).toBe("upload");
+  });
+
   it("does not clobber an existing client/remote-builder build log", async () => {
     // Simulate a build_log row the CLI/remote-builder already uploaded.
     testEnv.db.db.exec(
