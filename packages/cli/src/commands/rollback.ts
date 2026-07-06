@@ -5,22 +5,13 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { resolveProjectSlug } from "../utils/command-context.js";
 import { CreekdClient, CreekdResourceVersionMismatchError, type Release } from "../utils/creekd-client.js";
 import { readHosts, findHost } from "../utils/hosts.js";
 import {
   cachedResourceVersion,
   recordLastDeploy,
 } from "../utils/local-cache.js";
-
-function getProjectSlug(args?: { project?: string }): string {
-  if (args?.project) return args.project;
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    consola.error("No creek.toml found. Use --project <slug> or run from a project directory.");
-    process.exit(1);
-  }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-}
 
 export const rollbackCommand = defineCommand({
   meta: {
@@ -88,7 +79,7 @@ export const rollbackCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = getProjectSlug(args as { project?: string });
+    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
     const client = new CreekClient(getApiUrl(), token);
 
     const deploymentId = args.deployment as string | undefined;

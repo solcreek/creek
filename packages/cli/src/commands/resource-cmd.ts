@@ -17,6 +17,7 @@ import {
   jsonOutput,
   AUTH_BREADCRUMBS,
 } from "../utils/output.js";
+import { apiCall } from "../utils/command-context.js";
 
 interface Resource {
   id: string;
@@ -69,7 +70,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const token = requireToken(jsonMode);
       const client = new CreekClient(getApiUrl(), token);
 
-      const { resources } = await client.listResources();
+      const { resources } = await apiCall(jsonMode, "api_error", () => client.listResources());
       const filtered = resources.filter((r) => r.kind === kind);
 
       if (jsonMode) jsonOutput({ ok: true, [kind === "database" ? "databases" : kind]: filtered }, 0);

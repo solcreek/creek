@@ -1,28 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
-import { getToken, getApiUrl } from "../utils/config.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
-
-function getProjectSlug(): string {
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    consola.error("No creek.toml found. Run `creek init` first.");
-    process.exit(1);
-  }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-}
-
-function getClient(): CreekClient {
-  const token = getToken();
-  if (!token) {
-    consola.error("Not authenticated. Run `creek login` first.");
-    process.exit(1);
-  }
-  return new CreekClient(getApiUrl(), token);
-}
+import { requireClient, resolveProjectSlug } from "../utils/command-context.js";
 
 const queueSend = defineCommand({
   meta: { name: "send", description: "Send a message to the project's queue" },
@@ -46,8 +25,8 @@ const queueSend = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = (args.project as string | undefined) ?? getProjectSlug();
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project as string | undefined, jsonMode);
 
     let payload: unknown = args.message;
     if (args.parseJson) {

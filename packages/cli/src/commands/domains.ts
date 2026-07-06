@@ -1,33 +1,12 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
-import { getToken, getApiUrl } from "../utils/config.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-
-function getProjectSlug(args?: { project?: string }): string {
-  if (args?.project) return args.project;
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    consola.error("No creek.toml found. Use --project <slug> or run from a project directory.");
-    process.exit(1);
-  }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-}
+import { CreekClient } from "@solcreek/sdk";
+import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
+import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
 
 const projectArg = {
   project: { type: "string" as const, description: "Project slug (default: from creek.toml)" },
 };
-
-function getClient(): CreekClient {
-  const token = getToken();
-  if (!token) {
-    consola.error("Not authenticated. Run `creek login` first.");
-    process.exit(1);
-  }
-  return new CreekClient(getApiUrl(), token);
-}
 
 const domainsLs = defineCommand({
   meta: { name: "ls", description: "List custom domains" },
@@ -37,9 +16,9 @@ const domainsLs = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug(args);
-    const domains = await client.listDomains(slug);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project, jsonMode);
+    const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
 
     if (jsonMode) {
       jsonOutput({ ok: true, project: slug, domains }, 0, [
@@ -72,10 +51,10 @@ const domainsAdd = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug(args);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project, jsonMode);
 
-    const result = await client.addDomain(slug, args.hostname);
+    const result = await apiCall(jsonMode, "add_failed", () => client.addDomain(slug, args.hostname));
     const { domain, verification, idempotent } = result;
 
     if (jsonMode) {
@@ -110,9 +89,21 @@ const domainsAdd = defineCommand({
   },
 });
 
-async function resolveDomain(client: CreekClient, slug: string, hostname: string) {
-  const domains = await client.listDomains(slug);
+async function resolveDomain(client: CreekClient, slug: string, hostname: string, jsonMode: boolean) {
+  const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
   return domains.find((d) => d.hostname === hostname.toLowerCase());
+}
+
+/** Emit a structured `not_found` (JSON mode) or human error, then exit 1. */
+function domainNotFound(hostname: string, slug: string, jsonMode: boolean): never {
+  const message = `Domain "${hostname}" not found.`;
+  if (jsonMode) {
+    jsonOutput({ ok: false, error: "not_found", hostname, project: slug, message }, 1, [
+      { command: `creek domains ls --project ${slug}`, description: "List configured domains" },
+    ]);
+  }
+  consola.error(message);
+  process.exit(1);
 }
 
 const domainsShow = defineCommand({
@@ -124,19 +115,16 @@ const domainsShow = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug(args);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project, jsonMode);
 
-    const found = await resolveDomain(client, slug, args.hostname);
-    if (!found) {
-      consola.error(`Domain "${args.hostname}" not found.`);
-      process.exit(1);
-    }
+    const found = await resolveDomain(client, slug, args.hostname, jsonMode);
+    if (!found) domainNotFound(args.hostname, slug, jsonMode);
 
     // getDomain refreshes status from the edge and always returns the DNS
     // instruction — the records are retrievable here any time, not only in the
     // one-time `add` output.
-    const detail = await client.getDomain(slug, found.id);
+    const detail = await apiCall(jsonMode, "api_error", () => client.getDomain(slug, found.id));
 
     if (jsonMode) {
       jsonOutput({ ok: true, project: slug, domain: detail, dns: detail.dns }, 0, [
@@ -167,16 +155,13 @@ const domainsRm = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug(args);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project, jsonMode);
 
-    const domain = await resolveDomain(client, slug, args.hostname);
-    if (!domain) {
-      consola.error(`Domain "${args.hostname}" not found.`);
-      process.exit(1);
-    }
+    const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
+    if (!domain) domainNotFound(args.hostname, slug, jsonMode);
 
-    await client.deleteDomain(slug, domain.id);
+    await apiCall(jsonMode, "delete_failed", () => client.deleteDomain(slug, domain.id));
 
     if (jsonMode) {
       jsonOutput({ ok: true, hostname: domain.hostname, removed: true, project: slug }, 0, [
@@ -198,14 +183,11 @@ const domainsActivate = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const client = getClient();
-    const slug = getProjectSlug(args);
+    const client = requireClient(jsonMode);
+    const slug = resolveProjectSlug(args.project, jsonMode);
 
-    const domain = await resolveDomain(client, slug, args.hostname);
-    if (!domain) {
-      consola.error(`Domain "${args.hostname}" not found.`);
-      process.exit(1);
-    }
+    const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
+    if (!domain) domainNotFound(args.hostname, slug, jsonMode);
 
     if (domain.status === "active") {
       if (jsonMode) {
@@ -216,7 +198,7 @@ const domainsActivate = defineCommand({
       return;
     }
 
-    const result = await client.activateDomain(slug, domain.id);
+    const result = await apiCall(jsonMode, "activate_failed", () => client.activateDomain(slug, domain.id));
 
     // Honest activate: only report success when the edge confirms the hostname.
     // pending_dns means DNS isn't resolving yet — surface it as a non-success

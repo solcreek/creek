@@ -21,6 +21,8 @@ const subs = domainsCommand.subCommands as Record<string, Sub>;
 const showCmd = subs.show;
 const activateCmd = subs.activate;
 const addCmd = subs.add;
+const lsCmd = subs.ls;
+const rmCmd = subs.rm;
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -167,6 +169,43 @@ describe("creek domains activate", () => {
 
     expect(code).toBe(0);
     expect(json()).toMatchObject({ ok: true, status: "active", manual: true });
+  });
+});
+
+// Every command must emit structured JSON (not human text) on the common
+// failure states, so a script/agent parsing stdout gets a machine-readable
+// error instead of a JSON.parse failure.
+describe("creek domains structured errors (JSON mode)", () => {
+  it("emits not_authenticated when there is no token", async () => {
+    // Empty (not deleted) so getToken doesn't fall back to a real ~/.creek
+    // config on the dev machine; requireClient's `!token` check still fires.
+    process.env.CREEK_TOKEN = "";
+    const code = await runExit(lsCmd.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_authenticated" });
+  });
+
+  it("emits no_project when there is no creek.toml and no --project", async () => {
+    rmSync(join(testDir, "creek.toml"));
+    const code = await runExit(lsCmd.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "no_project" });
+  });
+
+  it("emits api_error when the API call fails", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/domains`, () => new HttpResponse(null, { status: 500 })),
+    );
+    const code = await runExit(lsCmd.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "api_error" });
+  });
+
+  it("emits a structured not_found when removing a hostname that isn't on the project", async () => {
+    server.use(listHandler("pending"));
+    const code = await runExit(rmCmd.run!({ args: { hostname: "nope.example.com" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_found", hostname: "nope.example.com" });
   });
 });
 
