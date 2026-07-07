@@ -259,6 +259,26 @@ async function deployScriptWithAssets(
       throw err;
     }
   }
+
+  // Enable Workers Logs on the tenant script via the SETTINGS endpoint. WfP
+  // silently ignores `observability` in the per-script upload metadata (a fresh
+  // script comes back with observability=null), but a settings PATCH is
+  // honored — so the tenant worker's own invocation + console logs become
+  // queryable per-script (dashboard / Logpush / API), not just via the dispatch
+  // worker's tail consumer. Best-effort: observability must never fail a deploy,
+  // but log why it didn't stick so a broken enablement is visible.
+  try {
+    const settingsForm = new FormData();
+    settingsForm.append(
+      "settings",
+      new Blob([JSON.stringify({ observability: { enabled: true, head_sampling_rate: 1 } })], {
+        type: "application/json",
+      }),
+    );
+    await cfApi(env, "PATCH", `${path}/settings`, settingsForm);
+  } catch (err: any) {
+    console.warn(`[creek] observability enable failed for ${scriptName}:`, err?.message ?? String(err));
+  }
 }
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {

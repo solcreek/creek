@@ -159,8 +159,10 @@ export async function deployScriptWithAssets(
       }),
     );
     await cfApi(env, "PATCH", `${path}/settings`, settingsForm);
-  } catch {
-    // never block a deploy on observability
+  } catch (err) {
+    // never block a deploy on observability — but log why it didn't stick,
+    // so a broken enablement is visible instead of silently absent.
+    console.warn(`[creek] observability enable failed for ${scriptName}:`, err instanceof Error ? err.message : String(err));
   }
 }
 
