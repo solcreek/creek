@@ -231,9 +231,12 @@ const PRISMA_D1_PKG = "@prisma/adapter-d1";
 //   0.2.10 — oversized-bundle fail-fast
 //   0.2.12 — never scan stale `.next/dev` (else a leftover dev build inflates
 //            the worker by orders of magnitude — a real deploy hit 202MB)
+//   0.2.14 — skip 0.2.13, whose default-on minify broke Prisma driver-adapter
+//            apps at runtime ("PrismaD1 is not a constructor"); reject a cached
+//            0.2.13 so a deploy pulls the fixed build instead of reusing it
 // Kept at the latest because the reinstall cost is trivial and a cached copy
 // in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
-const ADAPTER_MIN_VERSION = "0.2.12";
+const ADAPTER_MIN_VERSION = "0.2.14";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
