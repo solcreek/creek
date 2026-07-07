@@ -4,7 +4,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "oxlint && turbo lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "turbo typecheck",
