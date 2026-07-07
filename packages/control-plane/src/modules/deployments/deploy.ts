@@ -1,5 +1,11 @@
 import type { Env } from "../../types.js";
 import type { WfPBinding } from "../resources/service.js";
+// Single source of truth for the low-level WfP script deploy (upload metadata,
+// migration-tag retry, observability enablement). Previously this file kept its
+// own diverged copy — a fix to one (e.g. the observability settings PATCH)
+// silently missed the other. deploy-job.msw.test.ts asserts the observability
+// call so a future divergence fails CI.
+import { deployScriptWithAssets } from "@solcreek/deploy-core";
 
 /** Map file extension to CF Workers module type */
 function workerModuleType(name: string): string {
@@ -140,21 +146,6 @@ async function uploadAssetFiles(
   return completionJwt;
 }
 
-/** Step 3: Deploy worker script with assets completion JWT, tags, and bindings */
-/** Durable Object bindings required by @opennextjs/cloudflare for ISR/cache */
-const NEXTJS_DO_BINDINGS: WfPBinding[] = [
-  { type: "durable_object_namespace", name: "NEXT_CACHE_DO_QUEUE", class_name: "DOQueueHandler" },
-  { type: "durable_object_namespace", name: "NEXT_TAG_CACHE_DO_SHARDED", class_name: "DOShardedTagCache" },
-  { type: "durable_object_namespace", name: "NEXT_CACHE_DO_BUCKET_PURGE", class_name: "BucketCachePurge" },
-] as any[];
-
-/**
- * DO migrations for Next.js SSR.
- * First deploy uses new_tag + new_sqlite_classes.
- * Subsequent deploys just reference the tag (no new_sqlite_classes).
- */
-const NEXTJS_DO_MIGRATION_TAG = "v1";
-
 /**
  * Resolve the Worker compat date/flags for a deploy. The bundle is preferred
  * (the Creek adapter records the exact date/flags it built against in its
@@ -180,105 +171,6 @@ export function resolveDeployCompat(
     compatibility_date: compatibilityDate ?? (isNext ? "2026-03-28" : "2025-03-14"),
     compatibility_flags: compatibilityFlags?.length ? compatibilityFlags : ["nodejs_compat"],
   };
-}
-
-async function deployScriptWithAssets(
-  env: Env,
-  scriptName: string,
-  workerFiles: File[],
-  mainModule: string,
-  completionJwt: string,
-  tags: string[],
-  bindings: WfPBinding[],
-  assetsConfig?: Record<string, unknown>,
-  compatibilityDate?: string,
-  compatibilityFlags?: string[],
-  framework?: string | null,
-  cronSchedules?: string[],
-): Promise<void> {
-  const path = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/dispatch/namespaces/${env.DISPATCH_NAMESPACE}/scripts/${scriptName}`;
-
-  // Auto-inject Next.js DO bindings for ISR/cache support
-  const allBindings = framework === "nextjs"
-    ? [...bindings, ...NEXTJS_DO_BINDINGS]
-    : bindings;
-
-  const compat = resolveDeployCompat(framework, compatibilityDate, compatibilityFlags);
-
-  const metadata: Record<string, unknown> = {
-    main_module: mainModule,
-    compatibility_date: compat.compatibility_date,
-    compatibility_flags: compat.compatibility_flags,
-    tags,
-    bindings: allBindings,
-    assets: {
-      jwt: completionJwt,
-      config: assetsConfig ?? {},
-    },
-  };
-
-  // DO migrations for Next.js SSR.
-  // Check if this script already has the migration applied (migration_tag == v1).
-  // If not, send full migration. If yes, just set the tag.
-  if (framework === "nextjs") {
-    // For WfP scripts, we can't easily query the current migration_tag.
-    // Use a simple approach: always send migrations with new_tag.
-    // CF will reject if tag already matches, so we catch and retry with tag-only.
-    metadata.migrations = {
-      new_tag: NEXTJS_DO_MIGRATION_TAG,
-      new_sqlite_classes: ["DOQueueHandler", "DOShardedTagCache", "BucketCachePurge"],
-    };
-  }
-
-  if (cronSchedules && cronSchedules.length > 0) {
-    metadata.triggers = { crons: cronSchedules };
-  }
-
-  async function attemptDeploy(meta: Record<string, unknown>): Promise<void> {
-    const form = new FormData();
-    form.append(
-      "metadata",
-      new Blob([JSON.stringify(meta)], { type: "application/json" }),
-    );
-    for (const file of workerFiles) {
-      form.append(file.name, file);
-    }
-    await cfApi(env, "PUT", path, form);
-  }
-
-  try {
-    await attemptDeploy(metadata);
-  } catch (err: any) {
-    // Handle DO migration tag mismatch — retry with matching old_tag
-    if (framework === "nextjs" && err?.message?.includes("migration tag precondition failed")) {
-      // Script already has the migration applied. Remove migrations, just set tag.
-      delete metadata.migrations;
-      metadata.migration_tag = NEXTJS_DO_MIGRATION_TAG;
-      await attemptDeploy(metadata);
-    } else {
-      throw err;
-    }
-  }
-
-  // Enable Workers Logs on the tenant script via the SETTINGS endpoint. WfP
-  // silently ignores `observability` in the per-script upload metadata (a fresh
-  // script comes back with observability=null), but a settings PATCH is
-  // honored — so the tenant worker's own invocation + console logs become
-  // queryable per-script (dashboard / Logpush / API), not just via the dispatch
-  // worker's tail consumer. Best-effort: observability must never fail a deploy,
-  // but log why it didn't stick so a broken enablement is visible.
-  try {
-    const settingsForm = new FormData();
-    settingsForm.append(
-      "settings",
-      new Blob([JSON.stringify({ observability: { enabled: true, head_sampling_rate: 1 } })], {
-        type: "application/json",
-      }),
-    );
-    await cfApi(env, "PATCH", `${path}/settings`, settingsForm);
-  } catch (err: any) {
-    console.warn(`[creek] observability enable failed for ${scriptName}:`, err?.message ?? String(err));
-  }
 }
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -460,10 +352,10 @@ export default {
       tags,
       input.bindings,
       assetsConfig,
+      isProduction ? input.cronSchedules : undefined,
       input.compatibilityDate,
       input.compatibilityFlags,
       input.framework,
-      isProduction ? input.cronSchedules : undefined,
     );
   }
 }
