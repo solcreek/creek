@@ -1,5 +1,16 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { ensureProjectBindings } from "./service.js";
+
+// Mock CF provisioning so the auto-create fall-through (used by the type-
+// mismatch test) doesn't hit the network. Other tests avoid auto-create, so
+// these are never called there.
+vi.mock("./cloudflare.js", () => ({
+  provisionCFResource: vi.fn(async (_env: unknown, cfType: string) => `new-${cfType}-id`),
+  findExistingCFResource: vi.fn(async () => null),
+  createQueue: vi.fn(),
+  getQueue: vi.fn(),
+  setQueueConsumer: vi.fn(),
+}));
 
 type Row = {
   bindingName: string;
@@ -101,6 +112,61 @@ describe("ensureProjectBindings — server attachment merge", () => {
     ]);
 
     expect(result.get("CACHE")?.cfType).toBe("kv");
+  });
+
+  test("adopts a legacy DB alias's resource under the DATABASE primary (no new empty D1)", async () => {
+    // The project was first deployed under the old name: only DB is bound, and
+    // it holds the data. A deploy now requires the new primary DATABASE. The
+    // primary must adopt the existing DB resource, NOT provision a fresh empty
+    // one (which would split the app across two databases). If the fix didn't
+    // fire, the auto-create path (CF provisioning is mocked at the top) would
+    // yield a different resource id, so the assertion below would fail.
+    const env = envWithBindings([
+      { bindingName: "DB", resourceId: "res-db", kind: "database", cfResourceId: "d1-full", cfResourceType: "d1" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    expect(result.get("DATABASE")).toEqual({
+      bindingName: "DATABASE",
+      cfResourceId: "d1-full",
+      cfType: "d1",
+    });
+  });
+
+  test("does NOT adopt an alias whose resource type mismatches the requirement", async () => {
+    // A user named an R2 bucket "DB" (e.g. `creek storage attach --as DB`). A
+    // DATABASE (d1) requirement must NOT adopt it — that would silently bind
+    // DATABASE to R2. It falls through to auto-create a real d1 instead.
+    const env = envWithBindings([
+      { bindingName: "DB", resourceId: "res-r2", kind: "storage", cfResourceId: "r2-bucket", cfResourceType: "r2" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    // DATABASE is a freshly-provisioned d1, NOT the R2 bucket.
+    expect(result.get("DATABASE")?.cfType).toBe("d1");
+    expect(result.get("DATABASE")?.cfResourceId).toBe("new-d1-id");
+  });
+
+  test("adopts a legacy KV alias's resource under the CACHE primary", async () => {
+    const env = envWithBindings([
+      { bindingName: "KV", resourceId: "res-kv", kind: "cache", cfResourceId: "kv-full", cfResourceType: "kv" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "kv", bindingName: "CACHE" },
+    ]);
+
+    expect(result.get("CACHE")).toEqual({
+      bindingName: "CACHE",
+      cfResourceId: "kv-full",
+      cfType: "kv",
+    });
   });
 
   test("a config requirement and a separate attachment both resolve", async () => {

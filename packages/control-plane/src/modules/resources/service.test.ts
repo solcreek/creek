@@ -66,8 +66,11 @@ describe("buildBindings — deprecated aliases", () => {
   });
 
   test("an alias yields to a primary binding of the same name (no duplicate env name)", () => {
-    // Project has a DATABASE binding and a separate legacy DB binding. DATABASE's
-    // deprecated alias is also DB — emit DB once, with the legacy primary winning.
+    // Defensive: buildBindings emits whatever resolvedBindings it's given. A
+    // split state (DATABASE + DB bound to different resources) should no longer
+    // arise — ensureProjectBindings now adopts an existing DB under DATABASE
+    // instead of provisioning a second empty D1 (see service.ensure.test.ts).
+    // But if it ever did, buildBindings must still emit DB once without a crash.
     const bindings = buildBindings(
       resolved([
         { bindingName: "DATABASE", cfResourceId: "d1-new", cfType: "d1" },
