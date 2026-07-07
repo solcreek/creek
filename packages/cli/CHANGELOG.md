@@ -1,5 +1,19 @@
 # @solcreek/cli
 
+## 0.4.40
+
+### Next.js
+
+- **Skips the broken adapter 0.2.13.** `@solcreek/adapter-creek@0.2.13`
+  shipped worker minification on by default, which broke Prisma
+  driver-adapter apps at runtime (`PrismaD1 is not a constructor`) — every
+  D1-backed page, including Better Auth's session lookup, 500'd. The CLI now
+  requires adapter ≥ 0.2.14 and force-reinstalls a cached 0.2.13, so a deploy
+  pulls the fixed build (0.2.14, minify off by default) instead of reusing the
+  broken one. If you're stuck on 0.2.13, upgrade the CLI and redeploy — or, to
+  fix it without a CLI upgrade, remove `.creek/node_modules` so the next deploy
+  reinstalls the adapter.
+
 ## 0.4.39
 
 ### Agent- & CI-friendly failures

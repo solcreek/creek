@@ -4,6 +4,14 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.40
+
+- Bundles [`@solcreek/cli@0.4.40`](../cli/CHANGELOG.md#0440): requires the
+  Next.js adapter ≥ 0.2.14 and rejects the broken 0.2.13 (whose default-on
+  worker minify 500'd Prisma driver-adapter apps with `PrismaD1 is not a
+  constructor`), so a deploy pulls the fixed adapter instead of reusing a
+  cached broken one.
+
 ## 0.4.39
 
 - Bundles [`@solcreek/cli@0.4.39`](../cli/CHANGELOG.md#0439): structured
