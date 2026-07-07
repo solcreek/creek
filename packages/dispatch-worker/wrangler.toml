@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-03-14"
 workers_dev = true
 
+# Send this worker's invocation + console logs to Cloudflare Workers Logs
+# (visible in the dashboard, queryable, Logpush-able). On by default so a
+# platform operator can observe dispatch traffic without manual per-worker
+# setup. Note: this covers the dispatch worker's OWN events; a dispatched user
+# worker's internal logs still come through the tail consumer below.
+[observability]
+enabled = true
+
 # Catch-all route on tenant domain zone (NOT product domain)
 [[routes]]
 pattern = "*/*"

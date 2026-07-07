@@ -3,6 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2025-03-14"
 workers_dev = true
 
+# Send this worker's invocation + console logs to Cloudflare Workers Logs.
+# On by default so sandbox dispatch traffic is observable in the dashboard.
+[observability]
+enabled = true
+
 [[routes]]
 pattern = "*/*"
 zone_name = "creeksandbox.com"
