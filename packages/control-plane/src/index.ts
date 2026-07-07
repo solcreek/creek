@@ -3,7 +3,12 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Env } from "./types.js";
 import type { AuthUser } from "./modules/tenant/types.js";
-import { createAuth, tenantMiddleware, originGuard, isAllowedOrigin } from "./modules/tenant/index.js";
+import {
+  createAuth,
+  tenantMiddleware,
+  originGuard,
+  isAllowedOrigin,
+} from "./modules/tenant/index.js";
 import { auditContextMiddleware } from "./modules/audit/middleware.js";
 import { purgeAuditIpLogs } from "./modules/audit/service.js";
 import { projects } from "./modules/projects/routes.js";
@@ -13,7 +18,15 @@ import { logs } from "./modules/logs/routes.js";
 import { metrics } from "./modules/metrics/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
-import { githubRoutes, verifyWebhookSignature, parseWebhookHeaders, handleInstallation, handlePush, handlePullRequest, handleRepository } from "./modules/github/index.js";
+import {
+  githubRoutes,
+  verifyWebhookSignature,
+  parseWebhookHeaders,
+  handleInstallation,
+  handlePush,
+  handlePullRequest,
+  handleRepository,
+} from "./modules/github/index.js";
 import { webDeploy } from "./modules/web-deploy/routes.js";
 import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
 import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
@@ -29,18 +42,21 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>();
 
-app.use("*", cors({
-  origin: (origin) => {
-    // Single source of truth with originGuard: localhost dev + https
-    // creek.dev origins only. Non-https *.creek.dev is rejected here too.
-    if (!origin) return origin;
-    return isAllowedOrigin(origin) ? origin : null;
-  },
-  allowHeaders: ["Content-Type", "Authorization", "x-creek-team"],
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,
-  maxAge: 600,
-}));
+app.use(
+  "*",
+  cors({
+    origin: (origin) => {
+      // Single source of truth with originGuard: localhost dev + https
+      // creek.dev origins only. Non-https *.creek.dev is rejected here too.
+      if (!origin) return origin;
+      return isAllowedOrigin(origin) ? origin : null;
+    },
+    allowHeaders: ["Content-Type", "Authorization", "x-creek-team"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    maxAge: 600,
+  }),
+);
 app.use("*", logger());
 
 // CSRF defense-in-depth: reject state-changing requests that carry a foreign
@@ -59,7 +75,14 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
     return await auth.handler(c.req.raw);
   } catch (err) {
     console.error("Better Auth error:", err instanceof Error ? err.stack : err);
-    return c.json({ error: "auth_error", message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined }, 500);
+    return c.json(
+      {
+        error: "auth_error",
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      },
+      500,
+    );
   }
 });
 
@@ -68,7 +91,10 @@ app.post("/webhooks/github", async (c) => {
   const secret = c.env.GITHUB_WEBHOOK_SECRET;
   if (!secret) {
     console.error("GITHUB_WEBHOOK_SECRET not configured");
-    return c.json({ error: "not_configured", message: "GitHub webhook secret not configured" }, 503);
+    return c.json(
+      { error: "not_configured", message: "GitHub webhook secret not configured" },
+      503,
+    );
   }
 
   const body = await c.req.text();
@@ -82,27 +108,29 @@ app.post("/webhooks/github", async (c) => {
   const payload = JSON.parse(body);
 
   // Return 200 immediately, process in background
-  c.executionCtx.waitUntil((async () => {
-    try {
-      switch (event) {
-        case "push":
-          await handlePush(c.env, payload);
-          break;
-        case "pull_request":
-          await handlePullRequest(c.env, payload);
-          break;
-        case "installation":
-        case "installation_repositories":
-          await handleInstallation(c.env, payload);
-          break;
-        case "repository":
-          await handleRepository(c.env, payload);
-          break;
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        switch (event) {
+          case "push":
+            await handlePush(c.env, payload);
+            break;
+          case "pull_request":
+            await handlePullRequest(c.env, payload);
+            break;
+          case "installation":
+          case "installation_repositories":
+            await handleInstallation(c.env, payload);
+            break;
+          case "repository":
+            await handleRepository(c.env, payload);
+            break;
+        }
+      } catch (err) {
+        console.error(`Webhook ${event} error:`, err);
       }
-    } catch (err) {
-      console.error(`Webhook ${event} error:`, err);
-    }
-  })());
+    })(),
+  );
 
   return c.json({ ok: true, event });
 });
@@ -163,7 +191,9 @@ app.get("/preview/:slug/*", async (c) => {
       css: "text/css; charset=utf-8",
       js: "application/javascript; charset=utf-8",
       json: "application/json; charset=utf-8",
-      png: "image/png", svg: "image/svg+xml", ico: "image/x-icon",
+      png: "image/png",
+      svg: "image/svg+xml",
+      ico: "image/x-icon",
     };
     return new Response(object.body as ReadableStream, {
       headers: { "Content-Type": types[ext] || "application/octet-stream" },
@@ -199,8 +229,9 @@ async function sweepStaleDeployments(db: D1Database): Promise<number> {
   // Record a per-stage, actionable reason rather than a bare "Deploy timed
   // out" — the read-side fallback (build-logs) classifies these into stable
   // reason codes, and "deploy window" is the phrase that classifier keys off.
-  const result = await db.prepare(
-    `UPDATE deployment
+  const result = await db
+    .prepare(
+      `UPDATE deployment
      SET status = 'failed',
          failedStep = status,
          errorMessage = CASE status
@@ -212,7 +243,9 @@ async function sweepStaleDeployments(db: D1Database): Promise<number> {
          updatedAt = ?
      WHERE status IN ('uploading', 'provisioning', 'deploying')
        AND updatedAt < ?`,
-  ).bind(Date.now(), staleBefore).run();
+    )
+    .bind(Date.now(), staleBefore)
+    .run();
   return result.meta.changes ?? 0;
 }
 
@@ -232,9 +265,9 @@ async function processResourceCleanupQueue(env: Env): Promise<number> {
   let cleaned = 0;
 
   for (const row of pending.results) {
-    await env.DB.prepare(
-      "UPDATE resource_cleanup_queue SET status = 'cleaning' WHERE id = ?",
-    ).bind(row.id).run();
+    await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'cleaning' WHERE id = ?")
+      .bind(row.id)
+      .run();
 
     try {
       const accountPath = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
@@ -269,14 +302,14 @@ async function processResourceCleanupQueue(env: Env): Promise<number> {
           break;
       }
 
-      await env.DB.prepare(
-        "UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?",
-      ).bind(row.id).run();
+      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?")
+        .bind(row.id)
+        .run();
       cleaned++;
     } catch {
-      await env.DB.prepare(
-        "UPDATE resource_cleanup_queue SET status = 'failed' WHERE id = ?",
-      ).bind(row.id).run();
+      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'failed' WHERE id = ?")
+        .bind(row.id)
+        .run();
     }
   }
 
@@ -307,14 +340,14 @@ async function syncPendingDomains(env: Env): Promise<number> {
 
       const cfStatus = data.result.status;
       if (cfStatus === "active") {
-        await env.DB.prepare(
-          "UPDATE custom_domain SET status = 'active' WHERE id = ?",
-        ).bind(row.id).run();
+        await env.DB.prepare("UPDATE custom_domain SET status = 'active' WHERE id = ?")
+          .bind(row.id)
+          .run();
         activated++;
       } else if (cfStatus === "deleted" || cfStatus === "pending_deletion") {
-        await env.DB.prepare(
-          "UPDATE custom_domain SET status = 'failed' WHERE id = ?",
-        ).bind(row.id).run();
+        await env.DB.prepare("UPDATE custom_domain SET status = 'failed' WHERE id = ?")
+          .bind(row.id)
+          .run();
       }
     } catch {
       // Skip on failure — will retry next cron cycle

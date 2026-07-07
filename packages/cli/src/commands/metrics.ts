@@ -55,16 +55,12 @@ export const metricsCommand = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const token = getToken();
     if (!token) {
-      if (jsonMode)
-        jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
 
-    const projectSlug = await resolveProjectSlug(
-      args.project as string | undefined,
-      jsonMode,
-    );
+    const projectSlug = await resolveProjectSlug(args.project as string | undefined, jsonMode);
 
     const period = validatePeriod(args.period as string | undefined, jsonMode);
 
@@ -74,23 +70,18 @@ export const metricsCommand = defineCommand({
       response = await client.getMetrics(projectSlug, period);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (jsonMode)
-        jsonOutput({ ok: false, error: "metrics_failed", message: msg }, 1, []);
+      if (jsonMode) jsonOutput({ ok: false, error: "metrics_failed", message: msg }, 1, []);
       consola.error(`Failed to read metrics: ${msg}`);
       process.exit(1);
     }
 
     if (jsonMode) {
-      jsonOutput(
-        { ok: true, project: projectSlug, ...response },
-        0,
-        [
-          {
-            command: `creek logs --project ${projectSlug} --since ${period}`,
-            description: "Tail logs for the same window",
-          },
-        ],
-      );
+      jsonOutput({ ok: true, project: projectSlug, ...response }, 0, [
+        {
+          command: `creek logs --project ${projectSlug} --since ${period}`,
+          description: "Tail logs for the same window",
+        },
+      ]);
       return;
     }
 
@@ -98,15 +89,11 @@ export const metricsCommand = defineCommand({
   },
 });
 
-function validatePeriod(
-  raw: string | undefined,
-  jsonMode: boolean,
-): Period {
+function validatePeriod(raw: string | undefined, jsonMode: boolean): Period {
   if (!raw) return "24h";
   if ((VALID_PERIODS as readonly string[]).includes(raw)) return raw as Period;
   const message = `Invalid --period: ${raw}. Valid: ${VALID_PERIODS.join(", ")}`;
-  if (jsonMode)
-    jsonOutput({ ok: false, error: "invalid_period", message }, 1, []);
+  if (jsonMode) jsonOutput({ ok: false, error: "invalid_period", message }, 1, []);
   consola.error(message);
   process.exit(1);
 }
@@ -177,12 +164,8 @@ function printHuman(slug: string, r: MetricsResponse): void {
   consola.log(`  ${c("⬡ creek metrics", "bold")}  ${c(`${slug} · ${r.period}`, "dim")}`);
   consola.log("");
   consola.log(`  Requests:      ${c(fmtNumber(totals.reqs), "bold")}`);
-  consola.log(
-    `  Cache hits:    ${fmtNumber(totals.cachedReqs)} ${c(`(${cachePct})`, "dim")}`,
-  );
-  consola.log(
-    `  Invocations:   ${fmtNumber(totals.invocations)} ${c("worker ran", "dim")}`,
-  );
+  consola.log(`  Cache hits:    ${fmtNumber(totals.cachedReqs)} ${c(`(${cachePct})`, "dim")}`);
+  consola.log(`  Invocations:   ${fmtNumber(totals.invocations)} ${c("worker ran", "dim")}`);
   const errColor = totals.errs > 0 ? "red" : "green";
   consola.log(
     `  Errors:        ${c(fmtNumber(totals.errs), errColor)} ${c(`(${errPct} of invocations)`, "dim")}`,
@@ -211,9 +194,7 @@ function printBreakdown(
     );
   }
   if (rows.length > top.length) {
-    consola.log(
-      `    ${c(`+${rows.length - top.length} more`, "dim")}`,
-    );
+    consola.log(`    ${c(`+${rows.length - top.length} more`, "dim")}`);
   }
   consola.log("");
 }

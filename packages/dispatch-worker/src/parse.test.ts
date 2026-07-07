@@ -1,10 +1,5 @@
 import { describe, test, expect } from "vitest";
-import {
-  parseHostnameWithTeams,
-  getLimitsForPlan,
-  PLAN_LIMITS,
-  type TeamInfo,
-} from "./parse.js";
+import { parseHostnameWithTeams, getLimitsForPlan, PLAN_LIMITS, type TeamInfo } from "./parse.js";
 
 const DOMAIN = "bycreek.com";
 
@@ -39,11 +34,7 @@ describe("parseHostnameWithTeams", () => {
   // --- Branch preview ---
 
   test("branch: {project}-git-{branch}-{team}.domain", () => {
-    const result = parseHostnameWithTeams(
-      "my-blog-git-feat-auth-acme.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("my-blog-git-feat-auth-acme.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "branch",
       team: "acme",
@@ -53,11 +44,7 @@ describe("parseHostnameWithTeams", () => {
   });
 
   test("branch: nested branch name", () => {
-    const result = parseHostnameWithTeams(
-      "app-git-fix-login-page-bob.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("app-git-fix-login-page-bob.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "branch",
       team: "bob",
@@ -69,11 +56,7 @@ describe("parseHostnameWithTeams", () => {
   // --- Deployment preview ---
 
   test("deployment: {project}-{8-hex}-{team}.domain", () => {
-    const result = parseHostnameWithTeams(
-      "my-blog-a1b2c3d4-acme.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("my-blog-a1b2c3d4-acme.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "deployment",
       team: "acme",
@@ -84,20 +67,12 @@ describe("parseHostnameWithTeams", () => {
 
   test("deployment: only matches exactly 8 hex chars", () => {
     // 7 hex chars — should be production, not deployment
-    const result = parseHostnameWithTeams(
-      "my-blog-a1b2c3d-acme.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("my-blog-a1b2c3d-acme.bycreek.com", DOMAIN, teams);
     expect(result.type).toBe("production");
   });
 
   test("deployment: uppercase hex is not matched", () => {
-    const result = parseHostnameWithTeams(
-      "my-blog-A1B2C3D4-acme.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("my-blog-A1B2C3D4-acme.bycreek.com", DOMAIN, teams);
     // A1B2C3D4 doesn't match /^[0-9a-f]{8}$/ — falls through to production
     expect(result.type).toBe("production");
   });
@@ -121,11 +96,7 @@ describe("parseHostnameWithTeams", () => {
   });
 
   test("custom: multi-level subdomain", () => {
-    const result = parseHostnameWithTeams(
-      "deep.sub.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("deep.sub.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "custom",
       customHostname: "deep.sub.bycreek.com",
@@ -135,11 +106,7 @@ describe("parseHostnameWithTeams", () => {
   // --- Team slug matching ---
 
   test("longest team slug wins (acme-corp before acme)", () => {
-    const result = parseHostnameWithTeams(
-      "app-acme-corp.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("app-acme-corp.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "production",
       team: "acme-corp",
@@ -148,11 +115,7 @@ describe("parseHostnameWithTeams", () => {
   });
 
   test("unknown team slug → custom", () => {
-    const result = parseHostnameWithTeams(
-      "app-unknown.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("app-unknown.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "custom",
       customHostname: "app-unknown.bycreek.com",
@@ -171,20 +134,12 @@ describe("parseHostnameWithTeams", () => {
   // --- Edge cases ---
 
   test("empty teams list → everything is custom", () => {
-    const result = parseHostnameWithTeams(
-      "app-acme.bycreek.com",
-      DOMAIN,
-      [],
-    );
+    const result = parseHostnameWithTeams("app-acme.bycreek.com", DOMAIN, []);
     expect(result.type).toBe("custom");
   });
 
   test("project name with hyphens", () => {
-    const result = parseHostnameWithTeams(
-      "my-cool-app-bob.bycreek.com",
-      DOMAIN,
-      teams,
-    );
+    const result = parseHostnameWithTeams("my-cool-app-bob.bycreek.com", DOMAIN, teams);
     expect(result).toEqual({
       type: "production",
       team: "bob",

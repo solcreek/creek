@@ -2,20 +2,11 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  runDoctor,
-  type DoctorReport,
-  type Finding,
-} from "@solcreek/sdk";
+import { runDoctor, type DoctorReport, type Finding } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-} from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -148,8 +139,10 @@ function printHuman(cwd: string, report: DoctorReport): void {
   }
 
   const parts: string[] = [];
-  if (report.summary.error) parts.push(c(`${report.summary.error} error${s(report.summary.error)}`, "red"));
-  if (report.summary.warn) parts.push(c(`${report.summary.warn} warning${s(report.summary.warn)}`, "yellow"));
+  if (report.summary.error)
+    parts.push(c(`${report.summary.error} error${s(report.summary.error)}`, "red"));
+  if (report.summary.warn)
+    parts.push(c(`${report.summary.warn} warning${s(report.summary.warn)}`, "yellow"));
   if (report.summary.info) parts.push(c(`${report.summary.info} info`, "cyan"));
   consola.log(`  Summary: ${parts.join(", ")}`);
   consola.log("");
@@ -157,8 +150,10 @@ function printHuman(cwd: string, report: DoctorReport): void {
 
 function printFinding(f: Finding): void {
   const icon =
-    f.severity === "error" ? c("✗", "red")
-      : f.severity === "warn" ? c("⚠", "yellow")
+    f.severity === "error"
+      ? c("✗", "red")
+      : f.severity === "warn"
+        ? c("⚠", "yellow")
         : c("ℹ", "cyan");
   consola.log(`  ${icon} ${c(f.title, "bold")}  ${c(`[${f.code}]`, "gray")}`);
   for (const line of f.detail.split("\n")) {
@@ -202,7 +197,7 @@ const CK_FIX_HINTS: Record<string, string> = {
   "CK-NOTHING-TO-DEPLOY":
     "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one. If the project has server code / API routes, also set [build].worker — the build alone never declares it.",
   "CK-RESOURCES-NO-WORKER":
-    "Resources are declared but no worker entry — the deploy is a static SPA and /api/* serves index.html. Set [build].worker in creek.toml (e.g. worker = \"worker/index.ts\"), or remove [resources] if the site is purely static.",
+    'Resources are declared but no worker entry — the deploy is a static SPA and /api/* serves index.html. Set [build].worker in creek.toml (e.g. worker = "worker/index.ts"), or remove [resources] if the site is purely static.',
   "CK-WORKER-UNDECLARED":
     "A worker-shaped file exists on disk but no worker entry is declared, so it will not be deployed. Point [build].worker in creek.toml at it, or delete the file if unused.",
   "CK-DB-DUAL-DRIVER-SPLIT":
@@ -230,11 +225,7 @@ async function runLastFailureDiagnosis(opts: {
   const token = getToken();
   if (!token) {
     if (opts.jsonMode) {
-      jsonOutput(
-        { ok: false, error: "not_authenticated" },
-        1,
-        AUTH_BREADCRUMBS,
-      );
+      jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
     }
     consola.error("Not authenticated. Run `creek login` first.");
     process.exit(1);
@@ -251,8 +242,7 @@ async function runLastFailureDiagnosis(opts: {
     }
   }
   if (!slug) {
-    const msg =
-      "No project slug. Pass --project <slug> or run from a directory with creek.toml.";
+    const msg = "No project slug. Pass --project <slug> or run from a directory with creek.toml.";
     if (opts.jsonMode) jsonOutput({ ok: false, error: "no_project", message: msg }, 1);
     consola.error(msg);
     process.exit(1);
@@ -336,7 +326,9 @@ async function runLastFailureDiagnosis(opts: {
   consola.log("");
 
   if (errorCode) {
-    consola.log(`  ${c("✗", "red")} ${c(errorCode, "bold")}  ${c(`at step: ${errorStep ?? "unknown"}`, "gray")}`);
+    consola.log(
+      `  ${c("✗", "red")} ${c(errorCode, "bold")}  ${c(`at step: ${errorStep ?? "unknown"}`, "gray")}`,
+    );
   } else if (errorStep) {
     consola.log(`  ${c("✗", "red")} Failed at step: ${c(errorStep, "bold")}`);
   } else {

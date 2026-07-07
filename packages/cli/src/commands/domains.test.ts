@@ -51,7 +51,10 @@ beforeEach(() => {
   process.env.CREEK_TOKEN = "tok-test";
 
   // getProjectSlug() reads creek.toml from the current working directory.
-  testDir = join(tmpdir(), `creek-domains-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = join(
+    tmpdir(),
+    `creek-domains-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(testDir, { recursive: true });
   writeFileSync(join(testDir, "creek.toml"), `[project]\nname = "${SLUG}"\n`);
   prevCwd = process.cwd();
@@ -81,9 +84,7 @@ function json() {
 /** MSW handler: the project's domain list (used to resolve hostname → id). */
 function listHandler(status: string) {
   return http.get(`${API}/projects/${SLUG}/domains`, () =>
-    HttpResponse.json([
-      { id: DOM_ID, projectId: "p1", hostname: HOST, status, createdAt: 0 },
-    ]),
+    HttpResponse.json([{ id: DOM_ID, projectId: "p1", hostname: HOST, status, createdAt: 0 }]),
   );
 }
 
@@ -142,7 +143,8 @@ describe("creek domains activate", () => {
         HttpResponse.json({
           ok: false,
           status: "pending_dns",
-          message: "Domain not verified yet (edge status: pending). Point DNS to cname.creek.dev, then retry.",
+          message:
+            "Domain not verified yet (edge status: pending). Point DNS to cname.creek.dev, then retry.",
         }),
       ),
     );
@@ -154,7 +156,9 @@ describe("creek domains activate", () => {
     expect(out).toMatchObject({ ok: false, status: "pending_dns", hostname: HOST });
     expect(out.message).toMatch(/not verified/i);
     // Points the user at where the DNS records are retrievable.
-    expect(out.breadcrumbs.some((b: { command: string }) => b.command.startsWith("creek domains show"))).toBe(true);
+    expect(
+      out.breadcrumbs.some((b: { command: string }) => b.command.startsWith("creek domains show")),
+    ).toBe(true);
   });
 
   it("labels a no-edge activation as a manual override", async () => {

@@ -34,9 +34,7 @@ export function generateWorkerWrapper(
   // embed, spaShell is null and behaviour is unchanged (handler 404 stands).
   if (hasAssets) {
     const spaShell =
-      options?.spaFallbackHtml != null
-        ? JSON.stringify(options.spaFallbackHtml)
-        : "null";
+      options?.spaFallbackHtml != null ? JSON.stringify(options.spaFallbackHtml) : "null";
     return `import { _runRequest, generateWsToken } from "creek";
 import userModule from "${importPath}";
 

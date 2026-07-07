@@ -5,7 +5,13 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseConfig } from "@solcreek/sdk";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  AUTH_BREADCRUMBS,
+  NO_PROJECT_BREADCRUMBS,
+} from "../utils/output.js";
 
 function resolveSlug(argSlug: string | undefined, jsonMode: boolean): string {
   if (argSlug) return argSlug;
@@ -67,12 +73,16 @@ const deploymentsList = defineCommand({
     }
 
     if (jsonMode) {
-      const crumbs = deployments.length > 0
-        ? [
-            { command: `creek rollback --project ${slug}`, description: "Rollback to previous deployment" },
-            { command: `creek status`, description: "Check current project status" },
-          ]
-        : [{ command: `creek deploy`, description: "Create first deployment" }];
+      const crumbs =
+        deployments.length > 0
+          ? [
+              {
+                command: `creek rollback --project ${slug}`,
+                description: "Rollback to previous deployment",
+              },
+              { command: `creek status`, description: "Check current project status" },
+            ]
+          : [{ command: `creek deploy`, description: "Create first deployment" }];
       jsonOutput({ ok: true, project: slug, deployments }, 0, crumbs);
     }
 
@@ -137,7 +147,15 @@ const deploymentsLogs = defineCommand({
         const list = await client.listDeployments(slug);
         const match = list.find((d) => d.id.startsWith(fullId));
         if (!match) {
-          if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No deployment matches id prefix '${fullId}'` }, 1);
+          if (jsonMode)
+            jsonOutput(
+              {
+                ok: false,
+                error: "not_found",
+                message: `No deployment matches id prefix '${fullId}'`,
+              },
+              1,
+            );
           consola.error(`No deployment matches id prefix '${fullId}'`);
           process.exit(1);
         }
@@ -201,9 +219,7 @@ const deploymentsLogs = defineCommand({
 
     const meta = log.metadata;
     const statusColour =
-      meta.status === "success" ? "\x1b[32m" :
-      meta.status === "failed" ? "\x1b[31m" :
-      "\x1b[33m";
+      meta.status === "success" ? "\x1b[32m" : meta.status === "failed" ? "\x1b[31m" : "\x1b[33m";
     consola.log(`\n  deployment ${fullId.slice(0, 8)}  ${statusColour}${meta.status}\x1b[0m`);
     if (meta.errorCode) consola.log(`  error code: ${meta.errorCode}`);
     if (meta.errorStep) consola.log(`  failed at: ${meta.errorStep}`);
@@ -220,9 +236,11 @@ const deploymentsLogs = defineCommand({
       consola.log(`  ${icon}  ${label}${duration ? ` (${duration})` : ""}`);
       for (const l of lines) {
         const lineColour =
-          l.level === "error" || l.level === "fatal" ? "\x1b[31m" :
-          l.level === "warn" ? "\x1b[33m" :
-          "\x1b[90m";
+          l.level === "error" || l.level === "fatal"
+            ? "\x1b[31m"
+            : l.level === "warn"
+              ? "\x1b[33m"
+              : "\x1b[90m";
         consola.log(`       ${lineColour}${l.msg}\x1b[0m`);
       }
     }

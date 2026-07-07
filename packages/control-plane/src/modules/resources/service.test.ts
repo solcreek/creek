@@ -48,9 +48,7 @@ describe("buildBindings — deprecated aliases", () => {
       baseOptions,
     );
     const r2 = bindings.filter((b) => b.type === "r2_bucket");
-    expect(r2).toEqual([
-      { type: "r2_bucket", name: "STORAGE", bucket_name: "r2-id" },
-    ]);
+    expect(r2).toEqual([{ type: "r2_bucket", name: "STORAGE", bucket_name: "r2-id" }]);
   });
 
   test("a user-named custom binding gets no alias", () => {
@@ -60,9 +58,7 @@ describe("buildBindings — deprecated aliases", () => {
       baseOptions,
     );
     const kv = bindings.filter((b) => b.type === "kv_namespace");
-    expect(kv).toEqual([
-      { type: "kv_namespace", name: "SESSIONS", namespace_id: "kv-id" },
-    ]);
+    expect(kv).toEqual([{ type: "kv_namespace", name: "SESSIONS", namespace_id: "kv-id" }]);
   });
 
   test("an alias yields to a primary binding of the same name (no duplicate env name)", () => {

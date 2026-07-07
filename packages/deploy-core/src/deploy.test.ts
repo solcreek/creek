@@ -45,7 +45,9 @@ describe("sanitizeBranch", () => {
 
   test("handles realistic branch names", () => {
     expect(sanitizeBranch("feature/PROJ-123/add-auth")).toBe("feature-proj-123-add-auth");
-    expect(sanitizeBranch("dependabot/npm_and_yarn/lodash-4.17.21")).toBe("dependabot-npmandyarn-lodas");
+    expect(sanitizeBranch("dependabot/npm_and_yarn/lodash-4.17.21")).toBe(
+      "dependabot-npmandyarn-lodas",
+    );
     expect(sanitizeBranch("renovate/react-19.x")).toBe("renovate-react-19x");
   });
 });

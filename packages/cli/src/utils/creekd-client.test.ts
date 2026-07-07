@@ -25,7 +25,16 @@ describe("CreekdClient", () => {
       status: 200,
       body: {
         apps: [
-          { id: "app1", command: "node", port: 3000, status: "running", pid: 123, uptime_ms: 5000, restart_count: 0, health_failures: 0 },
+          {
+            id: "app1",
+            command: "node",
+            port: 3000,
+            status: "running",
+            pid: 123,
+            uptime_ms: 5000,
+            restart_count: 0,
+            health_failures: 0,
+          },
         ],
       },
     });
@@ -104,7 +113,16 @@ describe("CreekdClient", () => {
   it("restartApp sends POST and returns app", async () => {
     globalThis.fetch = mockFetch({
       status: 200,
-      body: { id: "app1", command: "node", port: 3000, status: "running", pid: 999, uptime_ms: 0, restart_count: 3, health_failures: 0 },
+      body: {
+        id: "app1",
+        command: "node",
+        port: 3000,
+        status: "running",
+        pid: 999,
+        uptime_ms: 0,
+        restart_count: 3,
+        health_failures: 0,
+      },
     });
 
     const client = new CreekdClient(BASE, "");

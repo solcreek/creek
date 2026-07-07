@@ -6,13 +6,13 @@ import type { ParsedRepoUrl } from "./repo-url.js";
 
 export interface CloneOptions {
   subpath?: string | null;
-  timeoutMs?: number;    // default: 60_000 (60s)
-  maxSizeMb?: number;    // default: 500
+  timeoutMs?: number; // default: 60_000 (60s)
+  maxSizeMb?: number; // default: 500
 }
 
 export interface CloneResult {
-  tmpDir: string;       // root of cloned repo (for cleanup)
-  workDir: string;      // tmpDir or tmpDir/subpath (for resolveConfig)
+  tmpDir: string; // root of cloned repo (for cleanup)
+  workDir: string; // tmpDir or tmpDir/subpath (for resolveConfig)
   sizeMb: number;
 }
 
@@ -25,8 +25,8 @@ export function checkGitInstalled(): void {
   } catch {
     throw new GitCloneError(
       "Git is not installed.\n" +
-      "  Install it from: https://git-scm.com/downloads\n" +
-      "  Or deploy a local directory: creek deploy ./my-project",
+        "  Install it from: https://git-scm.com/downloads\n" +
+        "  Or deploy a local directory: creek deploy ./my-project",
     );
   }
 }
@@ -53,13 +53,17 @@ export function cloneRepo(parsed: ParsedRepoUrl, options: CloneOptions = {}): Cl
   try {
     const args = [
       "clone",
-      "--depth", "1",
+      "--depth",
+      "1",
       "--single-branch",
       ...(parsed.branch ? ["--branch", parsed.branch] : []),
       "--no-recurse-submodules",
-      "--config", "core.hooksPath=/dev/null",
-      "--config", "protocol.ext.allow=never",
-      "--config", "protocol.file.allow=never",
+      "--config",
+      "core.hooksPath=/dev/null",
+      "--config",
+      "protocol.ext.allow=never",
+      "--config",
+      "protocol.file.allow=never",
       parsed.cloneUrl,
       tmpDir,
     ];
@@ -75,9 +79,7 @@ export function cloneRepo(parsed: ParsedRepoUrl, options: CloneOptions = {}): Cl
     });
   } catch (err) {
     // Parse git error for helpful messages
-    const stderr = err instanceof Error && "stderr" in err
-      ? String((err as any).stderr)
-      : "";
+    const stderr = err instanceof Error && "stderr" in err ? String((err as any).stderr) : "";
 
     cleanupDir(tmpDir);
 
@@ -87,26 +89,32 @@ export function cloneRepo(parsed: ParsedRepoUrl, options: CloneOptions = {}): Cl
     if (stderr.includes("Authentication failed") || stderr.includes("could not read Username")) {
       throw new GitCloneError(
         `This appears to be a private repository: ${parsed.displayUrl}\n` +
-        "  Creek currently supports public repos only.\n" +
-        "  To deploy a private repo, clone it locally first:\n" +
-        `    git clone ${parsed.cloneUrl} && cd ${parsed.repo} && creek deploy`,
+          "  Creek currently supports public repos only.\n" +
+          "  To deploy a private repo, clone it locally first:\n" +
+          `    git clone ${parsed.cloneUrl} && cd ${parsed.repo} && creek deploy`,
       );
     }
-    if (stderr.includes("empty repository") || stderr.includes("warning: You appear to have cloned an empty repository")) {
+    if (
+      stderr.includes("empty repository") ||
+      stderr.includes("warning: You appear to have cloned an empty repository")
+    ) {
       throw new GitCloneError(`Repository is empty: ${parsed.displayUrl}`);
     }
     if (err instanceof Error && "killed" in err && (err as any).killed) {
       throw new GitCloneError(
         `Clone timed out after ${Math.round(timeoutMs / 1000)}s: ${parsed.displayUrl}\n` +
-        "  The repository may be too large for direct deploy.\n" +
-        "  Try cloning locally: git clone --depth 1 " + parsed.cloneUrl,
+          "  The repository may be too large for direct deploy.\n" +
+          "  Try cloning locally: git clone --depth 1 " +
+          parsed.cloneUrl,
       );
     }
     if (stderr.includes("Remote branch") && stderr.includes("not found")) {
       throw new GitCloneError(`Branch '${parsed.branch}' not found in ${parsed.displayUrl}`);
     }
 
-    throw new GitCloneError(`Failed to clone ${parsed.displayUrl}: ${stderr || (err instanceof Error ? err.message : String(err))}`);
+    throw new GitCloneError(
+      `Failed to clone ${parsed.displayUrl}: ${stderr || (err instanceof Error ? err.message : String(err))}`,
+    );
   }
 
   // Immediately remove .git directory (prevent hook attacks, save disk)
@@ -124,7 +132,7 @@ export function cloneRepo(parsed: ParsedRepoUrl, options: CloneOptions = {}): Cl
     cleanupDir(tmpDir);
     throw new GitCloneError(
       `Repository is too large (${Math.round(sizeMb)}MB, limit is ${maxSizeMb}MB).\n` +
-      "  Clone locally and use creek deploy from the directory instead.",
+        "  Clone locally and use creek deploy from the directory instead.",
     );
   }
 
@@ -141,7 +149,7 @@ export function cloneRepo(parsed: ParsedRepoUrl, options: CloneOptions = {}): Cl
       cleanupDir(tmpDir);
       throw new GitCloneError(
         `Subdirectory '${subpath}' not found in ${parsed.displayUrl}.\n` +
-        `  Available directories: ${listTopDirs(tmpDir).join(", ") || "(none)"}`,
+          `  Available directories: ${listTopDirs(tmpDir).join(", ") || "(none)"}`,
       );
     }
   }
@@ -182,13 +190,12 @@ export function installDependencies(cwd: string, pm: PackageManager): void {
       timeout: 120_000,
     });
   } catch (err) {
-    const stderr = err instanceof Error && "stderr" in err
-      ? String((err as any).stderr).slice(0, 500)
-      : "";
+    const stderr =
+      err instanceof Error && "stderr" in err ? String((err as any).stderr).slice(0, 500) : "";
     throw new GitCloneError(
       `Failed to install dependencies with ${pm}.\n` +
-      (stderr ? `  ${stderr}\n` : "") +
-      `  Try: cd ${cwd} && ${cmd} ${args.join(" ")}`,
+        (stderr ? `  ${stderr}\n` : "") +
+        `  Try: cd ${cwd} && ${cmd} ${args.join(" ")}`,
     );
   }
 }

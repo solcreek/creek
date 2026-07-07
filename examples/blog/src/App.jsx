@@ -1,42 +1,48 @@
 const articles = [
   {
     title: "The Art of Slow Living",
-    excerpt: "In a world that never stops moving, there's a quiet revolution brewing — one that asks us to pause, breathe, and savor the moment.",
+    excerpt:
+      "In a world that never stops moving, there's a quiet revolution brewing — one that asks us to pause, breathe, and savor the moment.",
     date: "Mar 15, 2026",
     category: "Lifestyle",
     gradient: "linear-gradient(135deg, #e07c4f 0%, #d4a574 50%, #c9b896 100%)",
   },
   {
     title: "Architecture of Tomorrow",
-    excerpt: "How biophilic design is reshaping our cities, blending nature with concrete in ways we never imagined possible.",
+    excerpt:
+      "How biophilic design is reshaping our cities, blending nature with concrete in ways we never imagined possible.",
     date: "Mar 12, 2026",
     category: "Design",
     gradient: "linear-gradient(135deg, #4a6741 0%, #7a9b6d 50%, #b8c9a3 100%)",
   },
   {
     title: "Notes on Modern Poetry",
-    excerpt: "A resurgence in verse is sweeping through independent bookshops and late-night reading circles across the country.",
+    excerpt:
+      "A resurgence in verse is sweeping through independent bookshops and late-night reading circles across the country.",
     date: "Mar 10, 2026",
     category: "Culture",
     gradient: "linear-gradient(135deg, #6b4c7a 0%, #9b7aab 50%, #c4a8d0 100%)",
   },
   {
     title: "Fermentation Revival",
-    excerpt: "From kimchi to kombucha, ancient preservation techniques are finding new life in contemporary kitchens everywhere.",
+    excerpt:
+      "From kimchi to kombucha, ancient preservation techniques are finding new life in contemporary kitchens everywhere.",
     date: "Mar 8, 2026",
     category: "Food",
     gradient: "linear-gradient(135deg, #c4753b 0%, #e0a86e 50%, #f0d4a8 100%)",
   },
   {
     title: "The Vinyl Paradox",
-    excerpt: "Why analog music formats continue to thrive in an age of infinite digital streaming and algorithmic playlists.",
+    excerpt:
+      "Why analog music formats continue to thrive in an age of infinite digital streaming and algorithmic playlists.",
     date: "Mar 5, 2026",
     category: "Music",
     gradient: "linear-gradient(135deg, #2c3e50 0%, #4a6580 50%, #7a9bb5 100%)",
   },
   {
     title: "Walking as Practice",
-    excerpt: "Philosophers, artists, and scientists have long known what the rest of us are just rediscovering about the power of a simple walk.",
+    excerpt:
+      "Philosophers, artists, and scientists have long known what the rest of us are just rediscovering about the power of a simple walk.",
     date: "Mar 2, 2026",
     category: "Wellness",
     gradient: "linear-gradient(135deg, #8b6f4e 0%, #b8976a 50%, #d4c4a0 100%)",
@@ -197,9 +203,15 @@ export default function App() {
       <header style={styles.header}>
         <div style={styles.logo}>The Pulse</div>
         <nav style={styles.nav}>
-          <a style={styles.navLink} href="#">Home</a>
-          <a style={styles.navLink} href="#">Articles</a>
-          <a style={styles.navLink} href="#">About</a>
+          <a style={styles.navLink} href="#">
+            Home
+          </a>
+          <a style={styles.navLink} href="#">
+            Articles
+          </a>
+          <a style={styles.navLink} href="#">
+            About
+          </a>
         </nav>
       </header>
 
@@ -207,13 +219,11 @@ export default function App() {
       <section style={styles.hero}>
         <div style={styles.heroContent}>
           <div style={styles.heroCategory}>Featured</div>
-          <h1 style={styles.heroTitle}>
-            The Quiet Craft of Handwritten Letters
-          </h1>
+          <h1 style={styles.heroTitle}>The Quiet Craft of Handwritten Letters</h1>
           <p style={styles.heroExcerpt}>
             In an era of instant messages and disappearing stories, a growing community of writers
-            is rediscovering the intimacy and permanence of pen on paper — and changing how we
-            think about connection.
+            is rediscovering the intimacy and permanence of pen on paper — and changing how we think
+            about connection.
           </p>
           <div style={styles.heroMeta}>
             By <strong style={{ color: "#fff" }}>Elena Morrow</strong> &middot; March 18, 2026
@@ -240,9 +250,7 @@ export default function App() {
       </section>
 
       {/* Footer */}
-      <footer style={styles.footer}>
-        &copy; 2026 The Pulse. All rights reserved.
-      </footer>
+      <footer style={styles.footer}>&copy; 2026 The Pulse. All rights reserved.</footer>
     </div>
   );
 }

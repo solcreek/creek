@@ -30,7 +30,10 @@ describe("scaffold", () => {
 
   function setupMockTemplate(dir: string, opts?: { withSchema?: boolean }) {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "creek-data.json"), JSON.stringify({ name: "my-app", title: "Default" }));
+    writeFileSync(
+      join(dir, "creek-data.json"),
+      JSON.stringify({ name: "my-app", title: "Default" }),
+    );
     writeFileSync(join(dir, "creek.toml"), '[project]\nname = "my-app"\n');
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "my-app" }));
     writeFileSync(join(dir, ".gitignore"), "node_modules/\ndist/\n");

@@ -111,9 +111,9 @@ describe("resolveDeployEnv (production-safety gate)", () => {
   });
 
   test("prod + sandbox together is rejected at the source of truth", async () => {
-    await expect(
-      resolveDeployEnv({ ...base, prod: true, sandbox: true }),
-    ).rejects.toThrow(/mutually exclusive/);
+    await expect(resolveDeployEnv({ ...base, prod: true, sandbox: true })).rejects.toThrow(
+      /mutually exclusive/,
+    );
   });
 
   test("not signed in deploys to sandbox (the only option)", async () => {
@@ -157,7 +157,9 @@ describe("resolveDeployEnv (production-safety gate)", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
 
-    expect(await resolveDeployEnv({ ...base, jsonMode: true, interactive: true })).toBe("production");
+    expect(await resolveDeployEnv({ ...base, jsonMode: true, interactive: true })).toBe(
+      "production",
+    );
 
     // warning goes to stderr, never consola (which could land on stdout)
     expect(stderr).toHaveBeenCalledOnce();
@@ -298,12 +300,7 @@ describe("findNewDeployment", () => {
   test("returns the most recently created when multiple are newer", () => {
     // API returns unsorted (or version-sorted) list; the helper must pick
     // the newest by createdAt, not by list position.
-    const list = [
-      d("mid", 300),
-      d("newest", 500),
-      d("old", 100),
-      d("newer", 400),
-    ];
+    const list = [d("mid", 300), d("newest", 500), d("old", 100), d("newer", 400)];
     const found = findNewDeployment(list, 200);
     expect(found?.id).toBe("newest");
   });

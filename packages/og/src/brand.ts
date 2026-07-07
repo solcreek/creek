@@ -33,8 +33,7 @@ export const creekBrand = {
   },
   gradients: {
     /** Page background — diagonal warm-black */
-    background:
-      "linear-gradient(135deg, #0a0a0a 0%, #0f1419 50%, #080a0d 100%)",
+    background: "linear-gradient(135deg, #0a0a0a 0%, #0f1419 50%, #080a0d 100%)",
     /** Hero text — teal → blue, used for repo name and headlines */
     heroText: "linear-gradient(135deg, #5eead4, #60a5fa)",
   },

@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
-import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
+import { createHash } from "node:crypto";
 
 export type StoragePutOptions = {
   customMetadata?: Record<string, string>;
@@ -79,7 +79,7 @@ class CreekStorage {
     let buf: Uint8Array;
     if (value === null) {
       buf = new Uint8Array(0);
-    } else if (typeof value === 'string') {
+    } else if (typeof value === "string") {
       buf = new TextEncoder().encode(value);
     } else if (value instanceof Uint8Array) {
       buf = value;
@@ -88,7 +88,7 @@ class CreekStorage {
     } else if (value instanceof ReadableStream) {
       buf = await readStream(value);
     } else {
-      throw new Error('storage put: unsupported value type');
+      throw new Error("storage put: unsupported value type");
     }
 
     await writeFile(p, buf);
@@ -120,11 +120,11 @@ class CreekStorage {
   }
 
   async list(options: StorageListOptions = {}): Promise<StorageObjects> {
-    const prefix = options.prefix ?? '';
+    const prefix = options.prefix ?? "";
     const limit = options.limit ?? 1000;
     const all: StorageObject[] = [];
     walk(this.base, (relpath, fullpath) => {
-      if (relpath.endsWith('.meta.json')) return;
+      if (relpath.endsWith(".meta.json")) return;
       if (prefix && !relpath.startsWith(prefix)) return;
       all.push(this.objectFromDisk(relpath, fullpath));
     });
@@ -134,10 +134,7 @@ class CreekStorage {
     return {
       objects,
       truncated,
-      cursor:
-        truncated && objects.length > 0
-          ? objects[objects.length - 1]!.key
-          : undefined,
+      cursor: truncated && objects.length > 0 ? objects[objects.length - 1]!.key : undefined,
     };
   }
 
@@ -151,9 +148,7 @@ class CreekStorage {
     let meta: Partial<MetaJson> = {};
     if (existsSync(metaPath)) {
       try {
-        meta = JSON.parse(
-          require('node:fs').readFileSync(metaPath, 'utf-8'),
-        ) as MetaJson;
+        meta = JSON.parse(require("node:fs").readFileSync(metaPath, "utf-8")) as MetaJson;
       } catch {
         // ignore malformed meta
       }
@@ -169,10 +164,7 @@ class CreekStorage {
   }
 }
 
-function walk(
-  base: string,
-  cb: (relpath: string, fullpath: string) => void,
-): void {
+function walk(base: string, cb: (relpath: string, fullpath: string) => void): void {
   const stack = [base];
   while (stack.length) {
     const dir = stack.pop()!;
@@ -189,7 +181,7 @@ function walk(
 }
 
 function hashBuffer(buf: Uint8Array): string {
-  return createHash('sha256').update(buf).digest('hex').slice(0, 32);
+  return createHash("sha256").update(buf).digest("hex").slice(0, 32);
 }
 
 async function readStream(stream: ReadableStream): Promise<Uint8Array> {

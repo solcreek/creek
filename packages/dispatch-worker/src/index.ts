@@ -46,10 +46,7 @@ async function parseHostname(
 
 // --- Script resolution ---
 
-async function resolveScriptName(
-  parsed: ParsedHostname,
-  db: D1Database,
-): Promise<string | null> {
+async function resolveScriptName(parsed: ParsedHostname, db: D1Database): Promise<string | null> {
   switch (parsed.type) {
     case "production": {
       const row = await db
@@ -101,10 +98,7 @@ async function resolveScriptName(
 
 // --- Resolve team plan for custom domains ---
 
-async function resolveTeamPlan(
-  parsed: ParsedHostname,
-  db: D1Database,
-): Promise<string> {
+async function resolveTeamPlan(parsed: ParsedHostname, db: D1Database): Promise<string> {
   if (parsed.team) {
     const teams = await getTeams(db);
     const team = teams.find((t) => t.slug === parsed.team);
@@ -157,7 +151,7 @@ const MIME_TYPES: Record<string, string> = {
 
 function inferContentType(pathname: string): string {
   const lastSegment = pathname.split("/").pop() ?? "";
-  const ext = lastSegment.includes(".") ? lastSegment.split(".").pop()?.toLowerCase() ?? "" : "";
+  const ext = lastSegment.includes(".") ? (lastSegment.split(".").pop()?.toLowerCase() ?? "") : "";
   if (!ext) return "text/html; charset=utf-8"; // Extensionless = SPA route
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
@@ -235,8 +229,7 @@ export default {
       const needsContentType = response.ok && !response.headers.get("Content-Type");
 
       const setCookies = response.headers.getSetCookie();
-      const narrowCookies =
-        parsed.type !== "custom" && setCookies.some(cookieHasDomain);
+      const narrowCookies = parsed.type !== "custom" && setCookies.some(cookieHasDomain);
 
       if (needsContentType || narrowCookies) {
         const headers = new Headers(response.headers);
@@ -248,7 +241,10 @@ export default {
         if (narrowCookies) {
           headers.delete("Set-Cookie");
           for (const cookie of setCookies) {
-            headers.append("Set-Cookie", cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie);
+            headers.append(
+              "Set-Cookie",
+              cookieHasDomain(cookie) ? stripCookieDomain(cookie) : cookie,
+            );
           }
         }
 

@@ -18,9 +18,7 @@ import { Button } from "@solcreek/ui/components/button";
  * are derived from the authenticated session, not URL params.
  */
 
-export const Route = createFileRoute(
-  "/_authenticated/projects/$projectId/logs",
-)({
+export const Route = createFileRoute("/_authenticated/projects/$projectId/logs")({
   component: LogsPage,
 });
 
@@ -54,8 +52,16 @@ function formatLogTime(ts: string): string {
   if (!ts) return "";
   try {
     const d = new Date(ts);
-    return d.toLocaleTimeString("en-GB", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      + "." + String(d.getMilliseconds()).padStart(3, "0");
+    return (
+      d.toLocaleTimeString("en-GB", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }) +
+      "." +
+      String(d.getMilliseconds()).padStart(3, "0")
+    );
   } catch {
     return ts.slice(11, 23);
   }
@@ -66,14 +72,19 @@ function CreekdLogsTab() {
   const [tail, setTail] = useState(100);
   const [showRaw, setShowRaw] = useState(false);
 
-  const { data: logs, error, refetch, isLoading } = useQuery({
+  const {
+    data: logs,
+    error,
+    refetch,
+    isLoading,
+  } = useQuery({
     queryKey: ["creekd-logs", projectId, tail],
     queryFn: () => getAppLogs(projectId, tail),
     refetchInterval: 3000,
     retry: 2,
   });
 
-  const parsed = useMemo(() => logs ? parseLogLines(logs) : [], [logs]);
+  const parsed = useMemo(() => (logs ? parseLogLines(logs) : []), [logs]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -132,9 +143,7 @@ function CreekdLogsTab() {
               </span>
               <span
                 className={`shrink-0 w-10 ${
-                  rec.stream === "stderr"
-                    ? "text-red-400"
-                    : "text-cyan-400"
+                  rec.stream === "stderr" ? "text-red-400" : "text-cyan-400"
                 }`}
               >
                 {rec.stream === "stderr" ? "err" : "out"}
@@ -197,9 +206,7 @@ function LogsTab() {
       const params = new URLSearchParams({ since: range, limit: "200" });
       if (errorsOnly) params.set("outcome", "exception");
       if (search.trim()) params.set("search", search.trim());
-      return api<LogsResponse>(
-        `/projects/${projectId}/logs?${params.toString()}`,
-      );
+      return api<LogsResponse>(`/projects/${projectId}/logs?${params.toString()}`);
     },
     // Don't poll when live-tailing; WS is authoritative.
     refetchInterval: live ? false : 30_000,
@@ -263,8 +270,7 @@ function LogsTab() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Logs capture worker invocations only — requests served from CF edge
-        cache don't appear here.{" "}
+        Logs capture worker invocations only — requests served from CF edge cache don't appear here.{" "}
         <Link
           to="/projects/$projectId/analytics"
           params={{ projectId }}
@@ -305,8 +311,7 @@ function LogsTab() {
           ))}
           {historical.data?.truncated && !live && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Truncated to {historical.data.entries.length} entries — narrow the
-              range to see more.
+              Truncated to {historical.data.entries.length} entries — narrow the range to see more.
             </p>
           )}
         </div>
@@ -326,9 +331,7 @@ function LiveTail({
   search: string;
   onEntry: (entry: LogEntry) => void;
 }) {
-  const [status, setStatus] = useState<"connecting" | "connected" | "closed">(
-    "connecting",
-  );
+  const [status, setStatus] = useState<"connecting" | "connected" | "closed">("connecting");
   // Keep latest filter values in a ref so the WS effect doesn't teardown
   // the connection on every keystroke in the search field.
   const filterRef = useRef({ errorsOnly, search });
@@ -371,9 +374,7 @@ function LiveTail({
             const hay =
               entry.logs
                 .flatMap((l) =>
-                  l.message.map((m) =>
-                    typeof m === "string" ? m : safeStringify(m),
-                  ),
+                  l.message.map((m) => (typeof m === "string" ? m : safeStringify(m))),
                 )
                 .join(" ") +
               " " +
@@ -450,11 +451,7 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
           : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
 
   const outcomeLabel =
-    entry.outcome === "ok"
-      ? null
-      : entry.outcome === "exception"
-        ? "exception"
-        : entry.outcome;
+    entry.outcome === "ok" ? null : entry.outcome === "exception" ? "exception" : entry.outcome;
 
   const path = useMemo(() => {
     if (!entry.request?.url) return "—";
@@ -482,9 +479,7 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
           hasDetail ? "hover:bg-code-bg cursor-pointer" : "cursor-default"
         }`}
       >
-        <span className="shrink-0 text-muted-foreground tabular-nums">
-          {tsLabel}
-        </span>
+        <span className="shrink-0 text-muted-foreground tabular-nums">{tsLabel}</span>
         <span className="shrink-0 font-mono text-muted-foreground">
           {entry.request?.method ?? "—"}
         </span>
@@ -526,9 +521,7 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
                 {l.level}
               </span>
               <span className="whitespace-pre-wrap break-words">
-                {l.message
-                  .map((m) => (typeof m === "string" ? m : safeStringify(m)))
-                  .join(" ")}
+                {l.message.map((m) => (typeof m === "string" ? m : safeStringify(m))).join(" ")}
               </span>
             </div>
           ))}

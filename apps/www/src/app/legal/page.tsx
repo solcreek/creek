@@ -38,9 +38,7 @@ export default function LegalIndex() {
             className="block rounded-lg border border-fd-border p-5 transition-colors hover:border-fd-primary/50 hover:bg-fd-accent/5"
           >
             <h2 className="font-semibold">{doc.title}</h2>
-            <p className="mt-1 text-sm text-fd-muted-foreground">
-              {doc.description}
-            </p>
+            <p className="mt-1 text-sm text-fd-muted-foreground">{doc.description}</p>
           </Link>
         ))}
       </div>

@@ -16,7 +16,13 @@ function ProjectsListPage() {
   const features = useFeatures();
   const queryClient = useQueryClient();
 
-  const { data: apps, isLoading, error, refetch, isError } = useQuery({
+  const {
+    data: apps,
+    isLoading,
+    error,
+    refetch,
+    isError,
+  } = useQuery({
     queryKey: ["apps"],
     queryFn: listApps,
     refetchInterval: mode === "creekd" ? 5000 : false,
@@ -75,9 +81,7 @@ function EmptyState({ mode }: { mode: string }) {
       <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-secondary">
         <Folder className="size-6 text-muted-foreground" />
       </div>
-      <h3 className="font-semibold">
-        {mode === "creekd" ? "No apps running" : "No projects yet"}
-      </h3>
+      <h3 className="font-semibold">{mode === "creekd" ? "No apps running" : "No projects yet"}</h3>
       <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
         {mode === "creekd"
           ? "Deploy an app to this server using the CLI:"
@@ -138,7 +142,9 @@ function AppRow({
         params={{ projectId: app.id }}
         className="flex min-w-0 flex-1 items-center gap-3"
       >
-        <span className={`size-2.5 shrink-0 rounded-full ${STATUS_COLORS[status] ?? "bg-gray-400"}`} />
+        <span
+          className={`size-2.5 shrink-0 rounded-full ${STATUS_COLORS[status] ?? "bg-gray-400"}`}
+        />
         <div className="min-w-0">
           <p className="font-medium">{app.id}</p>
           <p className="text-sm text-muted-foreground">
@@ -158,20 +164,34 @@ function AppRow({
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={(e) => { e.preventDefault(); onRestart(app.id); }}
+            onClick={(e) => {
+              e.preventDefault();
+              onRestart(app.id);
+            }}
             disabled={isRestarting || status !== "running"}
             title="Restart"
           >
-            {isRestarting ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
+            {isRestarting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RotateCw className="size-4" />
+            )}
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={(e) => { e.preventDefault(); onStop(app.id); }}
+            onClick={(e) => {
+              e.preventDefault();
+              onStop(app.id);
+            }}
             disabled={isStopping || status === "stopped"}
             title="Stop"
           >
-            {isStopping ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
+            {isStopping ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Square className="size-4" />
+            )}
           </Button>
         </div>
       )}

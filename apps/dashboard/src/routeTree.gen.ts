@@ -8,553 +8,530 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as CliAuthRouteImport } from './routes/cli-auth'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
-import { Route as AuthenticatedResourcesRouteImport } from './routes/_authenticated/resources'
-import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
-import { Route as AuthenticatedApiKeysRouteImport } from './routes/_authenticated/api-keys'
-import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
-import { Route as AuthenticatedNewIndexRouteImport } from './routes/_authenticated/new.index'
-import { Route as AuthenticatedResourcesStorageRouteImport } from './routes/_authenticated/resources/storage'
-import { Route as AuthenticatedResourcesDatabaseRouteImport } from './routes/_authenticated/resources/database'
-import { Route as AuthenticatedResourcesCacheRouteImport } from './routes/_authenticated/resources/cache'
-import { Route as AuthenticatedResourcesAiRouteImport } from './routes/_authenticated/resources/ai'
-import { Route as AuthenticatedResourcesResourceIdRouteImport } from './routes/_authenticated/resources/$resourceId'
-import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
-import { Route as AuthenticatedNewConfigureRouteImport } from './routes/_authenticated/new/configure'
-import { Route as AuthenticatedGithubSetupRouteImport } from './routes/_authenticated/github.setup'
-import { Route as AuthenticatedProjectsProjectIdIndexRouteImport } from './routes/_authenticated/projects.$projectId.index'
-import { Route as AuthenticatedProjectsProjectIdSettingsRouteImport } from './routes/_authenticated/projects.$projectId.settings'
-import { Route as AuthenticatedProjectsProjectIdLogsRouteImport } from './routes/_authenticated/projects.$projectId.logs'
-import { Route as AuthenticatedProjectsProjectIdEnvRouteImport } from './routes/_authenticated/projects.$projectId.env'
-import { Route as AuthenticatedProjectsProjectIdAnalyticsRouteImport } from './routes/_authenticated/projects.$projectId.analytics'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as LoginRouteImport } from "./routes/login";
+import { Route as CliAuthRouteImport } from "./routes/cli-auth";
+import { Route as AuthenticatedRouteImport } from "./routes/_authenticated";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as AuthenticatedSettingsRouteImport } from "./routes/_authenticated/settings";
+import { Route as AuthenticatedResourcesRouteImport } from "./routes/_authenticated/resources";
+import { Route as AuthenticatedProjectsRouteImport } from "./routes/_authenticated/projects";
+import { Route as AuthenticatedApiKeysRouteImport } from "./routes/_authenticated/api-keys";
+import { Route as AuthenticatedProjectsIndexRouteImport } from "./routes/_authenticated/projects.index";
+import { Route as AuthenticatedNewIndexRouteImport } from "./routes/_authenticated/new.index";
+import { Route as AuthenticatedResourcesStorageRouteImport } from "./routes/_authenticated/resources/storage";
+import { Route as AuthenticatedResourcesDatabaseRouteImport } from "./routes/_authenticated/resources/database";
+import { Route as AuthenticatedResourcesCacheRouteImport } from "./routes/_authenticated/resources/cache";
+import { Route as AuthenticatedResourcesAiRouteImport } from "./routes/_authenticated/resources/ai";
+import { Route as AuthenticatedResourcesResourceIdRouteImport } from "./routes/_authenticated/resources/$resourceId";
+import { Route as AuthenticatedProjectsProjectIdRouteImport } from "./routes/_authenticated/projects.$projectId";
+import { Route as AuthenticatedNewConfigureRouteImport } from "./routes/_authenticated/new/configure";
+import { Route as AuthenticatedGithubSetupRouteImport } from "./routes/_authenticated/github.setup";
+import { Route as AuthenticatedProjectsProjectIdIndexRouteImport } from "./routes/_authenticated/projects.$projectId.index";
+import { Route as AuthenticatedProjectsProjectIdSettingsRouteImport } from "./routes/_authenticated/projects.$projectId.settings";
+import { Route as AuthenticatedProjectsProjectIdLogsRouteImport } from "./routes/_authenticated/projects.$projectId.logs";
+import { Route as AuthenticatedProjectsProjectIdEnvRouteImport } from "./routes/_authenticated/projects.$projectId.env";
+import { Route as AuthenticatedProjectsProjectIdAnalyticsRouteImport } from "./routes/_authenticated/projects.$projectId.analytics";
 
 const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+  id: "/login",
+  path: "/login",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const CliAuthRoute = CliAuthRouteImport.update({
-  id: '/cli-auth',
-  path: '/cli-auth',
+  id: "/cli-auth",
+  path: "/cli-auth",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
+  id: "/_authenticated",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+  id: "/settings",
+  path: "/settings",
   getParentRoute: () => AuthenticatedRoute,
-} as any)
+} as any);
 const AuthenticatedResourcesRoute = AuthenticatedResourcesRouteImport.update({
-  id: '/resources',
-  path: '/resources',
+  id: "/resources",
+  path: "/resources",
   getParentRoute: () => AuthenticatedRoute,
-} as any)
+} as any);
 const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
-  id: '/projects',
-  path: '/projects',
+  id: "/projects",
+  path: "/projects",
   getParentRoute: () => AuthenticatedRoute,
-} as any)
+} as any);
 const AuthenticatedApiKeysRoute = AuthenticatedApiKeysRouteImport.update({
-  id: '/api-keys',
-  path: '/api-keys',
+  id: "/api-keys",
+  path: "/api-keys",
   getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedProjectsIndexRoute =
-  AuthenticatedProjectsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedProjectsRoute,
-  } as any)
+} as any);
+const AuthenticatedProjectsIndexRoute = AuthenticatedProjectsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => AuthenticatedProjectsRoute,
+} as any);
 const AuthenticatedNewIndexRoute = AuthenticatedNewIndexRouteImport.update({
-  id: '/new/',
-  path: '/new/',
+  id: "/new/",
+  path: "/new/",
   getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedResourcesStorageRoute =
-  AuthenticatedResourcesStorageRouteImport.update({
-    id: '/storage',
-    path: '/storage',
-    getParentRoute: () => AuthenticatedResourcesRoute,
-  } as any)
-const AuthenticatedResourcesDatabaseRoute =
-  AuthenticatedResourcesDatabaseRouteImport.update({
-    id: '/database',
-    path: '/database',
-    getParentRoute: () => AuthenticatedResourcesRoute,
-  } as any)
-const AuthenticatedResourcesCacheRoute =
-  AuthenticatedResourcesCacheRouteImport.update({
-    id: '/cache',
-    path: '/cache',
-    getParentRoute: () => AuthenticatedResourcesRoute,
-  } as any)
-const AuthenticatedResourcesAiRoute =
-  AuthenticatedResourcesAiRouteImport.update({
-    id: '/ai',
-    path: '/ai',
-    getParentRoute: () => AuthenticatedResourcesRoute,
-  } as any)
-const AuthenticatedResourcesResourceIdRoute =
-  AuthenticatedResourcesResourceIdRouteImport.update({
-    id: '/$resourceId',
-    path: '/$resourceId',
-    getParentRoute: () => AuthenticatedResourcesRoute,
-  } as any)
-const AuthenticatedProjectsProjectIdRoute =
-  AuthenticatedProjectsProjectIdRouteImport.update({
-    id: '/$projectId',
-    path: '/$projectId',
-    getParentRoute: () => AuthenticatedProjectsRoute,
-  } as any)
-const AuthenticatedNewConfigureRoute =
-  AuthenticatedNewConfigureRouteImport.update({
-    id: '/new/configure',
-    path: '/new/configure',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedGithubSetupRoute =
-  AuthenticatedGithubSetupRouteImport.update({
-    id: '/github/setup',
-    path: '/github/setup',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
+} as any);
+const AuthenticatedResourcesStorageRoute = AuthenticatedResourcesStorageRouteImport.update({
+  id: "/storage",
+  path: "/storage",
+  getParentRoute: () => AuthenticatedResourcesRoute,
+} as any);
+const AuthenticatedResourcesDatabaseRoute = AuthenticatedResourcesDatabaseRouteImport.update({
+  id: "/database",
+  path: "/database",
+  getParentRoute: () => AuthenticatedResourcesRoute,
+} as any);
+const AuthenticatedResourcesCacheRoute = AuthenticatedResourcesCacheRouteImport.update({
+  id: "/cache",
+  path: "/cache",
+  getParentRoute: () => AuthenticatedResourcesRoute,
+} as any);
+const AuthenticatedResourcesAiRoute = AuthenticatedResourcesAiRouteImport.update({
+  id: "/ai",
+  path: "/ai",
+  getParentRoute: () => AuthenticatedResourcesRoute,
+} as any);
+const AuthenticatedResourcesResourceIdRoute = AuthenticatedResourcesResourceIdRouteImport.update({
+  id: "/$resourceId",
+  path: "/$resourceId",
+  getParentRoute: () => AuthenticatedResourcesRoute,
+} as any);
+const AuthenticatedProjectsProjectIdRoute = AuthenticatedProjectsProjectIdRouteImport.update({
+  id: "/$projectId",
+  path: "/$projectId",
+  getParentRoute: () => AuthenticatedProjectsRoute,
+} as any);
+const AuthenticatedNewConfigureRoute = AuthenticatedNewConfigureRouteImport.update({
+  id: "/new/configure",
+  path: "/new/configure",
+  getParentRoute: () => AuthenticatedRoute,
+} as any);
+const AuthenticatedGithubSetupRoute = AuthenticatedGithubSetupRouteImport.update({
+  id: "/github/setup",
+  path: "/github/setup",
+  getParentRoute: () => AuthenticatedRoute,
+} as any);
 const AuthenticatedProjectsProjectIdIndexRoute =
   AuthenticatedProjectsProjectIdIndexRouteImport.update({
-    id: '/',
-    path: '/',
+    id: "/",
+    path: "/",
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
+  } as any);
 const AuthenticatedProjectsProjectIdSettingsRoute =
   AuthenticatedProjectsProjectIdSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
+    id: "/settings",
+    path: "/settings",
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
+  } as any);
 const AuthenticatedProjectsProjectIdLogsRoute =
   AuthenticatedProjectsProjectIdLogsRouteImport.update({
-    id: '/logs',
-    path: '/logs',
+    id: "/logs",
+    path: "/logs",
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
-const AuthenticatedProjectsProjectIdEnvRoute =
-  AuthenticatedProjectsProjectIdEnvRouteImport.update({
-    id: '/env',
-    path: '/env',
-    getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
+  } as any);
+const AuthenticatedProjectsProjectIdEnvRoute = AuthenticatedProjectsProjectIdEnvRouteImport.update({
+  id: "/env",
+  path: "/env",
+  getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
+} as any);
 const AuthenticatedProjectsProjectIdAnalyticsRoute =
   AuthenticatedProjectsProjectIdAnalyticsRouteImport.update({
-    id: '/analytics',
-    path: '/analytics',
+    id: "/analytics",
+    path: "/analytics",
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
-  } as any)
+  } as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/cli-auth': typeof CliAuthRoute
-  '/login': typeof LoginRoute
-  '/api-keys': typeof AuthenticatedApiKeysRoute
-  '/projects': typeof AuthenticatedProjectsRouteWithChildren
-  '/resources': typeof AuthenticatedResourcesRouteWithChildren
-  '/settings': typeof AuthenticatedSettingsRoute
-  '/github/setup': typeof AuthenticatedGithubSetupRoute
-  '/new/configure': typeof AuthenticatedNewConfigureRoute
-  '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
-  '/resources/$resourceId': typeof AuthenticatedResourcesResourceIdRoute
-  '/resources/ai': typeof AuthenticatedResourcesAiRoute
-  '/resources/cache': typeof AuthenticatedResourcesCacheRoute
-  '/resources/database': typeof AuthenticatedResourcesDatabaseRoute
-  '/resources/storage': typeof AuthenticatedResourcesStorageRoute
-  '/new/': typeof AuthenticatedNewIndexRoute
-  '/projects/': typeof AuthenticatedProjectsIndexRoute
-  '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
-  '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
-  '/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
-  '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
-  '/projects/$projectId/': typeof AuthenticatedProjectsProjectIdIndexRoute
+  "/": typeof IndexRoute;
+  "/cli-auth": typeof CliAuthRoute;
+  "/login": typeof LoginRoute;
+  "/api-keys": typeof AuthenticatedApiKeysRoute;
+  "/projects": typeof AuthenticatedProjectsRouteWithChildren;
+  "/resources": typeof AuthenticatedResourcesRouteWithChildren;
+  "/settings": typeof AuthenticatedSettingsRoute;
+  "/github/setup": typeof AuthenticatedGithubSetupRoute;
+  "/new/configure": typeof AuthenticatedNewConfigureRoute;
+  "/projects/$projectId": typeof AuthenticatedProjectsProjectIdRouteWithChildren;
+  "/resources/$resourceId": typeof AuthenticatedResourcesResourceIdRoute;
+  "/resources/ai": typeof AuthenticatedResourcesAiRoute;
+  "/resources/cache": typeof AuthenticatedResourcesCacheRoute;
+  "/resources/database": typeof AuthenticatedResourcesDatabaseRoute;
+  "/resources/storage": typeof AuthenticatedResourcesStorageRoute;
+  "/new/": typeof AuthenticatedNewIndexRoute;
+  "/projects/": typeof AuthenticatedProjectsIndexRoute;
+  "/projects/$projectId/analytics": typeof AuthenticatedProjectsProjectIdAnalyticsRoute;
+  "/projects/$projectId/env": typeof AuthenticatedProjectsProjectIdEnvRoute;
+  "/projects/$projectId/logs": typeof AuthenticatedProjectsProjectIdLogsRoute;
+  "/projects/$projectId/settings": typeof AuthenticatedProjectsProjectIdSettingsRoute;
+  "/projects/$projectId/": typeof AuthenticatedProjectsProjectIdIndexRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/cli-auth': typeof CliAuthRoute
-  '/login': typeof LoginRoute
-  '/api-keys': typeof AuthenticatedApiKeysRoute
-  '/resources': typeof AuthenticatedResourcesRouteWithChildren
-  '/settings': typeof AuthenticatedSettingsRoute
-  '/github/setup': typeof AuthenticatedGithubSetupRoute
-  '/new/configure': typeof AuthenticatedNewConfigureRoute
-  '/resources/$resourceId': typeof AuthenticatedResourcesResourceIdRoute
-  '/resources/ai': typeof AuthenticatedResourcesAiRoute
-  '/resources/cache': typeof AuthenticatedResourcesCacheRoute
-  '/resources/database': typeof AuthenticatedResourcesDatabaseRoute
-  '/resources/storage': typeof AuthenticatedResourcesStorageRoute
-  '/new': typeof AuthenticatedNewIndexRoute
-  '/projects': typeof AuthenticatedProjectsIndexRoute
-  '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
-  '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
-  '/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
-  '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
-  '/projects/$projectId': typeof AuthenticatedProjectsProjectIdIndexRoute
+  "/": typeof IndexRoute;
+  "/cli-auth": typeof CliAuthRoute;
+  "/login": typeof LoginRoute;
+  "/api-keys": typeof AuthenticatedApiKeysRoute;
+  "/resources": typeof AuthenticatedResourcesRouteWithChildren;
+  "/settings": typeof AuthenticatedSettingsRoute;
+  "/github/setup": typeof AuthenticatedGithubSetupRoute;
+  "/new/configure": typeof AuthenticatedNewConfigureRoute;
+  "/resources/$resourceId": typeof AuthenticatedResourcesResourceIdRoute;
+  "/resources/ai": typeof AuthenticatedResourcesAiRoute;
+  "/resources/cache": typeof AuthenticatedResourcesCacheRoute;
+  "/resources/database": typeof AuthenticatedResourcesDatabaseRoute;
+  "/resources/storage": typeof AuthenticatedResourcesStorageRoute;
+  "/new": typeof AuthenticatedNewIndexRoute;
+  "/projects": typeof AuthenticatedProjectsIndexRoute;
+  "/projects/$projectId/analytics": typeof AuthenticatedProjectsProjectIdAnalyticsRoute;
+  "/projects/$projectId/env": typeof AuthenticatedProjectsProjectIdEnvRoute;
+  "/projects/$projectId/logs": typeof AuthenticatedProjectsProjectIdLogsRoute;
+  "/projects/$projectId/settings": typeof AuthenticatedProjectsProjectIdSettingsRoute;
+  "/projects/$projectId": typeof AuthenticatedProjectsProjectIdIndexRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/_authenticated': typeof AuthenticatedRouteWithChildren
-  '/cli-auth': typeof CliAuthRoute
-  '/login': typeof LoginRoute
-  '/_authenticated/api-keys': typeof AuthenticatedApiKeysRoute
-  '/_authenticated/projects': typeof AuthenticatedProjectsRouteWithChildren
-  '/_authenticated/resources': typeof AuthenticatedResourcesRouteWithChildren
-  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
-  '/_authenticated/github/setup': typeof AuthenticatedGithubSetupRoute
-  '/_authenticated/new/configure': typeof AuthenticatedNewConfigureRoute
-  '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRouteWithChildren
-  '/_authenticated/resources/$resourceId': typeof AuthenticatedResourcesResourceIdRoute
-  '/_authenticated/resources/ai': typeof AuthenticatedResourcesAiRoute
-  '/_authenticated/resources/cache': typeof AuthenticatedResourcesCacheRoute
-  '/_authenticated/resources/database': typeof AuthenticatedResourcesDatabaseRoute
-  '/_authenticated/resources/storage': typeof AuthenticatedResourcesStorageRoute
-  '/_authenticated/new/': typeof AuthenticatedNewIndexRoute
-  '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
-  '/_authenticated/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
-  '/_authenticated/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
-  '/_authenticated/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
-  '/_authenticated/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
-  '/_authenticated/projects/$projectId/': typeof AuthenticatedProjectsProjectIdIndexRoute
+  __root__: typeof rootRouteImport;
+  "/": typeof IndexRoute;
+  "/_authenticated": typeof AuthenticatedRouteWithChildren;
+  "/cli-auth": typeof CliAuthRoute;
+  "/login": typeof LoginRoute;
+  "/_authenticated/api-keys": typeof AuthenticatedApiKeysRoute;
+  "/_authenticated/projects": typeof AuthenticatedProjectsRouteWithChildren;
+  "/_authenticated/resources": typeof AuthenticatedResourcesRouteWithChildren;
+  "/_authenticated/settings": typeof AuthenticatedSettingsRoute;
+  "/_authenticated/github/setup": typeof AuthenticatedGithubSetupRoute;
+  "/_authenticated/new/configure": typeof AuthenticatedNewConfigureRoute;
+  "/_authenticated/projects/$projectId": typeof AuthenticatedProjectsProjectIdRouteWithChildren;
+  "/_authenticated/resources/$resourceId": typeof AuthenticatedResourcesResourceIdRoute;
+  "/_authenticated/resources/ai": typeof AuthenticatedResourcesAiRoute;
+  "/_authenticated/resources/cache": typeof AuthenticatedResourcesCacheRoute;
+  "/_authenticated/resources/database": typeof AuthenticatedResourcesDatabaseRoute;
+  "/_authenticated/resources/storage": typeof AuthenticatedResourcesStorageRoute;
+  "/_authenticated/new/": typeof AuthenticatedNewIndexRoute;
+  "/_authenticated/projects/": typeof AuthenticatedProjectsIndexRoute;
+  "/_authenticated/projects/$projectId/analytics": typeof AuthenticatedProjectsProjectIdAnalyticsRoute;
+  "/_authenticated/projects/$projectId/env": typeof AuthenticatedProjectsProjectIdEnvRoute;
+  "/_authenticated/projects/$projectId/logs": typeof AuthenticatedProjectsProjectIdLogsRoute;
+  "/_authenticated/projects/$projectId/settings": typeof AuthenticatedProjectsProjectIdSettingsRoute;
+  "/_authenticated/projects/$projectId/": typeof AuthenticatedProjectsProjectIdIndexRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
+  fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
-    | '/'
-    | '/cli-auth'
-    | '/login'
-    | '/api-keys'
-    | '/projects'
-    | '/resources'
-    | '/settings'
-    | '/github/setup'
-    | '/new/configure'
-    | '/projects/$projectId'
-    | '/resources/$resourceId'
-    | '/resources/ai'
-    | '/resources/cache'
-    | '/resources/database'
-    | '/resources/storage'
-    | '/new/'
-    | '/projects/'
-    | '/projects/$projectId/analytics'
-    | '/projects/$projectId/env'
-    | '/projects/$projectId/logs'
-    | '/projects/$projectId/settings'
-    | '/projects/$projectId/'
-  fileRoutesByTo: FileRoutesByTo
+    | "/"
+    | "/cli-auth"
+    | "/login"
+    | "/api-keys"
+    | "/projects"
+    | "/resources"
+    | "/settings"
+    | "/github/setup"
+    | "/new/configure"
+    | "/projects/$projectId"
+    | "/resources/$resourceId"
+    | "/resources/ai"
+    | "/resources/cache"
+    | "/resources/database"
+    | "/resources/storage"
+    | "/new/"
+    | "/projects/"
+    | "/projects/$projectId/analytics"
+    | "/projects/$projectId/env"
+    | "/projects/$projectId/logs"
+    | "/projects/$projectId/settings"
+    | "/projects/$projectId/";
+  fileRoutesByTo: FileRoutesByTo;
   to:
-    | '/'
-    | '/cli-auth'
-    | '/login'
-    | '/api-keys'
-    | '/resources'
-    | '/settings'
-    | '/github/setup'
-    | '/new/configure'
-    | '/resources/$resourceId'
-    | '/resources/ai'
-    | '/resources/cache'
-    | '/resources/database'
-    | '/resources/storage'
-    | '/new'
-    | '/projects'
-    | '/projects/$projectId/analytics'
-    | '/projects/$projectId/env'
-    | '/projects/$projectId/logs'
-    | '/projects/$projectId/settings'
-    | '/projects/$projectId'
+    | "/"
+    | "/cli-auth"
+    | "/login"
+    | "/api-keys"
+    | "/resources"
+    | "/settings"
+    | "/github/setup"
+    | "/new/configure"
+    | "/resources/$resourceId"
+    | "/resources/ai"
+    | "/resources/cache"
+    | "/resources/database"
+    | "/resources/storage"
+    | "/new"
+    | "/projects"
+    | "/projects/$projectId/analytics"
+    | "/projects/$projectId/env"
+    | "/projects/$projectId/logs"
+    | "/projects/$projectId/settings"
+    | "/projects/$projectId";
   id:
-    | '__root__'
-    | '/'
-    | '/_authenticated'
-    | '/cli-auth'
-    | '/login'
-    | '/_authenticated/api-keys'
-    | '/_authenticated/projects'
-    | '/_authenticated/resources'
-    | '/_authenticated/settings'
-    | '/_authenticated/github/setup'
-    | '/_authenticated/new/configure'
-    | '/_authenticated/projects/$projectId'
-    | '/_authenticated/resources/$resourceId'
-    | '/_authenticated/resources/ai'
-    | '/_authenticated/resources/cache'
-    | '/_authenticated/resources/database'
-    | '/_authenticated/resources/storage'
-    | '/_authenticated/new/'
-    | '/_authenticated/projects/'
-    | '/_authenticated/projects/$projectId/analytics'
-    | '/_authenticated/projects/$projectId/env'
-    | '/_authenticated/projects/$projectId/logs'
-    | '/_authenticated/projects/$projectId/settings'
-    | '/_authenticated/projects/$projectId/'
-  fileRoutesById: FileRoutesById
+    | "__root__"
+    | "/"
+    | "/_authenticated"
+    | "/cli-auth"
+    | "/login"
+    | "/_authenticated/api-keys"
+    | "/_authenticated/projects"
+    | "/_authenticated/resources"
+    | "/_authenticated/settings"
+    | "/_authenticated/github/setup"
+    | "/_authenticated/new/configure"
+    | "/_authenticated/projects/$projectId"
+    | "/_authenticated/resources/$resourceId"
+    | "/_authenticated/resources/ai"
+    | "/_authenticated/resources/cache"
+    | "/_authenticated/resources/database"
+    | "/_authenticated/resources/storage"
+    | "/_authenticated/new/"
+    | "/_authenticated/projects/"
+    | "/_authenticated/projects/$projectId/analytics"
+    | "/_authenticated/projects/$projectId/env"
+    | "/_authenticated/projects/$projectId/logs"
+    | "/_authenticated/projects/$projectId/settings"
+    | "/_authenticated/projects/$projectId/";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
-  CliAuthRoute: typeof CliAuthRoute
-  LoginRoute: typeof LoginRoute
+  IndexRoute: typeof IndexRoute;
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren;
+  CliAuthRoute: typeof CliAuthRoute;
+  LoginRoute: typeof LoginRoute;
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cli-auth': {
-      id: '/cli-auth'
-      path: '/cli-auth'
-      fullPath: '/cli-auth'
-      preLoaderRoute: typeof CliAuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/resources': {
-      id: '/_authenticated/resources'
-      path: '/resources'
-      fullPath: '/resources'
-      preLoaderRoute: typeof AuthenticatedResourcesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/projects': {
-      id: '/_authenticated/projects'
-      path: '/projects'
-      fullPath: '/projects'
-      preLoaderRoute: typeof AuthenticatedProjectsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/api-keys': {
-      id: '/_authenticated/api-keys'
-      path: '/api-keys'
-      fullPath: '/api-keys'
-      preLoaderRoute: typeof AuthenticatedApiKeysRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/projects/': {
-      id: '/_authenticated/projects/'
-      path: '/'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof AuthenticatedProjectsIndexRouteImport
-      parentRoute: typeof AuthenticatedProjectsRoute
-    }
-    '/_authenticated/new/': {
-      id: '/_authenticated/new/'
-      path: '/new'
-      fullPath: '/new/'
-      preLoaderRoute: typeof AuthenticatedNewIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/resources/storage': {
-      id: '/_authenticated/resources/storage'
-      path: '/storage'
-      fullPath: '/resources/storage'
-      preLoaderRoute: typeof AuthenticatedResourcesStorageRouteImport
-      parentRoute: typeof AuthenticatedResourcesRoute
-    }
-    '/_authenticated/resources/database': {
-      id: '/_authenticated/resources/database'
-      path: '/database'
-      fullPath: '/resources/database'
-      preLoaderRoute: typeof AuthenticatedResourcesDatabaseRouteImport
-      parentRoute: typeof AuthenticatedResourcesRoute
-    }
-    '/_authenticated/resources/cache': {
-      id: '/_authenticated/resources/cache'
-      path: '/cache'
-      fullPath: '/resources/cache'
-      preLoaderRoute: typeof AuthenticatedResourcesCacheRouteImport
-      parentRoute: typeof AuthenticatedResourcesRoute
-    }
-    '/_authenticated/resources/ai': {
-      id: '/_authenticated/resources/ai'
-      path: '/ai'
-      fullPath: '/resources/ai'
-      preLoaderRoute: typeof AuthenticatedResourcesAiRouteImport
-      parentRoute: typeof AuthenticatedResourcesRoute
-    }
-    '/_authenticated/resources/$resourceId': {
-      id: '/_authenticated/resources/$resourceId'
-      path: '/$resourceId'
-      fullPath: '/resources/$resourceId'
-      preLoaderRoute: typeof AuthenticatedResourcesResourceIdRouteImport
-      parentRoute: typeof AuthenticatedResourcesRoute
-    }
-    '/_authenticated/projects/$projectId': {
-      id: '/_authenticated/projects/$projectId'
-      path: '/$projectId'
-      fullPath: '/projects/$projectId'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdRouteImport
-      parentRoute: typeof AuthenticatedProjectsRoute
-    }
-    '/_authenticated/new/configure': {
-      id: '/_authenticated/new/configure'
-      path: '/new/configure'
-      fullPath: '/new/configure'
-      preLoaderRoute: typeof AuthenticatedNewConfigureRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/github/setup': {
-      id: '/_authenticated/github/setup'
-      path: '/github/setup'
-      fullPath: '/github/setup'
-      preLoaderRoute: typeof AuthenticatedGithubSetupRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/projects/$projectId/': {
-      id: '/_authenticated/projects/$projectId/'
-      path: '/'
-      fullPath: '/projects/$projectId/'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdIndexRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
-    '/_authenticated/projects/$projectId/settings': {
-      id: '/_authenticated/projects/$projectId/settings'
-      path: '/settings'
-      fullPath: '/projects/$projectId/settings'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdSettingsRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
-    '/_authenticated/projects/$projectId/logs': {
-      id: '/_authenticated/projects/$projectId/logs'
-      path: '/logs'
-      fullPath: '/projects/$projectId/logs'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdLogsRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
-    '/_authenticated/projects/$projectId/env': {
-      id: '/_authenticated/projects/$projectId/env'
-      path: '/env'
-      fullPath: '/projects/$projectId/env'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdEnvRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
-    '/_authenticated/projects/$projectId/analytics': {
-      id: '/_authenticated/projects/$projectId/analytics'
-      path: '/analytics'
-      fullPath: '/projects/$projectId/analytics'
-      preLoaderRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRouteImport
-      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
-    }
+    "/login": {
+      id: "/login";
+      path: "/login";
+      fullPath: "/login";
+      preLoaderRoute: typeof LoginRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/cli-auth": {
+      id: "/cli-auth";
+      path: "/cli-auth";
+      fullPath: "/cli-auth";
+      preLoaderRoute: typeof CliAuthRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/_authenticated": {
+      id: "/_authenticated";
+      path: "";
+      fullPath: "/";
+      preLoaderRoute: typeof AuthenticatedRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/": {
+      id: "/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/_authenticated/settings": {
+      id: "/_authenticated/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/resources": {
+      id: "/_authenticated/resources";
+      path: "/resources";
+      fullPath: "/resources";
+      preLoaderRoute: typeof AuthenticatedResourcesRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/projects": {
+      id: "/_authenticated/projects";
+      path: "/projects";
+      fullPath: "/projects";
+      preLoaderRoute: typeof AuthenticatedProjectsRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/api-keys": {
+      id: "/_authenticated/api-keys";
+      path: "/api-keys";
+      fullPath: "/api-keys";
+      preLoaderRoute: typeof AuthenticatedApiKeysRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/projects/": {
+      id: "/_authenticated/projects/";
+      path: "/";
+      fullPath: "/projects/";
+      preLoaderRoute: typeof AuthenticatedProjectsIndexRouteImport;
+      parentRoute: typeof AuthenticatedProjectsRoute;
+    };
+    "/_authenticated/new/": {
+      id: "/_authenticated/new/";
+      path: "/new";
+      fullPath: "/new/";
+      preLoaderRoute: typeof AuthenticatedNewIndexRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/resources/storage": {
+      id: "/_authenticated/resources/storage";
+      path: "/storage";
+      fullPath: "/resources/storage";
+      preLoaderRoute: typeof AuthenticatedResourcesStorageRouteImport;
+      parentRoute: typeof AuthenticatedResourcesRoute;
+    };
+    "/_authenticated/resources/database": {
+      id: "/_authenticated/resources/database";
+      path: "/database";
+      fullPath: "/resources/database";
+      preLoaderRoute: typeof AuthenticatedResourcesDatabaseRouteImport;
+      parentRoute: typeof AuthenticatedResourcesRoute;
+    };
+    "/_authenticated/resources/cache": {
+      id: "/_authenticated/resources/cache";
+      path: "/cache";
+      fullPath: "/resources/cache";
+      preLoaderRoute: typeof AuthenticatedResourcesCacheRouteImport;
+      parentRoute: typeof AuthenticatedResourcesRoute;
+    };
+    "/_authenticated/resources/ai": {
+      id: "/_authenticated/resources/ai";
+      path: "/ai";
+      fullPath: "/resources/ai";
+      preLoaderRoute: typeof AuthenticatedResourcesAiRouteImport;
+      parentRoute: typeof AuthenticatedResourcesRoute;
+    };
+    "/_authenticated/resources/$resourceId": {
+      id: "/_authenticated/resources/$resourceId";
+      path: "/$resourceId";
+      fullPath: "/resources/$resourceId";
+      preLoaderRoute: typeof AuthenticatedResourcesResourceIdRouteImport;
+      parentRoute: typeof AuthenticatedResourcesRoute;
+    };
+    "/_authenticated/projects/$projectId": {
+      id: "/_authenticated/projects/$projectId";
+      path: "/$projectId";
+      fullPath: "/projects/$projectId";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdRouteImport;
+      parentRoute: typeof AuthenticatedProjectsRoute;
+    };
+    "/_authenticated/new/configure": {
+      id: "/_authenticated/new/configure";
+      path: "/new/configure";
+      fullPath: "/new/configure";
+      preLoaderRoute: typeof AuthenticatedNewConfigureRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/github/setup": {
+      id: "/_authenticated/github/setup";
+      path: "/github/setup";
+      fullPath: "/github/setup";
+      preLoaderRoute: typeof AuthenticatedGithubSetupRouteImport;
+      parentRoute: typeof AuthenticatedRoute;
+    };
+    "/_authenticated/projects/$projectId/": {
+      id: "/_authenticated/projects/$projectId/";
+      path: "/";
+      fullPath: "/projects/$projectId/";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdIndexRouteImport;
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute;
+    };
+    "/_authenticated/projects/$projectId/settings": {
+      id: "/_authenticated/projects/$projectId/settings";
+      path: "/settings";
+      fullPath: "/projects/$projectId/settings";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdSettingsRouteImport;
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute;
+    };
+    "/_authenticated/projects/$projectId/logs": {
+      id: "/_authenticated/projects/$projectId/logs";
+      path: "/logs";
+      fullPath: "/projects/$projectId/logs";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdLogsRouteImport;
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute;
+    };
+    "/_authenticated/projects/$projectId/env": {
+      id: "/_authenticated/projects/$projectId/env";
+      path: "/env";
+      fullPath: "/projects/$projectId/env";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdEnvRouteImport;
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute;
+    };
+    "/_authenticated/projects/$projectId/analytics": {
+      id: "/_authenticated/projects/$projectId/analytics";
+      path: "/analytics";
+      fullPath: "/projects/$projectId/analytics";
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRouteImport;
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute;
+    };
   }
 }
 
 interface AuthenticatedProjectsProjectIdRouteChildren {
-  AuthenticatedProjectsProjectIdAnalyticsRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRoute
-  AuthenticatedProjectsProjectIdEnvRoute: typeof AuthenticatedProjectsProjectIdEnvRoute
-  AuthenticatedProjectsProjectIdLogsRoute: typeof AuthenticatedProjectsProjectIdLogsRoute
-  AuthenticatedProjectsProjectIdSettingsRoute: typeof AuthenticatedProjectsProjectIdSettingsRoute
-  AuthenticatedProjectsProjectIdIndexRoute: typeof AuthenticatedProjectsProjectIdIndexRoute
+  AuthenticatedProjectsProjectIdAnalyticsRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRoute;
+  AuthenticatedProjectsProjectIdEnvRoute: typeof AuthenticatedProjectsProjectIdEnvRoute;
+  AuthenticatedProjectsProjectIdLogsRoute: typeof AuthenticatedProjectsProjectIdLogsRoute;
+  AuthenticatedProjectsProjectIdSettingsRoute: typeof AuthenticatedProjectsProjectIdSettingsRoute;
+  AuthenticatedProjectsProjectIdIndexRoute: typeof AuthenticatedProjectsProjectIdIndexRoute;
 }
 
-const AuthenticatedProjectsProjectIdRouteChildren: AuthenticatedProjectsProjectIdRouteChildren =
-  {
-    AuthenticatedProjectsProjectIdAnalyticsRoute:
-      AuthenticatedProjectsProjectIdAnalyticsRoute,
-    AuthenticatedProjectsProjectIdEnvRoute:
-      AuthenticatedProjectsProjectIdEnvRoute,
-    AuthenticatedProjectsProjectIdLogsRoute:
-      AuthenticatedProjectsProjectIdLogsRoute,
-    AuthenticatedProjectsProjectIdSettingsRoute:
-      AuthenticatedProjectsProjectIdSettingsRoute,
-    AuthenticatedProjectsProjectIdIndexRoute:
-      AuthenticatedProjectsProjectIdIndexRoute,
-  }
+const AuthenticatedProjectsProjectIdRouteChildren: AuthenticatedProjectsProjectIdRouteChildren = {
+  AuthenticatedProjectsProjectIdAnalyticsRoute: AuthenticatedProjectsProjectIdAnalyticsRoute,
+  AuthenticatedProjectsProjectIdEnvRoute: AuthenticatedProjectsProjectIdEnvRoute,
+  AuthenticatedProjectsProjectIdLogsRoute: AuthenticatedProjectsProjectIdLogsRoute,
+  AuthenticatedProjectsProjectIdSettingsRoute: AuthenticatedProjectsProjectIdSettingsRoute,
+  AuthenticatedProjectsProjectIdIndexRoute: AuthenticatedProjectsProjectIdIndexRoute,
+};
 
 const AuthenticatedProjectsProjectIdRouteWithChildren =
-  AuthenticatedProjectsProjectIdRoute._addFileChildren(
-    AuthenticatedProjectsProjectIdRouteChildren,
-  )
+  AuthenticatedProjectsProjectIdRoute._addFileChildren(AuthenticatedProjectsProjectIdRouteChildren);
 
 interface AuthenticatedProjectsRouteChildren {
-  AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRouteWithChildren
-  AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
+  AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRouteWithChildren;
+  AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute;
 }
 
 const AuthenticatedProjectsRouteChildren: AuthenticatedProjectsRouteChildren = {
-  AuthenticatedProjectsProjectIdRoute:
-    AuthenticatedProjectsProjectIdRouteWithChildren,
+  AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRouteWithChildren,
   AuthenticatedProjectsIndexRoute: AuthenticatedProjectsIndexRoute,
-}
+};
 
-const AuthenticatedProjectsRouteWithChildren =
-  AuthenticatedProjectsRoute._addFileChildren(
-    AuthenticatedProjectsRouteChildren,
-  )
+const AuthenticatedProjectsRouteWithChildren = AuthenticatedProjectsRoute._addFileChildren(
+  AuthenticatedProjectsRouteChildren,
+);
 
 interface AuthenticatedResourcesRouteChildren {
-  AuthenticatedResourcesResourceIdRoute: typeof AuthenticatedResourcesResourceIdRoute
-  AuthenticatedResourcesAiRoute: typeof AuthenticatedResourcesAiRoute
-  AuthenticatedResourcesCacheRoute: typeof AuthenticatedResourcesCacheRoute
-  AuthenticatedResourcesDatabaseRoute: typeof AuthenticatedResourcesDatabaseRoute
-  AuthenticatedResourcesStorageRoute: typeof AuthenticatedResourcesStorageRoute
+  AuthenticatedResourcesResourceIdRoute: typeof AuthenticatedResourcesResourceIdRoute;
+  AuthenticatedResourcesAiRoute: typeof AuthenticatedResourcesAiRoute;
+  AuthenticatedResourcesCacheRoute: typeof AuthenticatedResourcesCacheRoute;
+  AuthenticatedResourcesDatabaseRoute: typeof AuthenticatedResourcesDatabaseRoute;
+  AuthenticatedResourcesStorageRoute: typeof AuthenticatedResourcesStorageRoute;
 }
 
-const AuthenticatedResourcesRouteChildren: AuthenticatedResourcesRouteChildren =
-  {
-    AuthenticatedResourcesResourceIdRoute:
-      AuthenticatedResourcesResourceIdRoute,
-    AuthenticatedResourcesAiRoute: AuthenticatedResourcesAiRoute,
-    AuthenticatedResourcesCacheRoute: AuthenticatedResourcesCacheRoute,
-    AuthenticatedResourcesDatabaseRoute: AuthenticatedResourcesDatabaseRoute,
-    AuthenticatedResourcesStorageRoute: AuthenticatedResourcesStorageRoute,
-  }
+const AuthenticatedResourcesRouteChildren: AuthenticatedResourcesRouteChildren = {
+  AuthenticatedResourcesResourceIdRoute: AuthenticatedResourcesResourceIdRoute,
+  AuthenticatedResourcesAiRoute: AuthenticatedResourcesAiRoute,
+  AuthenticatedResourcesCacheRoute: AuthenticatedResourcesCacheRoute,
+  AuthenticatedResourcesDatabaseRoute: AuthenticatedResourcesDatabaseRoute,
+  AuthenticatedResourcesStorageRoute: AuthenticatedResourcesStorageRoute,
+};
 
-const AuthenticatedResourcesRouteWithChildren =
-  AuthenticatedResourcesRoute._addFileChildren(
-    AuthenticatedResourcesRouteChildren,
-  )
+const AuthenticatedResourcesRouteWithChildren = AuthenticatedResourcesRoute._addFileChildren(
+  AuthenticatedResourcesRouteChildren,
+);
 
 interface AuthenticatedRouteChildren {
-  AuthenticatedApiKeysRoute: typeof AuthenticatedApiKeysRoute
-  AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRouteWithChildren
-  AuthenticatedResourcesRoute: typeof AuthenticatedResourcesRouteWithChildren
-  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
-  AuthenticatedGithubSetupRoute: typeof AuthenticatedGithubSetupRoute
-  AuthenticatedNewConfigureRoute: typeof AuthenticatedNewConfigureRoute
-  AuthenticatedNewIndexRoute: typeof AuthenticatedNewIndexRoute
+  AuthenticatedApiKeysRoute: typeof AuthenticatedApiKeysRoute;
+  AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRouteWithChildren;
+  AuthenticatedResourcesRoute: typeof AuthenticatedResourcesRouteWithChildren;
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute;
+  AuthenticatedGithubSetupRoute: typeof AuthenticatedGithubSetupRoute;
+  AuthenticatedNewConfigureRoute: typeof AuthenticatedNewConfigureRoute;
+  AuthenticatedNewIndexRoute: typeof AuthenticatedNewIndexRoute;
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -565,18 +542,18 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedGithubSetupRoute: AuthenticatedGithubSetupRoute,
   AuthenticatedNewConfigureRoute: AuthenticatedNewConfigureRoute,
   AuthenticatedNewIndexRoute: AuthenticatedNewIndexRoute,
-}
+};
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
-)
+);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   CliAuthRoute: CliAuthRoute,
   LoginRoute: LoginRoute,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+  ._addFileTypes<FileRouteTypes>();

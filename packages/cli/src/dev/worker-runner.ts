@@ -227,20 +227,14 @@ export class WorkerRunner {
   }
 
   /** Dispatch a fetch request to the worker (via Miniflare). */
-  async dispatchFetch(
-    input: string,
-    init?: RequestInit,
-  ): Promise<Response> {
+  async dispatchFetch(input: string, init?: RequestInit): Promise<Response> {
     if (!this.mf) throw new Error("WorkerRunner not started");
     return this.mf.dispatchFetch(input, init as any) as unknown as Response;
   }
 
   // ─── Internal ───────────────────────────────────────────────────────────────
 
-  private buildMiniflareOptions(
-    script: string,
-    persistDir: string,
-  ): Record<string, unknown> {
+  private buildMiniflareOptions(script: string, persistDir: string): Record<string, unknown> {
     const { bindings, projectSlug, realtimeUrl, vars } = this.options;
 
     const { hasD1, hasKV, hasR2, d1Databases, kvNamespaces, r2Buckets } =
@@ -295,7 +289,10 @@ export class WorkerRunner {
   }
 
   /** Trigger the scheduled() handler manually (for local cron simulation). */
-  async triggerScheduled(scheduledTime: number = Date.now(), cron: string = "* * * * *"): Promise<Response> {
+  async triggerScheduled(
+    scheduledTime: number = Date.now(),
+    cron: string = "* * * * *",
+  ): Promise<Response> {
     if (!this.mf) throw new Error("WorkerRunner not started");
     const worker = await this.mf.getWorker();
     const url = `http://placeholder/cdn-cgi/handler/scheduled?time=${scheduledTime}&cron=${encodeURIComponent(cron)}`;
@@ -325,9 +322,7 @@ export class WorkerRunner {
       conditions: ["workerd", "worker", "import"],
       mainFields: ["module", "main"],
       logLevel: "warning" as const,
-      ...(this.options.nodePaths?.length
-        ? { nodePaths: this.options.nodePaths }
-        : {}),
+      ...(this.options.nodePaths?.length ? { nodePaths: this.options.nodePaths } : {}),
     };
   }
 
@@ -340,9 +335,7 @@ export class WorkerRunner {
     );
 
     if (result.errors.length > 0) {
-      throw new Error(
-        `esbuild: ${result.errors.map((e) => e.text).join(", ")}`,
-      );
+      throw new Error(`esbuild: ${result.errors.map((e) => e.text).join(", ")}`);
     }
 
     return result.outputFiles[0].text;
@@ -385,9 +378,7 @@ export class WorkerRunner {
  * Build Miniflare options from bindings — extracted for testing.
  * @internal
  */
-export function buildMiniflareBindingOptions(
-  bindings: BindingDeclaration[],
-): {
+export function buildMiniflareBindingOptions(bindings: BindingDeclaration[]): {
   hasD1: boolean;
   hasKV: boolean;
   hasR2: boolean;

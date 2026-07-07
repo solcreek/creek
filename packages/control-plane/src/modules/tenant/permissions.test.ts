@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -104,8 +109,12 @@ describe("deploy:create permission", () => {
   test("no-role user is denied", async () => {
     // Seed org + user but no member row → member lookup returns null → 403
     const now = Date.now();
-    testEnv.db.db.exec(`INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${TEST_USER.id}', 'Test User', '${TEST_USER.email}', 0, ${now}, ${now})`);
-    testEnv.db.db.exec(`INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('${TEST_TEAM.id}', 'Test Org', '${TEST_TEAM.slug}', ${now})`);
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${TEST_USER.id}', 'Test User', '${TEST_USER.email}', 0, ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('${TEST_TEAM.id}', 'Test Org', '${TEST_TEAM.slug}', ${now})`,
+    );
     const app = createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
     setupProjectForDeploy();
     const res = await req(app, "POST", `/projects/${PROJECT_ID}/deployments`);

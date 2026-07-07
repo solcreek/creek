@@ -8,9 +8,7 @@ import { verifyAgentToken, QUESTION_BANK } from "./agent-challenge.js";
 async function sha256hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
-  return [...new Uint8Array(hash)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function createTestToken(
@@ -24,10 +22,7 @@ async function createTestToken(
     iat: overrides?.iat ?? now,
     exp: overrides?.exp ?? now + 3600_000,
   });
-  const payloadB64 = btoa(payload)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const payloadB64 = btoa(payload).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -36,11 +31,7 @@ async function createTestToken(
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payloadB64),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payloadB64));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")

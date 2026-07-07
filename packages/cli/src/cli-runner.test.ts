@@ -4,17 +4,29 @@ import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
 
 describe("cliErrorToJson", () => {
   it("maps citty CLIError codes to structured errors", () => {
-    expect(cliErrorToJson({ name: "CLIError", code: "E_UNKNOWN_COMMAND", message: "Unknown command `unset`" }))
-      .toEqual({ ok: false, error: "unknown_command", message: "Unknown command `unset`" });
-    expect(cliErrorToJson({ name: "CLIError", code: "E_NO_COMMAND", message: "No command specified." }))
-      .toMatchObject({ error: "no_command" });
-    expect(cliErrorToJson({ name: "CLIError", code: "EARG", message: "Missing required positional argument: NAME" }))
-      .toMatchObject({ error: "missing_argument" });
+    expect(
+      cliErrorToJson({
+        name: "CLIError",
+        code: "E_UNKNOWN_COMMAND",
+        message: "Unknown command `unset`",
+      }),
+    ).toEqual({ ok: false, error: "unknown_command", message: "Unknown command `unset`" });
+    expect(
+      cliErrorToJson({ name: "CLIError", code: "E_NO_COMMAND", message: "No command specified." }),
+    ).toMatchObject({ error: "no_command" });
+    expect(
+      cliErrorToJson({
+        name: "CLIError",
+        code: "EARG",
+        message: "Missing required positional argument: NAME",
+      }),
+    ).toMatchObject({ error: "missing_argument" });
   });
 
   it("falls back to cli_error for an unknown CLIError code", () => {
-    expect(cliErrorToJson({ name: "CLIError", code: "E_WHATEVER", message: "x" }))
-      .toMatchObject({ error: "cli_error" });
+    expect(cliErrorToJson({ name: "CLIError", code: "E_WHATEVER", message: "x" })).toMatchObject({
+      error: "cli_error",
+    });
   });
 
   it("returns null for non-CLIError values", () => {
@@ -59,7 +71,9 @@ describe("runCli (JSON mode error conversion)", () => {
   const child = defineCommand({
     meta: { name: "child" },
     args: { name: { type: "positional", required: true } },
-    run() { /* never reached in these tests */ },
+    run() {
+      /* never reached in these tests */
+    },
   });
   const app = defineCommand({
     meta: { name: "app" },

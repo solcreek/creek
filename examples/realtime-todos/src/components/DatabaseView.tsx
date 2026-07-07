@@ -44,7 +44,9 @@ export function DatabaseView({ todos, flashVersions, onFlashEnd }: DatabaseViewP
             })}
             {todos.length === 0 && (
               <tr>
-                <td colSpan={4} className="cell-empty">No rows</td>
+                <td colSpan={4} className="cell-empty">
+                  No rows
+                </td>
               </tr>
             )}
           </tbody>

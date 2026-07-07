@@ -102,12 +102,7 @@ afterEach(() => {
 
 // ── Helper ──
 
-function makeRequest(
-  method: string,
-  path: string,
-  body?: object,
-  roomId?: string,
-) {
+function makeRequest(method: string, path: string, body?: object, roomId?: string) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -127,9 +122,7 @@ describe("GET /api/todos", () => {
     const { mockDb } = createMockDb();
     _setEnv({ DB: mockDb });
 
-    const res = await app.request(
-      makeRequest("GET", "/api/todos", undefined, "new-room"),
-    );
+    const res = await app.request(makeRequest("GET", "/api/todos", undefined, "new-room"));
     const data = await res.json();
     expect(Array.isArray(data)).toBe(true);
   });
@@ -161,9 +154,7 @@ describe("PATCH /api/todos/:id", () => {
     });
     _setEnv({ DB: mockDb });
 
-    const res = await app.request(
-      makeRequest("PATCH", "/api/todos/todo-1", undefined, "room-1"),
-    );
+    const res = await app.request(makeRequest("PATCH", "/api/todos/todo-1", undefined, "room-1"));
     const data = await res.json();
     expect(data.ok).toBe(true);
   });
@@ -180,9 +171,7 @@ describe("DELETE /api/todos/:id", () => {
     });
     _setEnv({ DB: mockDb });
 
-    const res = await app.request(
-      makeRequest("DELETE", "/api/todos/todo-1", undefined, "room-1"),
-    );
+    const res = await app.request(makeRequest("DELETE", "/api/todos/todo-1", undefined, "room-1"));
     const data = await res.json();
     expect(data.ok).toBe(true);
   });
@@ -203,10 +192,8 @@ describe("Room isolation", () => {
 
     // Query room-b — should NOT contain room-a's todo
     // (may contain auto-seeded demo data, but NOT "Room A todo")
-    const res = await app.request(
-      makeRequest("GET", "/api/todos", undefined, "room-b"),
-    );
-    const data = await res.json() as any[];
+    const res = await app.request(makeRequest("GET", "/api/todos", undefined, "room-b"));
+    const data = (await res.json()) as any[];
     const hasRoomATodo = data.some((t: any) => t.text === "Room A todo");
     expect(hasRoomATodo).toBe(false);
   });

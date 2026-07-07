@@ -2,8 +2,20 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
-import { resolveConfig, formatDetectionSummary, resolvedConfigToBindingRequirements, type ResolvedConfig, ConfigNotFoundError } from "@solcreek/sdk";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS } from "../utils/output.js";
+import {
+  resolveConfig,
+  formatDetectionSummary,
+  resolvedConfigToBindingRequirements,
+  type ResolvedConfig,
+  ConfigNotFoundError,
+} from "@solcreek/sdk";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  AUTH_BREADCRUMBS,
+  NO_PROJECT_BREADCRUMBS,
+} from "../utils/output.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 
 export const statusCommand = defineCommand({
@@ -37,14 +49,18 @@ async function sandboxStatus(sandboxId: string, jsonMode: boolean) {
   const res = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
 
   if (!res.ok) {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: "Sandbox not found" }, 1, [
-    { command: "creek deploy --template landing", description: "Deploy a new sandbox from a template" },
-  ]);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "not_found", message: "Sandbox not found" }, 1, [
+        {
+          command: "creek deploy --template landing",
+          description: "Deploy a new sandbox from a template",
+        },
+      ]);
     consola.error("Sandbox not found. It may have expired.");
     process.exit(1);
   }
 
-  const status = await res.json() as Record<string, unknown>;
+  const status = (await res.json()) as Record<string, unknown>;
 
   if (jsonMode) {
     const crumbs = (status as { claimable?: boolean }).claimable
@@ -54,10 +70,14 @@ async function sandboxStatus(sandboxId: string, jsonMode: boolean) {
   }
 
   const s = status.status as string;
-  const statusColor = s === "active" ? `\x1b[32m${s}\x1b[0m`
-    : s === "failed" ? `\x1b[31m${s}\x1b[0m`
-    : s === "expired" ? `\x1b[33m${s}\x1b[0m`
-    : s;
+  const statusColor =
+    s === "active"
+      ? `\x1b[32m${s}\x1b[0m`
+      : s === "failed"
+        ? `\x1b[31m${s}\x1b[0m`
+        : s === "expired"
+          ? `\x1b[33m${s}\x1b[0m`
+          : s;
 
   consola.log(`\n  Sandbox ${status.sandboxId}`);
   consola.log(`  Status:   ${statusColor}`);
@@ -91,7 +111,12 @@ async function projectStatus(jsonMode: boolean) {
     resolved = resolveConfig(process.cwd());
   } catch (err) {
     if (err instanceof ConfigNotFoundError) {
-      if (jsonMode) jsonOutput({ ok: false, error: "no_project", message: "No project config found" }, 1, NO_PROJECT_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "no_project", message: "No project config found" },
+          1,
+          NO_PROJECT_BREADCRUMBS,
+        );
       consola.error("No project config found.");
       consola.info("To check a sandbox: creek status <sandboxId>");
       process.exit(1);
@@ -105,10 +130,15 @@ async function projectStatus(jsonMode: boolean) {
   try {
     project = await client.getProject(resolved.projectName);
   } catch {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `Project "${resolved.projectName}" not found` }, 1, [
-      { command: "creek deploy", description: "Deploy to create the project" },
-      { command: "creek projects", description: "List existing projects" },
-    ]);
+    if (jsonMode)
+      jsonOutput(
+        { ok: false, error: "not_found", message: `Project "${resolved.projectName}" not found` },
+        1,
+        [
+          { command: "creek deploy", description: "Deploy to create the project" },
+          { command: "creek projects", description: "List existing projects" },
+        ],
+      );
     consola.error(`Project "${resolved.projectName}" not found.`);
     process.exit(1);
   }
@@ -130,22 +160,29 @@ async function projectStatus(jsonMode: boolean) {
       : [];
 
   if (jsonMode) {
-    jsonOutput({
-      ok: true,
-      type: "project",
-      project: project.slug,
-      config: resolved.source,
-      framework: project.framework,
-      productionDeploymentId: project.production_deployment_id,
-      bindings: resolved.bindings.map((b) => b.type),
-      undeclaredBindings,
-      cron: resolved.cron,
-      queue: resolved.queue,
-      createdAt: project.created_at,
-    }, 0, [
-      { command: `creek deployments --project ${project.slug}`, description: "List deployment history" },
-      { command: "creek deploy", description: "Deploy a new version" },
-    ]);
+    jsonOutput(
+      {
+        ok: true,
+        type: "project",
+        project: project.slug,
+        config: resolved.source,
+        framework: project.framework,
+        productionDeploymentId: project.production_deployment_id,
+        bindings: resolved.bindings.map((b) => b.type),
+        undeclaredBindings,
+        cron: resolved.cron,
+        queue: resolved.queue,
+        createdAt: project.created_at,
+      },
+      0,
+      [
+        {
+          command: `creek deployments --project ${project.slug}`,
+          description: "List deployment history",
+        },
+        { command: "creek deploy", description: "Deploy a new version" },
+      ],
+    );
   }
 
   const deployed = project.production_deployment_id ? "deployed" : "not deployed";
@@ -165,10 +202,10 @@ async function projectStatus(jsonMode: boolean) {
   consola.log("");
 
   if (undeclaredBindings.length > 0) {
+    consola.info(`Attached but not in your config: ${formatBindingDrift(undeclaredBindings)}`);
     consola.info(
-      `Attached but not in your config: ${formatBindingDrift(undeclaredBindings)}`,
+      "  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.",
     );
-    consola.info("  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.");
     consola.log("");
   }
 }

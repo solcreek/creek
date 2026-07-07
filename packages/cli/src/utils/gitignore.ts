@@ -30,9 +30,7 @@ const ENTRIES = [
  */
 export function ensureGitignoreEntries(dir: string): string[] {
   const gitignorePath = join(dir, ".gitignore");
-  const existing = existsSync(gitignorePath)
-    ? readFileSync(gitignorePath, "utf-8")
-    : "";
+  const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
   const lines = new Set(existing.split("\n").map((l) => l.trim()));
 
   const missing = ENTRIES.filter((entry) => !lines.has(entry));

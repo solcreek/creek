@@ -1,6 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { app } from "../../index.js";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 
 let testEnv: LocalTestEnv;
 
@@ -38,7 +43,11 @@ describe("GET /preview/:slug/*", () => {
   });
 
   test("returns 404 for non-existent project", async () => {
-    const res = await app.request("/preview/nonexistent/index.html", { method: "GET" }, testEnv.env);
+    const res = await app.request(
+      "/preview/nonexistent/index.html",
+      { method: "GET" },
+      testEnv.env,
+    );
     expect(res.status).toBe(404);
   });
 

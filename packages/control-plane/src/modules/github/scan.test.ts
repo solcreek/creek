@@ -85,7 +85,8 @@ id = "yyy"
       "wrangler.json": null,
       "wrangler.toml": null,
       "package.json": JSON.stringify({ dependencies: { next: "14.0.0" } }),
-      ".env.example": "# Database\nDATABASE_URL=postgres://...\nSECRET_KEY=\n# Optional\nDEBUG=false",
+      ".env.example":
+        "# Database\nDATABASE_URL=postgres://...\nSECRET_KEY=\n# Optional\nDEBUG=false",
     });
 
     const result = await scanRepo("token", "owner", "repo");
@@ -127,7 +128,8 @@ id = "yyy"
 
   test("prefers wrangler.jsonc over wrangler.toml", async () => {
     setupMockFiles({
-      "wrangler.jsonc": '{ "name": "app", "d1_databases": [{"binding": "DB", "database_id": "x"}] }',
+      "wrangler.jsonc":
+        '{ "name": "app", "d1_databases": [{"binding": "DB", "database_id": "x"}] }',
       "wrangler.json": null,
       "wrangler.toml": 'name = "app"',
       "package.json": null,

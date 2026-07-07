@@ -21,7 +21,11 @@ import { useState } from "react";
 // --- Projects test component ---
 
 function ProjectList() {
-  const { data: projects, isLoading, error } = useQuery({
+  const {
+    data: projects,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["projects"],
     queryFn: () => api<any[]>("/projects"),
   });
@@ -73,23 +77,15 @@ function EnvVarList({ projectId }: { projectId: string }) {
       ) : (
         <ul>
           {vars.map((v: any) => (
-            <li key={v.key}>{v.key} = {v.value}</li>
+            <li key={v.key}>
+              {v.key} = {v.value}
+            </li>
           ))}
         </ul>
       )}
-      <input
-        placeholder="KEY"
-        value={newKey}
-        onChange={(e) => setNewKey(e.target.value)}
-      />
-      <input
-        placeholder="value"
-        value={newValue}
-        onChange={(e) => setNewValue(e.target.value)}
-      />
-      <button onClick={() => setVar.mutate({ key: newKey, value: newValue })}>
-        Add
-      </button>
+      <input placeholder="KEY" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
+      <input placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
+      <button onClick={() => setVar.mutate({ key: newKey, value: newValue })}>Add</button>
     </div>
   );
 }
@@ -184,7 +180,7 @@ describe("Env vars page", () => {
 
     server.use(
       http.post(`${API_URL}/projects/proj-1/env`, async ({ request }) => {
-        const body = await request.json() as any;
+        const body = (await request.json()) as any;
         posted = true;
         expect(body.key).toBe("NEW_VAR");
         expect(body.value).toBe("secret123");

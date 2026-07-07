@@ -24,11 +24,7 @@ export class CreekClient {
     this.token = token;
   }
 
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
       "x-api-key": this.token,
     };
@@ -38,7 +34,7 @@ export class CreekClient {
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
         headers["Content-Type"] = "application/octet-stream";
-        init.body = body instanceof Uint8Array ? body.buffer as ArrayBuffer : body;
+        init.body = body instanceof Uint8Array ? (body.buffer as ArrayBuffer) : body;
       } else {
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
@@ -123,18 +119,12 @@ export class CreekClient {
     deploymentId: string,
     bundle: Record<string, unknown>,
   ): Promise<{ ok: boolean; url: string; previewUrl: string }> {
-    return this.request(
-      "PUT",
-      `/projects/${projectId}/deployments/${deploymentId}/bundle`,
-      bundle,
-    );
+    return this.request("PUT", `/projects/${projectId}/deployments/${deploymentId}/bundle`, bundle);
   }
 
   // --- Environment Variables ---
 
-  async listEnvVars(
-    projectId: string,
-  ): Promise<{ key: string; value: string }[]> {
+  async listEnvVars(projectId: string): Promise<{ key: string; value: string }[]> {
     return this.request("GET", `/projects/${projectId}/env`);
   }
 
@@ -146,10 +136,7 @@ export class CreekClient {
     return this.request("POST", `/projects/${projectId}/env`, { key, value });
   }
 
-  async deleteEnvVar(
-    projectId: string,
-    key: string,
-  ): Promise<{ ok: boolean }> {
+  async deleteEnvVar(projectId: string, key: string): Promise<{ ok: boolean }> {
     return this.request("DELETE", `/projects/${projectId}/env/${key}`);
   }
 
@@ -182,20 +169,11 @@ export class CreekClient {
     projectId: string,
     deploymentId: string,
   ): Promise<DeploymentStatusResponse> {
-    return this.request(
-      "GET",
-      `/projects/${projectId}/deployments/${deploymentId}`,
-    );
+    return this.request("GET", `/projects/${projectId}/deployments/${deploymentId}`);
   }
 
-  async promoteDeployment(
-    projectId: string,
-    deploymentId: string,
-  ): Promise<{ ok: boolean }> {
-    return this.request(
-      "POST",
-      `/projects/${projectId}/deployments/${deploymentId}/promote`,
-    );
+  async promoteDeployment(projectId: string, deploymentId: string): Promise<{ ok: boolean }> {
+    return this.request("POST", `/projects/${projectId}/deployments/${deploymentId}/promote`);
   }
 
   async rollback(
@@ -219,10 +197,7 @@ export class CreekClient {
    * URL never carries a teamSlug. See packages/control-plane/src/
    * modules/logs/routes.ts for the source-of-truth filter shape.
    */
-  async getLogs(
-    projectSlug: string,
-    filters?: LogQueryFilters,
-  ): Promise<LogQueryResponse> {
+  async getLogs(projectSlug: string, filters?: LogQueryFilters): Promise<LogQueryResponse> {
     const url = new URL(`/projects/${projectSlug}/logs`, "http://x"); // base discarded by request()
     if (filters?.since) url.searchParams.set("since", filters.since);
     if (filters?.until) url.searchParams.set("until", filters.until);
@@ -265,10 +240,7 @@ export class CreekClient {
     projectSlug: string,
     period: "1h" | "6h" | "24h" | "7d" | "30d" = "24h",
   ): Promise<MetricsResponse> {
-    return this.request(
-      "GET",
-      `/projects/${projectSlug}/metrics?period=${period}`,
-    );
+    return this.request("GET", `/projects/${projectSlug}/metrics?period=${period}`);
   }
 
   // --- Build Logs ---
@@ -342,10 +314,7 @@ export class CreekClient {
     } | null;
     message?: string;
   }> {
-    return this.request(
-      "GET",
-      `/projects/${projectSlug}/deployments/${deploymentId}/logs`,
-    );
+    return this.request("GET", `/projects/${projectSlug}/deployments/${deploymentId}/logs`);
   }
 
   // --- Resources v2 (team-owned) ---
@@ -445,9 +414,7 @@ export class CreekClient {
 
   // --- Custom Domains ---
 
-  async listDomains(
-    projectId: string,
-  ): Promise<CustomDomain[]> {
+  async listDomains(projectId: string): Promise<CustomDomain[]> {
     return this.request("GET", `/projects/${projectId}/domains`);
   }
 
@@ -473,31 +440,16 @@ export class CreekClient {
    * response, this is retrievable any time — the CNAME a tenant must set is
    * always available here.
    */
-  async getDomain(
-    projectId: string,
-    domainId: string,
-  ): Promise<DomainDetail> {
-    return this.request(
-      "GET",
-      `/projects/${projectId}/domains/${domainId}`,
-    );
+  async getDomain(projectId: string, domainId: string): Promise<DomainDetail> {
+    return this.request("GET", `/projects/${projectId}/domains/${domainId}`);
   }
 
-  async deleteDomain(
-    projectId: string,
-    domainId: string,
-  ): Promise<{ ok: boolean }> {
+  async deleteDomain(projectId: string, domainId: string): Promise<{ ok: boolean }> {
     return this.request("DELETE", `/projects/${projectId}/domains/${domainId}`);
   }
 
-  async activateDomain(
-    projectId: string,
-    domainId: string,
-  ): Promise<ActivateDomainResult> {
-    return this.request(
-      "POST",
-      `/projects/${projectId}/domains/${domainId}/activate`,
-    );
+  async activateDomain(projectId: string, domainId: string): Promise<ActivateDomainResult> {
+    return this.request("POST", `/projects/${projectId}/domains/${domainId}/activate`);
   }
 }
 

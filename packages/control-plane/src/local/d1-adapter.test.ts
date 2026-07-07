@@ -22,21 +22,36 @@ describe("LocalD1Database", () => {
 
   describe("prepare().run()", () => {
     it("inserts a row", async () => {
-      const result = await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
+      const result = await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
       expect(result.success).toBe(true);
       expect(result.meta.changes).toBe(1);
       expect(result.meta.last_row_id).toBe(1);
     });
 
     it("updates rows", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("bob", "b@b.com").run();
-      const result = await db.prepare("UPDATE users SET active = 0 WHERE name = ?").bind("alice").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("bob", "b@b.com")
+        .run();
+      const result = await db
+        .prepare("UPDATE users SET active = 0 WHERE name = ?")
+        .bind("alice")
+        .run();
       expect(result.meta.changes).toBe(1);
     });
 
     it("deletes rows", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
       const result = await db.prepare("DELETE FROM users WHERE name = ?").bind("alice").run();
       expect(result.meta.changes).toBe(1);
     });
@@ -44,7 +59,10 @@ describe("LocalD1Database", () => {
 
   describe("prepare().first()", () => {
     it("returns first row as object", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
       const row = await db.prepare("SELECT * FROM users WHERE name = ?").bind("alice").first();
       expect(row).not.toBeNull();
       expect(row!.name).toBe("alice");
@@ -57,22 +75,40 @@ describe("LocalD1Database", () => {
     });
 
     it("returns single column when column name provided", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
-      const name = await db.prepare("SELECT * FROM users WHERE email = ?").bind("a@b.com").first("name");
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
+      const name = await db
+        .prepare("SELECT * FROM users WHERE email = ?")
+        .bind("a@b.com")
+        .first("name");
       expect(name).toBe("alice");
     });
 
     it("returns null column for missing row", async () => {
-      const val = await db.prepare("SELECT * FROM users WHERE name = ?").bind("ghost").first("name");
+      const val = await db
+        .prepare("SELECT * FROM users WHERE name = ?")
+        .bind("ghost")
+        .first("name");
       expect(val).toBeNull();
     });
   });
 
   describe("prepare().all()", () => {
     it("returns all matching rows", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("bob", "b@b.com").run();
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("carol", "c@b.com").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("bob", "b@b.com")
+        .run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("carol", "c@b.com")
+        .run();
 
       const result = await db.prepare("SELECT * FROM users ORDER BY name").all();
       expect(result.success).toBe(true);
@@ -87,8 +123,14 @@ describe("LocalD1Database", () => {
     });
 
     it("reports rows_read", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("bob", "b@b.com").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("bob", "b@b.com")
+        .run();
       const result = await db.prepare("SELECT * FROM users").all();
       expect(result.meta.rows_read).toBe(2);
     });
@@ -104,8 +146,14 @@ describe("LocalD1Database", () => {
     });
 
     it("handles multiple parameters", async () => {
-      await db.prepare("INSERT INTO users (name, email, active) VALUES (?, ?, ?)").bind("alice", "a@b.com", 0).run();
-      const row = await db.prepare("SELECT * FROM users WHERE name = ? AND active = ?").bind("alice", 0).first();
+      await db
+        .prepare("INSERT INTO users (name, email, active) VALUES (?, ?, ?)")
+        .bind("alice", "a@b.com", 0)
+        .run();
+      const row = await db
+        .prepare("SELECT * FROM users WHERE name = ? AND active = ?")
+        .bind("alice", 0)
+        .first();
       expect(row).not.toBeNull();
       expect(row!.active).toBe(0);
     });
@@ -132,7 +180,10 @@ describe("LocalD1Database", () => {
     });
 
     it("rolls back on error", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("alice", "a@b.com").run();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("alice", "a@b.com")
+        .run();
       try {
         await db.batch([
           db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("bob", "b@b.com"),
@@ -149,7 +200,9 @@ describe("LocalD1Database", () => {
 
   describe("exec()", () => {
     it("executes raw SQL", async () => {
-      const result = await db.exec("INSERT INTO users (name, email) VALUES ('test', 'test@test.com')");
+      const result = await db.exec(
+        "INSERT INTO users (name, email) VALUES ('test', 'test@test.com')",
+      );
       expect(result.count).toBe(1);
       expect(result.duration).toBeGreaterThanOrEqual(0);
     });
@@ -173,14 +226,26 @@ describe("LocalD1Database", () => {
     });
 
     it("handles empty string values", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("", "empty@test.com").run();
-      const row = await db.prepare("SELECT * FROM users WHERE email = ?").bind("empty@test.com").first();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("", "empty@test.com")
+        .run();
+      const row = await db
+        .prepare("SELECT * FROM users WHERE email = ?")
+        .bind("empty@test.com")
+        .first();
       expect(row!.name).toBe("");
     });
 
     it("handles unicode", async () => {
-      await db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").bind("日本語テスト", "jp@test.com").run();
-      const row = await db.prepare("SELECT name FROM users WHERE email = ?").bind("jp@test.com").first();
+      await db
+        .prepare("INSERT INTO users (name, email) VALUES (?, ?)")
+        .bind("日本語テスト", "jp@test.com")
+        .run();
+      const row = await db
+        .prepare("SELECT name FROM users WHERE email = ?")
+        .bind("jp@test.com")
+        .first();
       expect(row!.name).toBe("日本語テスト");
     });
 

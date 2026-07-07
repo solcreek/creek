@@ -151,7 +151,11 @@ describe("queryZoneHttpAnalyticsMerged", () => {
       return {
         ok: true,
         json: async () => ({
-          data: { viewer: { zones: [{ totals: [], cached: [], series: [], cachedSeries: [], errors: [] }] } },
+          data: {
+            viewer: {
+              zones: [{ totals: [], cached: [], series: [], cachedSeries: [], errors: [] }],
+            },
+          },
         }),
       };
     });

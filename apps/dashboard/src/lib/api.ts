@@ -4,10 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8787";
  * Fetch wrapper for the Creek API.
  * Always includes credentials for cross-origin cookie auth.
  */
-export async function api<T>(
-  path: string,
-  options?: RequestInit & { team?: string },
-): Promise<T> {
+export async function api<T>(path: string, options?: RequestInit & { team?: string }): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options?.team ? { "x-creek-team": options.team } : {}),

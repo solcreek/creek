@@ -24,12 +24,20 @@ function mockFetchError(status: number, code: string, message: string) {
 
 describe("CreekdClient.restartApp", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("sends POST and returns updated app", async () => {
     globalThis.fetch = mockFetchOk({
-      id: "my-app", command: "node", port: 3000, status: "running",
-      pid: 9999, uptime_ms: 0, restart_count: 3, health_failures: 0,
+      id: "my-app",
+      command: "node",
+      port: 3000,
+      status: "running",
+      pid: 9999,
+      uptime_ms: 0,
+      restart_count: 3,
+      health_failures: 0,
     });
 
     const client = new CreekdClient(BASE, "tok");
@@ -53,11 +61,15 @@ describe("CreekdClient.restartApp", () => {
 
 describe("CreekdClient.stopApp", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("sends DELETE", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
-      ok: true, status: 204, json: () => Promise.resolve(null),
+      ok: true,
+      status: 204,
+      json: () => Promise.resolve(null),
     });
     globalThis.fetch = fetchMock;
 
@@ -80,7 +92,9 @@ describe("CreekdClient.stopApp", () => {
 
 describe("CreekdClient.getAppLogs", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("returns plain text log lines", async () => {
     globalThis.fetch = mockFetchOk("line 1\nline 2\nline 3");

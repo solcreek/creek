@@ -90,8 +90,11 @@ describe("sandboxDeploy", () => {
       http.post(DEPLOY, async ({ request }) => {
         lastRequest = { body: await request.json(), headers: Object.fromEntries(request.headers) };
         return HttpResponse.json({
-          sandboxId: "sb-s", status: "deploying", statusUrl: STATUS,
-          previewUrl: "https://x.test", expiresAt: "2026-06-14T12:00:00Z",
+          sandboxId: "sb-s",
+          status: "deploying",
+          statusUrl: STATUS,
+          previewUrl: "https://x.test",
+          expiresAt: "2026-06-14T12:00:00Z",
         });
       }),
     );
@@ -104,7 +107,13 @@ describe("sandboxDeploy", () => {
     server.use(
       http.post(DEPLOY, async ({ request }) => {
         lastRequest = { body: null, headers: Object.fromEntries(request.headers) };
-        return HttpResponse.json({ sandboxId: "sb-2", status: "deploying", statusUrl: STATUS, previewUrl: "x", expiresAt: "x" });
+        return HttpResponse.json({
+          sandboxId: "sb-2",
+          status: "deploying",
+          statusUrl: STATUS,
+          previewUrl: "x",
+          expiresAt: "x",
+        });
       }),
     );
     await sandboxDeploy(bundle, {
@@ -127,9 +136,14 @@ describe("sandboxDeploy", () => {
 
   it("falls back to a generic message when the error body isn't JSON", async () => {
     server.use(
-      http.post(DEPLOY, () => new HttpResponse("nope", { status: 500, statusText: "Internal Server Error" })),
+      http.post(
+        DEPLOY,
+        () => new HttpResponse("nope", { status: 500, statusText: "Internal Server Error" }),
+      ),
     );
-    await expect(sandboxDeploy(bundle)).rejects.toThrow(/Internal Server Error|Sandbox deploy failed/);
+    await expect(sandboxDeploy(bundle)).rejects.toThrow(
+      /Internal Server Error|Sandbox deploy failed/,
+    );
   });
 });
 
@@ -167,7 +181,9 @@ describe("pollSandboxStatus", () => {
         }),
       ),
     );
-    await expect(pollSandboxStatus(STATUS)).rejects.toThrow("failed at deploying: No such module node:http");
+    await expect(pollSandboxStatus(STATUS)).rejects.toThrow(
+      "failed at deploying: No such module node:http",
+    );
   });
 
   it("throws on a non-ok status response", async () => {

@@ -75,7 +75,9 @@ async function main() {
     ASSETS: assets as any,
     LOGS_BUCKET: logsBucket as any,
     BUILD_STATUS: buildStatus as any,
-    REMOTE_BUILDER: { fetch: () => Promise.resolve(new Response("not available in local mode", { status: 503 })) } as any,
+    REMOTE_BUILDER: {
+      fetch: () => Promise.resolve(new Response("not available in local mode", { status: 503 })),
+    } as any,
     WEB_BUILDS: { send: () => Promise.resolve() } as any,
 
     CREEK_DOMAIN: envVars.CREEK_DOMAIN || "localhost",
@@ -121,7 +123,9 @@ async function main() {
     async fetch(request: Request) {
       // Inject env into the request context — Hono Workers adapter reads from the second arg
       return workerFetch(request, env, {
-        waitUntil: (p: Promise<unknown>) => { p.catch(console.error); },
+        waitUntil: (p: Promise<unknown>) => {
+          p.catch(console.error);
+        },
         passThroughOnException: () => {},
       });
     },

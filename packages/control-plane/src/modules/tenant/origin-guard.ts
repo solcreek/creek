@@ -51,10 +51,7 @@ export const originGuard = createMiddleware(async (c, next) => {
 
   const origin = c.req.header("origin");
   if (origin !== undefined && !isAllowedOrigin(origin)) {
-    return c.json(
-      { error: "forbidden", message: "Cross-origin request rejected" },
-      403,
-    );
+    return c.json({ error: "forbidden", message: "Cross-origin request rejected" }, 403);
   }
 
   return next();

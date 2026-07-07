@@ -63,9 +63,7 @@ describe("writeBatchToAnalytics", () => {
   });
 
   test("error indicator: outcome != ok → isError=1", () => {
-    writeBatchToAnalytics({ ANALYTICS: mockDataset }, [
-      entry({ outcome: "exception" }),
-    ]);
+    writeBatchToAnalytics({ ANALYTICS: mockDataset }, [entry({ outcome: "exception" })]);
     expect(points[0].doubles).toEqual([1, 1]);
   });
 
@@ -120,9 +118,7 @@ describe("writeBatchToAnalytics", () => {
   });
 
   test("non-fetch event (no request) → method=n/a, status=n/a", () => {
-    writeBatchToAnalytics({ ANALYTICS: mockDataset }, [
-      entry({ request: undefined }),
-    ]);
+    writeBatchToAnalytics({ ANALYTICS: mockDataset }, [entry({ request: undefined })]);
     expect(points[0].blobs?.[4]).toBe("n/a");
     expect(points[0].blobs?.[5]).toBe("n/a");
   });
@@ -142,10 +138,6 @@ describe("writeBatchToAnalytics", () => {
       entry({ scriptType: "branch", branch: "feat" }),
     ]);
     expect(points).toHaveLength(3);
-    expect(points.map((p) => p.blobs?.[2])).toEqual([
-      "production",
-      "production",
-      "branch",
-    ]);
+    expect(points.map((p) => p.blobs?.[2])).toEqual(["production", "production", "branch"]);
   });
 });

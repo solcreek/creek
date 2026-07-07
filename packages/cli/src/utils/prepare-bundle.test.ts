@@ -377,8 +377,7 @@ describe("prepareDeployBundle", () => {
         dependencies: { react: "*", vite: "*" },
       }),
       "dist/index.html": "<html></html>",
-      "dist/edge/_worker.mjs":
-        "export default { fetch() { return new Response('w'); } };",
+      "dist/edge/_worker.mjs": "export default { fetch() { return new Response('w'); } };",
     });
 
     const result = await prepareDeployBundle({
@@ -445,8 +444,7 @@ describe("spa-with-resources warning", () => {
     const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
     writeFixture({
       "dist/index.html": "<html></html>",
-      "worker/index.ts":
-        "export default { fetch() { return new Response('ok'); } };",
+      "worker/index.ts": "export default { fetch() { return new Response('ok'); } };",
       // Stub the `creek` runtime so bundleWorker's wrapper resolves —
       // same trick as the vanilla-worker fixture above.
       "node_modules/creek/package.json": JSON.stringify({

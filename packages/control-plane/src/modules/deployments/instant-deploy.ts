@@ -49,17 +49,11 @@ instantDeploy.post("/", async (c) => {
   }
 
   if (!body.files || Object.keys(body.files).length === 0) {
-    return c.json(
-      { error: "validation", message: "At least one file is required" },
-      400,
-    );
+    return c.json({ error: "validation", message: "At least one file is required" }, 400);
   }
 
   if (!body.files["index.html"]) {
-    return c.json(
-      { error: "validation", message: "index.html is required" },
-      400,
-    );
+    return c.json({ error: "validation", message: "index.html is required" }, 400);
   }
 
   try {
@@ -109,38 +103,39 @@ instantDeploy.post("/", async (c) => {
       .first<{ plan: string }>();
 
     // 5. Deploy via WfP Static Assets (instant deploy = static site, no bindings needed)
-    await deployWithAssets(
-      c.env,
-      body.slug,
+    await deployWithAssets(c.env, body.slug, teamSlug, deploymentId, {
+      clientAssets,
+      renderMode: "spa",
+      teamId,
       teamSlug,
-      deploymentId,
-      {
-        clientAssets,
-        renderMode: "spa",
-        teamId,
-        teamSlug,
-        projectSlug: body.slug,
-        plan: team?.plan ?? "free",
-        bindings: [],
-      },
-    );
+      projectSlug: body.slug,
+      plan: team?.plan ?? "free",
+      bindings: [],
+    });
 
     // 6. Update DB
     await c.env.DB.batch([
-      c.env.DB.prepare(
-        "UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?",
-      ).bind(Date.now(), deploymentId),
+      c.env.DB.prepare("UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?").bind(
+        Date.now(),
+        deploymentId,
+      ),
       c.env.DB.prepare(
         "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
       ).bind(deploymentId, Date.now(), project.id),
     ]);
 
-    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-      action: "instant_deploy.create",
-      resourceType: "instant_deploy",
-      resourceId: project.id,
-      metadata: { slug: body.slug, deploymentId },
-    }, c.get("auditCtx"));
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "instant_deploy.create",
+        resourceType: "instant_deploy",
+        resourceId: project.id,
+        metadata: { slug: body.slug, deploymentId },
+      },
+      c.get("auditCtx"),
+    );
 
     const domain = c.env.CREEK_DOMAIN;
     const shortId = shortDeployId(deploymentId);
@@ -231,20 +226,27 @@ instantDeploy.put("/:slug", async (c) => {
     });
 
     await c.env.DB.batch([
-      c.env.DB.prepare(
-        "UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?",
-      ).bind(Date.now(), deploymentId),
+      c.env.DB.prepare("UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?").bind(
+        Date.now(),
+        deploymentId,
+      ),
       c.env.DB.prepare(
         "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
       ).bind(deploymentId, Date.now(), project.id),
     ]);
 
-    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-      action: "instant_deploy.update",
-      resourceType: "instant_deploy",
-      resourceId: project.id,
-      metadata: { slug, deploymentId },
-    }, c.get("auditCtx"));
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "instant_deploy.update",
+        resourceType: "instant_deploy",
+        resourceId: project.id,
+        metadata: { slug, deploymentId },
+      },
+      c.get("auditCtx"),
+    );
 
     const domain = c.env.CREEK_DOMAIN;
     const shortId = shortDeployId(deploymentId);

@@ -10,18 +10,13 @@ function getDashboardUrl(): string {
   const apiUrl = getApiUrl();
   // http://localhost:8787 → http://localhost:3000
   // https://api.creek.dev → https://app.creek.dev
-  return apiUrl
-    .replace("api.", "app.")
-    .replace(":8787", ":3000");
+  return apiUrl.replace("api.", "app.").replace(":8787", ":3000");
 }
 
 function openBrowser(url: string): void {
   try {
-    const cmd = process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
+    const cmd =
+      process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
     execFileSync(cmd, [url], { stdio: "ignore" });
   } catch {
     // Browser open failed — user will need to copy the URL manually
@@ -119,10 +114,11 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   const session = await client.getSession();
 
   if (!session?.user) {
-    if (jsonMode) jsonOutput({ ok: false, error: "invalid_token", message: "Invalid API key" }, 1, [
-      { command: "creek login", description: "Try interactive login" },
-      { command: "creek login --headless", description: "Paste API key manually" },
-    ]);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "invalid_token", message: "Invalid API key" }, 1, [
+        { command: "creek login", description: "Try interactive login" },
+        { command: "creek login --headless", description: "Paste API key manually" },
+      ]);
     consola.error("Invalid API key. Please check and try again.");
     process.exit(1);
   }

@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -47,7 +52,11 @@ describe("resources input validation", () => {
 
   test("POST /resources accepts valid database kind + hyphen name (pre-provisioned)", async () => {
     // Pass cfResourceId to skip auto-provision (no CF API in tests)
-    const res = await req("POST", "/resources", { kind: "database", name: "my-db", cfResourceId: "test-d1-uuid" });
+    const res = await req("POST", "/resources", {
+      kind: "database",
+      name: "my-db",
+      cfResourceId: "test-d1-uuid",
+    });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       id: string;
@@ -137,7 +146,14 @@ describe("resources input validation", () => {
 describe("POST /resources/:id/query", () => {
   const resourceId = "res-db-1";
 
-  function seedDatabase(overrides?: Partial<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>) {
+  function seedDatabase(
+    overrides?: Partial<{
+      kind: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+      status: string;
+    }>,
+  ) {
     const defaults = {
       kind: "database",
       cfResourceId: "d1-uuid-abc",
@@ -198,7 +214,10 @@ describe("POST /resources/:id/query", () => {
 
   test("rejects non-array params", async () => {
     seedDatabase();
-    const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT 1", params: "bad" });
+    const res = await req("POST", `/resources/${resourceId}/query`, {
+      sql: "SELECT 1",
+      params: "bad",
+    });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("validation");
@@ -207,13 +226,17 @@ describe("POST /resources/:id/query", () => {
   test("proxies query and returns structured result", async () => {
     seedDatabase();
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        success: true,
-        result: [{
-          results: [{ id: 1, name: "hello" }],
-          meta: { changes: 0, duration: 1.5, rows_read: 1, rows_written: 0 },
-        }],
-      })),
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: [
+            {
+              results: [{ id: 1, name: "hello" }],
+              meta: { changes: 0, duration: 1.5, rows_read: 1, rows_written: 0 },
+            },
+          ],
+        }),
+      ),
     );
 
     const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT * FROM test" });
@@ -233,10 +256,12 @@ describe("POST /resources/:id/query", () => {
   test("returns error when CF D1 query fails", async () => {
     seedDatabase();
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        success: false,
-        errors: [{ message: "SQLITE_ERROR: no such table: foo" }],
-      })),
+      new Response(
+        JSON.stringify({
+          success: false,
+          errors: [{ message: "SQLITE_ERROR: no such table: foo" }],
+        }),
+      ),
     );
 
     const res = await req("POST", `/resources/${resourceId}/query`, { sql: "SELECT * FROM foo" });

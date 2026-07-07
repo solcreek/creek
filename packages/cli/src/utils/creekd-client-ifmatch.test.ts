@@ -31,7 +31,9 @@ function fetchMock(body: unknown, status = 200, headers: Record<string, string> 
 
 describe("CreekdClient sends If-Match when configured", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("stopApp passes ifMatch through as If-Match header", async () => {
     const { fn, captured } = fetchMock(null, 204);
@@ -73,8 +75,14 @@ describe("CreekdClient sends If-Match when configured", () => {
 
   it("restartApp does NOT send If-Match — restart is an operation, not a spec mutation", async () => {
     const { fn, captured } = fetchMock({
-      id: "x", command: "c", port: 1, status: "running",
-      pid: 1, uptime_ms: 0, restart_count: 0, health_failures: 0,
+      id: "x",
+      command: "c",
+      port: 1,
+      status: "running",
+      pid: 1,
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
     });
     globalThis.fetch = fn as unknown as typeof fetch;
 
@@ -88,11 +96,17 @@ describe("CreekdClient sends If-Match when configured", () => {
 
 describe("412 → CreekdResourceVersionMismatchError", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("throws the typed subclass with currentResourceVersion + attempted", async () => {
     const { fn } = fetchMock(
-      { code: "resource_version_mismatch", error: "expected 5, got 3", currentResourceVersion: "5" },
+      {
+        code: "resource_version_mismatch",
+        error: "expected 5, got 3",
+        currentResourceVersion: "5",
+      },
       412,
     );
     globalThis.fetch = fn as unknown as typeof fetch;

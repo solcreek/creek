@@ -38,8 +38,15 @@ describe("TEMPLATES", () => {
 
   it("capabilities reference known platform primitives", () => {
     const validCaps = [
-      "database", "cache", "storage", "ai",
-      "realtime", "cron", "queue", "email", "ftp",
+      "database",
+      "cache",
+      "storage",
+      "ai",
+      "realtime",
+      "cron",
+      "queue",
+      "email",
+      "ftp",
     ];
     for (const t of TEMPLATES) {
       for (const cap of t.capabilities) {

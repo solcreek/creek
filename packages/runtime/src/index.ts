@@ -50,9 +50,7 @@ export function _setEnv(env: Record<string, unknown>): void {
  * @internal @deprecated — use _runRequest() instead.
  * Sets module-level ctx as fallback when not inside _runRequest().
  */
-export function _setCtx(
-  ctx: { waitUntil(promise: Promise<unknown>): void } | null,
-): void {
+export function _setCtx(ctx: { waitUntil(promise: Promise<unknown>): void } | null): void {
   _ctxFallback = ctx;
 }
 
@@ -108,9 +106,7 @@ export function notifyRealtime(table: string, operation: string): void {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(realtimeSecret
-          ? { Authorization: `Bearer ${realtimeSecret}` }
-          : {}),
+        ...(realtimeSecret ? { Authorization: `Bearer ${realtimeSecret}` } : {}),
       },
       body: JSON.stringify({ table, operation }),
     });
@@ -131,16 +127,11 @@ export function notifyRealtime(table: string, operation: string): void {
 // ─── DB Proxy (D1 with auto-realtime) ───────────────────────────────────────
 
 function extractTable(sql: string): string {
-  const match = sql.match(
-    /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+["'`]?(\w+)/i,
-  );
+  const match = sql.match(/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+["'`]?(\w+)/i);
   return match?.[1] ?? "unknown";
 }
 
-function wrapStatement(
-  stmt: D1PreparedStatement,
-  sql: string,
-): D1PreparedStatement {
+function wrapStatement(stmt: D1PreparedStatement, sql: string): D1PreparedStatement {
   return new Proxy(stmt, {
     get(target, prop) {
       const val = (target as any)[prop];
@@ -199,7 +190,10 @@ function createDbProxy(): CreekDatabase {
 
       // ─── Convenience API: db.define(schema) ───
       if (prop === "define") {
-        return async (schema: import("d1-schema").SchemaDefinition, options?: import("d1-schema").DefineOptions) => {
+        return async (
+          schema: import("d1-schema").SchemaDefinition,
+          options?: import("d1-schema").DefineOptions,
+        ) => {
           const { define: d1Define } = await import("d1-schema");
           return d1Define(binding, schema, options);
         };
@@ -209,9 +203,7 @@ function createDbProxy(): CreekDatabase {
       if (prop === "query") {
         return async <T>(sql: string, ...params: unknown[]): Promise<T[]> => {
           const stmt =
-            params.length > 0
-              ? binding.prepare(sql).bind(...params)
-              : binding.prepare(sql);
+            params.length > 0 ? binding.prepare(sql).bind(...params) : binding.prepare(sql);
           const result = await stmt.all();
           return result.results as T[];
         };
@@ -222,8 +214,7 @@ function createDbProxy(): CreekDatabase {
         return async (sql: string, ...params: unknown[]) => {
           // Go through wrapStatement so broadcast fires
           const wrapped = wrapStatement(binding.prepare(sql), sql);
-          const stmt =
-            params.length > 0 ? wrapped.bind(...params) : wrapped;
+          const stmt = params.length > 0 ? wrapped.bind(...params) : wrapped;
           const result = await stmt.run();
           return {
             changes: result.meta.changes,
@@ -240,11 +231,7 @@ function createDbProxy(): CreekDatabase {
 
 // ─── Simple binding proxies ─────────────────────────────────────────────────
 
-function createBinding<T extends object>(
-  names: string[],
-  label: string,
-  enableHint: string,
-): T {
+function createBinding<T extends object>(names: string[], label: string, enableHint: string): T {
   return new Proxy({} as T, {
     get(_, prop) {
       const env = getEnv();
@@ -263,9 +250,7 @@ function createBinding<T extends object>(
         throw new Error(`[creek] ${label} is not enabled. ${enableHint}`);
       }
       const value = (binding as Record<string | symbol, unknown>)[prop];
-      return typeof value === "function"
-        ? (value as Function).bind(binding)
-        : value;
+      return typeof value === "function" ? (value as Function).bind(binding) : value;
     },
   });
 }
@@ -294,16 +279,10 @@ export interface CreekDatabase extends D1Database {
   ): Promise<void>;
 
   /** Execute a read query, returning typed rows directly. */
-  query<T = Record<string, unknown>>(
-    sql: string,
-    ...params: unknown[]
-  ): Promise<T[]>;
+  query<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]>;
 
   /** Execute a write operation. Auto-broadcasts to the active room. */
-  mutate(
-    sql: string,
-    ...params: unknown[]
-  ): Promise<{ changes: number; lastRowId: number }>;
+  mutate(sql: string, ...params: unknown[]): Promise<{ changes: number; lastRowId: number }>;
 }
 
 // ─── WebSocket Token ───────────────────────────────────────────────────────
@@ -331,11 +310,7 @@ export async function generateWsToken(): Promise<string | null> {
     ["sign"],
   );
 
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(message),
-  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
 
   const hmac = Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -390,11 +365,7 @@ export const storage: R2Bucket = createBinding(
 );
 
 /** Workers AI */
-export const ai: Ai = createBinding(
-  ["AI"],
-  "AI",
-  "Add `ai = true` to [resources] in creek.toml",
-);
+export const ai: Ai = createBinding(["AI"], "AI", "Add `ai = true` to [resources] in creek.toml");
 
 /** Re-export column helpers from d1-schema for convenience */
 export { column } from "d1-schema";

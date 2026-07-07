@@ -1,10 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  utcDateString,
-  yesterdayUTC,
-  buildAggregateSql,
-  aggregateYesterday,
-} from "./aggregate.js";
+import { utcDateString, yesterdayUTC, buildAggregateSql, aggregateYesterday } from "./aggregate.js";
 import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 
 describe("utcDateString", () => {
@@ -91,9 +86,9 @@ describe("aggregateYesterday", () => {
     expect(res.rows).toBe(3);
 
     // Verify data in real SQLite
-    const rows = await testEnv.env.DB.prepare(
+    const rows = (await testEnv.env.DB.prepare(
       "SELECT * FROM usage_daily ORDER BY teamSlug, projectSlug",
-    ).all() as any;
+    ).all()) as any;
     expect(rows.results).toHaveLength(3);
     expect(rows.results[0].teamSlug).toBe("acme");
     expect(rows.results[0].projectSlug).toBe("api");
@@ -101,29 +96,25 @@ describe("aggregateYesterday", () => {
   });
 
   test("rounds fractional AE values", async () => {
-    const env = makeEnv([
-      { team: "t", project: "p", requests: 1023.7, errors: 0.3 },
-    ]);
+    const env = makeEnv([{ team: "t", project: "p", requests: 1023.7, errors: 0.3 }]);
 
     await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
 
-    const row = await testEnv.env.DB.prepare(
+    const row = (await testEnv.env.DB.prepare(
       "SELECT requests, errors FROM usage_daily WHERE teamSlug = 't'",
-    ).first() as any;
+    ).first()) as any;
     expect(row.requests).toBe(1024);
     expect(row.errors).toBe(0);
   });
 
   test("handles AE nulls as zero", async () => {
-    const env = makeEnv([
-      { team: "t", project: "p", requests: null, errors: null },
-    ]);
+    const env = makeEnv([{ team: "t", project: "p", requests: null, errors: null }]);
 
     await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
 
-    const row = await testEnv.env.DB.prepare(
+    const row = (await testEnv.env.DB.prepare(
       "SELECT requests, errors FROM usage_daily WHERE teamSlug = 't'",
-    ).first() as any;
+    ).first()) as any;
     expect(row.requests).toBe(0);
     expect(row.errors).toBe(0);
   });
@@ -134,9 +125,9 @@ describe("aggregateYesterday", () => {
     const res = await aggregateYesterday(env as any, new Date("2026-04-17T00:05:00Z"));
     expect(res.rows).toBe(0);
 
-    const count = await testEnv.env.DB.prepare(
+    const count = (await testEnv.env.DB.prepare(
       "SELECT COUNT(*) as cnt FROM usage_daily",
-    ).first() as any;
+    ).first()) as any;
     expect(count.cnt).toBe(0);
   });
 });

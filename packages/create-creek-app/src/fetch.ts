@@ -32,13 +32,8 @@ export interface TemplateConfig {
  * Built-in templates:  "landing"  → github:solcreek/templates/landing
  * Third-party:         "github:user/repo" → passed to giget directly
  */
-export async function fetchTemplate(
-  template: string,
-  dest: string,
-): Promise<FetchResult> {
-  const source = isThirdParty(template)
-    ? template
-    : `${TEMPLATE_REPO}/${template}`;
+export async function fetchTemplate(template: string, dest: string): Promise<FetchResult> {
+  const source = isThirdParty(template) ? template : `${TEMPLATE_REPO}/${template}`;
 
   const { dir } = await downloadTemplate(source, {
     dir: dest,
@@ -63,7 +58,5 @@ export async function fetchTemplate(
 }
 
 function isThirdParty(template: string): boolean {
-  return (
-    template.includes(":") || template.includes("/") || template.startsWith(".")
-  );
+  return template.includes(":") || template.includes("/") || template.startsWith(".");
 }

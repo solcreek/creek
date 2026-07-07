@@ -32,11 +32,7 @@ export async function mintLogsWsToken(opts: {
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(`${slug}:ws:${ts}`),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${slug}:ws:${ts}`));
   const hmac = Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

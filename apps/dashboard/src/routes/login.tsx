@@ -76,18 +76,10 @@ function LoginPage() {
         </div>
 
         <div className="space-y-3">
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleSocialLogin("github")}
-          >
+          <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("github")}>
             Continue with GitHub
           </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleSocialLogin("google")}
-          >
+          <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("google")}>
             Continue with Google
           </Button>
         </div>
@@ -131,8 +123,12 @@ function LoginPage() {
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading
-              ? mode === "signin" ? "Signing in..." : "Creating account..."
-              : mode === "signin" ? "Sign in" : "Create account"}
+              ? mode === "signin"
+                ? "Signing in..."
+                : "Creating account..."
+              : mode === "signin"
+                ? "Sign in"
+                : "Create account"}
           </Button>
         </form>
 
@@ -141,7 +137,10 @@ function LoginPage() {
             <>
               Don't have an account?{" "}
               <button
-                onClick={() => { setMode("signup"); setError(""); }}
+                onClick={() => {
+                  setMode("signup");
+                  setError("");
+                }}
                 className="text-foreground underline underline-offset-4"
               >
                 Sign up
@@ -151,7 +150,10 @@ function LoginPage() {
             <>
               Already have an account?{" "}
               <button
-                onClick={() => { setMode("signin"); setError(""); }}
+                onClick={() => {
+                  setMode("signin");
+                  setError("");
+                }}
                 className="text-foreground underline underline-offset-4"
               >
                 Sign in

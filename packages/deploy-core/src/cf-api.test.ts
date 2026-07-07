@@ -15,9 +15,9 @@ afterEach(() => {
 
 describe("cfApi", () => {
   test("sends GET with auth header", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: { id: "abc" } })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: { id: "abc" } })));
 
     const result = await cfApi(env, "GET", "/test/path");
 
@@ -29,9 +29,9 @@ describe("cfApi", () => {
   });
 
   test("sends POST with JSON body", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: { ok: true } })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: { ok: true } })));
 
     await cfApi(env, "POST", "/create", { name: "test" });
 
@@ -42,9 +42,9 @@ describe("cfApi", () => {
   });
 
   test("uses custom auth token when provided", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
 
     await cfApi(env, "GET", "/path", undefined, "custom-token");
 
@@ -53,9 +53,9 @@ describe("cfApi", () => {
   });
 
   test("sends FormData without Content-Type override", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
 
     const form = new FormData();
     form.append("file", "content");
@@ -81,9 +81,9 @@ describe("cfApi", () => {
   });
 
   test("returns result on success even with empty result", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: null })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: null })));
 
     const result = await cfApi(env, "GET", "/empty");
     expect(result).toBeNull();

@@ -16,18 +16,10 @@ export function TodoList({ todos, onToggle, onDelete }: TodoListProps) {
       {todos.map((todo) => (
         <li key={todo.id} className={todo.completed ? "completed" : ""}>
           <label>
-            <input
-              type="checkbox"
-              checked={!!todo.completed}
-              onChange={() => onToggle(todo.id)}
-            />
+            <input type="checkbox" checked={!!todo.completed} onChange={() => onToggle(todo.id)} />
             <span className="todo-text">{todo.text}</span>
           </label>
-          <button
-            className="delete-btn"
-            onClick={() => onDelete(todo.id)}
-            aria-label="Delete"
-          >
+          <button className="delete-btn" onClick={() => onDelete(todo.id)} aria-label="Delete">
             ×
           </button>
         </li>

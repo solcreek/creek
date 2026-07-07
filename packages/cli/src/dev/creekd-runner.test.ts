@@ -82,11 +82,11 @@ describe("CreekdDevServer env var mapping", () => {
     };
 
     // Verify the port structure matches what buildEnvVars expects
-    const pgPort = status.ports.find(p => p.name === "postgres");
+    const pgPort = status.ports.find((p) => p.name === "postgres");
     expect(pgPort).toBeDefined();
     expect(pgPort!.host).toBe(15432);
 
-    const redisPort = status.ports.find(p => p.name === "redis");
+    const redisPort = status.ports.find((p) => p.name === "redis");
     expect(redisPort).toBeDefined();
     expect(redisPort!.host).toBe(16379);
   });
@@ -102,7 +102,7 @@ describe("CreekdDevServer env var mapping", () => {
       ],
     };
 
-    const s3Port = status.ports.find(p => p.name === "s3");
+    const s3Port = status.ports.find((p) => p.name === "s3");
     expect(s3Port).toBeDefined();
     expect(s3Port!.host).toBe(18333);
   });
@@ -118,7 +118,7 @@ describe("CreekdDevServer env var mapping", () => {
       ],
     };
 
-    const smtpPort = status.ports.find(p => p.name === "smtp");
+    const smtpPort = status.ports.find((p) => p.name === "smtp");
     expect(smtpPort).toBeDefined();
     expect(smtpPort!.host).toBe(11025);
   });

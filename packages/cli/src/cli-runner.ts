@@ -21,9 +21,7 @@ const CITTY_ERROR_CODES: Record<string, string> = {
   E_NO_VERSION: "no_version",
 };
 
-export function cliErrorToJson(
-  err: unknown,
-): { ok: false; error: string; message: string } | null {
+export function cliErrorToJson(err: unknown): { ok: false; error: string; message: string } | null {
   const e = err as { name?: string; code?: string; message?: string };
   if (!e || e.name !== "CLIError") return null;
   const error = CITTY_ERROR_CODES[e.code ?? ""] ?? "cli_error";

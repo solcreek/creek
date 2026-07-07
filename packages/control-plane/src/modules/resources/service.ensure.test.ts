@@ -48,7 +48,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
     // Emulates `creek cache attach --as=SESSIONS` then a deploy whose config
     // declares no bindings.
     const env = envWithBindings([
-      { bindingName: "SESSIONS", resourceId: "res-1", kind: "cache", cfResourceId: "kv-123", cfResourceType: "kv" },
+      {
+        bindingName: "SESSIONS",
+        resourceId: "res-1",
+        kind: "cache",
+        cfResourceId: "kv-123",
+        cfResourceType: "kv",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
@@ -62,7 +68,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("an unprovisioned attachment (no cfResourceId) is not seeded", async () => {
     const env = envWithBindings([
-      { bindingName: "DATA", resourceId: "res-2", kind: "cache", cfResourceId: null, cfResourceType: null },
+      {
+        bindingName: "DATA",
+        resourceId: "res-2",
+        kind: "cache",
+        cfResourceId: null,
+        cfResourceType: null,
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
@@ -72,7 +84,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("skips a provisioned attachment whose CF type can't be determined", async () => {
     const env = envWithBindings([
-      { bindingName: "WAT", resourceId: "res-w", kind: "mystery", cfResourceId: "x-1", cfResourceType: null },
+      {
+        bindingName: "WAT",
+        resourceId: "res-w",
+        kind: "mystery",
+        cfResourceId: "x-1",
+        cfResourceType: null,
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
@@ -82,7 +100,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("derives cfType from kind when cfResourceType is missing", async () => {
     const env = envWithBindings([
-      { bindingName: "SESSIONS", resourceId: "res-3", kind: "cache", cfResourceId: "kv-9", cfResourceType: null },
+      {
+        bindingName: "SESSIONS",
+        resourceId: "res-3",
+        kind: "cache",
+        cfResourceId: "kv-9",
+        cfResourceType: null,
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
@@ -93,7 +117,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("does not seed a queue attachment (buildBindings emits only d1/r2/kv)", async () => {
     const env = envWithBindings([
-      { bindingName: "QUEUE", resourceId: "res-q", kind: "queue", cfResourceId: "q-1", cfResourceType: "queue" },
+      {
+        bindingName: "QUEUE",
+        resourceId: "res-q",
+        kind: "queue",
+        cfResourceId: "q-1",
+        cfResourceType: "queue",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
@@ -103,7 +133,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("an existing provisioned binding trusts its kind over a divergent requirement type", async () => {
     const env = envWithBindings([
-      { bindingName: "CACHE", resourceId: "res-c", kind: "cache", cfResourceId: "kv-x", cfResourceType: null },
+      {
+        bindingName: "CACHE",
+        resourceId: "res-c",
+        kind: "cache",
+        cfResourceId: "kv-x",
+        cfResourceType: null,
+      },
     ]);
 
     // The bundle wrongly claims CACHE is a d1 — the resource's kind (cache -> kv) wins.
@@ -122,7 +158,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
     // fire, the auto-create path (CF provisioning is mocked at the top) would
     // yield a different resource id, so the assertion below would fail.
     const env = envWithBindings([
-      { bindingName: "DB", resourceId: "res-db", kind: "database", cfResourceId: "d1-full", cfResourceType: "d1" },
+      {
+        bindingName: "DB",
+        resourceId: "res-db",
+        kind: "database",
+        cfResourceId: "d1-full",
+        cfResourceType: "d1",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", [
@@ -141,7 +183,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
     // DATABASE (d1) requirement must NOT adopt it — that would silently bind
     // DATABASE to R2. It falls through to auto-create a real d1 instead.
     const env = envWithBindings([
-      { bindingName: "DB", resourceId: "res-r2", kind: "storage", cfResourceId: "r2-bucket", cfResourceType: "r2" },
+      {
+        bindingName: "DB",
+        resourceId: "res-r2",
+        kind: "storage",
+        cfResourceId: "r2-bucket",
+        cfResourceType: "r2",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", [
@@ -155,7 +203,13 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("adopts a legacy KV alias's resource under the CACHE primary", async () => {
     const env = envWithBindings([
-      { bindingName: "KV", resourceId: "res-kv", kind: "cache", cfResourceId: "kv-full", cfResourceType: "kv" },
+      {
+        bindingName: "KV",
+        resourceId: "res-kv",
+        kind: "cache",
+        cfResourceId: "kv-full",
+        cfResourceType: "kv",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", [
@@ -171,8 +225,20 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
   test("a config requirement and a separate attachment both resolve", async () => {
     const env = envWithBindings([
-      { bindingName: "SESSIONS", resourceId: "res-a", kind: "cache", cfResourceId: "kv-aaa", cfResourceType: "kv" },
-      { bindingName: "CACHE", resourceId: "res-b", kind: "cache", cfResourceId: "kv-bbb", cfResourceType: "kv" },
+      {
+        bindingName: "SESSIONS",
+        resourceId: "res-a",
+        kind: "cache",
+        cfResourceId: "kv-aaa",
+        cfResourceType: "kv",
+      },
+      {
+        bindingName: "CACHE",
+        resourceId: "res-b",
+        kind: "cache",
+        cfResourceId: "kv-bbb",
+        cfResourceType: "kv",
+      },
     ]);
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", [

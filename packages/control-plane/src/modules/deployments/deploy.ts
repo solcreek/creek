@@ -71,7 +71,7 @@ async function cfApi(
   }
 
   const res = await fetch(url, init);
-  const json = await res.json() as any;
+  const json = (await res.json()) as any;
 
   if (!json.success && json.errors?.length) {
     throw new Error(`CF API error: ${JSON.stringify(json.errors)}`);
@@ -87,9 +87,7 @@ async function hashAsset(content: ArrayBuffer, salt: string): Promise<string> {
   combined.set(saltBytes, 0);
   combined.set(new Uint8Array(content), saltBytes.length);
   const digest = await crypto.subtle.digest("SHA-256", combined);
-  const hex = [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   return hex.slice(0, 32);
 }
 
@@ -135,13 +133,17 @@ async function uploadAssetFiles(
   async function worker(): Promise<void> {
     while (next < buckets.length) {
       const bucket = buckets[next++];
-      const result = (await cfApi(env, "POST", path, buildForm(bucket), uploadJwt)) as AssetUploadResponse;
+      const result = (await cfApi(
+        env,
+        "POST",
+        path,
+        buildForm(bucket),
+        uploadJwt,
+      )) as AssetUploadResponse;
       if (result.jwt) completionJwt = result.jwt;
     }
   }
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()),
-  );
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()));
 
   return completionJwt;
 }
@@ -244,13 +246,13 @@ export async function deployWithAssets(
   if ((input.renderMode === "ssr" || input.renderMode === "worker") && input.serverFiles) {
     // SSR: upload framework's server files as worker modules with correct MIME types
     workerFiles = Object.entries(input.serverFiles).map(
-      ([name, content]) =>
-        new File([content], name, { type: workerModuleType(name) }),
+      ([name, content]) => new File([content], name, { type: workerModuleType(name) }),
     );
     // Find main module (usually worker.js, server.js, or index.js)
-    mainModule = Object.keys(input.serverFiles).find(
-      (n) => n === "worker.js" || n === "server.js" || n === "index.js" || n === "index.mjs",
-    ) ?? Object.keys(input.serverFiles)[0];
+    mainModule =
+      Object.keys(input.serverFiles).find(
+        (n) => n === "worker.js" || n === "server.js" || n === "index.js" || n === "index.mjs",
+      ) ?? Object.keys(input.serverFiles)[0];
   } else {
     // SPA: worker with embedded index.html for client-side routing fallback
     // WfP Static Assets doesn't support not_found_handling, so the worker handles it

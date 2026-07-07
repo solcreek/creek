@@ -3,7 +3,12 @@ import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { github } from "./routes.js";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 // Mock the external collaborators so we can assert on the synthesized
@@ -60,7 +65,9 @@ function buildApp(env: Env) {
 // Hono's app.request() requires an ExecutionContext for c.executionCtx.waitUntil
 // to work. Minimal stub that just swallows the promises.
 const mockExecutionCtx = {
-  waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
+  waitUntil: (p: Promise<unknown>) => {
+    p.catch(() => {});
+  },
   passThroughOnException: () => {},
 } as unknown as ExecutionContext;
 
@@ -80,26 +87,36 @@ afterEach(() => {
 
 describe("POST /github/deploy-latest", () => {
   test("returns 400 when projectId is missing", async () => {
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("validation");
   });
 
   test("returns 404 when project does not exist", async () => {
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "nope" }),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "nope" }),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe("not_found");
     expect(body.message).toBe("Project not found");
   });
@@ -107,14 +124,19 @@ describe("POST /github/deploy-latest", () => {
   test("returns 404 when project has no github_connection", async () => {
     seedProject(testEnv, "my-app", { id: "proj-1" });
 
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "proj-1" }),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "proj-1" }),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe("not_found");
     expect(body.message).toContain("no GitHub connection");
   });
@@ -131,14 +153,19 @@ describe("POST /github/deploy-latest", () => {
     const { getLatestCommit } = await import("./api.js");
     (getLatestCommit as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "proj-1" }),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "proj-1" }),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe("not_found");
     expect(body.message).toContain("main");
   });
@@ -160,14 +187,19 @@ describe("POST /github/deploy-latest", () => {
 
     const { handlePush } = await import("./handlers.js");
 
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "proj-1" }),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "proj-1" }),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean; commitSha: string; branch: string };
+    const body = (await res.json()) as { ok: boolean; commitSha: string; branch: string };
     expect(body).toEqual({ ok: true, commitSha: "abc123def456", branch: "main" });
 
     expect(handlePush).toHaveBeenCalledTimes(1);
@@ -200,14 +232,19 @@ describe("POST /github/deploy-latest", () => {
       message: "chore: bump",
     });
 
-    const res = await app.request("/github/deploy-latest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: "my-app" }),
-    }, testEnv.env, mockExecutionCtx);
+    const res = await app.request(
+      "/github/deploy-latest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "my-app" }),
+      },
+      testEnv.env,
+      mockExecutionCtx,
+    );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
+    const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
   });
 });
@@ -222,7 +259,7 @@ describe("GET /github/connections/by-project/:projectId", () => {
     );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("not_found");
   });
 
@@ -237,7 +274,7 @@ describe("GET /github/connections/by-project/:projectId", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { connection: unknown };
+    const body = (await res.json()) as { connection: unknown };
     expect(body.connection).toBeNull();
   });
 
@@ -259,7 +296,7 @@ describe("GET /github/connections/by-project/:projectId", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as {
+    const body = (await res.json()) as {
       connection: {
         id: string;
         repoOwner: string;
@@ -292,7 +329,7 @@ describe("GET /github/connections/by-project/:projectId", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { connection: { id: string } | null };
+    const body = (await res.json()) as { connection: { id: string } | null };
     expect(body.connection?.id).toBe("conn-slug");
   });
 });
@@ -311,7 +348,7 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("validation");
   });
 
@@ -334,7 +371,7 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("not_found");
   });
 
@@ -365,7 +402,7 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(409);
-    const body = await res.json() as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe("conflict");
     expect(body.message).toContain("already has a GitHub connection");
   });
@@ -398,7 +435,7 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(409);
-    const body = await res.json() as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe("conflict");
     expect(body.message).toContain("already connected");
   });
@@ -424,14 +461,16 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(201);
-    const body = await res.json() as { ok: boolean; connectionId: string; repoId: number | null };
+    const body = (await res.json()) as { ok: boolean; connectionId: string; repoId: number | null };
     expect(body.ok).toBe(true);
     expect(body.connectionId).toBeTruthy();
     // repoId comes from the mocked getRepoInfo
     expect(body.repoId).toBe(987654321);
 
     // Verify DB: github_connection row
-    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE projectId = 'proj-1'").get() as any;
+    const conn = testEnv.db.db
+      .prepare("SELECT * FROM github_connection WHERE projectId = 'proj-1'")
+      .get() as any;
     expect(conn).toBeDefined();
     expect(conn.installationId).toBe(123);
     expect(conn.repoId).toBe(987654321);
@@ -440,7 +479,9 @@ describe("POST /github/connect", () => {
     expect(conn.productionBranch).toBe("dev");
 
     // Verify DB: project.githubRepo updated
-    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    const proj = testEnv.db.db
+      .prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'")
+      .get() as any;
     expect(proj.githubRepo).toBe("linyiru/my-app");
   });
 
@@ -467,10 +508,12 @@ describe("POST /github/connect", () => {
     );
 
     expect(res.status).toBe(201);
-    const body = await res.json() as { repoId: number | null };
+    const body = (await res.json()) as { repoId: number | null };
     expect(body.repoId).toBeNull();
 
-    const conn = testEnv.db.db.prepare("SELECT repoId FROM github_connection WHERE projectId = 'proj-1'").get() as any;
+    const conn = testEnv.db.db
+      .prepare("SELECT repoId FROM github_connection WHERE projectId = 'proj-1'")
+      .get() as any;
     expect(conn.repoId).toBeNull();
   });
 });
@@ -486,14 +529,16 @@ describe("DELETE /github/connections/:id", () => {
     );
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("not_found");
   });
 
   test("deletes the connection and clears project.githubRepo when owned", async () => {
     seedProject(testEnv, "my-app", { id: "proj-1" });
     // Set githubRepo so we can verify it gets cleared
-    testEnv.db.db.prepare("UPDATE project SET githubRepo = ? WHERE id = ?").run("linyiru/my-app", "proj-1");
+    testEnv.db.db
+      .prepare("UPDATE project SET githubRepo = ? WHERE id = ?")
+      .run("linyiru/my-app", "proj-1");
     seedGithubConnection("proj-1", {
       id: "conn-1",
       installationId: 123,
@@ -510,7 +555,7 @@ describe("DELETE /github/connections/:id", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
+    const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
 
     // Connection deleted
@@ -518,7 +563,9 @@ describe("DELETE /github/connections/:id", () => {
     expect(conn).toBeUndefined();
 
     // githubRepo cleared
-    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    const proj = testEnv.db.db
+      .prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'")
+      .get() as any;
     expect(proj.githubRepo).toBeNull();
   });
 });
@@ -526,17 +573,30 @@ describe("DELETE /github/connections/:id", () => {
 /**
  * Helper: seed a github_connection row.
  */
-function seedGithubConnection(projectId: string, opts: {
-  id?: string;
-  installationId: number;
-  repoOwner: string;
-  repoName: string;
-  productionBranch: string;
-}) {
+function seedGithubConnection(
+  projectId: string,
+  opts: {
+    id?: string;
+    installationId: number;
+    repoOwner: string;
+    repoName: string;
+    productionBranch: string;
+  },
+) {
   const id = opts.id ?? crypto.randomUUID();
   const now = Date.now();
-  testEnv.db.db.prepare(
-    `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+  testEnv.db.db
+    .prepare(
+      `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-  ).run(id, projectId, opts.installationId, opts.repoOwner, opts.repoName, opts.productionBranch, now);
+    )
+    .run(
+      id,
+      projectId,
+      opts.installationId,
+      opts.repoOwner,
+      opts.repoName,
+      opts.productionBranch,
+      now,
+    );
 }

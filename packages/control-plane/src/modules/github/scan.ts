@@ -4,15 +4,11 @@
  */
 
 import { getRepoContents } from "./api.js";
-import {
-  detectFramework,
-  parseWranglerConfig,
-  type WranglerFormat,
-} from "@solcreek/sdk";
+import { detectFramework, parseWranglerConfig, type WranglerFormat } from "@solcreek/sdk";
 
 export interface RepoScanResult {
   framework: string | null;
-  configType: string | null;     // "wrangler.jsonc" | "wrangler.json" | "wrangler.toml" | "package.json"
+  configType: string | null; // "wrangler.jsonc" | "wrangler.json" | "wrangler.toml" | "package.json"
   bindings: Array<{ type: string; name: string }>;
   envHints: string[];
   deployable: boolean;
@@ -28,14 +24,13 @@ export async function scanRepo(
   repo: string,
 ): Promise<RepoScanResult> {
   // Parallel fetch of all possible config files
-  const [wranglerJsonc, wranglerJson, wranglerToml, packageJson, envExample] =
-    await Promise.all([
-      getRepoContents(token, owner, repo, "wrangler.jsonc"),
-      getRepoContents(token, owner, repo, "wrangler.json"),
-      getRepoContents(token, owner, repo, "wrangler.toml"),
-      getRepoContents(token, owner, repo, "package.json"),
-      getRepoContents(token, owner, repo, ".env.example"),
-    ]);
+  const [wranglerJsonc, wranglerJson, wranglerToml, packageJson, envExample] = await Promise.all([
+    getRepoContents(token, owner, repo, "wrangler.jsonc"),
+    getRepoContents(token, owner, repo, "wrangler.json"),
+    getRepoContents(token, owner, repo, "wrangler.toml"),
+    getRepoContents(token, owner, repo, "package.json"),
+    getRepoContents(token, owner, repo, ".env.example"),
+  ]);
 
   let framework: string | null = null;
   let configType: string | null = null;
@@ -46,7 +41,9 @@ export async function scanRepo(
     try {
       const pkg = JSON.parse(packageJson);
       framework = detectFramework(pkg);
-    } catch { /* invalid JSON */ }
+    } catch {
+      /* invalid JSON */
+    }
   }
 
   // Parse wrangler config (first found wins)
@@ -91,7 +88,9 @@ export async function scanRepo(
           bindings.push({ type: "durable_object", name: d.name });
         }
       }
-    } catch { /* parse error — skip */ }
+    } catch {
+      /* parse error — skip */
+    }
 
     break; // Use first found config
   }

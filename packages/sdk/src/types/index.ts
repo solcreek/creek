@@ -83,12 +83,14 @@ export type Framework =
 export type RenderMode = "spa" | "ssr" | "worker";
 
 export function isSSRFramework(framework: Framework | null): boolean {
-  return framework === "nextjs"
-    || framework === "tanstack-start"
-    || framework === "react-router"
-    || framework === "sveltekit"
-    || framework === "solidstart"
-    || framework === "nuxt";
+  return (
+    framework === "nextjs" ||
+    framework === "tanstack-start" ||
+    framework === "react-router" ||
+    framework === "sveltekit" ||
+    framework === "solidstart" ||
+    framework === "nuxt"
+  );
 }
 
 export interface DeploymentManifest {
@@ -173,8 +175,14 @@ export interface LogEntry {
   branch?: string;
   deployId?: string;
   outcome:
-    | "ok" | "exception" | "exceededCpu" | "exceededMemory"
-    | "canceled" | "responseStreamDisconnected" | "scriptNotFound" | "unknown";
+    | "ok"
+    | "exception"
+    | "exceededCpu"
+    | "exceededMemory"
+    | "canceled"
+    | "responseStreamDisconnected"
+    | "scriptNotFound"
+    | "unknown";
   request?: { url: string; method: string; status?: number };
   logs: Array<{
     level: "log" | "warn" | "error" | "info" | "debug";
@@ -230,9 +238,7 @@ export interface MetricsResponse {
   /** Time series bucketed by period — {t} is ms epoch. */
   series: Array<{ t: number; reqs: number; errs: number }>;
   /** Zone-level time series including cached traffic — null if zone query failed. */
-  httpSeries:
-    | Array<{ t: number; reqs: number; cachedReqs: number }>
-    | null;
+  httpSeries: Array<{ t: number; reqs: number; cachedReqs: number }> | null;
   breakdowns: {
     method: Array<{ label: string; reqs: number; errs: number }>;
     scriptType: Array<{ label: string; reqs: number; errs: number }>;

@@ -36,7 +36,8 @@ const PHISHING_PATTERNS: { pattern: RegExp; reason: string }[] = [
   },
   // Meta refresh redirects to external sites
   {
-    pattern: /<meta[^>]+http-equiv\s*=\s*["']refresh["'][^>]+content\s*=\s*["'][^"']*url\s*=\s*https?:\/\/[^"']*/gi,
+    pattern:
+      /<meta[^>]+http-equiv\s*=\s*["']refresh["'][^>]+content\s*=\s*["'][^"']*url\s*=\s*https?:\/\/[^"']*/gi,
     reason: "Meta refresh redirect to external site",
   },
   // window.location redirects in inline scripts (to external)
@@ -46,12 +47,14 @@ const PHISHING_PATTERNS: { pattern: RegExp; reason: string }[] = [
   },
   // Data exfiltration via fetch/XMLHttpRequest to external
   {
-    pattern: /(?:fetch|XMLHttpRequest|navigator\.sendBeacon)\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi,
+    pattern:
+      /(?:fetch|XMLHttpRequest|navigator\.sendBeacon)\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi,
     reason: "Network request to external endpoint — potential data exfiltration",
   },
   // Impersonation of known brands in title/heading
   {
-    pattern: /<(?:title|h[1-3])[^>]*>[^<]*(?:PayPal|Apple\s+ID|Microsoft\s+(?:365|Account)|Google\s+(?:Sign|Account)|MetaMask|Coinbase|Binance|Netflix|Amazon\s+(?:Prime|Account))[^<]*<\//gi,
+    pattern:
+      /<(?:title|h[1-3])[^>]*>[^<]*(?:PayPal|Apple\s+ID|Microsoft\s+(?:365|Account)|Google\s+(?:Sign|Account)|MetaMask|Coinbase|Binance|Netflix|Amazon\s+(?:Prime|Account))[^<]*<\//gi,
     reason: "Brand impersonation detected — potential phishing",
   },
   // NOTE: external iframe check lives in scanHtml() because it needs an
@@ -76,7 +79,7 @@ const IFRAME_HOST_ALLOWLIST = [
   "loom.com",
   "twitter.com",
   "x.com",
-  "github.com",          // gist.github.com embeds
+  "github.com", // gist.github.com embeds
   "codepen.io",
   "codesandbox.io",
   "stackblitz.com",
@@ -85,16 +88,17 @@ const IFRAME_HOST_ALLOWLIST = [
   "spotify.com",
   "soundcloud.com",
   "figma.com",
-  "docs.google.com",     // Google Docs / Sheets / Slides embeds
+  "docs.google.com", // Google Docs / Sheets / Slides embeds
   "calendar.google.com",
   "maps.google.com",
-  "google.com",          // Google Maps /maps/embed
+  "google.com", // Google Maps /maps/embed
   "typeform.com",
   "airtable.com",
   "notion.so",
 ];
 
-const IFRAME_SRC_PATTERN = /<iframe[^>]+src\s*=\s*["'](https?:\/\/(?!localhost|127\.0\.0\.1)[^"']+)["']/gi;
+const IFRAME_SRC_PATTERN =
+  /<iframe[^>]+src\s*=\s*["'](https?:\/\/(?!localhost|127\.0\.0\.1)[^"']+)["']/gi;
 
 /**
  * Extract iframe src URLs and check whether any point to disallowed hosts.
@@ -114,8 +118,8 @@ function findDisallowedIframe(html: string): string | null {
     } catch {
       return url;
     }
-    const isAllowed = IFRAME_HOST_ALLOWLIST.some((allowed) =>
-      host === allowed || host.endsWith("." + allowed),
+    const isAllowed = IFRAME_HOST_ALLOWLIST.some(
+      (allowed) => host === allowed || host.endsWith("." + allowed),
     );
     if (!isAllowed) {
       return url;
@@ -145,7 +149,8 @@ function isHashedFilename(filename: string): boolean {
 function scanHtml(content: string): ScanResult {
   // Check password fields — only flag if combined with external form action or credential signals
   const hasPasswordField = /<input[^>]+type\s*=\s*["']password["'][^>]*>/gi.test(content);
-  const hasExternalFormAction = /<form[^>]+action\s*=\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi.test(content);
+  const hasExternalFormAction =
+    /<form[^>]+action\s*=\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi.test(content);
 
   if (hasPasswordField && hasExternalFormAction) {
     return {
@@ -166,14 +171,15 @@ function scanHtml(content: string): ScanResult {
       return {
         ok: false,
         reason: "content_policy",
-        detail: "Credential collection form detected — sandbox sites should not collect login credentials",
+        detail:
+          "Credential collection form detected — sandbox sites should not collect login credentials",
       };
     }
   }
 
   // Check other patterns (skip password-only rule since handled above)
   for (const { pattern, reason } of PHISHING_PATTERNS) {
-    if (pattern.source.includes('type\\s*=\\s*["\']password')) continue;
+    if (pattern.source.includes("type\\s*=\\s*[\"']password")) continue;
     pattern.lastIndex = 0;
     if (pattern.test(content)) {
       return { ok: false, reason: "content_policy", detail: reason };
@@ -288,10 +294,12 @@ export function scanBundle(
     }
 
     // Check for data exfiltration patterns
-    const exfilPattern = /(?:fetch|XMLHttpRequest|navigator\.sendBeacon)\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi;
+    const exfilPattern =
+      /(?:fetch|XMLHttpRequest|navigator\.sendBeacon)\s*\(\s*["']https?:\/\/(?!localhost|127\.0\.0\.1)/gi;
     if (exfilPattern.test(js)) {
       // Only flag if combined with credential access patterns
-      const accessesCredentials = /(?:document\.cookie|localStorage|sessionStorage|credential)/gi.test(js);
+      const accessesCredentials =
+        /(?:document\.cookie|localStorage|sessionStorage|credential)/gi.test(js);
       if (accessesCredentials) {
         return {
           ok: false,

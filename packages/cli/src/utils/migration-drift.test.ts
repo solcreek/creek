@@ -36,8 +36,7 @@ function fakeClient(opts: {
     async listBindings() {
       if (opts.bindingsError) throw opts.bindingsError;
       return {
-        bindings:
-          opts.bindings ?? [{ resourceId: "res-1", kind: "database", name: "mydb" }],
+        bindings: opts.bindings ?? [{ resourceId: "res-1", kind: "database", name: "mydb" }],
       };
     },
     async queryDatabase(resourceId: string) {

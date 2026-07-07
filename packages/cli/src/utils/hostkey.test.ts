@@ -36,27 +36,31 @@ describe("validateHostkey", () => {
   });
 
   it("rejects unknown algorithm", () => {
-    expect(() => validateHostkey({ algorithm: "rsa" as never, publicKey: "x", fingerprint: "sha256:y" }))
-      .toThrow(HostkeyResponseError);
+    expect(() =>
+      validateHostkey({ algorithm: "rsa" as never, publicKey: "x", fingerprint: "sha256:y" }),
+    ).toThrow(HostkeyResponseError);
   });
 
   it("rejects missing publicKey", () => {
     const { fingerprint } = makeKeyPair();
-    expect(() => validateHostkey({ algorithm: "ed25519", fingerprint }))
-      .toThrow(/missing publicKey/);
+    expect(() => validateHostkey({ algorithm: "ed25519", fingerprint })).toThrow(
+      /missing publicKey/,
+    );
   });
 
   it("rejects malformed fingerprint prefix", () => {
     const { publicKey } = makeKeyPair();
-    expect(() => validateHostkey({ algorithm: "ed25519", publicKey, fingerprint: "md5:abc" }))
-      .toThrow(/malformed fingerprint/);
+    expect(() =>
+      validateHostkey({ algorithm: "ed25519", publicKey, fingerprint: "md5:abc" }),
+    ).toThrow(/malformed fingerprint/);
   });
 
   it("rejects fingerprint that does not match the publicKey bytes — defends against a buggy / malicious daemon claiming a different fingerprint than the bytes it returned", () => {
     const { publicKey } = makeKeyPair();
     const wrong = "sha256:" + "0".repeat(64);
-    expect(() => validateHostkey({ algorithm: "ed25519", publicKey, fingerprint: wrong }))
-      .toThrow(/does not match sha256\(publicKey\)/);
+    expect(() => validateHostkey({ algorithm: "ed25519", publicKey, fingerprint: wrong })).toThrow(
+      /does not match sha256\(publicKey\)/,
+    );
   });
 });
 
@@ -145,7 +149,8 @@ describe("fetchHostkey", () => {
     const fakeFetch = (async () => ({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ algorithm: "ed25519", publicKey, fingerprint: wrongFingerprint }),
+      json: () =>
+        Promise.resolve({ algorithm: "ed25519", publicKey, fingerprint: wrongFingerprint }),
     })) as unknown as typeof fetch;
 
     await expect(fetchHostkey("h:9080", fakeFetch)).rejects.toThrow(/does not match sha256/);

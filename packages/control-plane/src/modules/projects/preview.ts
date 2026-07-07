@@ -88,10 +88,13 @@ preview.post("/create", async (c) => {
 
   const baseUrl = new URL(c.req.url).origin;
 
-  return c.json({
-    previewId,
-    previewUrl: `${baseUrl}/preview/v/${previewId}`,
-  }, 201);
+  return c.json(
+    {
+      previewId,
+      previewUrl: `${baseUrl}/preview/v/${previewId}`,
+    },
+    201,
+  );
 });
 
 /**

@@ -29,9 +29,9 @@ let failFirstWithMigrationError = 0;
 
 // Structural type, not the global `Request` — deploy-core compiles against
 // @cloudflare/workers-types, whose Request is incompatible with MSW's.
-async function readMetadata(
-  request: { formData(): Promise<FormData> },
-): Promise<Record<string, unknown>> {
+async function readMetadata(request: {
+  formData(): Promise<FormData>;
+}): Promise<Record<string, unknown>> {
   const fd = await request.formData();
   const meta = fd.get("metadata");
   return JSON.parse(await (meta as File).text());
@@ -71,12 +71,14 @@ function workerFiles(): File[] {
 
 // deployScriptWithAssets(env, scriptName, workerFiles, mainModule, completionJwt,
 //   tags, bindings, assetsConfig?, cronSchedules?, compatibilityDate?, compatibilityFlags?, framework?)
-function deploy(opts: {
-  framework?: string | null;
-  date?: string;
-  flags?: string[];
-  bindings?: WfPBinding[];
-} = {}) {
+function deploy(
+  opts: {
+    framework?: string | null;
+    date?: string;
+    flags?: string[];
+    bindings?: WfPBinding[];
+  } = {},
+) {
   return deployScriptWithAssets(
     env,
     "creek-app-team",
@@ -106,7 +108,12 @@ describe("deployScriptWithAssets — Cloudflare WfP metadata (via MSW)", () => {
     await deploy({ framework: "nextjs", bindings: [{ type: "d1", name: "DB" }] });
     const bindingNames = (puts[0].bindings as WfPBinding[]).map((b) => b.name);
     expect(bindingNames).toEqual(
-      expect.arrayContaining(["DB", "NEXT_CACHE_DO_QUEUE", "NEXT_TAG_CACHE_DO_SHARDED", "NEXT_CACHE_DO_BUCKET_PURGE"]),
+      expect.arrayContaining([
+        "DB",
+        "NEXT_CACHE_DO_QUEUE",
+        "NEXT_TAG_CACHE_DO_SHARDED",
+        "NEXT_CACHE_DO_BUCKET_PURGE",
+      ]),
     );
     expect(puts[0].migrations).toMatchObject({
       new_sqlite_classes: ["DOQueueHandler", "DOShardedTagCache", "BucketCachePurge"],

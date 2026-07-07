@@ -8,7 +8,13 @@ import { recordAudit } from "../audit/service.js";
 
 type DeployEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole?: string; auditCtx: AuditRequestContext };
+  Variables: {
+    user: AuthUser;
+    teamId: string;
+    teamSlug: string;
+    memberRole?: string;
+    auditCtx: AuditRequestContext;
+  };
 };
 
 const deployments = new Hono<DeployEnv>();
@@ -28,12 +34,21 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  const body = await c.req.json<{
-    branch?: string;
-    commitSha?: string;
-    commitMessage?: string;
-    triggerType?: string;
-  }>().catch((): { branch?: string; commitSha?: string; commitMessage?: string; triggerType?: string } => ({}));
+  const body = await c.req
+    .json<{
+      branch?: string;
+      commitSha?: string;
+      commitMessage?: string;
+      triggerType?: string;
+    }>()
+    .catch(
+      (): {
+        branch?: string;
+        commitSha?: string;
+        commitMessage?: string;
+        triggerType?: string;
+      } => ({}),
+    );
 
   const lastDeployment = await c.env.DB.prepare(
     "SELECT MAX(version) as max_version FROM deployment WHERE projectId = ?",
@@ -66,12 +81,18 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
     .bind(id)
     .first();
 
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "deployment.create",
-    resourceType: "deployment",
-    resourceId: id,
-    metadata: { projectId: project.id, version },
-  }, c.get("auditCtx"));
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "deployment.create",
+      resourceType: "deployment",
+      resourceId: id,
+      metadata: { projectId: project.id, version },
+    },
+    c.get("auditCtx"),
+  );
 
   // --- Build cache check (⚡ Turbo deploy) ---
   // If the CLI sent a commitSha, check if the remote-builder's
@@ -93,13 +114,18 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
           // Deploy from cache asynchronously — same path as PUT /bundle
           // but using the cached bundle instead of CLI upload
           c.executionCtx.waitUntil(
-            deployFromBundleCache(c.env, project, {
-              id,
-              teamId,
-              teamSlug: c.get("teamSlug"),
-              branch: body.branch,
-              commitSha: body.commitSha,
-            }, cached),
+            deployFromBundleCache(
+              c.env,
+              project,
+              {
+                id,
+                teamId,
+                teamSlug: c.get("teamSlug"),
+                branch: body.branch,
+                commitSha: body.commitSha,
+              },
+              cached,
+            ),
           );
         } else {
           console.log(`[turbo-deploy] MISS ${cacheKey.slice(0, 80)}`);
@@ -149,14 +175,14 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
   // Idempotency guards
   const IN_PROGRESS = new Set(["uploading", "provisioning", "deploying"]);
   if (IN_PROGRESS.has(deployment.status)) {
-    return c.json(
-      { error: "conflict", message: "Deployment is already in progress" },
-      409,
-    );
+    return c.json({ error: "conflict", message: "Deployment is already in progress" }, 409);
   }
   if (deployment.status === "active") {
     return c.json(
-      { error: "invalid_state", message: "Deployment already completed. Create a new deployment to redeploy." },
+      {
+        error: "invalid_state",
+        message: "Deployment already completed. Create a new deployment to redeploy.",
+      },
       400,
     );
   }
@@ -182,13 +208,21 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
     const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100MB
     if (bundleBody.length > MAX_BUNDLE_SIZE) {
       return c.json(
-        { error: "validation", message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 100MB.` },
+        {
+          error: "validation",
+          message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 100MB.`,
+        },
         400,
       );
     }
 
     let parsedBundle: {
-      manifest?: { assets?: unknown[]; hasWorker?: boolean; entrypoint?: unknown; renderMode?: string };
+      manifest?: {
+        assets?: unknown[];
+        hasWorker?: boolean;
+        entrypoint?: unknown;
+        renderMode?: string;
+      };
       assets?: Record<string, unknown>;
       serverFiles?: Record<string, unknown>;
     };
@@ -199,21 +233,31 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
     }
 
     if (!parsedBundle.manifest || !Array.isArray(parsedBundle.manifest.assets)) {
-      return c.json({ error: "validation", message: "Bundle must include manifest with assets array" }, 400);
+      return c.json(
+        { error: "validation", message: "Bundle must include manifest with assets array" },
+        400,
+      );
     }
 
     // SSR/Worker bundles may have zero client assets (all rendering is server-side)
     const hasWorker = parsedBundle.manifest?.hasWorker === true;
-    const hasServerFiles = parsedBundle.serverFiles && Object.keys(parsedBundle.serverFiles).length > 0;
+    const hasServerFiles =
+      parsedBundle.serverFiles && Object.keys(parsedBundle.serverFiles).length > 0;
     if (!hasWorker && (!parsedBundle.assets || Object.keys(parsedBundle.assets).length === 0)) {
-      return c.json({ error: "validation", message: "Bundle must include at least one asset" }, 400);
+      return c.json(
+        { error: "validation", message: "Bundle must include at least one asset" },
+        400,
+      );
     }
 
     const MAX_ASSET_COUNT = 10_000;
     const assetCount = Object.keys(parsedBundle.assets ?? {}).length;
     if (assetCount > MAX_ASSET_COUNT) {
       return c.json(
-        { error: "validation", message: `Too many assets (${assetCount}). Max is ${MAX_ASSET_COUNT}.` },
+        {
+          error: "validation",
+          message: `Too many assets (${assetCount}). Max is ${MAX_ASSET_COUNT}.`,
+        },
         400,
       );
     }
@@ -234,12 +278,18 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
       .bind(teamId)
       .first<{ plan: string }>();
 
-    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-      action: "deployment.deploy",
-      resourceType: "deployment",
-      resourceId: deploymentId,
-      metadata: { projectId: project.id, projectSlug: project.slug },
-    }, c.get("auditCtx"));
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "deployment.deploy",
+        resourceType: "deployment",
+        resourceId: deploymentId,
+        metadata: { projectId: project.id, projectSlug: project.slug },
+      },
+      c.get("auditCtx"),
+    );
 
     // Fire async deploy job via waitUntil
     const jobPromise = runDeployJob(c.env, {
@@ -309,9 +359,7 @@ deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
 
   return c.json({
     deployment,
-    url: isProduction
-      ? `https://${project.slug}-${teamSlug}.${domain}`
-      : null,
+    url: isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null,
     previewUrl: `https://${project.slug}-${shortId}-${teamSlug}.${domain}`,
   });
 });
@@ -356,60 +404,75 @@ deployments.get("/:projectId/deployments", async (c) => {
 });
 
 // Promote a deployment to production
-deployments.post("/:projectId/deployments/:deploymentId/promote", requirePermission("deploy:create"), async (c) => {
-  const teamId = c.get("teamId");
-  const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId");
+deployments.post(
+  "/:projectId/deployments/:deploymentId/promote",
+  requirePermission("deploy:create"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
+    const deploymentId = c.req.param("deploymentId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string }>();
+    const project = await c.env.DB.prepare(
+      "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+    )
+      .bind(projectId, projectId, teamId)
+      .first<{ id: string; slug: string }>();
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const deployment = await c.env.DB.prepare(
-    "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
-  )
-    .bind(deploymentId, project.id)
-    .first<{ id: string; status: string }>();
+    const deployment = await c.env.DB.prepare(
+      "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
+    )
+      .bind(deploymentId, project.id)
+      .first<{ id: string; status: string }>();
 
-  if (!deployment) {
-    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
-  }
+    if (!deployment) {
+      return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+    }
 
-  if (deployment.status !== "active") {
-    return c.json(
-      { error: "invalid_state", message: `Cannot promote deployment in '${deployment.status}' state. Only 'active' deployments can be promoted.` },
-      400,
+    if (deployment.status !== "active") {
+      return c.json(
+        {
+          error: "invalid_state",
+          message: `Cannot promote deployment in '${deployment.status}' state. Only 'active' deployments can be promoted.`,
+        },
+        400,
+      );
+    }
+
+    await c.env.DB.prepare(
+      "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
+    )
+      .bind(deploymentId, Date.now(), project.id)
+      .run();
+
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "deployment.promote",
+        resourceType: "deployment",
+        resourceId: deploymentId,
+        metadata: { projectId: project.id },
+      },
+      c.get("auditCtx"),
     );
-  }
 
-  await c.env.DB.prepare(
-    "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
-  )
-    .bind(deploymentId, Date.now(), project.id)
-    .run();
-
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "deployment.promote",
-    resourceType: "deployment",
-    resourceId: deploymentId,
-    metadata: { projectId: project.id },
-  }, c.get("auditCtx"));
-
-  return c.json({ ok: true, productionDeploymentId: deploymentId });
-});
+    return c.json({ ok: true, productionDeploymentId: deploymentId });
+  },
+);
 
 // Rollback production to a previous deployment
 deployments.post("/:projectId/rollback", requirePermission("deploy:create"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
-  const body = await c.req.json<{ deploymentId?: string; message?: string }>().catch(() => ({} as { deploymentId?: string; message?: string }));
+  const body = await c.req
+    .json<{ deploymentId?: string; message?: string }>()
+    .catch(() => ({}) as { deploymentId?: string; message?: string });
 
   const project = await c.env.DB.prepare(
     "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
@@ -422,7 +485,10 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
   }
 
   if (!project.productionDeploymentId) {
-    return c.json({ error: "no_production", message: "No production deployment to rollback from" }, 400);
+    return c.json(
+      { error: "no_production", message: "No production deployment to rollback from" },
+      400,
+    );
   }
 
   // Find target deployment
@@ -437,7 +503,10 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
       .first<{ id: string }>();
 
     if (!prev) {
-      return c.json({ error: "no_previous", message: "No previous deployment to rollback to" }, 400);
+      return c.json(
+        { error: "no_previous", message: "No previous deployment to rollback to" },
+        400,
+      );
     }
     targetId = prev.id;
   }
@@ -450,11 +519,17 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
     .first<{ id: string; version: number }>();
 
   if (!target) {
-    return c.json({ error: "invalid_target", message: "Target deployment not found or not active" }, 400);
+    return c.json(
+      { error: "invalid_target", message: "Target deployment not found or not active" },
+      400,
+    );
   }
 
   if (targetId === project.productionDeploymentId) {
-    return c.json({ error: "already_production", message: "Already the production deployment" }, 400);
+    return c.json(
+      { error: "already_production", message: "Already the production deployment" },
+      400,
+    );
   }
 
   // Create rollback deployment record + switch production pointer
@@ -477,17 +552,23 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
     ).bind(targetId, now, project.id),
   ]);
 
-  await recordAudit(c.env.DB, c.get("user"), teamId, {
-    action: "deployment.rollback",
-    resourceType: "deployment",
-    resourceId: rollbackId,
-    metadata: {
-      projectId: project.id,
-      targetDeploymentId: targetId,
-      previousDeploymentId: project.productionDeploymentId,
-      message: body.message,
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    teamId,
+    {
+      action: "deployment.rollback",
+      resourceType: "deployment",
+      resourceId: rollbackId,
+      metadata: {
+        projectId: project.id,
+        targetDeploymentId: targetId,
+        previousDeploymentId: project.productionDeploymentId,
+        message: body.message,
+      },
     },
-  }, c.get("auditCtx"));
+    c.get("auditCtx"),
+  );
 
   const domain = c.env.CREEK_DOMAIN;
   return c.json({
@@ -561,7 +642,7 @@ deployments.get("/:projectId/cron-logs", async (c) => {
       body: JSON.stringify({ query }),
     });
 
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     const invocations = data?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? [];
 
     return c.json({
@@ -604,18 +685,16 @@ deployments.get("/:projectId/analytics", async (c) => {
 
   // Period → hours + grouping
   const periodHours =
-    period === "30d" ? 720
-    : period === "7d" ? 168
-    : period === "6h" ? 6
-    : period === "1h" ? 1
-    : 24;
+    period === "30d" ? 720 : period === "7d" ? 168 : period === "6h" ? 6 : period === "1h" ? 1 : 24;
   const since = new Date(Date.now() - periodHours * 60 * 60 * 1000).toISOString();
 
   // Bucket width: ≤1h → 5 min, ≤24h → 15 min, else 1 hour
   const timeDimension =
-    periodHours <= 1 ? "datetimeFiveMinutes"
-    : periodHours <= 24 ? "datetimeFifteenMinutes"
-    : "datetimeHour";
+    periodHours <= 1
+      ? "datetimeFiveMinutes"
+      : periodHours <= 24
+        ? "datetimeFifteenMinutes"
+        : "datetimeHour";
 
   const query = `
     query {
@@ -675,7 +754,7 @@ deployments.get("/:projectId/analytics", async (c) => {
       body: JSON.stringify({ query }),
     });
 
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     const account = data?.data?.viewer?.accounts?.[0];
     const series = account?.series ?? [];
     const totals = account?.totals?.[0] ?? null;
@@ -683,13 +762,15 @@ deployments.get("/:projectId/analytics", async (c) => {
     return c.json({
       scriptName,
       period,
-      totals: totals ? {
-        requests: totals.sum.requests,
-        errors: totals.sum.errors,
-        subrequests: totals.sum.subrequests,
-        cpuTimeP50: totals.quantiles.cpuTimeP50,
-        cpuTimeP99: totals.quantiles.cpuTimeP99,
-      } : { requests: 0, errors: 0, subrequests: 0, cpuTimeP50: 0, cpuTimeP99: 0 },
+      totals: totals
+        ? {
+            requests: totals.sum.requests,
+            errors: totals.sum.errors,
+            subrequests: totals.sum.subrequests,
+            cpuTimeP50: totals.quantiles.cpuTimeP50,
+            cpuTimeP99: totals.quantiles.cpuTimeP99,
+          }
+        : { requests: 0, errors: 0, subrequests: 0, cpuTimeP50: 0, cpuTimeP99: 0 },
       series: series.map((s: any) => ({
         timestamp: s.dimensions[timeDimension],
         status: s.dimensions.status,
@@ -736,9 +817,9 @@ deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), as
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  const body = await c.req.json<{ cron?: unknown; queue?: unknown }>().catch(
-    () => ({} as { cron?: unknown; queue?: unknown }),
-  );
+  const body = await c.req
+    .json<{ cron?: unknown; queue?: unknown }>()
+    .catch(() => ({}) as { cron?: unknown; queue?: unknown });
   const cronInput = (body as { cron?: unknown }).cron;
   const queueInput = (body as { queue?: unknown }).queue;
 
@@ -773,37 +854,50 @@ deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), as
       const { updateScriptSchedules } = await import("../resources/cloudflare.js");
       await updateScriptSchedules(c.env, scriptName, newCron);
     } catch (err) {
-      return c.json({
-        error: "update_failed",
-        message: err instanceof Error ? err.message : String(err),
-      }, 500);
+      return c.json(
+        {
+          error: "update_failed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
     }
   }
 
   // Persist to DB
   const newTriggers = JSON.stringify({ cron: newCron, queue: newQueue });
-  await c.env.DB.prepare(
-    "UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?",
-  )
+  await c.env.DB.prepare("UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?")
     .bind(newTriggers, Date.now(), project.id)
     .run();
 
   // Audit log
   if (updateCron) {
-    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-      action: "trigger.cron.update",
-      resourceType: "trigger",
-      resourceId: project.id,
-      metadata: { projectSlug: project.slug, cron: newCron },
-    }, c.get("auditCtx"));
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "trigger.cron.update",
+        resourceType: "trigger",
+        resourceId: project.id,
+        metadata: { projectSlug: project.slug, cron: newCron },
+      },
+      c.get("auditCtx"),
+    );
   }
   if (updateQueue && existing.queue !== newQueue) {
-    await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-      action: "trigger.queue.update",
-      resourceType: "trigger",
-      resourceId: project.id,
-      metadata: { projectSlug: project.slug, queue: newQueue },
-    }, c.get("auditCtx"));
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "trigger.queue.update",
+        resourceType: "trigger",
+        resourceId: project.id,
+        metadata: { projectSlug: project.slug, queue: newQueue },
+      },
+      c.get("auditCtx"),
+    );
   }
 
   return c.json({
@@ -837,13 +931,17 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
   const queueId = await getProjectQueueId(c.env, project.id);
 
   if (!queueId) {
-    return c.json({
-      error: "queue_not_provisioned",
-      message: "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
-    }, 400);
+    return c.json(
+      {
+        error: "queue_not_provisioned",
+        message:
+          "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
+      },
+      400,
+    );
   }
 
-  const body = await c.req.json<{ message?: unknown }>().catch(() => ({} as { message?: unknown }));
+  const body = await c.req.json<{ message?: unknown }>().catch(() => ({}) as { message?: unknown });
   const messageBody = (body as { message?: unknown }).message;
   if (messageBody === undefined) {
     return c.json({ error: "validation", message: "Missing 'message' field" }, 400);
@@ -854,22 +952,23 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
     await sendQueueMessage(c.env, queueId, messageBody);
     return c.json({ ok: true, queueId });
   } catch (err) {
-    return c.json({
-      error: "send_failed",
-      message: err instanceof Error ? err.message : String(err),
-    }, 500);
+    return c.json(
+      {
+        error: "send_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
   }
 });
 
 // --- Turbo deploy helpers ---
 
-async function getProjectRepoUrl(
-  db: D1Database,
-  projectId: string,
-): Promise<string | null> {
-  const row = await db.prepare(
-    "SELECT githubRepo FROM project WHERE id = ?",
-  ).bind(projectId).first<{ githubRepo: string | null }>();
+async function getProjectRepoUrl(db: D1Database, projectId: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT githubRepo FROM project WHERE id = ?")
+    .bind(projectId)
+    .first<{ githubRepo: string | null }>();
   if (!row?.githubRepo) return null;
   // githubRepo is stored as "owner/repo" — normalize to full URL
   return row.githubRepo.startsWith("http")
@@ -899,7 +998,13 @@ async function deployFromBundleCache(
     const bundle = JSON.parse(cachedBundleJson) as {
       assets: Record<string, string>;
       serverFiles?: Record<string, string>;
-      manifest: { assets: string[]; hasWorker: boolean; entrypoint: string | null; renderMode: string; framework?: string };
+      manifest: {
+        assets: string[];
+        hasWorker: boolean;
+        entrypoint: string | null;
+        renderMode: string;
+        framework?: string;
+      };
     };
 
     // Decode assets from base64
@@ -918,12 +1023,12 @@ async function deployFromBundleCache(
         )
       : undefined;
 
-    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : "spa" as const;
+    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : ("spa" as const);
 
     // Update status
-    await env.DB.prepare(
-      "UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = ?",
-    ).bind(Date.now(), deployment.id).run();
+    await env.DB.prepare("UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = ?")
+      .bind(Date.now(), deployment.id)
+      .run();
 
     // Deploy via the same deployWithAssets used by PUT /bundle
     const { deployWithAssets } = await import("./deploy.js");
@@ -946,20 +1051,18 @@ async function deployFromBundleCache(
       "main",
     );
 
-    await env.DB.prepare(
-      "UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?",
-    ).bind(Date.now(), deployment.id).run();
+    await env.DB.prepare("UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?")
+      .bind(Date.now(), deployment.id)
+      .run();
 
     console.log(`[turbo-deploy] ⚡ deployed ${deployment.id} from cache`);
   } catch (err) {
     console.error("[turbo-deploy] deploy-from-cache failed:", err);
     await env.DB.prepare(
       "UPDATE deployment SET status = 'failed', failedStep = 'deploying', errorMessage = ?, updatedAt = ? WHERE id = ?",
-    ).bind(
-      err instanceof Error ? err.message : String(err),
-      Date.now(),
-      deployment.id,
-    ).run();
+    )
+      .bind(err instanceof Error ? err.message : String(err), Date.now(), deployment.id)
+      .run();
   }
 }
 

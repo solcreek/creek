@@ -35,7 +35,11 @@ const queueSend = defineCommand({
       } catch (err) {
         if (jsonMode) {
           jsonOutput(
-            { ok: false, error: "invalid_json", message: err instanceof Error ? err.message : String(err) },
+            {
+              ok: false,
+              error: "invalid_json",
+              message: err instanceof Error ? err.message : String(err),
+            },
             1,
             [],
           );
@@ -49,7 +53,10 @@ const queueSend = defineCommand({
       const result = await client.sendQueueMessage(slug, payload);
       if (jsonMode) {
         jsonOutput({ ok: true, project: slug, queueId: result.queueId }, 0, [
-          { command: `creek deployments --project ${slug}`, description: "View deployment history" },
+          {
+            command: `creek deployments --project ${slug}`,
+            description: "View deployment history",
+          },
         ]);
       }
       consola.success(`Sent message to ${slug} queue`);
@@ -61,7 +68,9 @@ const queueSend = defineCommand({
         ]);
       }
       consola.error(`Failed to send: ${msg}`);
-      consola.info("Make sure your creek.toml has `queue = true` under [triggers] and the project is deployed.");
+      consola.info(
+        "Make sure your creek.toml has `queue = true` under [triggers] and the project is deployed.",
+      );
       process.exit(1);
     }
   },

@@ -19,10 +19,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
             <Link href="/legal/privacy" className="hover:text-fd-foreground">
               Privacy
             </Link>
-            <Link
-              href="/legal/acceptable-use"
-              className="hover:text-fd-foreground"
-            >
+            <Link href="/legal/acceptable-use" className="hover:text-fd-foreground">
               Acceptable Use
             </Link>
             <Link href="/legal/dmca" className="hover:text-fd-foreground">

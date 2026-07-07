@@ -6,7 +6,17 @@
  */
 
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+  mkdirSync,
+  writeFileSync,
+  unlinkSync,
+  statSync,
+} from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -38,7 +48,12 @@ class TestD1Statement {
     return {
       results: [],
       success: true,
-      meta: { changes: info.changes, last_row_id: Number(info.lastInsertRowid), rows_read: 0, rows_written: info.changes },
+      meta: {
+        changes: info.changes,
+        last_row_id: Number(info.lastInsertRowid),
+        rows_read: 0,
+        rows_written: info.changes,
+      },
     };
   }
 
@@ -53,7 +68,11 @@ class TestD1Statement {
   async all<T = Record<string, unknown>>() {
     const stmt = this.db.prepare(this.sql);
     const rows = stmt.all(...this.params) as T[];
-    return { results: rows, success: true, meta: { changes: 0, last_row_id: 0, rows_read: rows.length, rows_written: 0 } };
+    return {
+      results: rows,
+      success: true,
+      meta: { changes: 0, last_row_id: 0, rows_read: rows.length, rows_written: 0 },
+    };
   }
 }
 
@@ -66,7 +85,9 @@ class TestD1Database {
     this.db.pragma("foreign_keys = ON");
   }
 
-  prepare(sql: string) { return new TestD1Statement(this.db, sql); }
+  prepare(sql: string) {
+    return new TestD1Statement(this.db, sql);
+  }
 
   async batch(statements: TestD1Statement[]) {
     const results: any[] = [];
@@ -74,15 +95,29 @@ class TestD1Database {
       for (const stmt of statements) {
         const s = this.db.prepare(stmt.sql);
         const info = s.run(...stmt.params);
-        results.push({ results: [], success: true, meta: { changes: info.changes, last_row_id: Number(info.lastInsertRowid), rows_read: 0, rows_written: info.changes } });
+        results.push({
+          results: [],
+          success: true,
+          meta: {
+            changes: info.changes,
+            last_row_id: Number(info.lastInsertRowid),
+            rows_read: 0,
+            rows_written: info.changes,
+          },
+        });
       }
     });
     tx();
     return results;
   }
 
-  async exec(sql: string) { this.db.exec(sql); return { count: 1, duration: 0 }; }
-  close() { this.db.close(); }
+  async exec(sql: string) {
+    this.db.exec(sql);
+    return { count: 1, duration: 0 };
+  }
+  close() {
+    this.db.close();
+  }
 }
 
 // --- KV adapter (better-sqlite3) ---
@@ -92,11 +127,15 @@ class TestKVNamespace {
 
   constructor(db: Database.Database) {
     this.db = db;
-    db.exec("CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at INTEGER)");
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at INTEGER)",
+    );
   }
 
   async get(key: string) {
-    const row = this.db.prepare("SELECT value, expires_at FROM kv_store WHERE key = ?").get(key) as { value: string; expires_at: number | null } | undefined;
+    const row = this.db.prepare("SELECT value, expires_at FROM kv_store WHERE key = ?").get(key) as
+      | { value: string; expires_at: number | null }
+      | undefined;
     if (!row) return null;
     if (row.expires_at !== null && Date.now() >= row.expires_at) {
       this.db.prepare("DELETE FROM kv_store WHERE key = ?").run(key);
@@ -106,19 +145,31 @@ class TestKVNamespace {
   }
 
   async put(key: string, value: string, options?: { expirationTtl?: number }) {
-    const expiresAt = options?.expirationTtl != null ? Date.now() + options.expirationTtl * 1000 : null;
-    this.db.prepare("INSERT OR REPLACE INTO kv_store (key, value, expires_at) VALUES (?, ?, ?)").run(key, value, expiresAt);
+    const expiresAt =
+      options?.expirationTtl != null ? Date.now() + options.expirationTtl * 1000 : null;
+    this.db
+      .prepare("INSERT OR REPLACE INTO kv_store (key, value, expires_at) VALUES (?, ?, ?)")
+      .run(key, value, expiresAt);
   }
 
-  async delete(key: string) { this.db.prepare("DELETE FROM kv_store WHERE key = ?").run(key); }
+  async delete(key: string) {
+    this.db.prepare("DELETE FROM kv_store WHERE key = ?").run(key);
+  }
 
   async list(options?: { prefix?: string; limit?: number }) {
     const prefix = options?.prefix ?? "";
     const limit = options?.limit ?? 1000;
-    this.db.prepare("DELETE FROM kv_store WHERE expires_at IS NOT NULL AND expires_at <= ?").run(Date.now());
-    const rows = this.db.prepare("SELECT key, expires_at FROM kv_store WHERE key LIKE ? ORDER BY key LIMIT ?").all(prefix + "%", limit + 1) as Array<{ key: string; expires_at: number | null }>;
+    this.db
+      .prepare("DELETE FROM kv_store WHERE expires_at IS NOT NULL AND expires_at <= ?")
+      .run(Date.now());
+    const rows = this.db
+      .prepare("SELECT key, expires_at FROM kv_store WHERE key LIKE ? ORDER BY key LIMIT ?")
+      .all(prefix + "%", limit + 1) as Array<{ key: string; expires_at: number | null }>;
     return {
-      keys: rows.slice(0, limit).map((r) => ({ name: r.key, ...(r.expires_at ? { expiration: Math.floor(r.expires_at / 1000) } : {}) })),
+      keys: rows.slice(0, limit).map((r) => ({
+        name: r.key,
+        ...(r.expires_at ? { expiration: Math.floor(r.expires_at / 1000) } : {}),
+      })),
       list_complete: rows.length <= limit,
     };
   }
@@ -131,24 +182,48 @@ class TestR2Object {
   size: number;
   etag: string;
   uploaded = new Date();
-  constructor(key: string, size: number) { this.key = key; this.size = size; this.etag = `"${Date.now()}"` }
+  constructor(key: string, size: number) {
+    this.key = key;
+    this.size = size;
+    this.etag = `"${Date.now()}"`;
+  }
 }
 
 class TestR2ObjectBody extends TestR2Object {
   private data: Buffer;
-  constructor(key: string, data: Buffer) { super(key, data.length); this.data = data; }
-  async arrayBuffer() { return this.data.buffer.slice(this.data.byteOffset, this.data.byteOffset + this.data.byteLength); }
-  async text() { return this.data.toString("utf-8"); }
-  async json<T>() { return JSON.parse(this.data.toString("utf-8")) as T; }
+  constructor(key: string, data: Buffer) {
+    super(key, data.length);
+    this.data = data;
+  }
+  async arrayBuffer() {
+    return this.data.buffer.slice(
+      this.data.byteOffset,
+      this.data.byteOffset + this.data.byteLength,
+    );
+  }
+  async text() {
+    return this.data.toString("utf-8");
+  }
+  async json<T>() {
+    return JSON.parse(this.data.toString("utf-8")) as T;
+  }
   get body() {
     const d = this.data;
-    return new ReadableStream({ start(c) { c.enqueue(new Uint8Array(d)); c.close(); } });
+    return new ReadableStream({
+      start(c) {
+        c.enqueue(new Uint8Array(d));
+        c.close();
+      },
+    });
   }
 }
 
 class TestR2Bucket {
   private root: string;
-  constructor(root: string) { this.root = root; mkdirSync(root, { recursive: true }); }
+  constructor(root: string) {
+    this.root = root;
+    mkdirSync(root, { recursive: true });
+  }
 
   async get(key: string) {
     const p = join(this.root, key);
@@ -159,14 +234,25 @@ class TestR2Bucket {
   async put(key: string, value: any) {
     const p = join(this.root, key);
     mkdirSync(dirname(p), { recursive: true });
-    const buf = typeof value === "string" ? Buffer.from(value) : Buffer.isBuffer(value) ? value : value instanceof Uint8Array ? Buffer.from(value) : value instanceof ArrayBuffer ? Buffer.from(value) : Buffer.from("");
+    const buf =
+      typeof value === "string"
+        ? Buffer.from(value)
+        : Buffer.isBuffer(value)
+          ? value
+          : value instanceof Uint8Array
+            ? Buffer.from(value)
+            : value instanceof ArrayBuffer
+              ? Buffer.from(value)
+              : Buffer.from("");
     writeFileSync(p, buf);
     return new TestR2Object(key, buf.length);
   }
 
   async delete(key: string | string[]) {
     for (const k of Array.isArray(key) ? key : [key]) {
-      try { unlinkSync(join(this.root, k)); } catch {}
+      try {
+        unlinkSync(join(this.root, k));
+      } catch {}
     }
   }
 
@@ -179,12 +265,20 @@ class TestR2Bucket {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         if (objects.length > limit) return;
         const fp = join(dir, e.name);
-        if (e.isDirectory()) { walk(fp); }
-        else { const k = relative(this.root, fp); if (k.startsWith(prefix)) objects.push(new TestR2Object(k, statSync(fp).size)); }
+        if (e.isDirectory()) {
+          walk(fp);
+        } else {
+          const k = relative(this.root, fp);
+          if (k.startsWith(prefix)) objects.push(new TestR2Object(k, statSync(fp).size));
+        }
       }
     };
     walk(this.root);
-    return { objects: objects.slice(0, limit), truncated: objects.length > limit, delimitedPrefixes: [] };
+    return {
+      objects: objects.slice(0, limit),
+      truncated: objects.length > limit,
+      delimitedPrefixes: [],
+    };
   }
 }
 
@@ -276,13 +370,16 @@ const EXTRA_TABLES = `
  * Seed standard test data: user + org + member (owner role).
  * Call after createLocalTestEnv() to enable RBAC-gated routes.
  */
-export function seedTestData(env: LocalTestEnv, options?: {
-  userId?: string;
-  userEmail?: string;
-  orgId?: string;
-  orgSlug?: string;
-  role?: string;
-}) {
+export function seedTestData(
+  env: LocalTestEnv,
+  options?: {
+    userId?: string;
+    userEmail?: string;
+    orgId?: string;
+    orgSlug?: string;
+    role?: string;
+  },
+) {
   const userId = options?.userId ?? "user-1";
   const userEmail = options?.userEmail ?? "test@example.com";
   const orgId = options?.orgId ?? "team-1";
@@ -291,19 +388,31 @@ export function seedTestData(env: LocalTestEnv, options?: {
   const now = Date.now();
 
   const db = env.db.db;
-  db.exec(`INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Test User', '${userEmail}', 0, ${now}, ${now})`);
-  db.exec(`INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('${orgId}', 'Test Org', '${orgSlug}', ${now})`);
-  db.exec(`INSERT OR IGNORE INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-1', '${userId}', '${orgId}', '${role}', ${now})`);
+  db.exec(
+    `INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Test User', '${userEmail}', 0, ${now}, ${now})`,
+  );
+  db.exec(
+    `INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('${orgId}', 'Test Org', '${orgSlug}', ${now})`,
+  );
+  db.exec(
+    `INSERT OR IGNORE INTO member (id, userId, organizationId, role, createdAt) VALUES ('mem-1', '${userId}', '${orgId}', '${role}', ${now})`,
+  );
 }
 
 /**
  * Seed a project.
  */
-export function seedProject(env: LocalTestEnv, slug: string, options?: { orgId?: string; id?: string }) {
+export function seedProject(
+  env: LocalTestEnv,
+  slug: string,
+  options?: { orgId?: string; id?: string },
+) {
   const orgId = options?.orgId ?? "team-1";
   const id = options?.id ?? `proj-${slug}`;
   const now = Date.now();
-  env.db.db.exec(`INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('${id}', '${slug}', '${orgId}', ${now}, ${now})`);
+  env.db.db.exec(
+    `INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('${id}', '${slug}', '${orgId}', ${now}, ${now})`,
+  );
   return id;
 }
 
@@ -314,7 +423,9 @@ function applyMigrations(db: TestD1Database) {
     .sort();
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf-8");
-    try { db.db.exec(sql); } catch {}
+    try {
+      db.db.exec(sql);
+    } catch {}
   }
   db.db.exec(EXTRA_TABLES);
 }

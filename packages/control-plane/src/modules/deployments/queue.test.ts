@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -61,7 +66,7 @@ describe("PATCH /projects/:id/triggers", () => {
 
     const res = await patchTriggers("my-app", {});
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("validation");
     expect(json.message).toContain("at least one of");
   });
@@ -71,7 +76,7 @@ describe("PATCH /projects/:id/triggers", () => {
 
     const res = await patchTriggers("my-app", { cron: "not-an-array" });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("validation");
   });
 
@@ -80,20 +85,20 @@ describe("PATCH /projects/:id/triggers", () => {
 
     const res = await patchTriggers("my-app", { queue: "yes" });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("validation");
   });
 
   test("updates cron schedules and persists to DB", async () => {
     const projId = seedAppProject("my-app", '{"cron":["0 0 * * *"],"queue":false}');
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
 
     const res = await patchTriggers("my-app", { cron: ["*/15 * * * *", "0 0 * * *"] });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.ok).toBe(true);
     expect(json.cron).toEqual(["*/15 * * * *", "0 0 * * *"]);
     expect(json.queue).toBe(false);
@@ -107,27 +112,31 @@ describe("PATCH /projects/:id/triggers", () => {
     expect(body.schedules).toEqual([{ cron: "*/15 * * * *" }, { cron: "0 0 * * *" }]);
 
     // Verify DB update
-    const row = testEnv.db.db.prepare("SELECT triggers FROM project WHERE id = ?").get(projId) as any;
+    const row = testEnv.db.db
+      .prepare("SELECT triggers FROM project WHERE id = ?")
+      .get(projId) as any;
     const triggers = JSON.parse(row.triggers);
     expect(triggers.cron).toEqual(["*/15 * * * *", "0 0 * * *"]);
     expect(triggers.queue).toBe(false);
 
     // Verify audit log was written
-    const auditRow = testEnv.db.db.prepare("SELECT * FROM audit_log WHERE action = 'trigger.cron.update'").get();
+    const auditRow = testEnv.db.db
+      .prepare("SELECT * FROM audit_log WHERE action = 'trigger.cron.update'")
+      .get();
     expect(auditRow).toBeDefined();
   });
 
   test("toggling queue does NOT call CF API and signals queueRequiresRedeploy", async () => {
     seedAppProject("my-app", '{"cron":[],"queue":false}');
 
-    const fetchSpy = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
     globalThis.fetch = fetchSpy;
 
     const res = await patchTriggers("my-app", { queue: true });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.queue).toBe(true);
     expect(json.queueRequiresRedeploy).toBe(true);
 
@@ -135,7 +144,9 @@ describe("PATCH /projects/:id/triggers", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
 
     // DB should have the new queue value
-    const row = testEnv.db.db.prepare("SELECT triggers FROM project WHERE slug = 'my-app'").get() as any;
+    const row = testEnv.db.db
+      .prepare("SELECT triggers FROM project WHERE slug = 'my-app'")
+      .get() as any;
     const triggers = JSON.parse(row.triggers);
     expect(triggers.queue).toBe(true);
   });
@@ -145,20 +156,20 @@ describe("PATCH /projects/:id/triggers", () => {
 
     const res = await patchTriggers("my-app", { queue: true });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.queueRequiresRedeploy).toBe(false);
   });
 
   test("can update both cron and queue in one request", async () => {
     seedAppProject("my-app", '{"cron":[],"queue":false}');
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
 
     const res = await patchTriggers("my-app", { cron: ["0 * * * *"], queue: true });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.cron).toEqual(["0 * * * *"]);
     expect(json.queue).toBe(true);
     expect(json.queueRequiresRedeploy).toBe(true);
@@ -167,13 +178,15 @@ describe("PATCH /projects/:id/triggers", () => {
   test("returns 500 when CF API fails", async () => {
     seedAppProject("my-app");
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: false, errors: [{ message: "script not found" }] })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: [{ message: "script not found" }] })),
+      );
 
     const res = await patchTriggers("my-app", { cron: ["* * * * *"] });
     expect(res.status).toBe(500);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("update_failed");
   });
 });
@@ -190,7 +203,7 @@ describe("POST /projects/:id/queue/send", () => {
 
     const res = await send("my-app", { message: "hello" });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("queue_not_provisioned");
   });
 
@@ -201,7 +214,7 @@ describe("POST /projects/:id/queue/send", () => {
 
     const res = await send("my-app", {});
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("validation");
   });
 
@@ -209,14 +222,14 @@ describe("POST /projects/:id/queue/send", () => {
     const projId = seedAppProject("my-app");
     seedQueueBinding(projId, "queue-id-123");
 
-    const fetchSpy = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
     globalThis.fetch = fetchSpy;
 
     const res = await send("my-app", { message: { type: "process", id: "42" } });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.ok).toBe(true);
     expect(json.queueId).toBe("queue-id-123");
 
@@ -232,9 +245,9 @@ describe("POST /projects/:id/queue/send", () => {
     const projId = seedAppProject("my-app");
     seedQueueBinding(projId, "queue-id-123");
 
-    const fetchSpy = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: {} })),
-    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
     globalThis.fetch = fetchSpy;
 
     const res = await send("my-app", { message: "plain string" });
@@ -249,13 +262,15 @@ describe("POST /projects/:id/queue/send", () => {
     const projId = seedAppProject("my-app");
     seedQueueBinding(projId, "queue-id-123");
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: false, errors: [{ message: "queue not found" }] })),
-    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ success: false, errors: [{ message: "queue not found" }] })),
+      );
 
     const res = await send("my-app", { message: "hi" });
     expect(res.status).toBe(500);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("send_failed");
   });
 });

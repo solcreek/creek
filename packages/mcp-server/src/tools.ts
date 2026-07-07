@@ -38,7 +38,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     "Deploy files to a sandbox preview (60 min, no account needed)",
     {
       files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
-      source: z.string().optional().describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
+      source: z
+        .string()
+        .optional()
+        .describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
     },
     async ({ files, source }) => {
       // Convert string content to base64 for sandbox API
@@ -54,26 +57,37 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText })) as any;
-        return { content: [{ type: "text" as const, text: `Deploy failed: ${err.message ?? res.statusText}` }], isError: true };
+        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
+        return {
+          content: [
+            { type: "text" as const, text: `Deploy failed: ${err.message ?? res.statusText}` },
+          ],
+          isError: true,
+        };
       }
 
-      const deploy = await res.json() as any;
+      const deploy = (await res.json()) as any;
 
       // Poll for active status
       const status = await pollStatus(deploy.statusUrl);
 
       return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({
-            url: status.previewUrl,
-            sandboxId: status.sandboxId,
-            deployDurationMs: status.deployDurationMs,
-            expiresAt: status.expiresAt,
-            expiresInSeconds: status.expiresInSeconds,
-          }, null, 2),
-        }],
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                url: status.previewUrl,
+                sandboxId: status.sandboxId,
+                deployDurationMs: status.deployDurationMs,
+                expiresAt: status.expiresAt,
+                expiresInSeconds: status.expiresInSeconds,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
       };
     },
   );
@@ -95,23 +109,32 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText })) as any;
-        return { content: [{ type: "text" as const, text: `Demo deploy failed: ${err.message}` }], isError: true };
+        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
+        return {
+          content: [{ type: "text" as const, text: `Demo deploy failed: ${err.message}` }],
+          isError: true,
+        };
       }
 
-      const deploy = await res.json() as any;
+      const deploy = (await res.json()) as any;
       const status = await pollStatus(deploy.statusUrl);
 
       return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({
-            url: status.previewUrl,
-            sandboxId: status.sandboxId,
-            deployDurationMs: status.deployDurationMs,
-            message: "Demo deployed successfully. Visit the URL to see it live.",
-          }, null, 2),
-        }],
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                url: status.previewUrl,
+                sandboxId: status.sandboxId,
+                deployDurationMs: status.deployDurationMs,
+                message: "Demo deployed successfully. Visit the URL to see it live.",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
       };
     },
   );
@@ -126,7 +149,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/${sandboxId}/status`);
 
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Sandbox ${sandboxId} not found` }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: `Sandbox ${sandboxId} not found` }],
+          isError: true,
+        };
       }
 
       const status = await res.json();
@@ -146,8 +172,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText })) as any;
-        return { content: [{ type: "text" as const, text: `Delete failed: ${err.message}` }], isError: true };
+        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
+        return {
+          content: [{ type: "text" as const, text: `Delete failed: ${err.message}` }],
+          isError: true,
+        };
       }
 
       return { content: [{ type: "text" as const, text: `Sandbox ${sandboxId} deleted.` }] };
@@ -167,7 +196,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         .describe(
           "Creek API key. Users should run `creek login` then copy the stored token; CLI-first agents can read ~/.creek/config.json.",
         ),
-      projectSlug: z.string().describe("Project slug (shown by `creek projects` or `creek status`)"),
+      projectSlug: z
+        .string()
+        .describe("Project slug (shown by `creek projects` or `creek status`)"),
       deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
     },
     async ({ apiKey, projectSlug, deploymentId }) => {
@@ -179,9 +210,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           headers: { "x-api-key": apiKey },
         });
         if (!listRes.ok) {
-          const err = await listRes.json().catch(() => ({ message: listRes.statusText })) as { message?: string };
+          const err = (await listRes.json().catch(() => ({ message: listRes.statusText }))) as {
+            message?: string;
+          };
           return {
-            content: [{ type: "text" as const, text: `Lookup failed: ${err.message ?? listRes.statusText}` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Lookup failed: ${err.message ?? listRes.statusText}`,
+              },
+            ],
             isError: true,
           };
         }
@@ -189,27 +227,46 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         const match = list.find((d) => d.id.startsWith(fullId));
         if (!match) {
           return {
-            content: [{ type: "text" as const, text: `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.`,
+              },
+            ],
             isError: true,
           };
         }
         fullId = match.id;
       }
 
-      const res = await fetch(
-        `${base}/projects/${projectSlug}/deployments/${fullId}/logs`,
-        { headers: { "x-api-key": apiKey } },
-      );
+      const res = await fetch(`${base}/projects/${projectSlug}/deployments/${fullId}/logs`, {
+        headers: { "x-api-key": apiKey },
+      });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText })) as { message?: string; error?: string };
+        const err = (await res.json().catch(() => ({ message: res.statusText }))) as {
+          message?: string;
+          error?: string;
+        };
         return {
-          content: [{ type: "text" as const, text: `Read failed (${res.status}): ${err.message ?? res.statusText}` }],
+          content: [
+            {
+              type: "text" as const,
+              text: `Read failed (${res.status}): ${err.message ?? res.statusText}`,
+            },
+          ],
           isError: true,
         };
       }
 
       const log = (await res.json()) as {
-        entries: Array<{ ts: number; step: string; stream: string; level: string; msg: string; code?: string }>;
+        entries: Array<{
+          ts: number;
+          step: string;
+          stream: string;
+          level: string;
+          msg: string;
+          code?: string;
+        }>;
         metadata: null | {
           deploymentId: string;
           status: "running" | "success" | "failed";
@@ -244,9 +301,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
               // code isn't in the mapped set — agent should fall back
               // to the errorStep + log entries in that case.
               suggestedFix: suggestFixForCkCode(log.metadata.errorCode),
-              nextResource: log.metadata.errorCode
-                ? "creek://skill/diagnosis"
-                : null,
+              nextResource: log.metadata.errorCode ? "creek://skill/diagnosis" : null,
             };
 
       // Show only error / fatal lines + the failing-step lines in the
@@ -254,9 +309,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const failing = log.metadata?.errorStep ?? null;
       const importantLines = log.entries.filter(
         (e) =>
-          e.level === "error" ||
-          e.level === "fatal" ||
-          (failing !== null && e.step === failing),
+          e.level === "error" || e.level === "fatal" || (failing !== null && e.step === failing),
       );
 
       const payload = {
@@ -284,16 +337,22 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Requires a Creek API key.",
     {
       apiKey: z.string().describe("Creek API key"),
-      kind: z.enum(["database", "storage", "cache", "ai"]).optional().describe("Filter by resource kind"),
+      kind: z
+        .enum(["database", "storage", "cache", "ai"])
+        .optional()
+        .describe("Filter by resource kind"),
     },
     async ({ apiKey, kind }) => {
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources`, { headers: cpHeaders(apiKey) });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText })) as any;
-        return { content: [{ type: "text" as const, text: `Failed: ${err.message ?? res.statusText}` }], isError: true };
+        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${err.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
-      const data = await res.json() as { resources: any[] };
+      const data = (await res.json()) as { resources: any[] };
       const filtered = kind ? data.resources.filter((r: any) => r.kind === kind) : data.resources;
       return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
     },
@@ -314,9 +373,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         headers: cpHeaders(apiKey),
         body: JSON.stringify({ kind, name }),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
       return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
     },
@@ -338,11 +400,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         headers: cpHeaders(apiKey),
         body: JSON.stringify({ resourceId, bindingName }),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
-      return { content: [{ type: "text" as const, text: `Attached resource ${resourceId} → ${projectSlug} as env.${bindingName}` }] };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Attached resource ${resourceId} → ${projectSlug} as env.${bindingName}`,
+          },
+        ],
+      };
     },
   );
 
@@ -361,10 +433,17 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         headers: cpHeaders(apiKey),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ message: res.statusText })) as any;
-        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+        const data = (await res.json().catch(() => ({ message: res.statusText }))) as any;
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
-      return { content: [{ type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` }] };
+      return {
+        content: [
+          { type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` },
+        ],
+      };
     },
   );
 
@@ -381,9 +460,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         method: "DELETE",
         headers: cpHeaders(apiKey),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
       return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
     },
@@ -404,11 +486,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         headers: cpHeaders(apiKey),
         body: JSON.stringify({ name }),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }], isError: true };
+        return {
+          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
+          isError: true,
+        };
       }
-      return { content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }] };
+      return {
+        content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }],
+      };
     },
   );
 
@@ -428,9 +515,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         headers: cpHeaders(apiKey),
         body: JSON.stringify({ sql, params: params ?? [] }),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
-        return { content: [{ type: "text" as const, text: `Query failed: ${data.message ?? res.statusText}` }], isError: true };
+        return {
+          content: [
+            { type: "text" as const, text: `Query failed: ${data.message ?? res.statusText}` },
+          ],
+          isError: true,
+        };
       }
       return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
     },
@@ -452,7 +544,7 @@ const CK_FIX_HINTS: Record<string, string> = {
   "CK-NOTHING-TO-DEPLOY":
     "Run the project's build command so there's output in [build].output, or set [build].command in creek.toml if the project needs one. If the project has server code / API routes, also set [build].worker — the build alone never declares it.",
   "CK-RESOURCES-NO-WORKER":
-    "Resources are declared but no worker entry — the deploy is a static SPA and /api/* serves index.html. Set [build].worker in creek.toml (e.g. worker = \"worker/index.ts\"), or remove [resources] if the site is purely static.",
+    'Resources are declared but no worker entry — the deploy is a static SPA and /api/* serves index.html. Set [build].worker in creek.toml (e.g. worker = "worker/index.ts"), or remove [resources] if the site is purely static.',
   "CK-WORKER-UNDECLARED":
     "A worker-shaped file exists on disk but no worker entry is declared, so it will not be deployed. Point [build].worker in creek.toml at it, or delete the file if unused.",
   "CK-DB-DUAL-DRIVER-SPLIT":
@@ -483,9 +575,10 @@ async function pollStatus(statusUrl: string, maxWait = 30_000): Promise<any> {
     const res = await fetch(statusUrl);
     if (!res.ok) throw new Error(`Status check failed: ${res.status}`);
 
-    const status = await res.json() as any;
+    const status = (await res.json()) as any;
     if (status.status === "active") return status;
-    if (status.status === "failed") throw new Error(`Deploy failed: ${status.errorMessage ?? "Unknown"}`);
+    if (status.status === "failed")
+      throw new Error(`Deploy failed: ${status.errorMessage ?? "Unknown"}`);
     if (status.status === "expired") throw new Error("Sandbox expired before activation");
 
     await new Promise((r) => setTimeout(r, 1000));

@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { Database } from 'bun:sqlite';
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { Database } from "bun:sqlite";
 
-export type CacheGetType = 'text' | 'json' | 'arrayBuffer' | 'stream';
+export type CacheGetType = "text" | "json" | "arrayBuffer" | "stream";
 
 export type CachePutOptions = {
   expirationTtl?: number; // seconds from now
@@ -39,7 +39,7 @@ class CreekCache {
 
   async get(
     key: string,
-    type: CacheGetType = 'text',
+    type: CacheGetType = "text",
   ): Promise<string | object | ArrayBuffer | ReadableStream | null> {
     const row = this.db
       .query(`SELECT value, metadata, expiration_ms FROM cache WHERE key = ?`)
@@ -54,7 +54,7 @@ class CreekCache {
 
   async getWithMetadata<M = unknown>(
     key: string,
-    type: CacheGetType = 'text',
+    type: CacheGetType = "text",
   ): Promise<{
     value: string | object | ArrayBuffer | ReadableStream | null;
     metadata: M | null;
@@ -86,8 +86,7 @@ class CreekCache {
       expirationMs = Date.now() + options.expirationTtl * 1000;
     }
 
-    const metadataStr =
-      options?.metadata !== undefined ? JSON.stringify(options.metadata) : null;
+    const metadataStr = options?.metadata !== undefined ? JSON.stringify(options.metadata) : null;
 
     this.db
       .prepare(
@@ -101,12 +100,10 @@ class CreekCache {
     this.db.prepare(`DELETE FROM cache WHERE key = ?`).run(key);
   }
 
-  async list<M = unknown>(
-    options: CacheListOptions = {},
-  ): Promise<CacheListResult<M>> {
+  async list<M = unknown>(options: CacheListOptions = {}): Promise<CacheListResult<M>> {
     const limit = options.limit ?? 1000;
-    const prefix = options.prefix ?? '';
-    const cursor = options.cursor ?? '';
+    const prefix = options.prefix ?? "";
+    const cursor = options.cursor ?? "";
     const now = Date.now();
 
     const rows = this.db
@@ -137,9 +134,7 @@ class CreekCache {
     });
 
     const cursorNext =
-      overflow && trimmed.length > 0
-        ? trimmed[trimmed.length - 1]!.key
-        : undefined;
+      overflow && trimmed.length > 0 ? trimmed[trimmed.length - 1]!.key : undefined;
     return {
       keys,
       list_complete: !overflow,
@@ -152,24 +147,21 @@ function decodeValue(
   buf: Uint8Array,
   type: CacheGetType,
 ): string | object | ArrayBuffer | ReadableStream {
-  if (type === 'arrayBuffer') {
-    return buf.buffer.slice(
-      buf.byteOffset,
-      buf.byteOffset + buf.byteLength,
-    ) as ArrayBuffer;
+  if (type === "arrayBuffer") {
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   }
-  if (type === 'stream') {
+  if (type === "stream") {
     return new Response(buf as BodyInit).body!;
   }
   const text = new TextDecoder().decode(buf);
-  if (type === 'json') return JSON.parse(text);
+  if (type === "json") return JSON.parse(text);
   return text;
 }
 
 async function encodeValue(
   value: string | ReadableStream | ArrayBuffer | Uint8Array,
 ): Promise<Uint8Array> {
-  if (typeof value === 'string') return new TextEncoder().encode(value);
+  if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (value instanceof ReadableStream) {
@@ -195,9 +187,9 @@ async function encodeValue(
 
 export function openCache(path: string): CreekCache {
   const parent = dirname(path);
-  if (parent && parent !== '.') mkdirSync(parent, { recursive: true });
+  if (parent && parent !== ".") mkdirSync(parent, { recursive: true });
   const db = new Database(path);
-  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec("PRAGMA journal_mode = WAL;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS cache (
       key           TEXT PRIMARY KEY,

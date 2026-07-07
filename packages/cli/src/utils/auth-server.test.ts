@@ -24,9 +24,7 @@ describe.skipIf(!process.env.TEST_NETWORK)("auth-server loopback", () => {
     try {
       expect(port).toBeGreaterThan(0);
 
-      const res = await fetch(
-        `http://localhost:${port}/callback?key=creek_test&state=${state}`,
-      );
+      const res = await fetch(`http://localhost:${port}/callback?key=creek_test&state=${state}`);
       expect(res.status).toBe(200);
 
       const key = await waitForCallback();
@@ -45,9 +43,7 @@ describe.skipIf(!process.env.TEST_NETWORK)("auth-server loopback", () => {
     const observed = waitForCallback().catch((err) => err);
 
     try {
-      const res = await fetch(
-        `http://localhost:${port}/callback?key=creek_test&state=wrong`,
-      );
+      const res = await fetch(`http://localhost:${port}/callback?key=creek_test&state=wrong`);
       expect(res.status).toBe(400);
 
       const err = await observed;

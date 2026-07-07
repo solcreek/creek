@@ -163,7 +163,9 @@ describe("resolveConfig integration", () => {
   test("detects wrangler.toml project", async () => {
     const { resolveConfig, formatDetectionSummary } = await import("@solcreek/sdk");
 
-    writeFileSync(join(tmpDir, "wrangler.toml"), `
+    writeFileSync(
+      join(tmpDir, "wrangler.toml"),
+      `
 name = "test-worker"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -172,26 +174,33 @@ compatibility_date = "2025-01-01"
 binding = "DB"
 database_name = "test"
 database_id = "xxx"
-`);
+`,
+    );
 
     const config = resolveConfig(tmpDir);
     expect(config.source).toBe("wrangler.toml");
     expect(config.workerEntry).toBe("src/index.ts");
-    expect(config.bindings.find(b => b.type === "d1")).toBeDefined();
+    expect(config.bindings.find((b) => b.type === "d1")).toBeDefined();
     expect(formatDetectionSummary(config)).toContain("D1");
   });
 
   test("detects nuxt framework with SSR server dir", async () => {
     const { resolveConfig, isPreBundledFramework, getSSRServerDir } = await import("@solcreek/sdk");
 
-    writeFileSync(join(tmpDir, "wrangler.jsonc"), JSON.stringify({
-      name: "nuxt-app",
-      main: ".output/server/index.mjs",
-    }));
-    writeFileSync(join(tmpDir, "package.json"), JSON.stringify({
-      dependencies: { nuxt: "^4.0.0" },
-      scripts: { build: "nuxt build" },
-    }));
+    writeFileSync(
+      join(tmpDir, "wrangler.jsonc"),
+      JSON.stringify({
+        name: "nuxt-app",
+        main: ".output/server/index.mjs",
+      }),
+    );
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { nuxt: "^4.0.0" },
+        scripts: { build: "nuxt build" },
+      }),
+    );
 
     const config = resolveConfig(tmpDir);
     expect(config.framework).toBe("nuxt");
@@ -202,23 +211,29 @@ database_id = "xxx"
   test("detects pure Worker (no framework + has entry)", async () => {
     const { resolveConfig } = await import("@solcreek/sdk");
 
-    writeFileSync(join(tmpDir, "wrangler.toml"), `
+    writeFileSync(
+      join(tmpDir, "wrangler.toml"),
+      `
 name = "my-api"
 main = "src/index.ts"
 
 [[kv_namespaces]]
 binding = "CACHE"
 id = "xxx"
-`);
+`,
+    );
     // package.json with hono but no framework
-    writeFileSync(join(tmpDir, "package.json"), JSON.stringify({
-      dependencies: { hono: "^4.0.0" },
-    }));
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { hono: "^4.0.0" },
+      }),
+    );
 
     const config = resolveConfig(tmpDir);
     expect(config.framework).toBeNull();
     expect(config.workerEntry).toBe("src/index.ts");
-    expect(config.bindings.find(b => b.type === "kv")?.name).toBe("CACHE");
+    expect(config.bindings.find((b) => b.type === "kv")?.name).toBe("CACHE");
   });
 });
 
@@ -226,7 +241,9 @@ describe("bundle format compatibility", () => {
   test("resolvedConfigToResources produces correct boolean flags", async () => {
     const { resolveConfig, resolvedConfigToResources } = await import("@solcreek/sdk");
 
-    writeFileSync(join(tmpDir, "wrangler.toml"), `
+    writeFileSync(
+      join(tmpDir, "wrangler.toml"),
+      `
 name = "app"
 main = "src/index.ts"
 
@@ -237,7 +254,8 @@ database_id = "x"
 [[r2_buckets]]
 binding = "UPLOADS"
 bucket_name = "b"
-`);
+`,
+    );
 
     const config = resolveConfig(tmpDir);
     const resources = resolvedConfigToResources(config);
@@ -247,14 +265,17 @@ bucket_name = "b"
   test("resolvedConfigToBindingRequirements preserves user names", async () => {
     const { resolveConfig, resolvedConfigToBindingRequirements } = await import("@solcreek/sdk");
 
-    writeFileSync(join(tmpDir, "wrangler.toml"), `
+    writeFileSync(
+      join(tmpDir, "wrangler.toml"),
+      `
 name = "app"
 main = "src/index.ts"
 
 [[kv_namespaces]]
 binding = "MY_CACHE"
 id = "x"
-`);
+`,
+    );
 
     const config = resolveConfig(tmpDir);
     const reqs = resolvedConfigToBindingRequirements(config);

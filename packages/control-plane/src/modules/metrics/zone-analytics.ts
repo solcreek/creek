@@ -116,9 +116,7 @@ export async function queryZoneHttpAnalytics(
   // ms later, which pushes `now − since` just over 1 day and CF
   // rejects with "time range wider than 1d". 60s is well within
   // error-tolerance for "last 24 hours" observability.
-  const since = new Date(
-    Date.now() - periodHours * 60 * 60 * 1000 + 60_000,
-  ).toISOString();
+  const since = new Date(Date.now() - periodHours * 60 * 60 * 1000 + 60_000).toISOString();
   const dim = bucketDimension(periodHours);
   const timeFilterKey = dim === "date" ? "date_geq" : "datetime_geq";
   const timeFilterValue = dim === "date" ? since.slice(0, 10) : since;
@@ -308,9 +306,7 @@ export async function queryZoneHttpAnalyticsMerged(
   }
 
   const results = await Promise.all(
-    queries.map((q) =>
-      queryZoneHttpAnalytics(env, q.host, periodHours, q.zone),
-    ),
+    queries.map((q) => queryZoneHttpAnalytics(env, q.host, periodHours, q.zone)),
   );
   const ok = results.filter((r): r is ZoneHttpAnalytics => r !== null);
   if (ok.length === 0) return null;

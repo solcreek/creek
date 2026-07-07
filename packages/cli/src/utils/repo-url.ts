@@ -165,13 +165,17 @@ function parseShorthand(rest: string, provider: ParsedRepoUrl["provider"]): Pars
   const [pathPart, ...branchParts] = rest.split("#");
   const branch = branchParts.length > 0 ? branchParts.join("#") : null;
 
-  const segments = pathPart.replace(/\.git$/, "").split("/").filter(Boolean);
+  const segments = pathPart
+    .replace(/\.git$/, "")
+    .split("/")
+    .filter(Boolean);
   if (segments.length !== 2) {
     throw new RepoUrlError(`Expected owner/repo format, got: ${pathPart}`);
   }
 
   const [owner, repo] = segments;
-  const host = provider === "github" ? "github.com" : provider === "gitlab" ? "gitlab.com" : "bitbucket.org";
+  const host =
+    provider === "github" ? "github.com" : provider === "gitlab" ? "gitlab.com" : "bitbucket.org";
 
   return {
     provider,

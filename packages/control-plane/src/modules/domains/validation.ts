@@ -6,18 +6,12 @@ const MAX_HOSTNAME_LENGTH = 253;
 
 // Valid hostname: one or more labels separated by dots, ending with a TLD of 2+ letters.
 // Each label: starts/ends with alphanumeric, may contain hyphens, max 63 chars.
-const HOSTNAME_REGEX =
-  /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+const HOSTNAME_REGEX = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 // Reserved domains that cannot be registered as custom domains.
-const BLOCKED_SUFFIXES = [
-  ".bycreek.com",
-  ".creek.dev",
-  ".creeksandbox.com",
-  ".localhost",
-];
+const BLOCKED_SUFFIXES = [".bycreek.com", ".creek.dev", ".creeksandbox.com", ".localhost"];
 
 const BLOCKED_EXACT = ["localhost"];
 

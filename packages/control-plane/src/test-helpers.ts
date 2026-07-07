@@ -5,10 +5,7 @@ import { deployments } from "./modules/deployments/routes.js";
 import { domains } from "./modules/domains/routes.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
-import {
-  resources,
-  resourceBindings,
-} from "./modules/resources/routes.js";
+import { resources, resourceBindings } from "./modules/resources/routes.js";
 import { buildLogsRead } from "./modules/build-logs/routes.js";
 import { originGuard } from "./modules/tenant/origin-guard.js";
 import type { Env } from "./types.js";
@@ -37,9 +34,7 @@ export function createMockD1() {
 
   function matchQuery(sql: string, args: unknown[]): SeededQuery | undefined {
     return seeded.find(
-      (s) =>
-        sql.includes(s.sqlPattern) &&
-        JSON.stringify(args) === JSON.stringify(s.args),
+      (s) => sql.includes(s.sqlPattern) && JSON.stringify(args) === JSON.stringify(s.args),
     );
   }
 
@@ -122,8 +117,8 @@ export function createMockR2() {
       if (!val) return null;
       return {
         body: val,
-        text: async () => typeof val === "string" ? val : JSON.stringify(val),
-        json: async () => typeof val === "string" ? JSON.parse(val) : val,
+        text: async () => (typeof val === "string" ? val : JSON.stringify(val)),
+        json: async () => (typeof val === "string" ? JSON.parse(val) : val),
       };
     },
     async put(key: string, value: unknown) {
@@ -156,7 +151,11 @@ export function createTestEnv(db?: MockD1): Env {
     GITHUB_APP_PRIVATE_KEY: "test-private-key",
     GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
     CLOUDFLARE_ZONE_ID: "test-zone-id",
-    BUILD_STATUS: { get: async () => null, put: async () => {}, delete: async () => {} } as unknown as KVNamespace,
+    BUILD_STATUS: {
+      get: async () => null,
+      put: async () => {},
+      delete: async () => {},
+    } as unknown as KVNamespace,
     REMOTE_BUILDER: { fetch: async () => new Response("{}") } as unknown as Fetcher,
     WEB_BUILDS: { send: async () => {} } as unknown as Queue,
     SANDBOX_API_URL: "https://sandbox-api.creek.dev",

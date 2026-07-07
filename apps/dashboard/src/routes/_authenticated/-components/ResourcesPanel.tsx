@@ -77,15 +77,15 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
     onError: (err) => setCreateError((err as Error).message),
   });
 
-  const filtered = kind
-    ? data?.resources?.filter((r) => r.kind === kind)
-    : data?.resources;
+  const filtered = kind ? data?.resources?.filter((r) => r.kind === kind) : data?.resources;
 
-  const label = kind ? KIND_LABELS[kind] ?? kind : "Resources";
+  const label = kind ? (KIND_LABELS[kind] ?? kind) : "Resources";
   const description = kind
     ? KIND_DESCRIPTIONS[kind]
     : "Team-owned databases, storage buckets, and caches. Attach to one or more projects from the project's Settings page.";
-  const cliHint = kind ? KIND_CLI_HINT[kind] ?? `creek resource create <name>` : "creek db create <name>";
+  const cliHint = kind
+    ? (KIND_CLI_HINT[kind] ?? `creek resource create <name>`)
+    : "creek db create <name>";
 
   return (
     <div className="space-y-4">
@@ -141,13 +141,10 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
               Cancel
             </Button>
           </div>
-          {createError && (
-            <p className="text-xs text-destructive">{createError}</p>
-          )}
+          {createError && <p className="text-xs text-destructive">{createError}</p>}
           {newName && !NAME_RE.test(newName) && (
             <p className="text-xs text-amber-400">
-              Name must be lowercase, start with a letter, &le;63 chars; hyphen and
-              underscore OK.
+              Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
             </p>
           )}
         </div>
@@ -158,9 +155,8 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
       ) : !filtered?.length ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-xs text-muted-foreground">
-            No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet.
-            Create one above or via{" "}
-            <code className="font-mono">{cliHint}</code>.
+            No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet. Create
+            one above or via <code className="font-mono">{cliHint}</code>.
           </p>
         </div>
       ) : (
@@ -199,8 +195,7 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
 
   const del = useMutation({
     mutationFn: () => api(`/resources/${resource.id}`, { method: "DELETE" }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["resources"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["resources"] }),
   });
 
   const attachedTo = detail?.bindings ?? [];
@@ -221,7 +216,13 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
             autoFocus
           />
         ) : (
-          <Link to="/resources/$resourceId" params={{ resourceId: resource.id }} className="font-mono truncate hover:underline">{resource.name}</Link>
+          <Link
+            to="/resources/$resourceId"
+            params={{ resourceId: resource.id }}
+            className="font-mono truncate hover:underline"
+          >
+            {resource.name}
+          </Link>
         )}
         {attachedTo.length > 0 ? (
           <span className="text-muted-foreground truncate">
@@ -262,11 +263,7 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
               variant="ghost"
               size="sm"
               disabled={attachedTo.length > 0 || del.isPending}
-              title={
-                attachedTo.length > 0
-                  ? "Detach from all projects before deleting"
-                  : undefined
-              }
+              title={attachedTo.length > 0 ? "Detach from all projects before deleting" : undefined}
               onClick={() => {
                 if (confirm(`Delete "${resource.name}"? This cannot be undone.`)) {
                   del.mutate();

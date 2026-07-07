@@ -15,7 +15,10 @@ describe("deployToCreek", () => {
       calls.push(`${init?.method || "GET"} ${urlStr}`);
 
       // GET project → 404
-      if (urlStr.includes("/projects/test-app") && (!init || init.method === "GET" || !init.method)) {
+      if (
+        urlStr.includes("/projects/test-app") &&
+        (!init || init.method === "GET" || !init.method)
+      ) {
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
       // POST create project
@@ -23,7 +26,11 @@ describe("deployToCreek", () => {
         return Response.json({ project: { id: "proj-1" } });
       }
       // POST create deployment
-      if (urlStr.includes("/deployments") && init?.method === "POST" && !urlStr.includes("/bundle")) {
+      if (
+        urlStr.includes("/deployments") &&
+        init?.method === "POST" &&
+        !urlStr.includes("/bundle")
+      ) {
         return Response.json({ deployment: { id: "deploy-1" } });
       }
       // PUT upload bundle
@@ -41,13 +48,11 @@ describe("deployToCreek", () => {
       return new Response("Not found", { status: 404 });
     }) as any;
 
-    const result = await deployToCreek(
-      "https://api.creek.dev",
-      "test-token",
-      "test-app",
-      "nuxt",
-      { manifest: {}, assets: {}, serverFiles: {} },
-    );
+    const result = await deployToCreek("https://api.creek.dev", "test-token", "test-app", "nuxt", {
+      manifest: {},
+      assets: {},
+      serverFiles: {},
+    });
 
     expect(result.success).toBe(true);
     if (result.success) {
@@ -74,10 +79,17 @@ describe("deployToCreek", () => {
       calls.push(`${init?.method || "GET"} ${urlStr}`);
 
       // GET project → found
-      if (urlStr.includes("/projects/existing") && (!init || !init.method || init.method === "GET")) {
+      if (
+        urlStr.includes("/projects/existing") &&
+        (!init || !init.method || init.method === "GET")
+      ) {
         return Response.json({ id: "proj-existing" });
       }
-      if (urlStr.includes("/deployments") && init?.method === "POST" && !urlStr.includes("/bundle")) {
+      if (
+        urlStr.includes("/deployments") &&
+        init?.method === "POST" &&
+        !urlStr.includes("/bundle")
+      ) {
         return Response.json({ deployment: { id: "d-1" } });
       }
       if (urlStr.includes("/bundle") && init?.method === "PUT") {
@@ -93,17 +105,14 @@ describe("deployToCreek", () => {
       return new Response("Not found", { status: 404 });
     }) as any;
 
-    const result = await deployToCreek(
-      "https://api.creek.dev",
-      "token",
-      "existing",
-      undefined,
-      { manifest: {}, assets: {} },
-    );
+    const result = await deployToCreek("https://api.creek.dev", "token", "existing", undefined, {
+      manifest: {},
+      assets: {},
+    });
 
     expect(result.success).toBe(true);
     // Should NOT have a POST /projects call (project already exists)
-    const createCalls = calls.filter(c => c === "POST https://api.creek.dev/projects");
+    const createCalls = calls.filter((c) => c === "POST https://api.creek.dev/projects");
     expect(createCalls).toHaveLength(0);
   });
 
@@ -113,7 +122,11 @@ describe("deployToCreek", () => {
       if (urlStr.includes("/projects/app") && (!init || !init.method || init.method === "GET")) {
         return Response.json({ id: "p-1" });
       }
-      if (urlStr.includes("/deployments") && init?.method === "POST" && !urlStr.includes("/bundle")) {
+      if (
+        urlStr.includes("/deployments") &&
+        init?.method === "POST" &&
+        !urlStr.includes("/bundle")
+      ) {
         return Response.json({ deployment: { id: "d-fail" } });
       }
       if (urlStr.includes("/bundle") && init?.method === "PUT") {
@@ -131,13 +144,10 @@ describe("deployToCreek", () => {
       return new Response("Not found", { status: 404 });
     }) as any;
 
-    const result = await deployToCreek(
-      "https://api.creek.dev",
-      "token",
-      "app",
-      undefined,
-      { manifest: {}, assets: {} },
-    );
+    const result = await deployToCreek("https://api.creek.dev", "token", "app", undefined, {
+      manifest: {},
+      assets: {},
+    });
 
     expect(result.success).toBe(false);
     if (!result.success) {

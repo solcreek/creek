@@ -153,15 +153,21 @@ describe("LocalKVNamespace", () => {
   describe("control-plane usage patterns", () => {
     it("build status workflow: put → get → list", async () => {
       // Simulate web-deploy build tracking
-      await kv.put("build:test-123", JSON.stringify({
-        buildId: "test-123",
-        status: "building",
-        startedAt: Date.now(),
-      }));
-      await kv.put("build:test-456", JSON.stringify({
-        buildId: "test-456",
-        status: "complete",
-      }));
+      await kv.put(
+        "build:test-123",
+        JSON.stringify({
+          buildId: "test-123",
+          status: "building",
+          startedAt: Date.now(),
+        }),
+      );
+      await kv.put(
+        "build:test-456",
+        JSON.stringify({
+          buildId: "test-456",
+          status: "complete",
+        }),
+      );
 
       // Get single build
       const build = JSON.parse((await kv.get("build:test-123"))!);

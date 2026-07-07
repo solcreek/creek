@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -89,9 +94,11 @@ describe("POST /projects/:id/rollback", () => {
 
     expect(res.status).toBe(200);
     // Verify the rollback deployment record was created with the message
-    const row = testEnv.db.db.prepare(
-      "SELECT commitMessage FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
-    ).get(PROJECT_ID) as { commitMessage: string | null } | undefined;
+    const row = testEnv.db.db
+      .prepare(
+        "SELECT commitMessage FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
+      )
+      .get(PROJECT_ID) as { commitMessage: string | null } | undefined;
     expect(row).toBeDefined();
     expect(row!.commitMessage).toBe("revert bad deploy");
   });
@@ -105,9 +112,11 @@ describe("POST /projects/:id/rollback", () => {
       deploymentId: PREVIOUS_DEPLOY,
     });
 
-    const row = testEnv.db.db.prepare(
-      "SELECT triggerType FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
-    ).get(PROJECT_ID) as { triggerType: string } | undefined;
+    const row = testEnv.db.db
+      .prepare(
+        "SELECT triggerType FROM deployment WHERE triggerType = 'rollback' AND projectId = ?",
+      )
+      .get(PROJECT_ID) as { triggerType: string } | undefined;
     expect(row).toBeDefined();
     expect(row!.triggerType).toBe("rollback");
   });

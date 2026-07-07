@@ -5,11 +5,17 @@ import { tmpdir } from "node:os";
 import { resolveConfig } from "./resolved-config.js";
 
 function makeTestDir(creekToml: string): string {
-  const dir = join(tmpdir(), `creek-target-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `creek-target-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "creek.toml"), creekToml);
   // Need package.json for framework detection fallback
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "test", scripts: { build: "echo ok" } }));
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "test", scripts: { build: "echo ok" } }),
+  );
   return dir;
 }
 
@@ -29,8 +35,8 @@ describe("target integration: resolveConfig → target", () => {
     try {
       const config = resolveConfig(dir);
       expect(config.target).toBe("cf");
-      expect(config.bindings.some(b => b.type === "d1")).toBe(true);
-      expect(config.bindings.some(b => b.type === "kv")).toBe(true);
+      expect(config.bindings.some((b) => b.type === "d1")).toBe(true);
+      expect(config.bindings.some((b) => b.type === "kv")).toBe(true);
     } finally {
       cleanup(dir);
     }
@@ -66,7 +72,7 @@ describe("target integration: resolveConfig → target", () => {
     try {
       const config = resolveConfig(dir);
       expect(config.target).toBe("cf");
-      expect(config.bindings.some(b => b.type === "d1")).toBe(true);
+      expect(config.bindings.some((b) => b.type === "d1")).toBe(true);
     } finally {
       cleanup(dir);
     }
@@ -115,7 +121,7 @@ describe("target integration: resolveConfig → target", () => {
     try {
       const config = resolveConfig(dir);
       expect(config.target).toBe("cf");
-      expect(config.bindings.some(b => b.type === "r2")).toBe(true);
+      expect(config.bindings.some((b) => b.type === "r2")).toBe(true);
     } finally {
       cleanup(dir);
     }

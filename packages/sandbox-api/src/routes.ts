@@ -57,7 +57,8 @@ routes.post("/deploy", async (c) => {
 
   // Resolve client IP — trust X-Forwarded-For only from internal services
   const internalSecret = c.req.header("x-internal-secret");
-  const isTrustedInternal = internalSecret && env.INTERNAL_SECRET && internalSecret === env.INTERNAL_SECRET;
+  const isTrustedInternal =
+    internalSecret && env.INTERNAL_SECRET && internalSecret === env.INTERNAL_SECRET;
   const ip = isTrustedInternal
     ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
     : (c.req.header("cf-connecting-ip") ?? "unknown");
@@ -115,7 +116,10 @@ routes.post("/deploy", async (c) => {
   const hasAssets = body.assets && Object.keys(body.assets).length > 0;
   const hasServerFiles = body.serverFiles && Object.keys(body.serverFiles).length > 0;
   if (!hasAssets && !hasServerFiles) {
-    return c.json({ error: "validation", message: "Bundle must include assets or serverFiles" }, 400);
+    return c.json(
+      { error: "validation", message: "Bundle must include assets or serverFiles" },
+      400,
+    );
   }
   if (!body.assets) body.assets = {};
 
@@ -125,7 +129,7 @@ routes.post("/deploy", async (c) => {
     assets: body.manifest?.assets ?? assetPaths,
     hasWorker: body.manifest?.hasWorker ?? false,
     entrypoint: body.manifest?.entrypoint ?? null,
-    renderMode: body.manifest?.renderMode ?? "spa" as const,
+    renderMode: body.manifest?.renderMode ?? ("spa" as const),
   };
 
   // creek's own cap (not Cloudflare's — CF limits the gzipped worker script).
@@ -166,11 +170,12 @@ routes.post("/deploy", async (c) => {
 
     if (used >= RATE_LIMIT) {
       const retryMin = Math.max(1, Math.ceil((resetAt - now) / 60_000));
-      const upgradeHint = tier === "unverified"
-        ? "Verify as an agent for higher limits: POST /api/sandbox/agent-verify/start"
-        : tier === "human_cli"
-          ? "Create a free account for unlimited deploys: npx creek login"
-          : "Rate limit reached even for verified agents. Please wait.";
+      const upgradeHint =
+        tier === "unverified"
+          ? "Verify as an agent for higher limits: POST /api/sandbox/agent-verify/start"
+          : tier === "human_cli"
+            ? "Create a free account for unlimited deploys: npx creek login"
+            : "Rate limit reached even for verified agents. Please wait.";
       return c.json(
         {
           error: "rate_limited",
@@ -219,8 +224,14 @@ routes.post("/deploy", async (c) => {
 
   // Content fingerprint for post-incident forensics
   const bundleJson = JSON.stringify(body);
-  const contentHashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bundleJson));
-  const contentHash = [...new Uint8Array(contentHashBuf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  const contentHashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(bundleJson),
+  );
+  const contentHash = [...new Uint8Array(contentHashBuf)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
 
   // Insert sandbox record
   const assetCount = assetPaths.length;
@@ -248,9 +259,7 @@ routes.post("/deploy", async (c) => {
     .run();
 
   // Store raw IP in separate table (30-day retention for legal compliance)
-  await env.DB.prepare(
-    "INSERT INTO sandbox_ip_log (sandboxId, rawIp, createdAt) VALUES (?, ?, ?)",
-  )
+  await env.DB.prepare("INSERT INTO sandbox_ip_log (sandboxId, rawIp, createdAt) VALUES (?, ?, ?)")
     .bind(sandboxId, ip, now)
     .run();
 
@@ -259,9 +268,7 @@ routes.post("/deploy", async (c) => {
   await env.ASSETS.put(bundleKey, bundleJson);
 
   // Deploy async via waitUntil
-  c.executionCtx.waitUntil(
-    runSandboxDeploy(env, sandboxId, previewHost, { ...body, manifest }),
-  );
+  c.executionCtx.waitUntil(runSandboxDeploy(env, sandboxId, previewHost, { ...body, manifest }));
 
   return c.json(
     {
@@ -287,9 +294,7 @@ routes.post("/deploy", async (c) => {
 routes.get("/:id/status", async (c) => {
   const sandboxId = c.req.param("id");
 
-  const sandbox = await c.env.DB.prepare(
-    "SELECT * FROM deployments WHERE id = ?",
-  )
+  const sandbox = await c.env.DB.prepare("SELECT * FROM deployments WHERE id = ?")
     .bind(sandboxId)
     .first<{
       id: string;
@@ -341,9 +346,7 @@ routes.post("/:id/report", async (c) => {
   const sandboxId = c.req.param("id");
   const body = await c.req.json<{ reason?: string }>().catch(() => ({}));
 
-  const sandbox = await c.env.DB.prepare(
-    "SELECT id, status FROM deployments WHERE id = ?",
-  )
+  const sandbox = await c.env.DB.prepare("SELECT id, status FROM deployments WHERE id = ?")
     .bind(sandboxId)
     .first<{ id: string; status: string }>();
 
@@ -358,7 +361,13 @@ routes.post("/:id/report", async (c) => {
     `INSERT INTO sandbox_abuse_report (id, sandboxId, reason, ipHash, createdAt)
      VALUES (?, ?, ?, ?, ?)`,
   )
-    .bind(crypto.randomUUID().slice(0, 8), sandboxId, (body as any).reason ?? "unspecified", ipHash, Date.now())
+    .bind(
+      crypto.randomUUID().slice(0, 8),
+      sandboxId,
+      (body as any).reason ?? "unspecified",
+      ipHash,
+      Date.now(),
+    )
     .run();
 
   // Auto-ban: if a sandbox accumulates >= 2 reports, mark it as blocked
@@ -388,9 +397,7 @@ routes.delete("/:id", async (c) => {
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   const ipHash = await hashIp(ip, c.env);
 
-  const sandbox = await c.env.DB.prepare(
-    "SELECT id, ipHash, status FROM deployments WHERE id = ?",
-  )
+  const sandbox = await c.env.DB.prepare("SELECT id, ipHash, status FROM deployments WHERE id = ?")
     .bind(sandboxId)
     .first<{ id: string; ipHash: string | null; status: string }>();
 
@@ -408,9 +415,7 @@ routes.delete("/:id", async (c) => {
   }
 
   // Mark as expired so cleanup cron will handle WfP script deletion
-  await c.env.DB.prepare(
-    "UPDATE deployments SET status = 'expired', expiresAt = ? WHERE id = ?",
-  )
+  await c.env.DB.prepare("UPDATE deployments SET status = 'expired', expiresAt = ? WHERE id = ?")
     .bind(Date.now(), sandboxId)
     .run();
 
@@ -426,9 +431,7 @@ routes.post("/:id/claim", async (c) => {
   const sandboxId = c.req.param("id");
   const body = await c.req.json<{ projectId?: string }>().catch(() => ({}));
 
-  const sandbox = await c.env.DB.prepare(
-    "SELECT id, claimStatus FROM deployments WHERE id = ?",
-  )
+  const sandbox = await c.env.DB.prepare("SELECT id, claimStatus FROM deployments WHERE id = ?")
     .bind(sandboxId)
     .first<{ id: string; claimStatus: string }>();
 
@@ -437,7 +440,10 @@ routes.post("/:id/claim", async (c) => {
   }
 
   if (sandbox.claimStatus !== "unclaimed") {
-    return c.json({ error: "already_claimed", message: "This sandbox has already been claimed." }, 400);
+    return c.json(
+      { error: "already_claimed", message: "This sandbox has already been claimed." },
+      400,
+    );
   }
 
   await c.env.DB.prepare(
@@ -456,7 +462,12 @@ async function runSandboxDeploy(
   sandboxId: string,
   previewHost: string,
   bundle: {
-    manifest: { assets: string[]; hasWorker: boolean; entrypoint: string | null; renderMode: string };
+    manifest: {
+      assets: string[];
+      hasWorker: boolean;
+      entrypoint: string | null;
+      renderMode: string;
+    };
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
     framework?: string;
@@ -523,9 +534,7 @@ async function runSandboxDeploy(
     );
 
     if (Object.keys(provisioned).length > 0) {
-      await env.DB.prepare(
-        "UPDATE deployments SET provisionedResources = ? WHERE id = ?",
-      )
+      await env.DB.prepare("UPDATE deployments SET provisionedResources = ? WHERE id = ?")
         .bind(JSON.stringify(provisioned), sandboxId)
         .run();
     }
@@ -536,8 +545,7 @@ async function runSandboxDeploy(
     // first provisioned D1. Statements run in order; a failure aborts the
     // deploy with a clear message (caught below as failedStep "deploying").
     if (bundle.migrations?.length && provisioned.d1?.length) {
-      const target =
-        provisioned.d1.find((d) => d.binding === "DB") ?? provisioned.d1[0];
+      const target = provisioned.d1.find((d) => d.binding === "DB") ?? provisioned.d1[0];
       for (const migration of bundle.migrations) {
         for (const statement of migration.statements) {
           try {
@@ -558,14 +566,14 @@ async function runSandboxDeploy(
     const teamId = bundle.cacheTeamId ?? sandboxId;
     await deployWithAssets(
       env,
-      sandboxId,  // projectSlug = sandboxId (unique per sandbox — isolation)
-      "sandbox",  // teamSlug = "sandbox"
-      sandboxId,  // deploymentId = sandboxId
+      sandboxId, // projectSlug = sandboxId (unique per sandbox — isolation)
+      "sandbox", // teamSlug = "sandbox"
+      sandboxId, // deploymentId = sandboxId
       {
         clientAssets,
         serverFiles,
         renderMode,
-        teamId,                // cache-coherent OR sandbox-unique salt
+        teamId, // cache-coherent OR sandbox-unique salt
         teamSlug: "sandbox",
         projectSlug: sandboxId,
         plan: "sandbox",
@@ -576,9 +584,11 @@ async function runSandboxDeploy(
       },
     );
 
-    const deployDuration = Date.now() - (await env.DB.prepare(
-      "SELECT createdAt FROM deployments WHERE id = ?",
-    ).bind(sandboxId).first<{ createdAt: number }>())!.createdAt;
+    const deployDuration =
+      Date.now() -
+      (await env.DB.prepare("SELECT createdAt FROM deployments WHERE id = ?")
+        .bind(sandboxId)
+        .first<{ createdAt: number }>())!.createdAt;
 
     await env.DB.prepare(
       "UPDATE deployments SET status = 'active', deployDurationMs = ? WHERE id = ?",

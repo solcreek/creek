@@ -67,7 +67,7 @@ export function readHosts(path = hostsPath()): HostsFile {
   if (parsed.schemaVersion !== HOSTS_SCHEMA_VERSION) {
     throw new Error(
       `hosts.json: unsupported schemaVersion ${parsed.schemaVersion} ` +
-      `(want ${HOSTS_SCHEMA_VERSION})`,
+        `(want ${HOSTS_SCHEMA_VERSION})`,
     );
   }
   if (!Array.isArray(parsed.hosts)) {
@@ -85,9 +85,7 @@ export function readHosts(path = hostsPath()): HostsFile {
  */
 export function writeHosts(file: HostsFile, path = hostsPath()): void {
   if (file.schemaVersion !== HOSTS_SCHEMA_VERSION) {
-    throw new Error(
-      `writeHosts: schemaVersion ${file.schemaVersion} != ${HOSTS_SCHEMA_VERSION}`,
-    );
+    throw new Error(`writeHosts: schemaVersion ${file.schemaVersion} != ${HOSTS_SCHEMA_VERSION}`);
   }
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = path + ".tmp";

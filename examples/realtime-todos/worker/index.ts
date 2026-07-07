@@ -22,9 +22,7 @@ app.use("/api/*", async (c, next) => {
       )
       .run();
     await db
-      .prepare(
-        "CREATE INDEX IF NOT EXISTS idx_todos_room ON todos(room_id, created_at DESC)",
-      )
+      .prepare("CREATE INDEX IF NOT EXISTS idx_todos_room ON todos(room_id, created_at DESC)")
       .run();
     migrated = true;
   }
@@ -40,7 +38,10 @@ const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 function countryFlag(code: string): string {
   if (!code || code.length !== 2) return "🌍";
   return String.fromCodePoint(
-    ...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+    ...code
+      .toUpperCase()
+      .split("")
+      .map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
   );
 }
 
@@ -59,9 +60,7 @@ app.get("/api/todos", async (c) => {
 
   // Opportunistic cleanup: remove stale rooms (> 30 min old)
   await db
-    .prepare(
-      `DELETE FROM todos WHERE room_id != ? AND created_at < datetime('now', '-30 minutes')`,
-    )
+    .prepare(`DELETE FROM todos WHERE room_id != ? AND created_at < datetime('now', '-30 minutes')`)
     .bind(roomId)
     .run();
 
@@ -95,22 +94,30 @@ app.get("/api/todos", async (c) => {
     const first = seeds[0];
     await db.mutate(
       "INSERT INTO todos (id, room_id, text, completed) VALUES (?, ?, ?, ?)",
-      crypto.randomUUID().slice(0, 16), roomId, first.text, first.completed,
+      crypto.randomUUID().slice(0, 16),
+      roomId,
+      first.text,
+      first.completed,
     );
 
     // Schedule remaining inserts in background — each db.mutate() triggers
     // a REAL broadcast → REAL WebSocket event → client auto-refetches
     const remaining = seeds.slice(1);
     const ctx = c.executionCtx;
-    ctx.waitUntil((async () => {
-      for (const seed of remaining) {
-        await new Promise((r) => setTimeout(r, 800));
-        await db.mutate(
-          "INSERT INTO todos (id, room_id, text, completed) VALUES (?, ?, ?, ?)",
-          crypto.randomUUID().slice(0, 16), roomId, seed.text, seed.completed,
-        );
-      }
-    })());
+    ctx.waitUntil(
+      (async () => {
+        for (const seed of remaining) {
+          await new Promise((r) => setTimeout(r, 800));
+          await db.mutate(
+            "INSERT INTO todos (id, room_id, text, completed) VALUES (?, ?, ?, ?)",
+            crypto.randomUUID().slice(0, 16),
+            roomId,
+            seed.text,
+            seed.completed,
+          );
+        }
+      })(),
+    );
 
     todos = await db.query(
       "SELECT id, text, completed, created_at FROM todos WHERE room_id = ? ORDER BY created_at DESC",
@@ -128,12 +135,7 @@ app.post("/api/todos", async (c) => {
   const roomId = c.get("room") ?? "default";
   const id = crypto.randomUUID().slice(0, 16);
 
-  await db.mutate(
-    "INSERT INTO todos (id, room_id, text) VALUES (?, ?, ?)",
-    id,
-    roomId,
-    text,
-  );
+  await db.mutate("INSERT INTO todos (id, room_id, text) VALUES (?, ?, ?)", id, roomId, text);
   return c.json({ id, text, completed: 0 });
 });
 
@@ -157,11 +159,7 @@ app.delete("/api/todos/:id", async (c) => {
   const id = c.req.param("id");
   const roomId = c.get("room") ?? "default";
 
-  await db.mutate(
-    "DELETE FROM todos WHERE id = ? AND room_id = ?",
-    id,
-    roomId,
-  );
+  await db.mutate("DELETE FROM todos WHERE id = ? AND room_id = ?", id, roomId);
   return c.json({ ok: true });
 });
 

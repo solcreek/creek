@@ -1,12 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  existsSync,
-} from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { buildMiniflareBindingOptions, WorkerRunner } from "./worker-runner.js";
@@ -89,9 +82,7 @@ describe("buildMiniflareBindingOptions", () => {
     const bindings: BindingDeclaration[] = [{ type: "kv", name: "__proto__" }];
     const result = buildMiniflareBindingOptions(bindings);
     expect(Object.getPrototypeOf(result.kvNamespaces)).toBeNull();
-    expect(
-      Object.prototype.hasOwnProperty.call(result.kvNamespaces, "__proto__"),
-    ).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(result.kvNamespaces, "__proto__")).toBe(true);
   });
 
   it("returns empty store maps when no bindings", () => {
@@ -146,11 +137,7 @@ describe("WorkerRunner integration", () => {
   }
 
   /** Retry a fetch via dispatchFetch — workerd may need a moment after mf.ready */
-  async function fetchWithRetry(
-    r: WorkerRunner,
-    url: string,
-    retries = 3,
-  ): Promise<Response> {
+  async function fetchWithRetry(r: WorkerRunner, url: string, retries = 3): Promise<Response> {
     for (let i = 0; i < retries; i++) {
       try {
         return await r.dispatchFetch(url);

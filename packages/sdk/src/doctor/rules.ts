@@ -99,9 +99,7 @@ const CK_RESOURCES_NO_WORKER: Rule = (ctx) => {
   const resolved = ctx.resolved;
   if (!resolved) return [];
   if (resolved.workerEntry) return [];
-  const resourceBindings = resolved.bindings.filter((b) =>
-    RESOURCE_BINDING_TYPES.has(b.type),
-  );
+  const resourceBindings = resolved.bindings.filter((b) => RESOURCE_BINDING_TYPES.has(b.type));
   if (resourceBindings.length === 0) return [];
   // SSR frameworks produce their own server bundle at deploy time — a
   // null workerEntry is the normal shape there, and the bindings are
@@ -109,18 +107,14 @@ const CK_RESOURCES_NO_WORKER: Rule = (ctx) => {
   // the CF adapter (not covered by isSSRFramework; detected via dep).
   if (isSSRFramework(resolved.framework)) return [];
   if (ctx.allDeps["@astrojs/cloudflare"]) return [];
-  const names = resourceBindings
-    .map((b) => `${b.type} (env.${b.name})`)
-    .join(", ");
+  const names = resourceBindings.map((b) => `${b.type} (env.${b.name})`).join(", ");
   return [
     {
       code: "CK-RESOURCES-NO-WORKER",
       severity: "warn",
       title: "Resources declared but no worker entry — deploy will be a static SPA",
-      detail:
-        `Your config declares ${names} but no worker entry. The deploy still provisions and binds the resources, but renderMode will be "spa": there is no server code, so every request — including /api/* — serves static assets, and unknown paths fall back to index.html. If you have API routes, they will silently return your frontend HTML instead of running.`,
-      fix:
-        'Point creek.toml at your server code:\n  [build]\n  worker = "worker/index.ts"\n\n(wrangler-based projects: set `main` instead.)\n\nNo server code yet? Scaffold it with `creek init --db`. Purely static site? Remove the [resources] block.',
+      detail: `Your config declares ${names} but no worker entry. The deploy still provisions and binds the resources, but renderMode will be "spa": there is no server code, so every request — including /api/* — serves static assets, and unknown paths fall back to index.html. If you have API routes, they will silently return your frontend HTML instead of running.`,
+      fix: 'Point creek.toml at your server code:\n  [build]\n  worker = "worker/index.ts"\n\n(wrangler-based projects: set `main` instead.)\n\nNo server code yet? Scaffold it with `creek init --db`. Purely static site? Remove the [resources] block.',
       references: [resolved.source],
     },
   ];
@@ -155,8 +149,7 @@ const CK_WORKER_UNDECLARED: Rule = (ctx) => {
       code: "CK-WORKER-UNDECLARED",
       severity: "info",
       title: `${found} exists but no worker entry is declared — it will not be deployed`,
-      detail:
-        `A worker-shaped file exists at ${found}, but the config has no worker entry, so the deploy treats the project as a static SPA and never bundles or runs that file.`,
+      detail: `A worker-shaped file exists at ${found}, but the config has no worker entry, so the deploy treats the project as a static SPA and never bundles or runs that file.`,
       fix: `If ${found} is your server code, declare it in creek.toml:\n  [build]\n  worker = "${found}"\n\n(wrangler-based projects: set \`main\` instead.) If the file is unused, delete it to silence this notice.`,
       references: [found],
     },
@@ -171,8 +164,7 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
   // devDep-only, the project is using the 'local sync / prod async'
   // pattern deliberately. Downgrade the finding — it's a feature,
   // not a bug.
-  const hasDualDriverOrm =
-    !!ctx.allDeps["drizzle-orm"] || !!ctx.allDeps["kysely"];
+  const hasDualDriverOrm = !!ctx.allDeps["drizzle-orm"] || !!ctx.allDeps["kysely"];
   const devOnly =
     !!ctx.packageJson?.devDependencies?.["better-sqlite3"] &&
     !ctx.packageJson?.dependencies?.["better-sqlite3"];
@@ -206,8 +198,7 @@ const CK_SYNC_SQLITE: Rule = (ctx) => {
         (alsoPrisma
           ? "\n\nPrisma is also in your dependencies (see CK-PRISMA-SQLITE) — these two findings are the same underlying issue (sync/Node SQLite doesn't run on Workers), not separate problems. Settle on one ORM and one migration path."
           : ""),
-      fix:
-        "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example (zero @solcreek/* deps in the runtime): https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle",
+      fix: "Swap to an ORM with a D1 adapter. Drizzle or Kysely are the drop-in paths — their query APIs are async-shaped regardless of backend, so the same code can run against better-sqlite3 locally and D1 in production with just a driver swap at boot.\n\nReference example (zero @solcreek/* deps in the runtime): https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle",
       references: ["package.json"],
     },
   ];
@@ -228,8 +219,7 @@ const CK_PRISMA_SQLITE: Rule = (ctx) => {
         (alsoBetterSqlite
           ? "\n\nbetter-sqlite3 is also in your dependencies (see CK-SYNC-SQLITE) — both findings point at the same Workers SQLite migration, not separate problems. Settle on one ORM and one path."
           : ""),
-      fix:
-        "For new projects, consider Drizzle instead (native D1 + Postgres adapters, no hosted connection pool required). If you need to keep Prisma: use @prisma/adapter-d1 for SQLite, or Prisma Accelerate for Postgres. See https://www.prisma.io/docs/orm/overview/databases/cloudflare-d1",
+      fix: "For new projects, consider Drizzle instead (native D1 + Postgres adapters, no hosted connection pool required). If you need to keep Prisma: use @prisma/adapter-d1 for SQLite, or Prisma Accelerate for Postgres. See https://www.prisma.io/docs/orm/overview/databases/cloudflare-d1",
       references: ["package.json"],
     },
   ];
@@ -271,8 +261,7 @@ const CK_NODE_HTTP_SERVER: Rule = (ctx) => {
         (hasHono
           ? "\n\nHono is already installed — porting the routes to it is the path. Hono runs on both Node (@hono/node-server) and Workers from one codebase."
           : ""),
-      fix:
-        "Port your routes to Hono — its `fetch`-based API runs unchanged on Node (`@hono/node-server`) and Workers, so you keep local dev and gain a Workers-deployable app. Express middleware/route handlers map almost 1:1. If the server is dev-only tooling, move it to devDependencies to silence this.",
+      fix: "Port your routes to Hono — its `fetch`-based API runs unchanged on Node (`@hono/node-server`) and Workers, so you keep local dev and gain a Workers-deployable app. Express middleware/route handlers map almost 1:1. If the server is dev-only tooling, move it to devDependencies to silence this.",
       references: ["package.json"],
     },
   ];
@@ -295,17 +284,16 @@ const CK_RUNTIME_LOCKIN: Rule = (ctx) => {
       code: "CK-RUNTIME-LOCKIN",
       severity: "info",
       title: "Runtime dependency on @solcreek/* — reduces portability",
-      detail:
-        `Your production dependencies include: ${offenders.join(", ")}. These aren't wrong per se — the Creek runtime helpers (db, kv, room) work — but they bind your app's code to Creek. Plain Cloudflare Workers, wrangler deploy, Vercel, etc. can't run this code without the Creek runtime.`,
+      detail: `Your production dependencies include: ${offenders.join(", ")}. These aren't wrong per se — the Creek runtime helpers (db, kv, room) work — but they bind your app's code to Creek. Plain Cloudflare Workers, wrangler deploy, Vercel, etc. can't run this code without the Creek runtime.`,
       fix:
         // NOTE: do NOT advise moving `creek` to devDependencies. When the
         // worker is Creek-bundled (esbuild-bundle strategy), the generated
         // .creek/__worker_entry.js imports `creek` at bundle time, so it
         // MUST stay in dependencies — demoting it breaks the next deploy
         // (esbuild: Could not resolve "creek"). See CK-RUNTIME-DEP-MISSING.
-        (offenders.includes("creek")
+        offenders.includes("creek")
           ? "`creek` must stay in `dependencies` if you deploy a Creek-bundled worker — the generated wrapper imports it. To reduce lock-in, migrate your handler to platform-native APIs (`env.DB` directly, or an ORM with a standard adapter), and only then drop the dep. See https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle for the zero-lock-in pattern."
-          : "If portability matters (it usually should): use platform-native APIs in your handler — `env.DB` directly, or an ORM with a standard adapter. See https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle for the zero-lock-in pattern."),
+          : "If portability matters (it usually should): use platform-native APIs in your handler — `env.DB` directly, or an ORM with a standard adapter. See https://github.com/solcreek/creek/tree/main/examples/vite-react-drizzle for the zero-lock-in pattern.",
       references: ["package.json"],
     },
   ];
@@ -327,8 +315,7 @@ const CK_CONFIG_OVERLAP: Rule = (ctx) => {
       title: "Both creek.toml and wrangler.* are present",
       detail:
         "Creek can read either, but having both risks silent drift — compatibility_date, bindings, main — if you update one and forget the other. The deploy pipeline prefers creek.toml when both exist.",
-      fix:
-        "Pick one as the source of truth:\n  - creek.toml: recommended for projects that target Creek primarily\n  - wrangler.*: recommended if you also deploy to your own CF account via `wrangler deploy`\n\nIf you're keeping both intentionally (platform-portable build), at least diff them and align the overlapping fields.",
+      fix: "Pick one as the source of truth:\n  - creek.toml: recommended for projects that target Creek primarily\n  - wrangler.*: recommended if you also deploy to your own CF account via `wrangler deploy`\n\nIf you're keeping both intentionally (platform-portable build), at least diff them and align the overlapping fields.",
       references: ["creek.toml", "wrangler.jsonc"],
     },
   ];
@@ -356,8 +343,7 @@ const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
         title: "No Workers build output yet — Creek produces it at deploy time",
         detail:
           "Next.js apps don't ship `.next/` directly. `creek deploy` runs the build through the Creek adapter (@solcreek/adapter-creek, auto-installed on first use) and writes the Workers output to `.creek/adapter-output/`. That directory being absent before your first deploy is expected — a plain `next build` will not create it.",
-        fix:
-          "Run `creek deploy` — it builds and deploys in one step. You do NOT need to install @opennextjs/cloudflare or any adapter yourself; Creek manages that. Preview first with `creek deploy --dry-run`.",
+        fix: "Run `creek deploy` — it builds and deploys in one step. You do NOT need to install @opennextjs/cloudflare or any adapter yourself; Creek manages that. Preview first with `creek deploy --dry-run`.",
         references: ["package.json"],
       },
     ];
@@ -365,8 +351,7 @@ const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
 
   const buildOutput = ctx.resolved.buildOutput || "dist";
   const hasBuildOutput = ctx.fileExists(buildOutput);
-  const hasWorker =
-    ctx.resolved.workerEntry && ctx.fileExists(ctx.resolved.workerEntry);
+  const hasWorker = ctx.resolved.workerEntry && ctx.fileExists(ctx.resolved.workerEntry);
   if (hasBuildOutput || hasWorker) return [];
   const hasBuildCommand = !!ctx.resolved.buildCommand;
   return [
@@ -436,10 +421,8 @@ const CK_AUTH_SECRET: Rule = (ctx) => {
       code: "CK-AUTH-SECRET",
       severity: "warn",
       title: `${label} detected — set its runtime secret(s) with \`creek env set\``,
-      detail:
-        `${label} requires ${envVars.join(", ")} at runtime. This is NOT part of your build — a secret can't ship in the bundle — so it lives in the project's deployed env, set with \`creek env set\`. If it's missing, the deploy still succeeds and the worker activates, but every request through the auth handler (login, get-session, OAuth callback) returns 500 with no build error and no log breadcrumb. Setting up a fresh project or claiming a sandbox into production is the common moment this gets forgotten. If you also use an OAuth provider, its client ID/secret env vars are required too.`,
-      fix:
-        `Set the secret on the deployed project, then redeploy:\n${setLines}\n  creek deploy\n\nCheck what's already set with \`creek env ls\`. (Already set? You can ignore this.)`,
+      detail: `${label} requires ${envVars.join(", ")} at runtime. This is NOT part of your build — a secret can't ship in the bundle — so it lives in the project's deployed env, set with \`creek env set\`. If it's missing, the deploy still succeeds and the worker activates, but every request through the auth handler (login, get-session, OAuth callback) returns 500 with no build error and no log breadcrumb. Setting up a fresh project or claiming a sandbox into production is the common moment this gets forgotten. If you also use an OAuth provider, its client ID/secret env vars are required too.`,
+      fix: `Set the secret on the deployed project, then redeploy:\n${setLines}\n  creek deploy\n\nCheck what's already set with \`creek env ls\`. (Already set? You can ignore this.)`,
       references: ["package.json"],
     },
   ];
@@ -465,9 +448,7 @@ const DUAL_DRIVER_PAIRS: Array<[string, string]> = [
 ];
 
 const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
-  const hit = DUAL_DRIVER_PAIRS.find(
-    ([a, b]) => ctx.fileExists(a) && ctx.fileExists(b),
-  );
+  const hit = DUAL_DRIVER_PAIRS.find(([a, b]) => ctx.fileExists(a) && ctx.fileExists(b));
   if (!hit) return [];
   return [
     {
@@ -508,12 +489,47 @@ const CK_DB_DUAL_DRIVER_SPLIT: Rule = (ctx) => {
 // run on Workers is CK-SYNC-SQLITE / patchBareNodeImports territory —
 // here we only care about resolvability, so they're never "missing".)
 const NODE_BUILTINS = new Set([
-  "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
-  "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
-  "events", "fs", "http", "http2", "https", "inspector", "module", "net",
-  "os", "path", "perf_hooks", "process", "punycode", "querystring",
-  "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls",
-  "trace_events", "tty", "url", "util", "v8", "vm", "wasi", "worker_threads",
+  "assert",
+  "async_hooks",
+  "buffer",
+  "child_process",
+  "cluster",
+  "console",
+  "constants",
+  "crypto",
+  "dgram",
+  "diagnostics_channel",
+  "dns",
+  "domain",
+  "events",
+  "fs",
+  "http",
+  "http2",
+  "https",
+  "inspector",
+  "module",
+  "net",
+  "os",
+  "path",
+  "perf_hooks",
+  "process",
+  "punycode",
+  "querystring",
+  "readline",
+  "repl",
+  "stream",
+  "string_decoder",
+  "sys",
+  "timers",
+  "tls",
+  "trace_events",
+  "tty",
+  "url",
+  "util",
+  "v8",
+  "vm",
+  "wasi",
+  "worker_threads",
   "zlib",
 ]);
 
@@ -553,12 +569,17 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
   // a build inlines their deps, so bare imports there aren't a package.json
   // gap. Skip anything under a known build-output directory.
   const BUILD_OUTPUT_PREFIXES = [
-    "dist/", "build/", "out/", ".output/", ".creek/", ".next/",
-    ".svelte-kit/", ".vercel/", ".open-next/",
+    "dist/",
+    "build/",
+    "out/",
+    ".output/",
+    ".creek/",
+    ".next/",
+    ".svelte-kit/",
+    ".vercel/",
+    ".open-next/",
   ];
-  const buildOut = ctx.resolved?.buildOutput
-    ? ctx.resolved.buildOutput.replace(/\/?$/, "/")
-    : null;
+  const buildOut = ctx.resolved?.buildOutput ? ctx.resolved.buildOutput.replace(/\/?$/, "/") : null;
   if (
     BUILD_OUTPUT_PREFIXES.some((p) => worker.startsWith(p)) ||
     (buildOut && worker.startsWith(buildOut))
@@ -592,10 +613,8 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
       code: "CK-WORKER-UNRESOLVED-IMPORTS",
       severity: "error",
       title: `Worker imports ${one ? "a package" : "packages"} not in package.json: ${missing.join(", ")}`,
-      detail:
-        `${worker} imports ${missing.join(", ")}, but ${one ? "it is" : "they are"} not listed in dependencies or devDependencies. \`creek deploy\` bundles the worker with esbuild and will fail with "Could not resolve" before anything is uploaded. This is exactly the gap a fresh \`creek init --db\` scaffold leaves: the example worker imports hono, creek, and d1-schema, none of which init installs.`,
-      fix:
-        `Install the missing ${one ? "package" : "packages"}:\n  npm install ${missing.join(" ")}\n\nThen re-run \`creek doctor\` to confirm. If a name is a typo or an intended path alias, fix the import in ${worker} instead.`,
+      detail: `${worker} imports ${missing.join(", ")}, but ${one ? "it is" : "they are"} not listed in dependencies or devDependencies. \`creek deploy\` bundles the worker with esbuild and will fail with "Could not resolve" before anything is uploaded. This is exactly the gap a fresh \`creek init --db\` scaffold leaves: the example worker imports hono, creek, and d1-schema, none of which init installs.`,
+      fix: `Install the missing ${one ? "package" : "packages"}:\n  npm install ${missing.join(" ")}\n\nThen re-run \`creek doctor\` to confirm. If a name is a typo or an intended path alias, fix the import in ${worker} instead.`,
       references: [worker, "package.json"],
     },
   ];
@@ -634,10 +653,8 @@ const CK_RUNTIME_DEP_MISSING: Rule = (ctx) => {
       code: "CK-RUNTIME-DEP-MISSING",
       severity: "error",
       title: "Worker bundle needs the `creek` runtime, but it isn't installed",
-      detail:
-        `Creek bundles ${worker} and injects a wrapper (.creek/__worker_entry.js) that imports the runtime: \`import { _runRequest, generateWsToken } from "creek"\`. \`creek\` is not in your package.json, so \`creek deploy\` will fail at esbuild with \`Could not resolve "creek"\` — even though \`creek deploy --dry-run\` reports wouldDeploy. Your own worker code doesn't have to import \`creek\` for this to bite: the wrapper always does.`,
-      fix:
-        "Install the runtime in `dependencies`:\n  npm install creek\n\nKeep it in `dependencies` (not devDependencies) — the generated wrapper imports it at bundle time. Re-run `creek doctor` to confirm.",
+      detail: `Creek bundles ${worker} and injects a wrapper (.creek/__worker_entry.js) that imports the runtime: \`import { _runRequest, generateWsToken } from "creek"\`. \`creek\` is not in your package.json, so \`creek deploy\` will fail at esbuild with \`Could not resolve "creek"\` — even though \`creek deploy --dry-run\` reports wouldDeploy. Your own worker code doesn't have to import \`creek\` for this to bite: the wrapper always does.`,
+      fix: "Install the runtime in `dependencies`:\n  npm install creek\n\nKeep it in `dependencies` (not devDependencies) — the generated wrapper imports it at bundle time. Re-run `creek doctor` to confirm.",
       references: ["package.json", "creek.toml"],
     },
   ];
@@ -657,22 +674,26 @@ const SERVICE_DIRS: Array<{ dir: string; entries: string[] }> = [
   {
     dir: "server",
     entries: [
-      "server/index.ts", "server/index.js", "server/main.ts",
-      "server/app.ts", "server/server.ts", "server/package.json",
+      "server/index.ts",
+      "server/index.js",
+      "server/main.ts",
+      "server/app.ts",
+      "server/server.ts",
+      "server/package.json",
     ],
   },
   {
     dir: "mcp",
-    entries: [
-      "mcp/index.ts", "mcp/index.js", "mcp/server.ts",
-      "mcp/main.ts", "mcp/package.json",
-    ],
+    entries: ["mcp/index.ts", "mcp/index.js", "mcp/server.ts", "mcp/main.ts", "mcp/package.json"],
   },
   {
     dir: "backend",
     entries: [
-      "backend/index.ts", "backend/main.ts", "backend/server.ts",
-      "backend/app.ts", "backend/package.json",
+      "backend/index.ts",
+      "backend/main.ts",
+      "backend/server.ts",
+      "backend/app.ts",
+      "backend/package.json",
     ],
   },
 ];
@@ -688,9 +709,9 @@ const CK_UNDEPLOYED_SERVICES: Rule = (ctx) => {
   if (isSSRFramework(resolved.framework)) return [];
   if (ctx.allDeps["@astrojs/cloudflare"]) return [];
 
-  const found = SERVICE_DIRS
-    .filter(({ entries }) => entries.some((p) => ctx.fileExists(p)))
-    .map(({ dir }) => dir);
+  const found = SERVICE_DIRS.filter(({ entries }) => entries.some((p) => ctx.fileExists(p))).map(
+    ({ dir }) => dir,
+  );
   if (found.length === 0) return [];
 
   const list = found.map((d) => `${d}/`).join(", ");
@@ -700,10 +721,8 @@ const CK_UNDEPLOYED_SERVICES: Rule = (ctx) => {
       code: "CK-UNDEPLOYED-SERVICES",
       severity: "warn",
       title: `Found ${one ? "a service directory" : "service directories"} that the deploy won't ship: ${list}`,
-      detail:
-        `Creek deploys a single worker entry plus static assets — it does not run a separate backend process. ${list} ${one ? "looks like a standalone service" : "look like standalone services"} (its own entrypoint or package.json), but with no [build].worker declared this project deploys as a static SPA, so ${one ? "that service" : "those services"} never ${one ? "ships" : "ship"}. Any same-origin /api/* calls the frontend makes will hit static-asset fallback (index.html), not your backend.`,
-      fix:
-        `Port the backend into a single same-origin worker — one Hono app that serves both /api/* and the SPA — and declare it:\n  [build]\n  worker = "worker/index.ts"\n\nThe worker handles API routes; unmatched paths fall back to the static build. (Genuinely deploying the service elsewhere? You can ignore this.)`,
+      detail: `Creek deploys a single worker entry plus static assets — it does not run a separate backend process. ${list} ${one ? "looks like a standalone service" : "look like standalone services"} (its own entrypoint or package.json), but with no [build].worker declared this project deploys as a static SPA, so ${one ? "that service" : "those services"} never ${one ? "ships" : "ship"}. Any same-origin /api/* calls the frontend makes will hit static-asset fallback (index.html), not your backend.`,
+      fix: `Port the backend into a single same-origin worker — one Hono app that serves both /api/* and the SPA — and declare it:\n  [build]\n  worker = "worker/index.ts"\n\nThe worker handles API routes; unmatched paths fall back to the static build. (Genuinely deploying the service elsewhere? You can ignore this.)`,
       references: found,
     },
   ];
@@ -751,10 +770,7 @@ export const rules = {
 } satisfies Record<string, Rule>;
 
 // Helper used by the runner so rules don't have to normalize inputs.
-export function collectFindings(
-  ctx: DoctorContext,
-  ruleSet: Rule[] = BUILTIN_RULES,
-): Finding[] {
+export function collectFindings(ctx: DoctorContext, ruleSet: Rule[] = BUILTIN_RULES): Finding[] {
   const out: Finding[] = [];
   for (const rule of ruleSet) {
     out.push(...rule(ctx));

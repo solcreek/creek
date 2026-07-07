@@ -24,7 +24,10 @@ export function Sparkline({
 }: SparklineProps) {
   if (data.length < 2) {
     return (
-      <div style={{ width, height }} className="flex items-center justify-center text-xs text-muted-foreground">
+      <div
+        style={{ width, height }}
+        className="flex items-center justify-center text-xs text-muted-foreground"
+      >
         {label ? `${label}: collecting…` : "collecting…"}
       </div>
     );

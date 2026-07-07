@@ -47,10 +47,7 @@ const SHORT_DEPLOY_ID = /^[0-9a-f]{8}$/;
  * Without that ordering, a team `a` would shadow `acme` for every
  * script ending in `-a-`-something.
  */
-export function parseScriptName(
-  scriptName: string,
-  teams: TeamInfo[],
-): ParsedScriptName | null {
+export function parseScriptName(scriptName: string, teams: TeamInfo[]): ParsedScriptName | null {
   for (const team of teams) {
     const suffix = `-${team.slug}`;
     if (!scriptName.endsWith(suffix)) continue;

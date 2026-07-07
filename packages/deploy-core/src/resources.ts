@@ -20,16 +20,10 @@ import type { DeployEnv } from "./types.js";
  * Create a new D1 database. Returns the provisioned UUID.
  * Name must be 1-64 chars, alphanumeric + hyphens.
  */
-export async function createD1Database(
-  env: DeployEnv,
-  name: string,
-): Promise<string> {
-  const result = await cfApi(
-    env,
-    "POST",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database`,
-    { name },
-  );
+export async function createD1Database(env: DeployEnv, name: string): Promise<string> {
+  const result = await cfApi(env, "POST", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database`, {
+    name,
+  });
   return (result as { uuid: string }).uuid;
 }
 
@@ -37,10 +31,7 @@ export async function createD1Database(
  * Look up a D1 database by name. Returns the UUID or null if absent.
  * Used for idempotent provisioning (retry safety).
  */
-export async function getD1DatabaseByName(
-  env: DeployEnv,
-  name: string,
-): Promise<string | null> {
+export async function getD1DatabaseByName(env: DeployEnv, name: string): Promise<string | null> {
   try {
     const result = await cfApi(
       env,
@@ -55,15 +46,8 @@ export async function getD1DatabaseByName(
   }
 }
 
-export async function deleteD1Database(
-  env: DeployEnv,
-  databaseId: string,
-): Promise<void> {
-  await cfApi(
-    env,
-    "DELETE",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${databaseId}`,
-  );
+export async function deleteD1Database(env: DeployEnv, databaseId: string): Promise<void> {
+  await cfApi(env, "DELETE", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${databaseId}`);
 }
 
 /**
@@ -71,11 +55,7 @@ export async function deleteD1Database(
  * Used to apply user migrations to a freshly-provisioned database (e.g. a
  * sandbox's ephemeral D1) so DB-backed routes work in the preview.
  */
-export async function execD1Query(
-  env: DeployEnv,
-  databaseId: string,
-  sql: string,
-): Promise<void> {
+export async function execD1Query(env: DeployEnv, databaseId: string, sql: string): Promise<void> {
   await cfApi(
     env,
     "POST",
@@ -101,10 +81,7 @@ export async function createR2Bucket(
   });
 }
 
-export async function r2BucketExists(
-  env: DeployEnv,
-  name: string,
-): Promise<boolean> {
+export async function r2BucketExists(env: DeployEnv, name: string): Promise<boolean> {
   try {
     await cfApi(env, "GET", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${name}`);
     return true;
@@ -113,10 +90,7 @@ export async function r2BucketExists(
   }
 }
 
-export async function deleteR2Bucket(
-  env: DeployEnv,
-  name: string,
-): Promise<void> {
+export async function deleteR2Bucket(env: DeployEnv, name: string): Promise<void> {
   await cfApi(env, "DELETE", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${name}`);
 }
 
@@ -125,10 +99,7 @@ export async function deleteR2Bucket(
 /**
  * Create a Workers KV namespace. Returns the namespace ID.
  */
-export async function createKVNamespace(
-  env: DeployEnv,
-  title: string,
-): Promise<string> {
+export async function createKVNamespace(env: DeployEnv, title: string): Promise<string> {
   const result = await cfApi(
     env,
     "POST",
@@ -138,10 +109,7 @@ export async function createKVNamespace(
   return (result as { id: string }).id;
 }
 
-export async function getKVNamespaceByTitle(
-  env: DeployEnv,
-  title: string,
-): Promise<string | null> {
+export async function getKVNamespaceByTitle(env: DeployEnv, title: string): Promise<string | null> {
   try {
     const result = await cfApi(
       env,
@@ -158,10 +126,7 @@ export async function getKVNamespaceByTitle(
   }
 }
 
-export async function deleteKVNamespace(
-  env: DeployEnv,
-  namespaceId: string,
-): Promise<void> {
+export async function deleteKVNamespace(env: DeployEnv, namespaceId: string): Promise<void> {
   await cfApi(
     env,
     "DELETE",

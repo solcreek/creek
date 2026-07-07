@@ -15,7 +15,9 @@ import { dbCommand } from "./db.js";
 const API = "https://cp.test";
 const DB_ID = "db-1";
 
-const migrateCommand = (dbCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>).migrate;
+const migrateCommand = (
+  dbCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>
+).migrate;
 
 // --- In-memory fake D1 ---
 // Mirrors just enough of D1's observable behaviour for the migration loop:
@@ -91,7 +93,9 @@ function d1Handlers(d1: FakeD1) {
       const created = [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?["'`]?(\w+)["'`]?/gi)]
         .map((m) => m[1])
         .filter((t) => t !== "_creek_migrations");
-      const trackNames = [...sql.matchAll(/INSERT INTO _creek_migrations[^']*'([^']+)'/gi)].map((m) => m[1]);
+      const trackNames = [...sql.matchAll(/INSERT INTO _creek_migrations[^']*'([^']+)'/gi)].map(
+        (m) => m[1],
+      );
 
       if (created.length > 0) {
         d1.calls.push("batch");
@@ -283,7 +287,14 @@ describe("creek db migrate", () => {
       http.get(`${API}/projects/myproj/bindings`, () =>
         HttpResponse.json({
           bindings: [
-            { bindingName: "DB", resourceId: DB_ID, kind: "database", name: "mydb", status: "active", createdAt: 0 },
+            {
+              bindingName: "DB",
+              resourceId: DB_ID,
+              kind: "database",
+              name: "mydb",
+              status: "active",
+              createdAt: 0,
+            },
           ],
         }),
       ),

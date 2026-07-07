@@ -168,11 +168,16 @@ export function ConfigSwitcher() {
                 className="font-mono text-[13px] leading-7 whitespace-pre"
               >
                 {configs[active].output.split("\n").map((line, i) => (
-                  <div key={i} className={
-                    line.startsWith("$") ? "text-foreground" :
-                    line.includes("Deployed") ? "text-accent font-medium" :
-                    "text-muted-foreground"
-                  }>
+                  <div
+                    key={i}
+                    className={
+                      line.startsWith("$")
+                        ? "text-foreground"
+                        : line.includes("Deployed")
+                          ? "text-accent font-medium"
+                          : "text-muted-foreground"
+                    }
+                  >
                     {line}
                   </div>
                 ))}

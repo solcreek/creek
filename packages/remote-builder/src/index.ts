@@ -39,11 +39,14 @@ export default {
         const data = await res.json();
         return Response.json({ worker: "ok", container: data }, { headers: corsHeaders() });
       } catch {
-        return Response.json({
-          worker: "ok",
-          container: "starting",
-          hint: "Container cold start takes ~2 min after deploy. Retry shortly.",
-        }, { headers: corsHeaders() });
+        return Response.json(
+          {
+            worker: "ok",
+            container: "starting",
+            hint: "Container cold start takes ~2 min after deploy. Retry shortly.",
+          },
+          { headers: corsHeaders() },
+        );
       }
     }
 
@@ -70,7 +73,10 @@ export default {
     }>();
 
     if (!body.repoUrl) {
-      return Response.json({ error: "repoUrl is required" }, { status: 400, headers: corsHeaders() });
+      return Response.json(
+        { error: "repoUrl is required" },
+        { status: 400, headers: corsHeaders() },
+      );
     }
 
     // Forward build request to container
@@ -88,11 +94,14 @@ export default {
       });
       buildResult = await buildRes.json();
     } catch (err) {
-      return Response.json({
-        error: "build_failed",
-        message: err instanceof Error ? err.message : String(err),
-        hint: "Container may be starting. Retry in 30s.",
-      }, { status: 502, headers: corsHeaders() });
+      return Response.json(
+        {
+          error: "build_failed",
+          message: err instanceof Error ? err.message : String(err),
+          hint: "Container may be starting. Retry in 30s.",
+        },
+        { status: 502, headers: corsHeaders() },
+      );
     }
 
     if (!buildResult.success) {
@@ -106,15 +115,22 @@ export default {
 
     // /deploy → build + deploy to Creek API
     if (!body.creekToken) {
-      return Response.json({
-        ...buildResult,
-        deploy: { error: "creekToken required for deploy" },
-      }, { headers: corsHeaders() });
+      return Response.json(
+        {
+          ...buildResult,
+          deploy: { error: "creekToken required for deploy" },
+        },
+        { headers: corsHeaders() },
+      );
     }
 
     const apiUrl = body.creekApiUrl || "https://api.creek.dev";
-    const slug = body.projectSlug ||
-      buildResult.config?.workerEntry?.split("/").pop()?.replace(/\.\w+$/, "") ||
+    const slug =
+      body.projectSlug ||
+      buildResult.config?.workerEntry
+        ?.split("/")
+        .pop()
+        ?.replace(/\.\w+$/, "") ||
       "remote-build";
 
     try {
@@ -126,19 +142,25 @@ export default {
         buildResult.bundle,
       );
 
-      return Response.json({
-        ...buildResult,
-        deploy: deployResult,
-      }, { headers: corsHeaders() });
-    } catch (err) {
-      return Response.json({
-        ...buildResult,
-        deploy: {
-          success: false,
-          error: "deploy_failed",
-          message: err instanceof Error ? err.message : String(err),
+      return Response.json(
+        {
+          ...buildResult,
+          deploy: deployResult,
         },
-      }, { headers: corsHeaders() });
+        { headers: corsHeaders() },
+      );
+    } catch (err) {
+      return Response.json(
+        {
+          ...buildResult,
+          deploy: {
+            success: false,
+            error: "deploy_failed",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        { headers: corsHeaders() },
+      );
     }
   },
 
@@ -162,7 +184,15 @@ export default {
       };
 
       try {
-        await handleWebBuild(data, { BUILD_STATUS: env.BUILD_STATUS, SANDBOX_API_URL: env.SANDBOX_API_URL!, INTERNAL_SECRET: env.INTERNAL_SECRET }, buildFn);
+        await handleWebBuild(
+          data,
+          {
+            BUILD_STATUS: env.BUILD_STATUS,
+            SANDBOX_API_URL: env.SANDBOX_API_URL!,
+            INTERNAL_SECRET: env.INTERNAL_SECRET,
+          },
+          buildFn,
+        );
         msg.ack();
       } catch {
         // Let Queue retry

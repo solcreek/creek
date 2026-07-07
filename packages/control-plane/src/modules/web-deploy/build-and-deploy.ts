@@ -27,9 +27,21 @@ export async function buildAndDeploy(
   env: WebDeployEnv,
   commitSha?: string | null,
 ): Promise<void> {
-  const message = body.type === "template"
-    ? { buildId, repoUrl: "https://github.com/solcreek/templates", path: body.template, templateData: body.data }
-    : { buildId, repoUrl: normalizeRepoUrl(body.repo!), branch: body.branch, path: body.path, commitSha: commitSha ?? undefined };
+  const message =
+    body.type === "template"
+      ? {
+          buildId,
+          repoUrl: "https://github.com/solcreek/templates",
+          path: body.template,
+          templateData: body.data,
+        }
+      : {
+          buildId,
+          repoUrl: normalizeRepoUrl(body.repo!),
+          branch: body.branch,
+          path: body.path,
+          commitSha: commitSha ?? undefined,
+        };
 
   await env.WEB_BUILDS.send(message);
 }
@@ -39,10 +51,7 @@ export async function buildAndDeploy(
  * Returns the short (12-char) SHA, or null on failure.
  * Uses CF edge cache with 60s TTL to bound GitHub API calls.
  */
-export async function fetchCommitSha(
-  repoUrl: string,
-  branch: string,
-): Promise<string | null> {
+export async function fetchCommitSha(repoUrl: string, branch: string): Promise<string | null> {
   try {
     const url = new URL(repoUrl);
     if (url.hostname !== "github.com") return null;
@@ -86,7 +95,7 @@ function normalizeRepoUrl(repo: string): string {
 export function hashIp(ip: string): string {
   let hash = 0;
   for (let i = 0; i < ip.length; i++) {
-    hash = ((hash << 5) - hash) + ip.charCodeAt(i);
+    hash = (hash << 5) - hash + ip.charCodeAt(i);
     hash |= 0;
   }
   return Math.abs(hash).toString(36);

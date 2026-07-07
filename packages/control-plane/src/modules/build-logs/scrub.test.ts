@@ -98,7 +98,11 @@ describe("scrubNdjson", () => {
   test("scrubs msg field on each json line", () => {
     const body = [
       JSON.stringify({ ts: 1, step: "install", msg: "pulling deps" }),
-      JSON.stringify({ ts: 2, step: "build", msg: "GITHUB_TOKEN=ghp_EXAMPLE00EXAMPLE00EXAMPLE00EXAMPLE00" }),
+      JSON.stringify({
+        ts: 2,
+        step: "build",
+        msg: "GITHUB_TOKEN=ghp_EXAMPLE00EXAMPLE00EXAMPLE00EXAMPLE00",
+      }),
     ].join("\n");
     const { text, totalHits } = scrubNdjson(body);
     const lines = text.split("\n").map((l) => JSON.parse(l));

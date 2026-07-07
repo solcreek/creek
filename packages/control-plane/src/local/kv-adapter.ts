@@ -38,9 +38,10 @@ export class LocalKVNamespace {
   }
 
   async get(key: string, _options?: { type?: string }): Promise<string | null> {
-    const row = this.db
-      .query("SELECT value, expires_at FROM kv_store WHERE key = ?")
-      .get(key) as { value: string; expires_at: number | null } | null;
+    const row = this.db.query("SELECT value, expires_at FROM kv_store WHERE key = ?").get(key) as {
+      value: string;
+      expires_at: number | null;
+    } | null;
 
     if (!row) return null;
     if (row.expires_at !== null && Date.now() >= row.expires_at) {
@@ -50,18 +51,25 @@ export class LocalKVNamespace {
     return row.value;
   }
 
-  async getWithMetadata<T = unknown>(key: string): Promise<{ value: string | null; metadata: T | null }> {
+  async getWithMetadata<T = unknown>(
+    key: string,
+  ): Promise<{ value: string | null; metadata: T | null }> {
     const value = await this.get(key);
     return { value, metadata: null };
   }
 
-  async put(key: string, value: string, options?: { expirationTtl?: number; metadata?: unknown }): Promise<void> {
-    const expiresAt = options?.expirationTtl != null
-      ? Date.now() + options.expirationTtl * 1000
-      : null;
+  async put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number; metadata?: unknown },
+  ): Promise<void> {
+    const expiresAt =
+      options?.expirationTtl != null ? Date.now() + options.expirationTtl * 1000 : null;
     this.db.run(
       "INSERT OR REPLACE INTO kv_store (key, value, expires_at) VALUES (?, ?, ?)",
-      key, value, expiresAt,
+      key,
+      value,
+      expiresAt,
     );
   }
 
@@ -82,9 +90,7 @@ export class LocalKVNamespace {
     this.db.run("DELETE FROM kv_store WHERE expires_at IS NOT NULL AND expires_at < ?", now + 1);
 
     const rows = this.db
-      .query(
-        "SELECT key, expires_at FROM kv_store WHERE key LIKE ? ORDER BY key LIMIT ?",
-      )
+      .query("SELECT key, expires_at FROM kv_store WHERE key LIKE ? ORDER BY key LIMIT ?")
       .all(prefix + "%", limit + 1) as Array<{ key: string; expires_at: number | null }>;
 
     const truncated = rows.length > limit;

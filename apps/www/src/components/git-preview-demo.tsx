@@ -51,153 +51,159 @@ export function GitPreviewDemo() {
   return (
     <div ref={ref} className="space-y-4 w-full">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {/* Left: Code Editor */}
-      <div className="rounded-xl border border-border overflow-hidden">
-        {/* Editor title bar */}
-        <div className="flex items-center px-4 py-2.5 bg-code-bg border-b border-border">
-          <div className="flex items-center gap-1.5 mr-4">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/60" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]/60" />
+        {/* Left: Code Editor */}
+        <div className="rounded-xl border border-border overflow-hidden">
+          {/* Editor title bar */}
+          <div className="flex items-center px-4 py-2.5 bg-code-bg border-b border-border">
+            <div className="flex items-center gap-1.5 mr-4">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]/60" />
+            </div>
+            <span className="text-xs text-muted-foreground font-mono">hero.tsx</span>
           </div>
-          <span className="text-xs text-muted-foreground font-mono">hero.tsx</span>
-        </div>
 
-        {/* Code content */}
-        <div className="bg-code-bg p-5 font-mono text-[13px] leading-7 min-h-[280px]">
-          <pre className="whitespace-pre">
-            {(showNewCode ? codeAfter : codeBefore).split("\n").map((line, i) => {
-              const isChanged = showNewCode && (i === 3 || i === 4);
-              return (
-                <div key={i} className="relative">
-                  {isChanged && (
+          {/* Code content */}
+          <div className="bg-code-bg p-5 font-mono text-[13px] leading-7 min-h-[280px]">
+            <pre className="whitespace-pre">
+              {(showNewCode ? codeAfter : codeBefore).split("\n").map((line, i) => {
+                const isChanged = showNewCode && (i === 3 || i === 4);
+                return (
+                  <div key={i} className="relative">
+                    {isChanged && (
+                      <motion.div
+                        className="absolute -left-5 -right-5 -top-px -bottom-px bg-accent/5 border-l-2 border-accent/40"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    )}
+                    <span
+                      className={`relative ${isChanged ? "text-accent" : "text-foreground/80"}`}
+                    >
+                      <span className="text-muted-foreground/40 select-none inline-block w-6 text-right mr-4">
+                        {i + 1}
+                      </span>
+                      {colorize(line)}
+                    </span>
+                  </div>
+                );
+              })}
+            </pre>
+          </div>
+
+          {/* Git push bar */}
+          <AnimatePresence>
+            {(step === "pushing" || step === "deploying" || step === "done") && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="border-t border-border bg-code-bg overflow-hidden"
+              >
+                <div className="px-5 py-3 font-mono text-[12px]">
+                  <span className="text-muted-foreground">$ </span>
+                  <span className="text-foreground">git push origin feat/new-hero</span>
+                  {(step === "deploying" || step === "done") && (
                     <motion.div
-                      className="absolute -left-5 -right-5 -top-px -bottom-px bg-accent/5 border-l-2 border-accent/40"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3 }}
-                    />
+                      className="text-accent mt-1"
+                    >
+                      Branch pushed. Creek deploying preview...
+                    </motion.div>
                   )}
-                  <span className={`relative ${isChanged ? "text-accent" : "text-foreground/80"}`}>
-                    <span className="text-muted-foreground/40 select-none inline-block w-6 text-right mr-4">{i + 1}</span>
-                    {colorize(line)}
-                  </span>
                 </div>
-              );
-            })}
-          </pre>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Git push bar */}
-        <AnimatePresence>
-          {(step === "pushing" || step === "deploying" || step === "done") && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="border-t border-border bg-code-bg overflow-hidden"
-            >
-              <div className="px-5 py-3 font-mono text-[12px]">
-                <span className="text-muted-foreground">$ </span>
-                <span className="text-foreground">git push origin feat/new-hero</span>
-                {(step === "deploying" || step === "done") && (
+        {/* Right: Browser Preview */}
+        <div className="rounded-xl border border-border overflow-hidden">
+          {/* Browser chrome */}
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-code-bg border-b border-border">
+            <div className="flex items-center gap-1.5 mr-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/60" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]/60" />
+            </div>
+            {/* URL bar */}
+            <div className="flex-1 rounded-md bg-background/50 border border-border px-3 py-1 font-mono text-[11px] text-muted-foreground overflow-hidden">
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={showPreviewUrl ? "preview" : "prod"}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.3 }}
+                  className="block"
+                >
+                  {showPreviewUrl ? previewUrl : prodUrl}
+                </motion.span>
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Preview content */}
+          <div className="bg-code-bg min-h-[280px] flex items-center justify-center p-8 relative">
+            {/* Simulated web page */}
+            <div className="text-center">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={showPreviewContent ? "new" : "old"}
+                  initial={{ opacity: 0, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, filter: "blur(4px)" }}
+                  transition={{ duration: 0.4 }}
+                >
+                  <h3 className="text-2xl font-semibold mb-2">
+                    {showPreviewContent ? "Welcome to Creek" : "Welcome"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {showPreviewContent
+                      ? "Deploy to the edge in seconds."
+                      : "Build something great."}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+
+              {/* Deploy status badge */}
+              <AnimatePresence>
+                {step === "done" && (
                   <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-accent mt-1"
+                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    className="mt-6 inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1"
                   >
-                    Branch pushed. Creek deploying preview...
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+                    <span className="text-xs font-mono text-accent">Preview ready</span>
                   </motion.div>
                 )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              </AnimatePresence>
+            </div>
 
-      {/* Right: Browser Preview */}
-      <div className="rounded-xl border border-border overflow-hidden">
-        {/* Browser chrome */}
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-code-bg border-b border-border">
-          <div className="flex items-center gap-1.5 mr-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/60" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]/60" />
-          </div>
-          {/* URL bar */}
-          <div className="flex-1 rounded-md bg-background/50 border border-border px-3 py-1 font-mono text-[11px] text-muted-foreground overflow-hidden">
-            <AnimatePresence mode="wait">
-              <motion.span
-                key={showPreviewUrl ? "preview" : "prod"}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.3 }}
-                className="block"
-              >
-                {showPreviewUrl ? previewUrl : prodUrl}
-              </motion.span>
-            </AnimatePresence>
-          </div>
-        </div>
-
-        {/* Preview content */}
-        <div className="bg-code-bg min-h-[280px] flex items-center justify-center p-8 relative">
-          {/* Simulated web page */}
-          <div className="text-center">
-            <AnimatePresence mode="wait">
+            {/* Loading overlay */}
+            {step === "deploying" && (
               <motion.div
-                key={showPreviewContent ? "new" : "old"}
-                initial={{ opacity: 0, filter: "blur(4px)" }}
-                animate={{ opacity: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, filter: "blur(4px)" }}
-                transition={{ duration: 0.4 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center"
               >
-                <h3 className="text-2xl font-semibold mb-2">
-                  {showPreviewContent ? "Welcome to Creek" : "Welcome"}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {showPreviewContent ? "Deploy to the edge in seconds." : "Build something great."}
-                </p>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
+                  <motion.div
+                    className="h-4 w-4 border-2 border-accent/30 border-t-accent rounded-full"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  />
+                  Deploying...
+                </div>
               </motion.div>
-            </AnimatePresence>
-
-            {/* Deploy status badge */}
-            <AnimatePresence>
-              {step === "done" && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  className="mt-6 inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-                  <span className="text-xs font-mono text-accent">Preview ready</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            )}
           </div>
-
-          {/* Loading overlay */}
-          {step === "deploying" && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center"
-            >
-              <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
-                <motion.div
-                  className="h-4 w-4 border-2 border-accent/30 border-t-accent rounded-full"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                />
-                Deploying...
-              </div>
-            </motion.div>
-          )}
         </div>
-      </div>
       </div>
 
       {/* PR Comment */}
@@ -218,7 +224,9 @@ export function GitPreviewDemo() {
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm font-medium">creek-bot</span>
                   <span className="text-[11px] text-muted-foreground font-mono">just now</span>
-                  <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">bot</span>
+                  <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                    bot
+                  </span>
                 </div>
                 <div className="text-sm text-muted-foreground leading-relaxed space-y-2">
                   <p>
@@ -226,7 +234,10 @@ export function GitPreviewDemo() {
                       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                       <span className="text-accent font-medium">Preview deployed</span>
                     </span>
-                    for commit <code className="text-xs bg-background/50 border border-border rounded px-1.5 py-0.5 font-mono">a3f8c21</code>
+                    for commit{" "}
+                    <code className="text-xs bg-background/50 border border-border rounded px-1.5 py-0.5 font-mono">
+                      a3f8c21
+                    </code>
                   </p>
                   <div className="rounded-lg border border-border bg-background/30 px-3 py-2 font-mono text-xs">
                     <span className="text-muted-foreground">Preview: </span>

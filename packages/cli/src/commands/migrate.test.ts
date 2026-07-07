@@ -18,7 +18,10 @@ import {
 let testDir: string;
 
 beforeEach(() => {
-  testDir = join(tmpdir(), `creek-migrate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = join(
+    tmpdir(),
+    `creek-migrate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(testDir, { recursive: true });
 });
 
@@ -99,14 +102,17 @@ describe("parseMigrationFiles — Prisma nested layout", () => {
     mkdirSync(join(base, "20260614130000_add_users"), { recursive: true });
     mkdirSync(join(base, "20260614120000_init"), { recursive: true });
     writeFileSync(join(base, "migration_lock.toml"), 'provider = "sqlite"');
-    writeFileSync(join(base, "20260614120000_init", "migration.sql"), "CREATE TABLE Note (id INTEGER);");
-    writeFileSync(join(base, "20260614130000_add_users", "migration.sql"), "CREATE TABLE User (id INTEGER);");
+    writeFileSync(
+      join(base, "20260614120000_init", "migration.sql"),
+      "CREATE TABLE Note (id INTEGER);",
+    );
+    writeFileSync(
+      join(base, "20260614130000_add_users", "migration.sql"),
+      "CREATE TABLE User (id INTEGER);",
+    );
 
     const files = parseMigrationFiles(base);
-    expect(files.map((f) => f.name)).toEqual([
-      "20260614120000_init",
-      "20260614130000_add_users",
-    ]);
+    expect(files.map((f) => f.name)).toEqual(["20260614120000_init", "20260614130000_add_users"]);
     expect(files[0]!.path).toBe(join(base, "20260614120000_init", "migration.sql"));
   });
 });
@@ -153,11 +159,7 @@ describe("parseMigrationFiles", () => {
     writeFileSync(join(dir, "0001_a.sql"), "SELECT 1;");
     writeFileSync(join(dir, "0002_b.sql"), "SELECT 2;");
     const files = parseMigrationFiles(dir);
-    expect(files.map((f) => f.name)).toEqual([
-      "0001_a.sql",
-      "0002_b.sql",
-      "0003_c.sql",
-    ]);
+    expect(files.map((f) => f.name)).toEqual(["0001_a.sql", "0002_b.sql", "0003_c.sql"]);
   });
 
   test("includes correct absolute paths", () => {

@@ -46,8 +46,5 @@ export {
 } from "./deploy-url.js";
 
 // Pre-baked card templates.
-export {
-  deployButtonCard,
-  type DeployButtonCardProps,
-} from "./templates/deploy-button.js";
+export { deployButtonCard, type DeployButtonCardProps } from "./templates/deploy-button.js";
 export { brandCard } from "./templates/creek-brand.js";

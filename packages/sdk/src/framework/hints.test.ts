@@ -34,9 +34,7 @@ describe("detectEmdash", () => {
   test("does not match unrelated deps that happen to contain 'emdash' substring", () => {
     // Guard against false positives from substring matching instead of
     // name-prefix matching.
-    expect(
-      detectEmdash({ dependencies: { "not-emdash-compat": "^1" } }),
-    ).toBeNull();
+    expect(detectEmdash({ dependencies: { "not-emdash-compat": "^1" } })).toBeNull();
   });
 });
 

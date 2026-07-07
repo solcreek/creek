@@ -93,12 +93,15 @@ describe("creek-data.json file operations", () => {
 
 describe("creek-template.json removal", () => {
   test("removes creek-template.json after processing", () => {
-    writeFileSync(join(tmpDir, "creek-template.json"), JSON.stringify({
-      name: "landing",
-      description: "Test",
-      capabilities: [],
-      schema: { type: "object", properties: {} },
-    }));
+    writeFileSync(
+      join(tmpDir, "creek-template.json"),
+      JSON.stringify({
+        name: "landing",
+        description: "Test",
+        capabilities: [],
+        schema: { type: "object", properties: {} },
+      }),
+    );
 
     expect(existsSync(join(tmpDir, "creek-template.json"))).toBe(true);
     rmSync(join(tmpDir, "creek-template.json"));

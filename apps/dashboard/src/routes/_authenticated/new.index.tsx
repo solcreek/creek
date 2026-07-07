@@ -49,10 +49,7 @@ function NewProjectPage() {
   function handleGitHubConnect() {
     // Open GitHub App installation page in new tab
     // After install, GitHub redirects to our setup URL
-    window.open(
-      `https://github.com/apps/${GITHUB_APP_NAME}/installations/new`,
-      "_blank",
-    );
+    window.open(`https://github.com/apps/${GITHUB_APP_NAME}/installations/new`, "_blank");
   }
 
   return (
@@ -84,9 +81,7 @@ function NewProjectPage() {
             Import <ArrowRight className="ml-1 size-4" />
           </Button>
         </div>
-        {urlError && (
-          <p className="mt-1 text-sm text-destructive">{urlError}</p>
-        )}
+        {urlError && <p className="mt-1 text-sm text-destructive">{urlError}</p>}
       </div>
 
       <div className="relative mb-8">
@@ -112,20 +107,12 @@ function NewProjectPage() {
               <GithubIcon className="size-5" />
               Continue with GitHub
             </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-3 opacity-50"
-              disabled
-            >
+            <Button variant="outline" className="w-full justify-start gap-3 opacity-50" disabled>
               <GitBranch className="size-5" />
               Continue with GitLab
               <span className="ml-auto text-xs text-muted-foreground">Soon</span>
             </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-3 opacity-50"
-              disabled
-            >
+            <Button variant="outline" className="w-full justify-start gap-3 opacity-50" disabled>
               <GitBranch className="size-5" />
               Continue with Bitbucket
               <span className="ml-auto text-xs text-muted-foreground">Soon</span>

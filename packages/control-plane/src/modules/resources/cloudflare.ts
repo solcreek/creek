@@ -2,12 +2,7 @@ import type { Env } from "../../types.js";
 
 // --- Internal CF API helper ---
 
-async function cfApi(
-  env: Env,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<any> {
+async function cfApi(env: Env, method: string, path: string, body?: unknown): Promise<any> {
   const url = `https://api.cloudflare.com/client/v4${path}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
@@ -57,32 +52,20 @@ export async function createCustomHostname(
   env: Env,
   hostname: string,
 ): Promise<CustomHostnameResult> {
-  return cfApi(
-    env,
-    "POST",
-    `/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames`,
-    {
-      hostname,
-      ssl: { method: "http", type: "dv" },
-    },
-  );
+  return cfApi(env, "POST", `/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames`, {
+    hostname,
+    ssl: { method: "http", type: "dv" },
+  });
 }
 
 export async function getCustomHostname(
   env: Env,
   customHostnameId: string,
 ): Promise<CustomHostnameResult> {
-  return cfApi(
-    env,
-    "GET",
-    `/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames/${customHostnameId}`,
-  );
+  return cfApi(env, "GET", `/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames/${customHostnameId}`);
 }
 
-export async function deleteCustomHostname(
-  env: Env,
-  customHostnameId: string,
-): Promise<void> {
+export async function deleteCustomHostname(env: Env, customHostnameId: string): Promise<void> {
   await cfApi(
     env,
     "DELETE",
@@ -102,48 +85,45 @@ export async function findExistingCFResource(
   name: string,
 ): Promise<string | null> {
   switch (cfType) {
-    case "d1": return getD1Database(env, name);
-    case "r2": return (await getR2Bucket(env, name)) ? name : null;
-    case "kv": return getKVNamespace(env, name);
-    default: return null;
+    case "d1":
+      return getD1Database(env, name);
+    case "r2":
+      return (await getR2Bucket(env, name)) ? name : null;
+    case "kv":
+      return getKVNamespace(env, name);
+    default:
+      return null;
   }
 }
 
 /**
  * Create a new CF resource. Returns the CF resource ID.
  */
-export async function provisionCFResource(
-  env: Env,
-  cfType: string,
-  name: string,
-): Promise<string> {
+export async function provisionCFResource(env: Env, cfType: string, name: string): Promise<string> {
   switch (cfType) {
-    case "d1": return createD1Database(env, name);
+    case "d1":
+      return createD1Database(env, name);
     case "r2": {
       await createR2Bucket(env, name);
       return name; // R2 bucket ID = its name
     }
-    case "kv": return createKVNamespace(env, name);
-    default: throw new Error(`Unknown CF resource type: ${cfType}`);
+    case "kv":
+      return createKVNamespace(env, name);
+    default:
+      throw new Error(`Unknown CF resource type: ${cfType}`);
   }
 }
 
 // --- D1 ---
 
-export async function createD1Database(
-  env: Env,
-  name: string,
-): Promise<string> {
+export async function createD1Database(env: Env, name: string): Promise<string> {
   const result = await cfApi(env, "POST", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database`, {
     name,
   });
   return result.uuid;
 }
 
-export async function getD1Database(
-  env: Env,
-  name: string,
-): Promise<string | null> {
+export async function getD1Database(env: Env, name: string): Promise<string | null> {
   try {
     const result = await cfApi(
       env,
@@ -197,10 +177,7 @@ export async function createKVNamespace(env: Env, name: string): Promise<string>
   return result.id;
 }
 
-export async function getKVNamespace(
-  env: Env,
-  name: string,
-): Promise<string | null> {
+export async function getKVNamespace(env: Env, name: string): Promise<string | null> {
   try {
     const result = await cfApi(
       env,
@@ -226,12 +203,9 @@ export async function deleteKVNamespace(env: Env, namespaceId: string): Promise<
 // --- Queues ---
 
 export async function createQueue(env: Env, name: string): Promise<string> {
-  const result = await cfApi(
-    env,
-    "POST",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues`,
-    { queue_name: name },
-  );
+  const result = await cfApi(env, "POST", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues`, {
+    queue_name: name,
+  });
   return result.queue_id;
 }
 
@@ -251,11 +225,7 @@ export async function getQueue(env: Env, name: string): Promise<string | null> {
 }
 
 export async function deleteQueue(env: Env, queueId: string): Promise<void> {
-  await cfApi(
-    env,
-    "DELETE",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}`,
-  );
+  await cfApi(env, "DELETE", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}`);
 }
 
 /**
@@ -278,20 +248,11 @@ export async function updateScriptSchedules(
 /**
  * Send a message to a queue.
  */
-export async function sendQueueMessage(
-  env: Env,
-  queueId: string,
-  body: unknown,
-): Promise<void> {
-  await cfApi(
-    env,
-    "POST",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/messages`,
-    {
-      body: typeof body === "string" ? body : JSON.stringify(body),
-      content_type: typeof body === "string" ? "text" : "json",
-    },
-  );
+export async function sendQueueMessage(env: Env, queueId: string, body: unknown): Promise<void> {
+  await cfApi(env, "POST", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/messages`, {
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    content_type: typeof body === "string" ? "text" : "json",
+  });
 }
 
 /**
@@ -302,18 +263,13 @@ export async function setQueueConsumer(
   queueId: string,
   scriptName: string,
 ): Promise<void> {
-  await cfApi(
-    env,
-    "POST",
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/consumers`,
-    {
-      type: "worker",
-      script_name: scriptName,
-      settings: {
-        batch_size: 10,
-        max_retries: 3,
-        max_wait_time_ms: 5000,
-      },
+  await cfApi(env, "POST", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/queues/${queueId}/consumers`, {
+    type: "worker",
+    script_name: scriptName,
+    settings: {
+      batch_size: 10,
+      max_retries: 3,
+      max_wait_time_ms: 5000,
     },
-  );
+  });
 }

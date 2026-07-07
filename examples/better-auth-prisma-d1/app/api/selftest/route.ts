@@ -18,16 +18,25 @@ export async function GET() {
 
     // WRITE: user + account + session (Better Auth's multi-table create on D1)
     const signUp = await auth.api.signUpEmail({ body: { email, password, name: "Tester" } });
-    steps.signUp = { userId: (signUp as any)?.user?.id ?? null, hasToken: !!(signUp as any)?.token };
+    steps.signUp = {
+      userId: (signUp as any)?.user?.id ?? null,
+      hasToken: !!(signUp as any)?.token,
+    };
 
     // READ + VERIFY: read account by email, verify password hash, write a session
     const signIn = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
     const setCookie = signIn.headers.get("set-cookie") ?? "";
-    steps.signIn = { status: signIn.status, gotSessionCookie: /better-auth\.session/.test(setCookie) };
+    steps.signIn = {
+      status: signIn.status,
+      gotSessionCookie: /better-auth\.session/.test(setCookie),
+    };
 
     // READ session back via the cookie (what a login gate does on every request)
     const session = await auth.api.getSession({ headers: new Headers({ cookie: setCookie }) });
-    steps.getSession = { hasUser: !!(session as any)?.user, email: (session as any)?.user?.email ?? null };
+    steps.getSession = {
+      hasUser: !!(session as any)?.user,
+      email: (session as any)?.user?.email ?? null,
+    };
 
     return Response.json({
       ok: true,

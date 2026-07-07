@@ -41,12 +41,7 @@
  */
 
 import { Hono } from "hono";
-import {
-  ImageResponse,
-  brandCard,
-  deployButtonCard,
-  parseDeploySlug,
-} from "@solcreek/og";
+import { ImageResponse, brandCard, deployButtonCard, parseDeploySlug } from "@solcreek/og";
 
 type Env = {
   CREEK_ORIGIN: string;
@@ -75,10 +70,7 @@ app.get("/health", (c) => {
  * limit / any other failure — the card template falls back to no
  * description in that case rather than erroring out the image response.
  */
-async function fetchGitHubDescription(
-  owner: string,
-  repo: string,
-): Promise<string | null> {
+async function fetchGitHubDescription(owner: string, repo: string): Promise<string | null> {
   try {
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
       headers: {

@@ -12,27 +12,21 @@ describe("detectFramework", () => {
   });
 
   test("detects TanStack Start", () => {
-    expect(
-      detectFramework({ dependencies: { "@tanstack/react-start": "1.0.0" } }),
-    ).toBe("tanstack-start");
-  });
-
-  test("detects React Router", () => {
-    expect(detectFramework({ dependencies: { "react-router": "7.0.0" } })).toBe(
-      "react-router",
+    expect(detectFramework({ dependencies: { "@tanstack/react-start": "1.0.0" } })).toBe(
+      "tanstack-start",
     );
   });
 
+  test("detects React Router", () => {
+    expect(detectFramework({ dependencies: { "react-router": "7.0.0" } })).toBe("react-router");
+  });
+
   test("detects SvelteKit", () => {
-    expect(
-      detectFramework({ devDependencies: { "@sveltejs/kit": "2.0.0" } }),
-    ).toBe("sveltekit");
+    expect(detectFramework({ devDependencies: { "@sveltejs/kit": "2.0.0" } })).toBe("sveltekit");
   });
 
   test("detects SolidStart", () => {
-    expect(
-      detectFramework({ dependencies: { "@solidjs/start": "1.0.0" } }),
-    ).toBe("solidstart");
+    expect(detectFramework({ dependencies: { "@solidjs/start": "1.0.0" } })).toBe("solidstart");
   });
 
   test("detects Nuxt", () => {
@@ -40,27 +34,25 @@ describe("detectFramework", () => {
   });
 
   test("detects Vite + React as vite-react", () => {
-    expect(
-      detectFramework({ dependencies: { vite: "5.0.0", react: "18.0.0" } }),
-    ).toBe("vite-react");
+    expect(detectFramework({ dependencies: { vite: "5.0.0", react: "18.0.0" } })).toBe(
+      "vite-react",
+    );
   });
 
   test("detects Vite + Vue as vite-vue", () => {
-    expect(
-      detectFramework({ dependencies: { vite: "5.0.0", vue: "3.0.0" } }),
-    ).toBe("vite-vue");
+    expect(detectFramework({ dependencies: { vite: "5.0.0", vue: "3.0.0" } })).toBe("vite-vue");
   });
 
   test("detects Vite + Svelte as vite-svelte", () => {
-    expect(
-      detectFramework({ dependencies: { vite: "5.0.0", svelte: "4.0.0" } }),
-    ).toBe("vite-svelte");
+    expect(detectFramework({ dependencies: { vite: "5.0.0", svelte: "4.0.0" } })).toBe(
+      "vite-svelte",
+    );
   });
 
   test("detects Vite + Solid as vite-solid", () => {
-    expect(
-      detectFramework({ dependencies: { vite: "5.0.0", "solid-js": "1.0.0" } }),
-    ).toBe("vite-solid");
+    expect(detectFramework({ dependencies: { vite: "5.0.0", "solid-js": "1.0.0" } })).toBe(
+      "vite-solid",
+    );
   });
 
   test("detects VitePress even when bundled vite/vue are also visible", () => {

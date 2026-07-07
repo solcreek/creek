@@ -10,13 +10,7 @@ import { join, resolve } from "node:path";
 
 // --- Auto-detect migration directory ---
 
-const CANDIDATE_DIRS = [
-  "drizzle",
-  "drizzle/migrations",
-  "prisma/migrations",
-  "migrations",
-  "sql",
-];
+const CANDIDATE_DIRS = ["drizzle", "drizzle/migrations", "prisma/migrations", "migrations", "sql"];
 
 /**
  * Whether a directory holds migrations in either supported layout:
@@ -181,10 +175,7 @@ export function batchStatements(
  * Given files on disk and names already applied, return the pending
  * migrations in order.
  */
-export function computePending(
-  files: MigrationFile[],
-  applied: Set<string>,
-): MigrationFile[] {
+export function computePending(files: MigrationFile[], applied: Set<string>): MigrationFile[] {
   return files.filter((f) => !applied.has(f.name));
 }
 

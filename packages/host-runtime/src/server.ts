@@ -1,5 +1,5 @@
-import { isAbsolute, resolve } from 'node:path';
-import { createEnv, type BindingsConfig } from './env.ts';
+import { isAbsolute, resolve } from "node:path";
+import { createEnv, type BindingsConfig } from "./env.ts";
 
 export type ExecutionContextLike = {
   waitUntil(promise: Promise<unknown>): void;
@@ -30,7 +30,7 @@ export type RunHandle = {
 };
 
 export async function run(opts: RunOptions): Promise<RunHandle> {
-  const { entry, bindings, port = 8787, hostname = '0.0.0.0' } = opts;
+  const { entry, bindings, port = 8787, hostname = "0.0.0.0" } = opts;
 
   const absPath = isAbsolute(entry) ? entry : resolve(process.cwd(), entry);
   const mod = (await import(absPath)) as WorkerModule;
@@ -65,17 +65,17 @@ export async function run(opts: RunOptions): Promise<RunHandle> {
       try {
         return await userFetch(req, env, ctx);
       } catch (err) {
-        const message = err instanceof Error ? err.stack ?? err.message : String(err);
-        console.error('[creek] handler error:', message);
-        return new Response(
-          JSON.stringify({ error: 'Internal Error', detail: message }, null, 2),
-          { status: 500, headers: { 'Content-Type': 'application/json' } },
-        );
+        const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+        console.error("[creek] handler error:", message);
+        return new Response(JSON.stringify({ error: "Internal Error", detail: message }, null, 2), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
       }
     },
   });
 
-  const displayHost = hostname === '0.0.0.0' ? 'localhost' : hostname;
+  const displayHost = hostname === "0.0.0.0" ? "localhost" : hostname;
   const actualPort = server.port ?? port;
   return {
     stop: () => server.stop(),

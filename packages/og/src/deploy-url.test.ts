@@ -95,18 +95,14 @@ describe("parseDeploySlug — subpath support (tree/branch/...)", () => {
   });
 
   it("parses tree/branch/subpath (single segment)", () => {
-    const r = parseDeploySlug([
-      "gh", "vitejs", "vite", "tree", "main", "docs",
-    ]);
+    const r = parseDeploySlug(["gh", "vitejs", "vite", "tree", "main", "docs"]);
     expect(r).not.toBeNull();
     expect(r?.branch).toBe("main");
     expect(r?.subpath).toBe("docs");
   });
 
   it("parses tree/branch/subpath (multi segment)", () => {
-    const r = parseDeploySlug([
-      "gh", "withastro", "astro", "tree", "main", "examples", "blog",
-    ]);
+    const r = parseDeploySlug(["gh", "withastro", "astro", "tree", "main", "examples", "blog"]);
     expect(r).not.toBeNull();
     expect(r?.branch).toBe("main");
     expect(r?.subpath).toBe("examples/blog");
@@ -141,21 +137,15 @@ describe("parseDeploySlug — subpath support (tree/branch/...)", () => {
   });
 
   it("returns null for invalid subpath segments", () => {
-    expect(
-      parseDeploySlug(["gh", "o", "r", "tree", "main", "bad$dir"]),
-    ).toBeNull();
-    expect(
-      parseDeploySlug(["gh", "o", "r", "tree", "main", "ok", "bad!"]),
-    ).toBeNull();
+    expect(parseDeploySlug(["gh", "o", "r", "tree", "main", "bad$dir"])).toBeNull();
+    expect(parseDeploySlug(["gh", "o", "r", "tree", "main", "ok", "bad!"])).toBeNull();
   });
 
   it("rejects subpath segments that are all dots (path traversal guard)", () => {
     expect(parseDeploySlug(["gh", "o", "r", "tree", "main", ".."])).toBeNull();
     expect(parseDeploySlug(["gh", "o", "r", "tree", "main", "."])).toBeNull();
     expect(parseDeploySlug(["gh", "o", "r", "tree", "main", "a", ".."])).toBeNull();
-    expect(
-      parseDeploySlug(["gh", "o", "r", "tree", "main", "..", "secret"]),
-    ).toBeNull();
+    expect(parseDeploySlug(["gh", "o", "r", "tree", "main", "..", "secret"])).toBeNull();
   });
 
   it("rejects branch that is all dots", () => {
@@ -175,19 +165,21 @@ describe("buildDeployPath", () => {
   });
 
   it("round-trips a tree/branch/subpath slug", () => {
-    const parsed = parseDeploySlug([
-      "gh", "vitejs", "vite", "tree", "main", "docs",
-    ])!;
+    const parsed = parseDeploySlug(["gh", "vitejs", "vite", "tree", "main", "docs"])!;
     expect(buildDeployPath(parsed)).toBe("gh/vitejs/vite/tree/main/docs");
   });
 
   it("round-trips deep nested subpath", () => {
     const parsed = parseDeploySlug([
-      "gh", "withastro", "astro", "tree", "main", "examples", "blog",
+      "gh",
+      "withastro",
+      "astro",
+      "tree",
+      "main",
+      "examples",
+      "blog",
     ])!;
-    expect(buildDeployPath(parsed)).toBe(
-      "gh/withastro/astro/tree/main/examples/blog",
-    );
+    expect(buildDeployPath(parsed)).toBe("gh/withastro/astro/tree/main/examples/blog");
   });
 });
 

@@ -30,7 +30,10 @@ export class HostkeyResponseError extends Error {
  * Fetch the host key from a creekd daemon. addr may be a bare
  * host:port (the function adds the `http://` scheme) or a full URL.
  */
-export async function fetchHostkey(addr: string, fetchImpl: typeof fetch = fetch): Promise<HostkeyInfo> {
+export async function fetchHostkey(
+  addr: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<HostkeyInfo> {
   const url = normalizeAdminAddr(addr) + "/v1/hostkey";
   const resp = await fetchImpl(url);
   if (!resp.ok) {

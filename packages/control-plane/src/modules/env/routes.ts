@@ -8,7 +8,13 @@ import { encrypt, mask } from "./crypto.js";
 
 type EnvVarEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole?: string; auditCtx: AuditRequestContext };
+  Variables: {
+    user: AuthUser;
+    teamId: string;
+    teamSlug: string;
+    memberRole?: string;
+    auditCtx: AuditRequestContext;
+  };
 };
 
 const envVars = new Hono<EnvVarEnv>();
@@ -68,7 +74,10 @@ envVars.post("/:projectId/env", requirePermission("envvar:manage"), async (c) =>
   }
   if (!/^[A-Z_][A-Z0-9_]*$/.test(body.key)) {
     return c.json(
-      { error: "validation", message: "Key must be uppercase alphanumeric with underscores (e.g. DATABASE_URL)" },
+      {
+        error: "validation",
+        message: "Key must be uppercase alphanumeric with underscores (e.g. DATABASE_URL)",
+      },
       400,
     );
   }
@@ -89,12 +98,18 @@ envVars.post("/:projectId/env", requirePermission("envvar:manage"), async (c) =>
     .bind(project.id, body.key, encryptedValue)
     .run();
 
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "envvar.set",
-    resourceType: "envvar",
-    resourceId: projectId,
-    metadata: { key: body.key },
-  }, c.get("auditCtx"));
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "envvar.set",
+      resourceType: "envvar",
+      resourceId: projectId,
+      metadata: { key: body.key },
+    },
+    c.get("auditCtx"),
+  );
 
   return c.json({ ok: true, key: body.key }, 201);
 });
@@ -125,12 +140,18 @@ envVars.delete("/:projectId/env/:key", requirePermission("envvar:manage"), async
     return c.json({ error: "not_found", message: `Environment variable '${key}' not found` }, 404);
   }
 
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "envvar.delete",
-    resourceType: "envvar",
-    resourceId: projectId,
-    metadata: { key },
-  }, c.get("auditCtx"));
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "envvar.delete",
+      resourceType: "envvar",
+      resourceId: projectId,
+      metadata: { key },
+    },
+    c.get("auditCtx"),
+  );
 
   return c.json({ ok: true });
 });

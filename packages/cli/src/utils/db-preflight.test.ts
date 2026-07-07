@@ -45,11 +45,15 @@ const PRISMA_DEPS = { "@prisma/adapter-better-sqlite3": "^7.8.0" };
 
 describe("detectSqliteOrm", () => {
   test("detects Prisma via @prisma/adapter-better-sqlite3", () => {
-    expect(detectSqliteOrm({ "@prisma/adapter-better-sqlite3": "^7.8.0", "@prisma/client": "^7.8.0" })).toBe("prisma");
+    expect(
+      detectSqliteOrm({ "@prisma/adapter-better-sqlite3": "^7.8.0", "@prisma/client": "^7.8.0" }),
+    ).toBe("prisma");
   });
 
   test("detects Drizzle via drizzle-orm + better-sqlite3", () => {
-    expect(detectSqliteOrm({ "drizzle-orm": "^0.36.0", "better-sqlite3": "^12.0.0" })).toBe("drizzle");
+    expect(detectSqliteOrm({ "drizzle-orm": "^0.36.0", "better-sqlite3": "^12.0.0" })).toBe(
+      "drizzle",
+    );
   });
 
   test("returns null for Drizzle without better-sqlite3 (e.g. drizzle-orm/d1 directly)", () => {
@@ -62,7 +66,11 @@ describe("detectSqliteOrm", () => {
 
   test("prefers Prisma when both signals somehow coexist", () => {
     expect(
-      detectSqliteOrm({ "@prisma/adapter-better-sqlite3": "^7.8.0", "drizzle-orm": "^0.36.0", "better-sqlite3": "^12.0.0" }),
+      detectSqliteOrm({
+        "@prisma/adapter-better-sqlite3": "^7.8.0",
+        "drizzle-orm": "^0.36.0",
+        "better-sqlite3": "^12.0.0",
+      }),
     ).toBe("prisma");
   });
 });
@@ -73,11 +81,13 @@ describe("databaseDirectiveState", () => {
   });
 
   test("absent when [resources] table has no database key", () => {
-    expect(databaseDirectiveState("[project]\nname = \"x\"\n\n[resources]\nstorage = true\n")).toBe("absent");
+    expect(databaseDirectiveState('[project]\nname = "x"\n\n[resources]\nstorage = true\n')).toBe(
+      "absent",
+    );
   });
 
   test("absent when there is no [resources] table at all", () => {
-    expect(databaseDirectiveState("[project]\nname = \"x\"\n")).toBe("absent");
+    expect(databaseDirectiveState('[project]\nname = "x"\n')).toBe("absent");
   });
 
   test("enabled when database = true under [resources]", () => {
@@ -119,7 +129,7 @@ describe("enableDatabaseResource", () => {
   });
 
   test("inserts the key under an existing [resources] table, preserving other keys", () => {
-    const before = "[project]\nname = \"x\"\n\n[resources]\nstorage = true\n";
+    const before = '[project]\nname = "x"\n\n[resources]\nstorage = true\n';
     const out = enableDatabaseResource(before, "x");
     expect(out).toContain("storage = true");
     expect(databaseDirectiveState(out)).toBe("enabled");
@@ -180,7 +190,10 @@ describe("prismaNeedsGenerate", () => {
 
   test("false (conservative) when schema declares no output path", () => {
     mkdirSync(join(cwd, "prisma"));
-    writeFileSync(join(cwd, "prisma", "schema.prisma"), 'datasource db {\n  provider = "sqlite"\n}\n');
+    writeFileSync(
+      join(cwd, "prisma", "schema.prisma"),
+      'datasource db {\n  provider = "sqlite"\n}\n',
+    );
     expect(prismaNeedsGenerate(cwd)).toBe(false);
   });
 });
@@ -188,7 +201,10 @@ describe("prismaNeedsGenerate", () => {
 describe("runDatabasePreflight", () => {
   test("no-op when no SQLite ORM is detected", async () => {
     const io = fakeIO({ toml: null });
-    const r = await runDatabasePreflight({ deps: { next: "16.2.4" }, projectName: "x", tty: true, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: { next: "16.2.4" }, projectName: "x", tty: true, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(false);
     expect(io.prompts).toHaveLength(0);
     expect(io.written).toBeNull();
@@ -196,21 +212,30 @@ describe("runDatabasePreflight", () => {
 
   test("no-op (respects opt-out) when database = false", async () => {
     const io = fakeIO({ toml: "[resources]\ndatabase = false\n", confirmAnswer: true });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(false);
     expect(io.prompts).toHaveLength(0); // never prompts after explicit opt-out
   });
 
   test("no-op when already enabled", async () => {
     const io = fakeIO({ toml: "[resources]\ndatabase = true\n" });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(false);
     expect(io.prompts).toHaveLength(0);
   });
 
   test("prompts and writes when accepted (interactive)", async () => {
     const io = fakeIO({ toml: '[project]\nname = "x"\n', confirmAnswer: true });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(true);
     expect(io.prompts[0]).toMatch(/separate instance from your local file/);
     expect(databaseDirectiveState(io.written)).toBe("enabled");
@@ -218,7 +243,10 @@ describe("runDatabasePreflight", () => {
 
   test("prompts and does NOT write when declined", async () => {
     const io = fakeIO({ toml: '[project]\nname = "x"\n', confirmAnswer: false });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "x", tty: true, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(false);
     expect(io.prompts).toHaveLength(1);
     expect(io.written).toBeNull();
@@ -227,7 +255,10 @@ describe("runDatabasePreflight", () => {
 
   test("auto-writes under --yes without prompting", async () => {
     const io = fakeIO({ toml: null });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "auto-app", tty: false, autoYes: true }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "auto-app", tty: false, autoYes: true },
+      io,
+    );
     expect(r.wroteToml).toBe(true);
     expect(io.prompts).toHaveLength(0);
     expect(io.written).toContain('name = "auto-app"');
@@ -236,7 +267,10 @@ describe("runDatabasePreflight", () => {
 
   test("non-interactive without --yes: warns and continues, no write", async () => {
     const io = fakeIO({ toml: null });
-    const r = await runDatabasePreflight({ deps: PRISMA_DEPS, projectName: "x", tty: false, autoYes: false }, io);
+    const r = await runDatabasePreflight(
+      { deps: PRISMA_DEPS, projectName: "x", tty: false, autoYes: false },
+      io,
+    );
     expect(r.wroteToml).toBe(false);
     expect(io.prompts).toHaveLength(0);
     expect(io.written).toBeNull();
@@ -276,12 +310,18 @@ describe("migrationOfferPlan", () => {
     expect(migrationOfferPlan({ migrationDir: null, tty: true, autoMigrate: false })).toBe("none");
   });
   test("run under explicit --migrate", () => {
-    expect(migrationOfferPlan({ migrationDir: "/p/prisma/migrations", tty: false, autoMigrate: true })).toBe("run");
+    expect(
+      migrationOfferPlan({ migrationDir: "/p/prisma/migrations", tty: false, autoMigrate: true }),
+    ).toBe("run");
   });
   test("prompt when interactive", () => {
-    expect(migrationOfferPlan({ migrationDir: "/p/drizzle", tty: true, autoMigrate: false })).toBe("prompt");
+    expect(migrationOfferPlan({ migrationDir: "/p/drizzle", tty: true, autoMigrate: false })).toBe(
+      "prompt",
+    );
   });
   test("suggest (print, don't run) when non-interactive", () => {
-    expect(migrationOfferPlan({ migrationDir: "/p/drizzle", tty: false, autoMigrate: false })).toBe("suggest");
+    expect(migrationOfferPlan({ migrationDir: "/p/drizzle", tty: false, autoMigrate: false })).toBe(
+      "suggest",
+    );
   });
 });

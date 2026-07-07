@@ -225,14 +225,7 @@ export {
 } from "./deploy-plan.js";
 
 // Post-deploy UI hints (shallow framework-aware metadata)
-export {
-  detectEmdash,
-  resolveDeployHint,
-  type DeployHint,
-} from "./hints.js";
+export { detectEmdash, resolveDeployHint, type DeployHint } from "./hints.js";
 
 // SQLite dump → D1-compatible SQL transform
-export {
-  sqliteDumpToD1,
-  splitStatements,
-} from "./sqlite-to-d1.js";
+export { sqliteDumpToD1, splitStatements } from "./sqlite-to-d1.js";

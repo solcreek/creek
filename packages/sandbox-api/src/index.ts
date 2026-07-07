@@ -8,12 +8,21 @@ import { cleanupExpiredSandboxes } from "./cleanup.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", cors({
-  origin: "*", // Sandbox API is public
-  allowHeaders: ["Content-Type", "Authorization", "X-Creek-TTY", "X-Internal-Secret", "X-Forwarded-For"],
-  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-  maxAge: 600,
-}));
+app.use(
+  "*",
+  cors({
+    origin: "*", // Sandbox API is public
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Creek-TTY",
+      "X-Internal-Secret",
+      "X-Forwarded-For",
+    ],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    maxAge: 600,
+  }),
+);
 app.use("*", logger());
 
 // Health check
@@ -36,21 +45,23 @@ app.get("/api/deployments/recent", async (c) => {
      FROM deployments ORDER BY createdAt DESC LIMIT 50`,
   ).all();
 
-  return c.json(rows.results.map((r: any) => ({
-    deploymentId: r.id,
-    environment: r.environment || "sandbox",
-    trigger: r.trigger_type || r.source || "web",
-    status: r.status,
-    framework: r.framework,
-    template: r.templateId,
-    previewUrl: r.previewHost ? `https://${r.previewHost}` : null,
-    assetCount: r.assetCount,
-    failedStep: r.failedStep,
-    error: r.errorMessage,
-    claimStatus: r.claimStatus,
-    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
-    expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
-  })));
+  return c.json(
+    rows.results.map((r: any) => ({
+      deploymentId: r.id,
+      environment: r.environment || "sandbox",
+      trigger: r.trigger_type || r.source || "web",
+      status: r.status,
+      framework: r.framework,
+      template: r.templateId,
+      previewUrl: r.previewHost ? `https://${r.previewHost}` : null,
+      assetCount: r.assetCount,
+      failedStep: r.failedStep,
+      error: r.errorMessage,
+      claimStatus: r.claimStatus,
+      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
+    })),
+  );
 });
 
 // Agent challenge routes
@@ -60,9 +71,7 @@ app.route("/api/sandbox/agent-verify", challengeRoutes);
 app.notFound((c) =>
   c.json({ error: "not_found", message: `Route not found: ${c.req.method} ${c.req.path}` }, 404),
 );
-app.onError((err, c) =>
-  c.json({ error: "internal", message: err.message }, 500),
-);
+app.onError((err, c) => c.json({ error: "internal", message: err.message }, 500));
 
 export default {
   fetch: app.fetch,

@@ -49,15 +49,16 @@ app.get("/sse", async (c) => {
 
 // Catch-all
 app.notFound((c) =>
-  c.json({
-    error: "not_found",
-    message: "Creek MCP Server. Connect to /mcp using an MCP client.",
-    docs: "https://creek.dev/docs/mcp",
-  }, 404),
+  c.json(
+    {
+      error: "not_found",
+      message: "Creek MCP Server. Connect to /mcp using an MCP client.",
+      docs: "https://creek.dev/docs/mcp",
+    },
+    404,
+  ),
 );
 
-app.onError((err, c) =>
-  c.json({ error: "internal", message: err.message }, 500),
-);
+app.onError((err, c) => c.json({ error: "internal", message: err.message }, 500));
 
 export default app;

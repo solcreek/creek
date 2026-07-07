@@ -6,12 +6,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { resolveProjectSlug } from "../utils/command-context.js";
-import { CreekdClient, CreekdResourceVersionMismatchError, type Release } from "../utils/creekd-client.js";
-import { readHosts, findHost } from "../utils/hosts.js";
 import {
-  cachedResourceVersion,
-  recordLastDeploy,
-} from "../utils/local-cache.js";
+  CreekdClient,
+  CreekdResourceVersionMismatchError,
+  type Release,
+} from "../utils/creekd-client.js";
+import { readHosts, findHost } from "../utils/hosts.js";
+import { cachedResourceVersion, recordLastDeploy } from "../utils/local-cache.js";
 
 export const rollbackCommand = defineCommand({
   meta: {
@@ -35,7 +36,8 @@ export const rollbackCommand = defineCommand({
     },
     host: {
       type: "string",
-      description: "Roll back on the named self-host creekd (from ~/.creek/hosts.json). Requires --to.",
+      description:
+        "Roll back on the named self-host creekd (from ~/.creek/hosts.json). Requires --to.",
     },
     to: {
       type: "string",
@@ -74,7 +76,12 @@ export const rollbackCommand = defineCommand({
     const token = getToken();
 
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated", message: "Not authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "not_authenticated", message: "Not authenticated" },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -94,7 +101,10 @@ export const rollbackCommand = defineCommand({
       if (jsonMode) {
         jsonOutput(result, 0, [
           { command: `creek status`, description: "Verify rollback status" },
-          { command: `creek deployments --project ${projectSlug}`, description: "View deployment history" },
+          {
+            command: `creek deployments --project ${projectSlug}`,
+            description: "View deployment history",
+          },
         ]);
         return;
       }
@@ -106,9 +116,13 @@ export const rollbackCommand = defineCommand({
       }
     } catch (err: any) {
       const msg = err.message ?? "Rollback failed";
-      if (jsonMode) jsonOutput({ ok: false, error: "rollback_failed", message: msg }, 1, [
-        { command: `creek deployments --project ${projectSlug}`, description: "List available deployments" },
-      ]);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "rollback_failed", message: msg }, 1, [
+          {
+            command: `creek deployments --project ${projectSlug}`,
+            description: "List available deployments",
+          },
+        ]);
       consola.error(msg);
       process.exit(1);
     }
@@ -158,7 +172,8 @@ async function rollbackSelfHost(
   const host = findHost(hostsFile, hostName);
   if (!host) {
     const msg = `host "${hostName}" not found in ~/.creek/hosts.json (run \`creek init --adopt=<addr>\` to pin it first)`;
-    if (jsonMode) jsonOutput({ ok: false, error: "host_not_pinned", message: msg, host: hostName }, 1, []);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "host_not_pinned", message: msg, host: hostName }, 1, []);
     consola.error(msg);
     process.exit(1);
   }
@@ -174,7 +189,15 @@ async function rollbackSelfHost(
   }
 
   const client = new CreekdClient(host.addr);
-  const release = await doRollbackWithIfMatch(client, appId, toSeq, cwd, host.name, bypassRv, jsonMode);
+  const release = await doRollbackWithIfMatch(
+    client,
+    appId,
+    toSeq,
+    cwd,
+    host.name,
+    bypassRv,
+    jsonMode,
+  );
 
   // The Release wire shape doesn't carry the app's new
   // resourceVersion directly — fetch the envelope to capture it
@@ -198,18 +221,25 @@ async function rollbackSelfHost(
   }
 
   if (jsonMode) {
-    jsonOutput({
-      ok: true,
-      host: host.name,
-      app: appId,
-      release,
-    }, 0, [
-      { command: `creek status --host ${host.name}`, description: "Check rollback status" },
-    ]);
+    jsonOutput(
+      {
+        ok: true,
+        host: host.name,
+        app: appId,
+        release,
+      },
+      0,
+      [{ command: `creek status --host ${host.name}`, description: "Check rollback status" }],
+    );
   }
-  consola.success(`Rolled back ${appId} on ${host.name} to release seq ${release.spec.rolledBackFrom}`);
+  consola.success(
+    `Rolled back ${appId} on ${host.name} to release seq ${release.spec.rolledBackFrom}`,
+  );
   consola.info(`  new release seq: ${release.spec.releaseSeq} (phase=${release.phase})`);
-  if (release.spec.originalArtifactRelease && release.spec.originalArtifactRelease !== release.spec.rolledBackFrom) {
+  if (
+    release.spec.originalArtifactRelease &&
+    release.spec.originalArtifactRelease !== release.spec.rolledBackFrom
+  ) {
     consola.info(`  original artifact: seq ${release.spec.originalArtifactRelease}`);
   }
 }
@@ -260,15 +290,22 @@ async function doRollbackWithIfMatch(
     if (e instanceof CreekdResourceVersionMismatchError) {
       const msg = `resource version drifted (sent ${e.attemptedResourceVersion}, current ${e.currentResourceVersion}) — re-run with --bypass-rv to auto-refresh, or refresh the local cache manually`;
       if (jsonMode) {
-        jsonOutput({
-          ok: false,
-          error: "resource_version_mismatch",
-          message: msg,
-          attemptedResourceVersion: e.attemptedResourceVersion,
-          currentResourceVersion: e.currentResourceVersion,
-        }, 1, [
-          { command: `creek rollback --host ${hostName} --to ${toSeq} --bypass-rv`, description: "Auto-refresh and retry" },
-        ]);
+        jsonOutput(
+          {
+            ok: false,
+            error: "resource_version_mismatch",
+            message: msg,
+            attemptedResourceVersion: e.attemptedResourceVersion,
+            currentResourceVersion: e.currentResourceVersion,
+          },
+          1,
+          [
+            {
+              command: `creek rollback --host ${hostName} --to ${toSeq} --bypass-rv`,
+              description: "Auto-refresh and retry",
+            },
+          ],
+        );
       }
       consola.error(msg);
       process.exit(1);

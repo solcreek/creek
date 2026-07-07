@@ -1,14 +1,20 @@
 import { defineCommand } from "citty";
 import { consola } from "consola";
 import { execSync } from "node:child_process";
-import { resolveConfig, formatDetectionSummary, type DeployTarget, DEPLOY_TARGETS } from "@solcreek/sdk";
+import {
+  resolveConfig,
+  formatDetectionSummary,
+  type DeployTarget,
+  DEPLOY_TARGETS,
+} from "@solcreek/sdk";
 import { globalArgs } from "../utils/output.js";
 import { DevServer } from "../dev/server.js";
 
 export const devCommand = defineCommand({
   meta: {
     name: "dev",
-    description: "Start local development server. Auto-detects target from creek.toml (cf = Miniflare, creekd = sandbox VM with real Postgres/Redis).",
+    description:
+      "Start local development server. Auto-detects target from creek.toml (cf = Miniflare, creekd = sandbox VM with real Postgres/Redis).",
   },
   args: {
     ...globalArgs,
@@ -175,11 +181,12 @@ function afterStart(args: Record<string, unknown>, port: number) {
 
 function openBrowser(url: string) {
   try {
-    const cmd = process.platform === "darwin"
-      ? `open "${url}"`
-      : process.platform === "win32"
-        ? `start "" "${url}"`
-        : `xdg-open "${url}"`;
+    const cmd =
+      process.platform === "darwin"
+        ? `open "${url}"`
+        : process.platform === "win32"
+          ? `start "" "${url}"`
+          : `xdg-open "${url}"`;
     execSync(cmd, { stdio: "ignore" });
   } catch {
     consola.info(`Open manually: ${url}`);

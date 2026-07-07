@@ -26,8 +26,7 @@ describe("DevProxy", () => {
     await new Promise<void>((resolve) => {
       mockWorkerServer.listen(0, "127.0.0.1", () => {
         const addr = mockWorkerServer.address();
-        mockWorkerPort =
-          typeof addr === "object" && addr ? addr.port : 0;
+        mockWorkerPort = typeof addr === "object" && addr ? addr.port : 0;
         resolve();
       });
     });
@@ -46,9 +45,7 @@ describe("DevProxy", () => {
     mockWorkerServer.close();
   });
 
-  async function startProxy(
-    overrides?: Partial<ConstructorParameters<typeof DevProxy>[0]>,
-  ) {
+  async function startProxy(overrides?: Partial<ConstructorParameters<typeof DevProxy>[0]>) {
     // Find a free port first
     const tempServer = createServer();
     await new Promise<void>((resolve) => {
@@ -74,9 +71,7 @@ describe("DevProxy", () => {
   it("serves /__creek/config with local URLs", async () => {
     await startProxy();
 
-    const res = await fetch(
-      `http://127.0.0.1:${proxyPort}/__creek/config`,
-    );
+    const res = await fetch(`http://127.0.0.1:${proxyPort}/__creek/config`);
     const body = await res.json();
 
     expect(body.realtimeUrl).toBe(`http://localhost:${proxyPort}`);
@@ -96,14 +91,11 @@ describe("DevProxy", () => {
   it("routes broadcast POST to realtime server", async () => {
     await startProxy();
 
-    const res = await fetch(
-      `http://127.0.0.1:${proxyPort}/my-project/rooms/r1/broadcast`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ table: "todos", operation: "INSERT" }),
-      },
-    );
+    const res = await fetch(`http://127.0.0.1:${proxyPort}/my-project/rooms/r1/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ table: "todos", operation: "INSERT" }),
+    });
     const body = await res.json();
 
     expect(body).toEqual({ ok: true, clients: 0 });
@@ -112,19 +104,15 @@ describe("DevProxy", () => {
   it("routes WebSocket upgrade to realtime server", async () => {
     await startProxy();
 
-    const ws = await new Promise<WebSocket & { messages: any[] }>(
-      (resolve, reject) => {
-        const ws = new WebSocket(
-          `ws://127.0.0.1:${proxyPort}/my-project/rooms/r1/ws`,
-        ) as WebSocket & { messages: any[] };
-        ws.messages = [];
-        ws.on("message", (data) =>
-          ws.messages.push(JSON.parse(data.toString())),
-        );
-        ws.on("open", () => resolve(ws));
-        ws.on("error", reject);
-      },
-    );
+    const ws = await new Promise<WebSocket & { messages: any[] }>((resolve, reject) => {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${proxyPort}/my-project/rooms/r1/ws`,
+      ) as WebSocket & { messages: any[] };
+      ws.messages = [];
+      ws.on("message", (data) => ws.messages.push(JSON.parse(data.toString())));
+      ws.on("open", () => resolve(ws));
+      ws.on("error", reject);
+    });
 
     // Wait for peers message
     await new Promise<void>((resolve) => {
@@ -143,9 +131,7 @@ describe("DevProxy", () => {
   it("routes status GET to realtime server", async () => {
     await startProxy();
 
-    const res = await fetch(
-      `http://127.0.0.1:${proxyPort}/my-project/rooms/r1/status`,
-    );
+    const res = await fetch(`http://127.0.0.1:${proxyPort}/my-project/rooms/r1/status`);
     const body = await res.json();
 
     expect(body).toEqual({ clients: 0 });

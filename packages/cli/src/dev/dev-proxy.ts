@@ -15,17 +15,10 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { Socket } from "node:net";
-import {
-  parseRealtimePath,
-  type LocalRealtimeServer,
-} from "./local-realtime.js";
+import { parseRealtimePath, type LocalRealtimeServer } from "./local-realtime.js";
 
 // Use a minimal type for Vite's middleware to avoid hard vite dependency at compile time
-type ConnectServer = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  next: () => void,
-) => void;
+type ConnectServer = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
 export interface DevProxyOptions {
   /** User-facing port. */
@@ -49,8 +42,7 @@ export class DevProxy {
   }
 
   async start(): Promise<void> {
-    const { port, workerUrl, viteMiddleware, realtimeServer, projectSlug } =
-      this.options;
+    const { port, workerUrl, viteMiddleware, realtimeServer, projectSlug } = this.options;
 
     this.server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://localhost:${port}`);
@@ -162,17 +154,11 @@ export class DevProxy {
 
 function isWorkerRoute(pathname: string): boolean {
   return (
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/__creek/") ||
-    pathname === "/__creek"
+    pathname.startsWith("/api/") || pathname.startsWith("/__creek/") || pathname === "/__creek"
   );
 }
 
-function proxyToWorker(
-  req: IncomingMessage,
-  res: ServerResponse,
-  workerUrl: string,
-): void {
+function proxyToWorker(req: IncomingMessage, res: ServerResponse, workerUrl: string): void {
   const { hostname, port } = new URL(workerUrl);
 
   const proxyReq = httpRequest(

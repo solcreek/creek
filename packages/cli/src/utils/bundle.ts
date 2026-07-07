@@ -6,21 +6,30 @@ export interface BundleAssets {
   fileList: string[];
 }
 
-const IGNORED_DIRS = new Set([
-  "node_modules", ".git", ".svn", ".hg", ".next", ".nuxt", ".output",
-]);
+const IGNORED_DIRS = new Set(["node_modules", ".git", ".svn", ".hg", ".next", ".nuxt", ".output"]);
 
 const IGNORED_FILES = new Set([
-  ".DS_Store", "Thumbs.db", ".env", ".env.local", ".env.production",
-  ".gitignore", ".npmrc", ".eslintcache",
-  "creek.toml", "wrangler.toml", "wrangler.json", "wrangler.jsonc",
+  ".DS_Store",
+  "Thumbs.db",
+  ".env",
+  ".env.local",
+  ".env.production",
+  ".gitignore",
+  ".npmrc",
+  ".eslintcache",
+  "creek.toml",
+  "wrangler.toml",
+  "wrangler.json",
+  "wrangler.jsonc",
 ]);
 
 function isIgnored(name: string): boolean {
-  return name.startsWith(".") && IGNORED_FILES.has(name)
-    || IGNORED_FILES.has(name)
-    || name.endsWith("~")
-    || name.endsWith(".swp");
+  return (
+    (name.startsWith(".") && IGNORED_FILES.has(name)) ||
+    IGNORED_FILES.has(name) ||
+    name.endsWith("~") ||
+    name.endsWith(".swp")
+  );
 }
 
 export function collectAssets(dir: string, baseDir?: string): BundleAssets {

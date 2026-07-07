@@ -90,8 +90,9 @@ resources.post("/", requirePermission("project:create"), async (c) => {
   if (!cfResourceId && cfType) {
     const cfName = `creek-${id.slice(0, 8)}`;
     try {
-      cfResourceId = await findExistingCFResource(c.env, cfType, cfName)
-        ?? await provisionCFResource(c.env, cfType, cfName);
+      cfResourceId =
+        (await findExistingCFResource(c.env, cfType, cfName)) ??
+        (await provisionCFResource(c.env, cfType, cfName));
     } catch (err) {
       return c.json(
         {
@@ -108,13 +109,25 @@ resources.post("/", requirePermission("project:create"), async (c) => {
       `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
-      .bind(id, teamId, body.kind, body.name, cfResourceId, cfType ?? body.cfResourceType ?? null, now, now)
+      .bind(
+        id,
+        teamId,
+        body.kind,
+        body.name,
+        cfResourceId,
+        cfType ?? body.cfResourceType ?? null,
+        now,
+        now,
+      )
       .run();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("UNIQUE") || msg.includes("constraint")) {
       return c.json(
-        { error: "conflict", message: `A resource named '${body.name}' already exists in this team` },
+        {
+          error: "conflict",
+          message: `A resource named '${body.name}' already exists in this team`,
+        },
         409,
       );
     }
@@ -167,7 +180,10 @@ resources.patch("/:id", requirePermission("project:create"), async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json<{ name?: string }>();
   if (!body.name || !NAME_RE.test(body.name)) {
-    return c.json({ error: "validation", message: "name required and must match naming rule" }, 400);
+    return c.json(
+      { error: "validation", message: "name required and must match naming rule" },
+      400,
+    );
   }
   const now = Date.now();
   const res = await c.env.DB.prepare(
@@ -223,11 +239,19 @@ resources.post("/:id/query", requirePermission("project:create"), async (c) => {
     `SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE id = ? AND teamId = ?`,
   )
     .bind(id, teamId)
-    .first<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>();
+    .first<{
+      kind: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+      status: string;
+    }>();
 
   if (!resource) return c.json({ error: "not_found" }, 404);
   if (resource.kind !== "database" || resource.cfResourceType !== "d1") {
-    return c.json({ error: "invalid_kind", message: "Query is only supported for database resources" }, 400);
+    return c.json(
+      { error: "invalid_kind", message: "Query is only supported for database resources" },
+      400,
+    );
   }
   if (!resource.cfResourceId) {
     return c.json({ error: "not_provisioned", message: "Database not yet provisioned" }, 400);
@@ -258,13 +282,16 @@ resources.post("/:id/query", requirePermission("project:create"), async (c) => {
     body: JSON.stringify({ sql: body.sql, params: body.params ?? [] }),
   });
 
-  const d1Data = await d1Res.json() as any;
+  const d1Data = (await d1Res.json()) as any;
   if (!d1Data.success) {
-    return c.json({
-      error: "query_failed",
-      message: d1Data.errors?.[0]?.message ?? "Query failed",
-      errors: d1Data.errors,
-    }, 400);
+    return c.json(
+      {
+        error: "query_failed",
+        message: d1Data.errors?.[0]?.message ?? "Query failed",
+        errors: d1Data.errors,
+      },
+      400,
+    );
   }
 
   // D1 API returns result[0] for single queries
@@ -295,7 +322,12 @@ resources.get("/:id/metrics", requirePermission("project:read"), async (c) => {
     `SELECT kind, cfResourceId, cfResourceType, status FROM resource WHERE id = ? AND teamId = ?`,
   )
     .bind(id, teamId)
-    .first<{ kind: string; cfResourceId: string | null; cfResourceType: string | null; status: string }>();
+    .first<{
+      kind: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+      status: string;
+    }>();
 
   if (!resource) return c.json({ error: "not_found" }, 404);
   if (!resource.cfResourceId || resource.status !== "active") {
@@ -353,13 +385,19 @@ resources.get("/:id/metrics", requirePermission("project:read"), async (c) => {
         });
       }
       default:
-        return c.json({ kind: resource.kind, message: "Metrics not available for this resource type" });
+        return c.json({
+          kind: resource.kind,
+          message: "Metrics not available for this resource type",
+        });
     }
   } catch (err) {
-    return c.json({
-      error: "metrics_failed",
-      message: err instanceof Error ? err.message : String(err),
-    }, 502);
+    return c.json(
+      {
+        error: "metrics_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      502,
+    );
   }
 });
 
@@ -376,113 +414,98 @@ async function getProjectForTeam(
   teamId: string,
   slug: string,
 ): Promise<{ id: string } | null> {
-  return env.DB.prepare(
-    `SELECT id FROM project WHERE slug = ? AND organizationId = ?`,
-  )
+  return env.DB.prepare(`SELECT id FROM project WHERE slug = ? AND organizationId = ?`)
     .bind(slug, teamId)
     .first<{ id: string }>();
 }
 
-resourceBindings.get(
-  "/:slug/bindings",
-  requirePermission("project:read"),
-  async (c) => {
-    const teamId = c.get("teamId");
-    const slug = c.req.param("slug") ?? "";
-    const project = await getProjectForTeam(c.env, teamId, slug);
-    if (!project) return c.json({ error: "not_found" }, 404);
+resourceBindings.get("/:slug/bindings", requirePermission("project:read"), async (c) => {
+  const teamId = c.get("teamId");
+  const slug = c.req.param("slug") ?? "";
+  const project = await getProjectForTeam(c.env, teamId, slug);
+  if (!project) return c.json({ error: "not_found" }, 404);
 
-    const rows = await c.env.DB.prepare(
-      `SELECT b.bindingName, b.createdAt, r.id as resourceId, r.kind, r.name, r.status
+  const rows = await c.env.DB.prepare(
+    `SELECT b.bindingName, b.createdAt, r.id as resourceId, r.kind, r.name, r.status
        FROM project_resource_binding b
        JOIN resource r ON b.resourceId = r.id
        WHERE b.projectId = ?
        ORDER BY b.bindingName`,
-    )
-      .bind(project.id)
-      .all();
-    return c.json({ bindings: rows.results });
-  },
-);
+  )
+    .bind(project.id)
+    .all();
+  return c.json({ bindings: rows.results });
+});
 
-resourceBindings.post(
-  "/:slug/bindings",
-  requirePermission("project:create"),
-  async (c) => {
-    const teamId = c.get("teamId");
-    const slug = c.req.param("slug") ?? "";
-    const project = await getProjectForTeam(c.env, teamId, slug);
-    if (!project) return c.json({ error: "not_found", message: "project" }, 404);
+resourceBindings.post("/:slug/bindings", requirePermission("project:create"), async (c) => {
+  const teamId = c.get("teamId");
+  const slug = c.req.param("slug") ?? "";
+  const project = await getProjectForTeam(c.env, teamId, slug);
+  if (!project) return c.json({ error: "not_found", message: "project" }, 404);
 
-    const body = await c.req.json<{ resourceId?: string; bindingName?: string }>();
-    if (!body.resourceId) return c.json({ error: "validation", message: "resourceId required" }, 400);
-    if (!body.bindingName || !BINDING_NAME_RE.test(body.bindingName)) {
-      return c.json(
-        {
-          error: "validation",
-          message:
-            "bindingName required and must match /^[A-Z][A-Z0-9_]{0,62}$/ — ENV var shape",
-        },
-        400,
-      );
-    }
-
-    const resourceRow = await c.env.DB.prepare(
-      `SELECT id FROM resource WHERE id = ? AND teamId = ? AND status != 'deleted'`,
-    )
-      .bind(body.resourceId, teamId)
-      .first();
-    if (!resourceRow) return c.json({ error: "not_found", message: "resource" }, 404);
-
-    const now = Date.now();
-    try {
-      await c.env.DB.prepare(
-        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)`,
-      )
-        .bind(project.id, body.bindingName, body.resourceId, now)
-        .run();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("UNIQUE") || msg.includes("constraint")) {
-        return c.json(
-          {
-            error: "conflict",
-            message: `Binding '${body.bindingName}' already exists for this project`,
-          },
-          409,
-        );
-      }
-      throw err;
-    }
-
+  const body = await c.req.json<{ resourceId?: string; bindingName?: string }>();
+  if (!body.resourceId) return c.json({ error: "validation", message: "resourceId required" }, 400);
+  if (!body.bindingName || !BINDING_NAME_RE.test(body.bindingName)) {
     return c.json(
       {
-        projectId: project.id,
-        bindingName: body.bindingName,
-        resourceId: body.resourceId,
-        createdAt: now,
+        error: "validation",
+        message: "bindingName required and must match /^[A-Z][A-Z0-9_]{0,62}$/ — ENV var shape",
       },
-      201,
+      400,
     );
-  },
-);
+  }
 
-resourceBindings.delete(
-  "/:slug/bindings/:name",
-  requirePermission("project:create"),
-  async (c) => {
-    const teamId = c.get("teamId");
-    const slug = c.req.param("slug") ?? "";
-    const project = await getProjectForTeam(c.env, teamId, slug);
-    if (!project) return c.json({ error: "not_found" }, 404);
+  const resourceRow = await c.env.DB.prepare(
+    `SELECT id FROM resource WHERE id = ? AND teamId = ? AND status != 'deleted'`,
+  )
+    .bind(body.resourceId, teamId)
+    .first();
+  if (!resourceRow) return c.json({ error: "not_found", message: "resource" }, 404);
 
-    const res = await c.env.DB.prepare(
-      `DELETE FROM project_resource_binding WHERE projectId = ? AND bindingName = ?`,
+  const now = Date.now();
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES (?, ?, ?, ?)`,
     )
-      .bind(project.id, c.req.param("name"))
+      .bind(project.id, body.bindingName, body.resourceId, now)
       .run();
-    if (!res.meta.changes) return c.json({ error: "not_found", message: "binding" }, 404);
-    return c.json({ ok: true });
-  },
-);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("UNIQUE") || msg.includes("constraint")) {
+      return c.json(
+        {
+          error: "conflict",
+          message: `Binding '${body.bindingName}' already exists for this project`,
+        },
+        409,
+      );
+    }
+    throw err;
+  }
+
+  return c.json(
+    {
+      projectId: project.id,
+      bindingName: body.bindingName,
+      resourceId: body.resourceId,
+      createdAt: now,
+    },
+    201,
+  );
+});
+
+resourceBindings.delete("/:slug/bindings/:name", requirePermission("project:create"), async (c) => {
+  const teamId = c.get("teamId");
+  const slug = c.req.param("slug") ?? "";
+  const project = await getProjectForTeam(c.env, teamId, slug);
+  if (!project) return c.json({ error: "not_found" }, 404);
+
+  const res = await c.env.DB.prepare(
+    `DELETE FROM project_resource_binding WHERE projectId = ? AND bindingName = ?`,
+  )
+    .bind(project.id, c.req.param("name"))
+    .run();
+  if (!res.meta.changes) return c.json({ error: "not_found", message: "binding" }, 404);
+  return c.json({ ok: true });
+});

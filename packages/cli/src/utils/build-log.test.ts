@@ -9,9 +9,17 @@ describe("BuildLogEmitter", () => {
     log.error("activate", "boom", "CK-DEPLOY-X");
     expect(log.count).toBe(3);
 
-    const lines = log.toNdjson().split("\n").map((l) => JSON.parse(l));
+    const lines = log
+      .toNdjson()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatchObject({ step: "detect", level: "info", stream: "creek", msg: "framework=nextjs" });
+    expect(lines[0]).toMatchObject({
+      step: "detect",
+      level: "info",
+      stream: "creek",
+      msg: "framework=nextjs",
+    });
     expect(lines[1]).toMatchObject({ step: "bundle", level: "warn" });
     expect(lines[2]).toMatchObject({ step: "activate", level: "error", code: "CK-DEPLOY-X" });
   });

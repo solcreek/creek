@@ -110,7 +110,9 @@ export function ConfigComparison() {
             >
               <div className="flex items-center justify-between px-4 py-2 bg-code-bg border-b border-border">
                 <span className="text-xs text-muted-foreground font-mono">{config.file}</span>
-                <span className="text-[10px] font-mono text-muted-foreground/50">{config.lines} lines</span>
+                <span className="text-[10px] font-mono text-muted-foreground/50">
+                  {config.lines} lines
+                </span>
               </div>
               <pre className="bg-code-bg px-5 py-3 font-mono text-[11px] leading-5 text-muted-foreground/60 whitespace-pre max-h-[80px] overflow-hidden relative">
                 {config.content}

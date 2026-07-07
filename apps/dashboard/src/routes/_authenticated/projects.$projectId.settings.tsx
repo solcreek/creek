@@ -15,9 +15,7 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
-export const Route = createFileRoute(
-  "/_authenticated/projects/$projectId/settings",
-)({
+export const Route = createFileRoute("/_authenticated/projects/$projectId/settings")({
   component: ProjectSettingsTab,
 });
 
@@ -57,9 +55,7 @@ function GitHubConnectionSection({ projectId }: { projectId: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["project", projectId, "github-connection"],
     queryFn: () =>
-      api<{ connection: GitHubConnection | null }>(
-        `/github/connections/by-project/${projectId}`,
-      ),
+      api<{ connection: GitHubConnection | null }>(`/github/connections/by-project/${projectId}`),
   });
 
   const disconnect = useMutation({
@@ -126,8 +122,7 @@ function ConnectPicker({ projectId }: { projectId: string }) {
 
   const { data: repoRows } = useQuery({
     queryKey: ["github-installation-repos", selectedInstallId],
-    queryFn: () =>
-      api<InstallationRepo[]>(`/github/installations/${selectedInstallId}/repos`),
+    queryFn: () => api<InstallationRepo[]>(`/github/installations/${selectedInstallId}/repos`),
     enabled: selectedInstallId !== null,
   });
 
@@ -238,9 +233,7 @@ function ConnectPicker({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {connectError && (
-        <p className="text-xs text-destructive">{connectError}</p>
-      )}
+      {connectError && <p className="text-xs text-destructive">{connectError}</p>}
 
       <Button
         size="sm"
@@ -303,9 +296,8 @@ function ConnectionDetails({
         {confirming ? (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Disconnect <span className="font-mono">{repoFull}</span>? Pushes to this repo
-              will stop triggering deploys. This does not uninstall the Creek Deploy GitHub
-              App.
+              Disconnect <span className="font-mono">{repoFull}</span>? Pushes to this repo will
+              stop triggering deploys. This does not uninstall the Creek Deploy GitHub App.
             </p>
             <div className="flex gap-2">
               <Button
@@ -322,17 +314,11 @@ function ConnectionDetails({
             </div>
           </div>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConfirming(true)}
-          >
+          <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
             Disconnect repository
           </Button>
         )}
-        {disconnectError && (
-          <p className="mt-2 text-xs text-destructive">{disconnectError}</p>
-        )}
+        {disconnectError && <p className="mt-2 text-xs text-destructive">{disconnectError}</p>}
       </div>
     </div>
   );
@@ -347,7 +333,9 @@ function Pill({ enabled, label }: { enabled: boolean; label: string }) {
           : "border-border text-muted-foreground"
       }`}
     >
-      <span className={`size-1.5 rounded-full ${enabled ? "bg-green-500" : "bg-muted-foreground"}`} />
+      <span
+        className={`size-1.5 rounded-full ${enabled ? "bg-green-500" : "bg-muted-foreground"}`}
+      />
       {label}
     </span>
   );
@@ -427,7 +415,8 @@ function TriggersSection({ projectId }: { projectId: string }) {
             <p className="font-medium text-yellow-200">Redeploy required</p>
             <p className="mt-1 text-xs text-yellow-200/80">
               Queue binding changes only take effect after the next deployment. Run{" "}
-              <code className="rounded bg-yellow-500/20 px-1">creek deploy</code> from your project directory.
+              <code className="rounded bg-yellow-500/20 px-1">creek deploy</code> from your project
+              directory.
             </p>
           </div>
           <button
@@ -494,7 +483,8 @@ function TriggersSection({ projectId }: { projectId: string }) {
           </div>
         ) : triggers.cron.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No cron schedules. Add <code className="rounded bg-code-bg px-1">[triggers].cron</code> to creek.toml or click Edit.
+            No cron schedules. Add <code className="rounded bg-code-bg px-1">[triggers].cron</code>{" "}
+            to creek.toml or click Edit.
           </p>
         ) : (
           <div className="space-y-1">
@@ -570,7 +560,8 @@ function TriggersSection({ projectId }: { projectId: string }) {
             </div>
             <p className="pt-1 text-xs text-muted-foreground">
               Cron changes apply immediately. Next{" "}
-              <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with values from creek.toml.
+              <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with
+              values from creek.toml.
             </p>
           </>
         )}
@@ -599,11 +590,7 @@ function GeneralSettings({ projectId }: { projectId: string }) {
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Production Branch</label>
-          <Input
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-          />
+          <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
         </div>
       </div>
     </section>
@@ -616,8 +603,7 @@ function DangerZone({ projectId }: { projectId: string }) {
   const [confirmSlug, setConfirmSlug] = useState("");
 
   const deleteProject = useMutation({
-    mutationFn: () =>
-      api(`/projects/${projectId}`, { method: "DELETE" }),
+    mutationFn: () => api(`/projects/${projectId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate({ to: "/projects" });
@@ -633,8 +619,8 @@ function DangerZone({ projectId }: { projectId: string }) {
         <div>
           <p className="text-sm font-medium">Delete Project</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            This will permanently delete the project, all deployments, environment variables,
-            and custom domains. This action cannot be undone.
+            This will permanently delete the project, all deployments, environment variables, and
+            custom domains. This action cannot be undone.
           </p>
         </div>
         <div className="space-y-2">

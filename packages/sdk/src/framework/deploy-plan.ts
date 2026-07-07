@@ -51,11 +51,7 @@ export interface PlanDeployInput {
  *   upload-asis    — workerEntry is already a bundled JS/MJS file (lives
  *                    inside buildOutput); upload bytes verbatim, no wrap.
  */
-export type WorkerStrategy =
-  | "none"
-  | "ssr-framework"
-  | "esbuild-bundle"
-  | "upload-asis";
+export type WorkerStrategy = "none" | "ssr-framework" | "esbuild-bundle" | "upload-asis";
 
 export interface DeployPlan {
   /**
@@ -81,9 +77,7 @@ export interface DeployPlan {
   };
 }
 
-export type PlanDeployResult =
-  | { ok: true; plan: DeployPlan }
-  | { ok: false; reason: string };
+export type PlanDeployResult = { ok: true; plan: DeployPlan } | { ok: false; reason: string };
 
 /**
  * `dist/_worker.mjs` lives inside `dist/` → return relative path
@@ -91,10 +85,7 @@ export type PlanDeployResult =
  * outside `dist/` → return null (no exclusion needed because the source
  * file isn't in the asset dir to begin with).
  */
-function workerInsideAssets(
-  workerEntry: string,
-  buildOutput: string,
-): string | null {
+function workerInsideAssets(workerEntry: string, buildOutput: string): string | null {
   const wParts = normalize(workerEntry).split("/");
   const oParts = normalize(buildOutput).split("/");
   if (wParts.length <= oParts.length) return null;
@@ -118,14 +109,8 @@ function isPrebundledExt(path: string): boolean {
  * Shared with the doctor's CK-RUNTIME-DEP-MISSING rule so the two never
  * drift on what "pre-bundled" means.
  */
-export function isPrebundledWorker(
-  workerEntry: string,
-  buildOutput: string,
-): boolean {
-  return (
-    isPrebundledExt(workerEntry) &&
-    workerInsideAssets(workerEntry, buildOutput) !== null
-  );
+export function isPrebundledWorker(workerEntry: string, buildOutput: string): boolean {
+  return isPrebundledExt(workerEntry) && workerInsideAssets(workerEntry, buildOutput) !== null;
 }
 
 function normalize(p: string): string {
@@ -133,7 +118,8 @@ function normalize(p: string): string {
 }
 
 export function planDeploy(input: PlanDeployInput): PlanDeployResult {
-  const { framework, workerEntry, workerEntryExists, buildOutput, buildOutputExists, astroCF } = input;
+  const { framework, workerEntry, workerEntryExists, buildOutput, buildOutputExists, astroCF } =
+    input;
   const isSSR = isSSRFramework(framework);
   const hasWorker = !!workerEntry;
 
@@ -166,7 +152,10 @@ export function planDeploy(input: PlanDeployInput): PlanDeployResult {
   //    top is ambiguous — refuse rather than silently picking one.
   if (isSSR && framework) {
     if (hasWorker) {
-      return { ok: false, reason: `framework ${framework} already provides server bundle; remove [build].worker or pick one` };
+      return {
+        ok: false,
+        reason: `framework ${framework} already provides server bundle; remove [build].worker or pick one`,
+      };
     }
     return {
       ok: true,
@@ -210,7 +199,10 @@ export function planDeploy(input: PlanDeployInput): PlanDeployResult {
   // 5. No worker, no SSR framework. Plain static / SPA — must have a
   //    build output to upload, otherwise there's nothing to deploy.
   if (!buildOutputExists) {
-    return { ok: false, reason: `nothing to deploy: build output ${buildOutput} not found and no [build].worker declared` };
+    return {
+      ok: false,
+      reason: `nothing to deploy: build output ${buildOutput} not found and no [build].worker declared`,
+    };
   }
   return {
     ok: true,

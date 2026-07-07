@@ -68,18 +68,12 @@ describe("pushBatchToRealtime", () => {
   });
 
   test("empty batch → no fetch", async () => {
-    await pushBatchToRealtime(
-      { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-      [],
-    );
+    await pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, []);
     expect(calls).toEqual([]);
   });
 
   test("single entry → one POST to /{slug}/rooms/logs/broadcast with HMAC", async () => {
-    await pushBatchToRealtime(
-      { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-      [entry()],
-    );
+    await pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [entry()]);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(`${REALTIME_URL}/acme-blog/rooms/logs/broadcast`);
     expect(calls[0].method).toBe("POST");
@@ -90,24 +84,18 @@ describe("pushBatchToRealtime", () => {
   });
 
   test("entries with hyphenated team or project → URL-safe slug", async () => {
-    await pushBatchToRealtime(
-      { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-      [entry({ team: "acme-corp", project: "vite-react-drizzle" })],
-    );
-    expect(calls[0].url).toBe(
-      `${REALTIME_URL}/acme-corp-vite-react-drizzle/rooms/logs/broadcast`,
-    );
+    await pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [
+      entry({ team: "acme-corp", project: "vite-react-drizzle" }),
+    ]);
+    expect(calls[0].url).toBe(`${REALTIME_URL}/acme-corp-vite-react-drizzle/rooms/logs/broadcast`);
   });
 
   test("entries split across (team, project) → separate POST per slug", async () => {
-    await pushBatchToRealtime(
-      { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-      [
-        entry({ team: "acme", project: "blog" }),
-        entry({ team: "acme", project: "shop" }),
-        entry({ team: "bob", project: "blog" }),
-      ],
-    );
+    await pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [
+      entry({ team: "acme", project: "blog" }),
+      entry({ team: "acme", project: "shop" }),
+      entry({ team: "bob", project: "blog" }),
+    ]);
     const slugs = calls.map((c) => c.url.split("/").slice(-4)[0]).sort();
     expect(slugs).toEqual(["acme-blog", "acme-shop", "bob-blog"]);
   });
@@ -117,30 +105,21 @@ describe("pushBatchToRealtime", () => {
     // change to the auth scheme. Realtime-worker verifies with the
     // same algorithm; if these drift, broadcasts get 401.
     const expectedToken = await computeHmac(MASTER_KEY, "acme-blog");
-    await pushBatchToRealtime(
-      { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-      [entry()],
-    );
+    await pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [entry()]);
     expect(calls[0].authHeader).toBe(`Bearer ${expectedToken}`);
   });
 
   test("realtime returns 401 → does NOT throw (best-effort)", async () => {
     nextResponse = () => new Response("unauthorized", { status: 401 });
     await expect(
-      pushBatchToRealtime(
-        { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-        [entry()],
-      ),
+      pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [entry()]),
     ).resolves.toBeUndefined();
   });
 
   test("fetch throws (network error) → does NOT throw (best-effort)", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new Error("network down")));
     await expect(
-      pushBatchToRealtime(
-        { REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY },
-        [entry()],
-      ),
+      pushBatchToRealtime({ REALTIME_URL, REALTIME_MASTER_KEY: MASTER_KEY }, [entry()]),
     ).resolves.toBeUndefined();
   });
 
@@ -161,11 +140,7 @@ async function computeHmac(masterKey: string, slug: string): Promise<string> {
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(slug),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(slug));
   return Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

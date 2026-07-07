@@ -5,9 +5,7 @@ import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Plus, Trash2 } from "lucide-react";
 
-export const Route = createFileRoute(
-  "/_authenticated/projects/$projectId/env",
-)({
+export const Route = createFileRoute("/_authenticated/projects/$projectId/env")({
   component: EnvVarsTab,
 });
 
@@ -41,8 +39,7 @@ function EnvVarsTab() {
   });
 
   const deleteVar = useMutation({
-    mutationFn: (key: string) =>
-      api(`/projects/${projectId}/env/${key}`, { method: "DELETE" }),
+    mutationFn: (key: string) => api(`/projects/${projectId}/env/${key}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["env", projectId] });
     },
@@ -88,7 +85,8 @@ function EnvVarsTab() {
             No environment variables set. Add one above, or use the CLI:
           </p>
           <div className="mx-auto mt-3 max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
-            <span className="text-muted-foreground">$</span> npx creek env set DATABASE_URL "postgres://..."
+            <span className="text-muted-foreground">$</span> npx creek env set DATABASE_URL
+            "postgres://..."
           </div>
         </div>
       ) : (

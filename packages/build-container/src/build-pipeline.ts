@@ -135,20 +135,34 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
   t0 = t();
   log("clone", "info", `cloning ${req.repoUrl}${req.branch ? `#${req.branch}` : ""}`);
   try {
-    execFileSync("git", [
-      "clone", "--depth", "1", "--single-branch",
-      ...(req.branch ? ["--branch", req.branch] : []),
-      "--no-recurse-submodules",
-      "--config", "core.hooksPath=/dev/null",
-      req.repoUrl,
-      repoDir,
-    ], { stdio: "pipe", timeout: 60_000 });
+    execFileSync(
+      "git",
+      [
+        "clone",
+        "--depth",
+        "1",
+        "--single-branch",
+        ...(req.branch ? ["--branch", req.branch] : []),
+        "--no-recurse-submodules",
+        "--config",
+        "core.hooksPath=/dev/null",
+        req.repoUrl,
+        repoDir,
+      ],
+      { stdio: "pipe", timeout: 60_000 },
+    );
   } catch (err: any) {
     cleanup(repoDir);
     const stderr = err.stderr?.toString() || "";
     log("clone", "error", stderr.slice(0, 500), { stream: "stderr" });
-    if (stderr.includes("not found")) return { error: "clone_failed", message: `Repository not found: ${req.repoUrl}`, logs };
-    if (stderr.includes("Authentication")) return { error: "clone_failed", message: "Private repository — not supported for remote build", logs };
+    if (stderr.includes("not found"))
+      return { error: "clone_failed", message: `Repository not found: ${req.repoUrl}`, logs };
+    if (stderr.includes("Authentication"))
+      return {
+        error: "clone_failed",
+        message: "Private repository — not supported for remote build",
+        logs,
+      };
     return { error: "clone_failed", message: stderr.slice(0, 500), logs };
   }
   timing.clone = t() - t0;
@@ -176,13 +190,17 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     } catch {
       cleanup(repoDir);
       log("detect", "error", "no supported config found");
-      return { error: "no_config", message: "No supported project found (creek.toml, wrangler.*, package.json, or index.html)", logs };
+      return {
+        error: "no_config",
+        message: "No supported project found (creek.toml, wrangler.*, package.json, or index.html)",
+        logs,
+      };
     }
 
     const framework = resolved.framework;
     const isSSR = isSSRFramework(framework);
     const isWorker = !framework && !!resolved.workerEntry;
-    const renderMode = isWorker ? "worker" : (isSSR ? "ssr" : "spa");
+    const renderMode = isWorker ? "worker" : isSSR ? "ssr" : "spa";
     log(
       "detect",
       "info",
@@ -222,7 +240,11 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         execFileSync(cmd, args, { cwd: workDir, stdio: "pipe", timeout: 180_000 });
         installResult = { success: true, pm };
       } catch (err: any) {
-        installResult = { success: false, pm, stderr: (err.stderr?.toString() || "").slice(0, 2000) };
+        installResult = {
+          success: false,
+          pm,
+          stderr: (err.stderr?.toString() || "").slice(0, 2000),
+        };
       }
       timing.install = t() - t0;
 
@@ -260,9 +282,8 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     if (resolved.buildCommand) {
       const { useCascade, targetName } = detectWorkspaceCascade(workDir, pm);
 
-      const buildCmdLabel = useCascade && targetName
-        ? `pnpm --filter ${targetName}... build`
-        : `${pm} run build`;
+      const buildCmdLabel =
+        useCascade && targetName ? `pnpm --filter ${targetName}... build` : `${pm} run build`;
       log("build", "info", buildCmdLabel);
       t0 = t();
       try {
@@ -306,8 +327,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // either SSG (static `dist/`) or CF-adapter-SSR — we only know
     // which once we can see the build output. See the SDK helper
     // for the detection fingerprint.
-    const astroCF =
-      framework === "astro" ? detectAstroCloudflareBuild(workDir) : null;
+    const astroCF = framework === "astro" ? detectAstroCloudflareBuild(workDir) : null;
 
     // 5. Collect client assets
     let assets: Record<string, string> = {};
@@ -353,12 +373,20 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         t0 = t();
         try {
           const outFile = join(workDir, "__creek_worker.mjs");
-          execFileSync("esbuild", [
-            entryPath, "--bundle", "--format=esm", "--platform=neutral",
-            "--target=es2022", `--outfile=${outFile}`,
-            "--external:node:*",
-            "--conditions=workerd,worker,import",
-          ], { stdio: "pipe", timeout: 30_000 });
+          execFileSync(
+            "esbuild",
+            [
+              entryPath,
+              "--bundle",
+              "--format=esm",
+              "--platform=neutral",
+              "--target=es2022",
+              `--outfile=${outFile}`,
+              "--external:node:*",
+              "--conditions=workerd,worker,import",
+            ],
+            { stdio: "pipe", timeout: 30_000 },
+          );
           serverFiles = { "worker.js": readFileSync(outFile).toString("base64") };
           timing.bundle = t() - t0;
         } catch {
@@ -378,7 +406,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // dist/server/ whose "main" field points to entry.mjs — that's
     // the real Worker entrypoint, not the user-level wrangler.main.
     const effectiveRenderMode = astroCF ? "ssr" : renderMode;
-    const effectiveHasWorker = astroCF ? true : (isSSR || isWorker);
+    const effectiveHasWorker = astroCF ? true : isSSR || isWorker;
     const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
 
     // Merge adapter-emitted bindings on top of user-declared ones.
@@ -436,7 +464,8 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         bindings: effectiveBindings,
         vars: Object.keys(resolved.vars).length > 0 ? resolved.vars : {},
         compatibilityDate: resolved.compatibilityDate ?? undefined,
-        compatibilityFlags: resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
+        compatibilityFlags:
+          resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
         cron: resolved.cron.length > 0 ? resolved.cron : undefined,
         queue: resolved.queue || undefined,
         hint: deployHint ?? undefined,
@@ -493,7 +522,7 @@ export function mergeAdapterBindings(
     }
   };
 
-  const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
   for (const d1 of arr<{ binding?: string }>(adapterWrangler.d1_databases)) {
     if (d1.binding) push("d1", d1.binding);
@@ -572,7 +601,8 @@ export function detectWorkspaceCascade(
 export function detectPM(cwd: string, stopAt: string): string {
   let dir = cwd;
   while (true) {
-    if (existsSync(join(dir, "pnpm-lock.yaml")) || existsSync(join(dir, "pnpm-workspace.yaml"))) return "pnpm";
+    if (existsSync(join(dir, "pnpm-lock.yaml")) || existsSync(join(dir, "pnpm-workspace.yaml")))
+      return "pnpm";
     if (existsSync(join(dir, "yarn.lock"))) return "yarn";
     if (existsSync(join(dir, "package-lock.json"))) return "npm";
     if (dir === stopAt) break;
@@ -586,7 +616,10 @@ export function detectPM(cwd: string, stopAt: string): string {
 const IGNORE_DIRS = new Set(["node_modules", ".git", ".svn", ".next", ".nuxt", ".output"]);
 const IGNORE_FILES = new Set([".DS_Store", ".env", ".env.local", ".env.production"]);
 
-function collectAssetsBase64(dir: string, base?: string): { assets: Record<string, string>; fileList: string[] } {
+function collectAssetsBase64(
+  dir: string,
+  base?: string,
+): { assets: Record<string, string>; fileList: string[] } {
   const b = base ?? dir;
   const assets: Record<string, string> = {};
   const fileList: string[] = [];
@@ -647,5 +680,7 @@ async function applyTemplateData(workDir: string, data: Record<string, unknown>)
 }
 
 function cleanup(dir: string): void {
-  try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {}
 }

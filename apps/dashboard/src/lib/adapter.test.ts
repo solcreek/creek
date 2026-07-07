@@ -107,12 +107,29 @@ describe("creekd adapter functions", () => {
         return HttpResponse.json({
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "my-app", uid: "uuid-1", generation: 1, resourceVersion: "rv-1", creationTimestamp: "2026-05-24T00:00:00Z" },
-          spec: { runtime: "node", command: "node", args: ["server.js"], env: ["PORT=3001"], port: 3001 },
+          metadata: {
+            name: "my-app",
+            uid: "uuid-1",
+            generation: 1,
+            resourceVersion: "rv-1",
+            creationTimestamp: "2026-05-24T00:00:00Z",
+          },
+          spec: {
+            runtime: "node",
+            command: "node",
+            args: ["server.js"],
+            env: ["PORT=3001"],
+            port: 3001,
+          },
           status: {
             observedGeneration: 1,
             conditions: [
-              { type: "Ready", status: "True", lastTransitionTime: "2026-05-24T00:00:00Z", reason: "Running" },
+              {
+                type: "Ready",
+                status: "True",
+                lastTransitionTime: "2026-05-24T00:00:00Z",
+                reason: "Running",
+              },
             ],
             currentPid: 5678,
             currentPort: 3001,
@@ -231,10 +248,7 @@ describe("creekd adapter functions", () => {
   it("throws on non-OK response", async () => {
     server.use(
       http.get(`${CREEKD_URL}/v1/apps/bad-id`, () => {
-        return HttpResponse.json(
-          { code: "not_found", error: "app not found" },
-          { status: 404 },
-        );
+        return HttpResponse.json({ code: "not_found", error: "app not found" }, { status: 404 });
       }),
     );
 

@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -31,36 +36,48 @@ describe("GET /projects/:id/analytics", () => {
     seedProject(testEnv, "my-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        data: {
-          viewer: {
-            accounts: [{
-              series: [
+      new Response(
+        JSON.stringify({
+          data: {
+            viewer: {
+              accounts: [
                 {
-                  dimensions: { datetimeFifteenMinutes: "2026-04-09T10:00:00Z", status: "success" },
-                  sum: { requests: 42, errors: 0, subrequests: 10 },
-                  quantiles: { cpuTimeP50: 1.2, cpuTimeP99: 5.8 },
-                },
-                {
-                  dimensions: { datetimeFifteenMinutes: "2026-04-09T10:15:00Z", status: "success" },
-                  sum: { requests: 18, errors: 2, subrequests: 4 },
-                  quantiles: { cpuTimeP50: 1.5, cpuTimeP99: 8.1 },
+                  series: [
+                    {
+                      dimensions: {
+                        datetimeFifteenMinutes: "2026-04-09T10:00:00Z",
+                        status: "success",
+                      },
+                      sum: { requests: 42, errors: 0, subrequests: 10 },
+                      quantiles: { cpuTimeP50: 1.2, cpuTimeP99: 5.8 },
+                    },
+                    {
+                      dimensions: {
+                        datetimeFifteenMinutes: "2026-04-09T10:15:00Z",
+                        status: "success",
+                      },
+                      sum: { requests: 18, errors: 2, subrequests: 4 },
+                      quantiles: { cpuTimeP50: 1.5, cpuTimeP99: 8.1 },
+                    },
+                  ],
+                  totals: [
+                    {
+                      sum: { requests: 60, errors: 2, subrequests: 14 },
+                      quantiles: { cpuTimeP50: 1.3, cpuTimeP99: 6.5 },
+                    },
+                  ],
                 },
               ],
-              totals: [{
-                sum: { requests: 60, errors: 2, subrequests: 14 },
-                quantiles: { cpuTimeP50: 1.3, cpuTimeP99: 6.5 },
-              }],
-            }],
+            },
           },
-        },
-      })),
+        }),
+      ),
     );
 
     const res = await req("/projects/my-app/analytics");
     expect(res.status).toBe(200);
 
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.period).toBe("24h");
     expect(json.scriptName).toBe(`my-app-${TEST_TEAM.slug}`);
     expect(json.totals.requests).toBe(60);
@@ -73,13 +90,15 @@ describe("GET /projects/:id/analytics", () => {
     seedProject(testEnv, "my-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        data: { viewer: { accounts: [{ series: [], totals: [] }] } },
-      })),
+      new Response(
+        JSON.stringify({
+          data: { viewer: { accounts: [{ series: [], totals: [] }] } },
+        }),
+      ),
     );
 
     const res = await req("/projects/my-app/analytics?period=7d");
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.period).toBe("7d");
 
     const fetchCall = (globalThis.fetch as any).mock.calls[0];
@@ -95,7 +114,7 @@ describe("GET /projects/:id/analytics", () => {
     const res = await req("/projects/my-app/analytics");
     expect(res.status).toBe(200);
 
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.totals.requests).toBe(0);
     expect(json.series).toEqual([]);
   });
@@ -111,26 +130,34 @@ describe("GET /projects/:id/cron-logs", () => {
     seedProject(testEnv, "cron-app");
 
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        data: {
-          viewer: {
-            accounts: [{
-              workersInvocationsAdaptive: [
+      new Response(
+        JSON.stringify({
+          data: {
+            viewer: {
+              accounts: [
                 {
-                  dimensions: { datetime: "2026-04-09T12:00:00Z", status: "success", scriptName: "cron-app" },
-                  sum: { requests: 1, errors: 0, duration: 15 },
+                  workersInvocationsAdaptive: [
+                    {
+                      dimensions: {
+                        datetime: "2026-04-09T12:00:00Z",
+                        status: "success",
+                        scriptName: "cron-app",
+                      },
+                      sum: { requests: 1, errors: 0, duration: 15 },
+                    },
+                  ],
                 },
               ],
-            }],
+            },
           },
-        },
-      })),
+        }),
+      ),
     );
 
     const res = await req("/projects/cron-app/cron-logs");
     expect(res.status).toBe(200);
 
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.invocations).toHaveLength(1);
     expect(json.invocations[0].requests).toBe(1);
     expect(json.invocations[0].durationMs).toBe(15);
@@ -143,7 +170,7 @@ describe("GET /projects/:id/cron-logs", () => {
 
     const res = await req("/projects/app/cron-logs");
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.invocations).toEqual([]);
   });
 });

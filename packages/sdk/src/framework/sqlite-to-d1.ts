@@ -62,7 +62,9 @@ export function sqliteDumpToD1(dump: string): string {
     // containing `fts` (e.g. `_emdash_fts_posts_data`,
     // `fts_posts_data`).
     if (
-      /^(CREATE TABLE IF NOT EXISTS|INSERT INTO)\s+['"]?\w*fts\w*_(data|idx|docsize|config)['"]?\b/i.test(stmt)
+      /^(CREATE TABLE IF NOT EXISTS|INSERT INTO)\s+['"]?\w*fts\w*_(data|idx|docsize|config)['"]?\b/i.test(
+        stmt,
+      )
     ) {
       continue;
     }

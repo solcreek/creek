@@ -1,4 +1,9 @@
-import { SidebarProvider, SidebarInset, SidebarTrigger, useSidebar } from "@solcreek/ui/components/sidebar";
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+  useSidebar,
+} from "@solcreek/ui/components/sidebar";
 import { Separator } from "@solcreek/ui/components/separator";
 import { AppSidebar } from "./app-sidebar";
 import { ProjectSwitcher } from "./project-switcher";
@@ -9,9 +14,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <AppSidebar />
       <SidebarInset>
         <Header />
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

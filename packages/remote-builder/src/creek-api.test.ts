@@ -20,7 +20,10 @@ function activeStatusHandlers(projectId: string) {
     http.post(`${API}/projects/:pid/deployments`, () =>
       HttpResponse.json({ deployment: { id: "dep-1" } }),
     ),
-    http.put(`${API}/projects/:pid/deployments/:did/bundle`, () => new HttpResponse(null, { status: 202 })),
+    http.put(
+      `${API}/projects/:pid/deployments/:did/bundle`,
+      () => new HttpResponse(null, { status: 202 }),
+    ),
     http.get(`${API}/projects/${projectId}/deployments/dep-1`, () =>
       HttpResponse.json({
         url: "https://myapp-team.bycreek.test",
@@ -73,11 +76,20 @@ describe("deployToCreek", () => {
   it("returns a DeployError when the deployment fails", async () => {
     server.use(
       http.get(`${API}/projects/myapp`, () => HttpResponse.json({ id: "proj-1" })),
-      http.post(`${API}/projects/:pid/deployments`, () => HttpResponse.json({ deployment: { id: "dep-1" } })),
-      http.put(`${API}/projects/:pid/deployments/:did/bundle`, () => new HttpResponse(null, { status: 202 })),
+      http.post(`${API}/projects/:pid/deployments`, () =>
+        HttpResponse.json({ deployment: { id: "dep-1" } }),
+      ),
+      http.put(
+        `${API}/projects/:pid/deployments/:did/bundle`,
+        () => new HttpResponse(null, { status: 202 }),
+      ),
       http.get(`${API}/projects/proj-1/deployments/dep-1`, () =>
         HttpResponse.json({
-          deployment: { status: "failed", failedStep: "deploying", errorMessage: "No such module node:http" },
+          deployment: {
+            status: "failed",
+            failedStep: "deploying",
+            errorMessage: "No such module node:http",
+          },
         }),
       ),
     );
@@ -98,6 +110,8 @@ describe("deployToCreek", () => {
         HttpResponse.json({ message: "slug taken" }, { status: 409 }),
       ),
     );
-    await expect(deployToCreek(API, "tok", "myapp", "nextjs", bundle)).rejects.toThrow(/Failed to create project: slug taken/);
+    await expect(deployToCreek(API, "tok", "myapp", "nextjs", bundle)).rejects.toThrow(
+      /Failed to create project: slug taken/,
+    );
   });
 });

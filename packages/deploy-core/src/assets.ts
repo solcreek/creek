@@ -12,9 +12,7 @@ export async function hashAsset(content: ArrayBuffer, salt: string): Promise<str
   combined.set(saltBytes, 0);
   combined.set(new Uint8Array(content), saltBytes.length);
   const digest = await crypto.subtle.digest("SHA-256", combined);
-  const hex = [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   return hex.slice(0, 32);
 }
 
@@ -67,13 +65,13 @@ export async function uploadAssetFiles(
   async function worker(): Promise<void> {
     while (next < buckets.length) {
       const bucket = buckets[next++];
-      const result = (await cfApi(env, "POST", path, buildForm(bucket), uploadJwt)) as { jwt?: string };
+      const result = (await cfApi(env, "POST", path, buildForm(bucket), uploadJwt)) as {
+        jwt?: string;
+      };
       if (result.jwt) completionJwt = result.jwt;
     }
   }
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()),
-  );
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, buckets.length) }, () => worker()));
 
   return completionJwt;
 }

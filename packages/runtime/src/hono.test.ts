@@ -91,9 +91,7 @@ describe("broadcast()", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchSpy.mock.calls[0];
-    expect(url).toBe(
-      "https://rt.example.com/test-project/rooms/my-room/broadcast",
-    );
+    expect(url).toBe("https://rt.example.com/test-project/rooms/my-room/broadcast");
     const body = JSON.parse(opts.body);
     expect(body).toEqual({ table: "_manual", operation: "NOTIFY" });
   });

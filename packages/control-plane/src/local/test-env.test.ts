@@ -27,11 +27,11 @@ describe("createLocalTestEnv", () => {
   it("D1 adapter: insert + query round-trip", async () => {
     await testEnv.env.DB.prepare(
       "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-    ).bind("u1", "Alice", "alice@test.com", 0).run();
+    )
+      .bind("u1", "Alice", "alice@test.com", 0)
+      .run();
 
-    const row = await testEnv.env.DB.prepare(
-      "SELECT * FROM user WHERE id = ?",
-    ).bind("u1").first();
+    const row = await testEnv.env.DB.prepare("SELECT * FROM user WHERE id = ?").bind("u1").first();
 
     expect(row).not.toBeNull();
     expect((row as any).name).toBe("Alice");
@@ -41,8 +41,16 @@ describe("createLocalTestEnv", () => {
   it("D1 adapter: batch executes atomically", async () => {
     const db = testEnv.env.DB;
     await db.batch([
-      db.prepare("INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))").bind("u1", "Alice", "a@t.com", 0),
-      db.prepare("INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))").bind("u2", "Bob", "b@t.com", 0),
+      db
+        .prepare(
+          "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+        )
+        .bind("u1", "Alice", "a@t.com", 0),
+      db
+        .prepare(
+          "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+        )
+        .bind("u2", "Bob", "b@t.com", 0),
     ] as any);
 
     const result = await db.prepare("SELECT COUNT(*) as cnt FROM user").first();
@@ -108,16 +116,22 @@ describe("createLocalTestEnv with Hono app", () => {
       const body = await c.req.json();
       await c.env.DB.prepare(
         "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
-      ).bind(body.id, body.name, body.email, 0).run();
+      )
+        .bind(body.id, body.name, body.email, 0)
+        .run();
       return c.json({ ok: true }, 201);
     });
 
     // Create a user
-    const createRes = await app.request("/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: "u1", name: "Test", email: "test@t.com" }),
-    }, testEnv.env);
+    const createRes = await app.request(
+      "/users",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "u1", name: "Test", email: "test@t.com" }),
+      },
+      testEnv.env,
+    );
     expect(createRes.status).toBe(201);
 
     // Query it back

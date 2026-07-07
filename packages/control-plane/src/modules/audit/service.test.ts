@@ -56,38 +56,50 @@ describe("hashIp", () => {
 
 describe("recordAudit", () => {
   test("inserts audit_log and audit_ip_log rows", async () => {
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "project.create",
-      resourceType: "project",
-      resourceId: "proj-123",
-      metadata: { slug: "my-app" },
-    }, TEST_AUDIT_CTX);
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "project.create",
+        resourceType: "project",
+        resourceId: "proj-123",
+        metadata: { slug: "my-app" },
+      },
+      TEST_AUDIT_CTX,
+    );
 
-    const auditRow = await testEnv.env.DB.prepare(
+    const auditRow = (await testEnv.env.DB.prepare(
       "SELECT * FROM audit_log ORDER BY createdAt DESC LIMIT 1",
-    ).first() as any;
+    ).first()) as any;
 
     expect(auditRow).not.toBeNull();
     expect(auditRow.action).toBe("project.create");
     expect(auditRow.resourceType).toBe("project");
     expect(auditRow.resourceId).toBe("proj-123");
 
-    const ipRow = await testEnv.env.DB.prepare(
+    const ipRow = (await testEnv.env.DB.prepare(
       "SELECT * FROM audit_ip_log ORDER BY createdAt DESC LIMIT 1",
-    ).first() as any;
+    ).first()) as any;
     expect(ipRow).not.toBeNull();
   });
 
   test("stores correct user identity fields", async () => {
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "deployment.deploy",
-      resourceType: "deployment",
-      resourceId: "dep-456",
-    }, TEST_AUDIT_CTX);
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "deployment.deploy",
+        resourceType: "deployment",
+        resourceId: "dep-456",
+      },
+      TEST_AUDIT_CTX,
+    );
 
-    const row = await testEnv.env.DB.prepare(
-      "SELECT * FROM audit_log WHERE resourceId = ?",
-    ).bind("dep-456").first() as any;
+    const row = (await testEnv.env.DB.prepare("SELECT * FROM audit_log WHERE resourceId = ?")
+      .bind("dep-456")
+      .first()) as any;
 
     expect(row.teamId).toBe(TEST_TEAM_ID);
     expect(row.userId).toBe(TEST_USER.id);
@@ -96,16 +108,22 @@ describe("recordAudit", () => {
   });
 
   test("stores request context fields", async () => {
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "envvar.set",
-      resourceType: "envvar",
-      resourceId: "proj-1",
-      metadata: { key: "DATABASE_URL" },
-    }, TEST_AUDIT_CTX);
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "envvar.set",
+        resourceType: "envvar",
+        resourceId: "proj-1",
+        metadata: { key: "DATABASE_URL" },
+      },
+      TEST_AUDIT_CTX,
+    );
 
-    const row = await testEnv.env.DB.prepare(
-      "SELECT * FROM audit_log WHERE action = ?",
-    ).bind("envvar.set").first() as any;
+    const row = (await testEnv.env.DB.prepare("SELECT * FROM audit_log WHERE action = ?")
+      .bind("envvar.set")
+      .first()) as any;
 
     expect(row.ipHash).toBe(TEST_AUDIT_CTX.ipHash);
     expect(row.country).toBe("TW");
@@ -114,28 +132,40 @@ describe("recordAudit", () => {
   });
 
   test("stores raw IP in audit_ip_log", async () => {
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "project.delete",
-      resourceType: "project",
-      resourceId: "proj-1",
-    }, TEST_AUDIT_CTX);
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "project.delete",
+        resourceType: "project",
+        resourceId: "proj-1",
+      },
+      TEST_AUDIT_CTX,
+    );
 
-    const ipRow = await testEnv.env.DB.prepare(
+    const ipRow = (await testEnv.env.DB.prepare(
       "SELECT * FROM audit_ip_log ORDER BY createdAt DESC LIMIT 1",
-    ).first() as any;
+    ).first()) as any;
 
     expect(ipRow.rawIp).toBe("203.0.113.42");
   });
 
   test("handles null metadata and resourceId", async () => {
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "domain.add",
-      resourceType: "domain",
-    }, TEST_AUDIT_CTX);
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "domain.add",
+        resourceType: "domain",
+      },
+      TEST_AUDIT_CTX,
+    );
 
-    const row = await testEnv.env.DB.prepare(
-      "SELECT * FROM audit_log WHERE action = ?",
-    ).bind("domain.add").first() as any;
+    const row = (await testEnv.env.DB.prepare("SELECT * FROM audit_log WHERE action = ?")
+      .bind("domain.add")
+      .first()) as any;
 
     expect(row.resourceId).toBeNull();
     expect(row.metadata).toBeNull();
@@ -143,29 +173,43 @@ describe("recordAudit", () => {
 
   test("truncates userAgent to 512 chars", async () => {
     const longUA = "x".repeat(1000);
-    await recordAudit(testEnv.env.DB as any, TEST_USER, TEST_TEAM_ID, {
-      action: "project.create",
-      resourceType: "project",
-    }, { ...TEST_AUDIT_CTX, userAgent: longUA });
+    await recordAudit(
+      testEnv.env.DB as any,
+      TEST_USER,
+      TEST_TEAM_ID,
+      {
+        action: "project.create",
+        resourceType: "project",
+      },
+      { ...TEST_AUDIT_CTX, userAgent: longUA },
+    );
 
-    const row = await testEnv.env.DB.prepare(
+    const row = (await testEnv.env.DB.prepare(
       "SELECT userAgent FROM audit_log ORDER BY createdAt DESC LIMIT 1",
-    ).first() as any;
+    ).first()) as any;
 
     expect(row.userAgent).toHaveLength(512);
   });
 
   test("does not throw on db error", async () => {
     const failingDb = {
-      batch: async () => { throw new Error("DB offline"); },
+      batch: async () => {
+        throw new Error("DB offline");
+      },
       prepare: () => ({ bind: () => ({ run: async () => ({}) }) }),
     };
 
     await expect(
-      recordAudit(failingDb as any, TEST_USER, TEST_TEAM_ID, {
-        action: "project.create",
-        resourceType: "project",
-      }, TEST_AUDIT_CTX),
+      recordAudit(
+        failingDb as any,
+        TEST_USER,
+        TEST_TEAM_ID,
+        {
+          action: "project.create",
+          resourceType: "project",
+        },
+        TEST_AUDIT_CTX,
+      ),
     ).resolves.toBeUndefined();
   });
 });
@@ -176,16 +220,18 @@ describe("purgeAuditIpLogs", () => {
     const now = Date.now();
     const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
 
-    await db.prepare(
-      "INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)",
-    ).bind("fresh-id", "1.2.3.4", now).run();
-    await db.prepare(
-      "INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)",
-    ).bind("old-id", "5.6.7.8", old).run();
+    await db
+      .prepare("INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)")
+      .bind("fresh-id", "1.2.3.4", now)
+      .run();
+    await db
+      .prepare("INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)")
+      .bind("old-id", "5.6.7.8", old)
+      .run();
 
     await purgeAuditIpLogs(db as any);
 
-    const remaining = await db.prepare("SELECT * FROM audit_ip_log").all() as any;
+    const remaining = (await db.prepare("SELECT * FROM audit_ip_log").all()) as any;
     expect(remaining.results).toHaveLength(1);
     expect(remaining.results[0].auditLogId).toBe("fresh-id");
   });

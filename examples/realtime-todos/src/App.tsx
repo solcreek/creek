@@ -59,24 +59,24 @@ function SplitView({ roomId }: { roomId: string }) {
   });
 
   const addTodo = (text: string) =>
-    mutate(
-      { method: "POST", path: "/api/todos", body: { text } },
-      (prev) => [
-        { id: crypto.randomUUID().slice(0, 8), text, completed: 0, created_at: new Date().toISOString() },
-        ...prev,
-      ],
-    );
+    mutate({ method: "POST", path: "/api/todos", body: { text } }, (prev) => [
+      {
+        id: crypto.randomUUID().slice(0, 8),
+        text,
+        completed: 0,
+        created_at: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
 
   const toggleTodo = (id: string) =>
-    mutate(
-      { method: "PATCH", path: `/api/todos/${id}` },
-      (prev) => prev.map((t) => (t.id === id ? { ...t, completed: t.completed ? 0 : 1 } : t)),
+    mutate({ method: "PATCH", path: `/api/todos/${id}` }, (prev) =>
+      prev.map((t) => (t.id === id ? { ...t, completed: t.completed ? 0 : 1 } : t)),
     );
 
   const deleteTodo = (id: string) =>
-    mutate(
-      { method: "DELETE", path: `/api/todos/${id}` },
-      (prev) => prev.filter((t) => t.id !== id),
+    mutate({ method: "DELETE", path: `/api/todos/${id}` }, (prev) =>
+      prev.filter((t) => t.id !== id),
     );
 
   return (
@@ -84,7 +84,9 @@ function SplitView({ roomId }: { roomId: string }) {
       <div className="app-panel">
         <div className="app-chrome">
           <div className="chrome-dots">
-            <span /><span /><span />
+            <span />
+            <span />
+            <span />
           </div>
           <span className="chrome-url">realtime-todos.creek.dev</span>
           <StatusBar />
@@ -101,7 +103,9 @@ function SplitView({ roomId }: { roomId: string }) {
       <div className="db-panel">
         <div className="app-chrome db-chrome">
           <div className="chrome-dots">
-            <span /><span /><span />
+            <span />
+            <span />
+            <span />
           </div>
           <span className="chrome-url">dashboard.creek.dev</span>
         </div>

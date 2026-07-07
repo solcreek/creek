@@ -83,7 +83,12 @@ export class CreekdDevServer {
     }
     console.log("");
     for (const [k, v] of Object.entries(env)) {
-      if (k.startsWith("DATABASE") || k.startsWith("REDIS") || k.startsWith("S3_") || k.startsWith("SMTP")) {
+      if (
+        k.startsWith("DATABASE") ||
+        k.startsWith("REDIS") ||
+        k.startsWith("S3_") ||
+        k.startsWith("SMTP")
+      ) {
         const masked = v.replace(/:[^:@]+@/, ":***@");
         consola.info(`  ${k}=${masked}`);
       }
@@ -135,10 +140,10 @@ export class CreekdDevServer {
 
   private async ensureSandbox(cwd: string): Promise<SandboxStatus> {
     try {
-      const output = execSync(
-        `creekd sandbox --non-interactive --json "${cwd}"`,
-        { encoding: "utf-8", timeout: 300_000 },
-      );
+      const output = execSync(`creekd sandbox --non-interactive --json "${cwd}"`, {
+        encoding: "utf-8",
+        timeout: 300_000,
+      });
       // Find the JSON line in output (creekd may print logs before JSON)
       const lines = output.trim().split("\n");
       for (let i = lines.length - 1; i >= 0; i--) {
@@ -209,7 +214,14 @@ export class CreekdDevServer {
     }
 
     // Fallback to bun --watch or node --watch
-    const entryFiles = ["src/index.ts", "src/index.mjs", "src/index.js", "index.ts", "index.mjs", "index.js"];
+    const entryFiles = [
+      "src/index.ts",
+      "src/index.mjs",
+      "src/index.js",
+      "index.ts",
+      "index.mjs",
+      "index.js",
+    ];
     for (const entry of entryFiles) {
       if (existsSync(join(cwd, entry))) {
         return ["bun", "--watch", entry];

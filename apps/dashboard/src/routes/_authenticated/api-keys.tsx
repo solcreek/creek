@@ -105,9 +105,7 @@ function ApiKeysPage() {
             >
               <div>
                 <p className="text-sm font-medium">{k.name ?? "Unnamed"}</p>
-                <p className="font-mono text-xs text-muted-foreground">
-                  {k.start ?? "creek_****"}
-                </p>
+                <p className="font-mono text-xs text-muted-foreground">{k.start ?? "creek_****"}</p>
               </div>
               <button
                 onClick={() => deleteKey.mutate(k.id)}

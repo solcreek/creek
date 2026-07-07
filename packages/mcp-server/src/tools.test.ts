@@ -82,7 +82,11 @@ describe("MCP deploy_status tool", () => {
   it("reads a sandbox's status", async () => {
     server.use(
       http.get(`${SANDBOX}/api/sandbox/abc123/status`, () =>
-        HttpResponse.json({ status: "active", sandboxId: "abc123", previewUrl: "https://abc123.creeksandbox.test" }),
+        HttpResponse.json({
+          status: "active",
+          sandboxId: "abc123",
+          previewUrl: "https://abc123.creeksandbox.test",
+        }),
       ),
     );
     const status = registerAndCapture().get("deploy_status")!;

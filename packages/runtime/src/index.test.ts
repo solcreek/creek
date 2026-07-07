@@ -23,7 +23,9 @@ function createMockD1() {
   };
 
   const mockDb = {
-    prepare: vi.fn().mockReturnValue({ ...mockStatement, bind: vi.fn().mockReturnValue(mockStatement) }),
+    prepare: vi
+      .fn()
+      .mockReturnValue({ ...mockStatement, bind: vi.fn().mockReturnValue(mockStatement) }),
     batch: vi.fn().mockResolvedValue([]),
     exec: vi.fn().mockResolvedValue({ count: 0 }),
     dump: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
@@ -63,8 +65,19 @@ describe("db.query()", () => {
   test("passes params via bind", async () => {
     const mockAll = vi.fn().mockResolvedValue({ results: [{ id: "1" }], meta: {} });
     const mockBound = { all: mockAll, run: vi.fn(), first: vi.fn(), raw: vi.fn(), bind: vi.fn() };
-    const mockStmt = { bind: vi.fn().mockReturnValue(mockBound), all: mockAll, run: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnValue(mockBound),
+      all: mockAll,
+      run: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({ DB: mockDb });
 
     await (db as CreekDatabase).query("SELECT * FROM todos WHERE room_id = ?", "room1");
@@ -88,8 +101,19 @@ describe("db.mutate()", () => {
   test("returns changes and lastRowId", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 42 } });
     const mockBound = { run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn(), bind: vi.fn() };
-    const mockStmt = { bind: vi.fn().mockReturnValue(mockBound), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnValue(mockBound),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({ DB: mockDb });
 
     const result = await (db as CreekDatabase).mutate(
@@ -102,8 +126,19 @@ describe("db.mutate()", () => {
   test("triggers broadcast", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
     const mockBound = { run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn(), bind: vi.fn() };
-    const mockStmt = { bind: vi.fn().mockReturnValue(mockBound), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnValue(mockBound),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -129,7 +164,12 @@ describe("db.prepare().run() broadcast", () => {
       first: vi.fn(),
       raw: vi.fn(),
     };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -146,8 +186,19 @@ describe("room-scoped broadcast", () => {
   test("_setRoom changes broadcast URL to room-scoped", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
     const mockBound = { run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn(), bind: vi.fn() };
-    const mockStmt = { bind: vi.fn().mockReturnValue(mockBound), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnValue(mockBound),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -164,8 +215,19 @@ describe("room-scoped broadcast", () => {
   test("_setRoom(null) reverts to project-wide broadcast", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
     const mockBound = { run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn(), bind: vi.fn() };
-    const mockStmt = { bind: vi.fn().mockReturnValue(mockBound), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnValue(mockBound),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -228,7 +290,12 @@ describe("notifyRealtime", () => {
 describe("D1Database interface compatibility", () => {
   test("db.prepare() returns a wrapped statement", () => {
     const mockStmt = { bind: vi.fn(), run: vi.fn(), all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({ DB: mockDb });
 
     const stmt = db.prepare("SELECT 1");
@@ -266,8 +333,19 @@ describe("D1Database interface compatibility", () => {
 describe("extractTable", () => {
   test("extracts from INSERT INTO", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
-    const mockStmt = { bind: vi.fn().mockReturnThis(), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnThis(),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -281,8 +359,19 @@ describe("extractTable", () => {
 
   test("extracts from UPDATE", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
-    const mockStmt = { bind: vi.fn().mockReturnThis(), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnThis(),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",
@@ -296,8 +385,19 @@ describe("extractTable", () => {
 
   test("extracts from DELETE FROM", async () => {
     const mockRun = vi.fn().mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
-    const mockStmt = { bind: vi.fn().mockReturnThis(), run: mockRun, all: vi.fn(), first: vi.fn(), raw: vi.fn() };
-    const mockDb = { prepare: vi.fn().mockReturnValue(mockStmt), batch: vi.fn(), exec: vi.fn(), dump: vi.fn() };
+    const mockStmt = {
+      bind: vi.fn().mockReturnThis(),
+      run: mockRun,
+      all: vi.fn(),
+      first: vi.fn(),
+      raw: vi.fn(),
+    };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue(mockStmt),
+      batch: vi.fn(),
+      exec: vi.fn(),
+      dump: vi.fn(),
+    };
     _setEnv({
       DB: mockDb,
       CREEK_REALTIME_URL: "https://rt.example.com",

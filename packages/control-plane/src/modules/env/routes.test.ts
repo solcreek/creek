@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -46,7 +51,7 @@ describe("GET /projects/:id/env", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/env`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toHaveLength(2);
     expect(json[0].key).toBe("API_KEY");
     // Value should be masked, not the encrypted blob
@@ -68,13 +73,15 @@ describe("POST /projects/:id/env", () => {
       value: "postgres://...",
     });
     expect(res.status).toBe(201);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.key).toBe("DATABASE_URL");
 
     // Verify the env var was actually inserted in the real DB
-    const row = testEnv.db.db.prepare(
-      "SELECT key, encryptedValue FROM environment_variable WHERE projectId = ? AND key = ?",
-    ).get(PROJECT_ID, "DATABASE_URL") as any;
+    const row = testEnv.db.db
+      .prepare(
+        "SELECT key, encryptedValue FROM environment_variable WHERE projectId = ? AND key = ?",
+      )
+      .get(PROJECT_ID, "DATABASE_URL") as any;
     expect(row).toBeDefined();
     expect(row.key).toBe("DATABASE_URL");
     expect(row.encryptedValue).toBeTruthy();
@@ -128,9 +135,9 @@ describe("DELETE /projects/:id/env/:key", () => {
     expect(res.status).toBe(200);
 
     // Verify it's actually gone
-    const row = testEnv.db.db.prepare(
-      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
-    ).get(PROJECT_ID, "DATABASE_URL");
+    const row = testEnv.db.db
+      .prepare("SELECT key FROM environment_variable WHERE projectId = ? AND key = ?")
+      .get(PROJECT_ID, "DATABASE_URL");
     expect(row).toBeUndefined();
   });
 
@@ -181,9 +188,9 @@ describe("CSRF origin guard on /env routes", () => {
     expect(res.status).toBe(403);
 
     // The write must not have landed.
-    const row = testEnv.db.db.prepare(
-      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
-    ).get(PROJECT_ID, "STOLEN");
+    const row = testEnv.db.db
+      .prepare("SELECT key FROM environment_variable WHERE projectId = ? AND key = ?")
+      .get(PROJECT_ID, "STOLEN");
     expect(row).toBeUndefined();
   });
 
@@ -208,9 +215,9 @@ describe("CSRF origin guard on /env routes", () => {
     );
     // Not just "not 403" — prove the legitimate write actually completes.
     expect(res.status).toBe(201);
-    const row = testEnv.db.db.prepare(
-      "SELECT key FROM environment_variable WHERE projectId = ? AND key = ?",
-    ).get(PROJECT_ID, "OK_KEY");
+    const row = testEnv.db.db
+      .prepare("SELECT key FROM environment_variable WHERE projectId = ? AND key = ?")
+      .get(PROJECT_ID, "OK_KEY");
     expect(row).toBeDefined();
   });
 });

@@ -18,7 +18,9 @@ if (!existsSync(monorepoSkills)) {
   // The skills/ source was moved to a separate repo (solcreek/skills) and
   // isn't present in the publish checkout. Skip bundling rather than failing
   // the publish — `npx creek` works without the bundled skill references.
-  console.warn(`bundle-skills: source not found at ${monorepoSkills} — skipping (skills bundling is optional).`);
+  console.warn(
+    `bundle-skills: source not found at ${monorepoSkills} — skipping (skills bundling is optional).`,
+  );
   process.exit(0);
 }
 

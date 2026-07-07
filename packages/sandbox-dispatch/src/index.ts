@@ -316,7 +316,10 @@ export default {
 
     const sandboxId = hostname.slice(0, -suffix.length);
     if (!sandboxId || sandboxId.includes(".")) {
-      return Response.json({ error: "not_found", message: "Invalid sandbox hostname" }, { status: 404 });
+      return Response.json(
+        { error: "not_found", message: "Invalid sandbox hostname" },
+        { status: 404 },
+      );
     }
 
     // Look up sandbox record (sandbox table renamed to deployments in migration 0002)
@@ -324,7 +327,13 @@ export default {
       "SELECT id, status, expiresAt, previewHost, deployDurationMs FROM deployments WHERE id = ?",
     )
       .bind(sandboxId)
-      .first<{ id: string; status: string; expiresAt: number; previewHost: string; deployDurationMs: number | null }>();
+      .first<{
+        id: string;
+        status: string;
+        expiresAt: number;
+        previewHost: string;
+        deployDurationMs: number | null;
+      }>();
 
     if (!sandbox) {
       return Response.json({ error: "not_found", message: "Sandbox not found" }, { status: 404 });
@@ -339,7 +348,10 @@ export default {
     }
 
     // Check expiry
-    if (sandbox.status === "expired" || (sandbox.status === "active" && Date.now() > sandbox.expiresAt)) {
+    if (
+      sandbox.status === "expired" ||
+      (sandbox.status === "active" && Date.now() > sandbox.expiresAt)
+    ) {
       return new Response(expiredPage(sandboxId), {
         status: 410,
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -415,8 +427,12 @@ export default {
       // Infer Content-Type if missing
       if (response.ok && !response.headers.get("Content-Type")) {
         const lastSegment = url.pathname.split("/").pop() ?? "";
-        const ext = lastSegment.includes(".") ? lastSegment.split(".").pop()?.toLowerCase() ?? "" : "";
-        const contentType = ext ? (MIME_TYPES[ext] ?? "application/octet-stream") : "text/html; charset=utf-8";
+        const ext = lastSegment.includes(".")
+          ? (lastSegment.split(".").pop()?.toLowerCase() ?? "")
+          : "";
+        const contentType = ext
+          ? (MIME_TYPES[ext] ?? "application/octet-stream")
+          : "text/html; charset=utf-8";
         const headers = new Headers(response.headers);
         headers.set("Content-Type", contentType);
         response = new Response(response.body, {
@@ -448,8 +464,7 @@ export default {
         const method = request.method.toUpperCase();
         const hasSetCookie = headers.has("Set-Cookie");
         const userCacheCtl = headers.get("Cache-Control") ?? "";
-        const userOptedOut =
-          /\b(private|no-store|no-cache)\b/i.test(userCacheCtl);
+        const userOptedOut = /\b(private|no-store|no-cache)\b/i.test(userCacheCtl);
         const isReadMethod = method === "GET" || method === "HEAD";
 
         if (isReadMethod && !hasSetCookie && !userOptedOut) {
@@ -477,7 +492,12 @@ export default {
       const ct = response.headers.get("Content-Type") ?? "";
       if (ct.includes("text/html") && response.ok) {
         const html = await response.text();
-        const banner = bannerHtml(sandboxId, sandbox.deployDurationMs, `https://${sandbox.previewHost}`, sandbox.expiresAt);
+        const banner = bannerHtml(
+          sandboxId,
+          sandbox.deployDurationMs,
+          `https://${sandbox.previewHost}`,
+          sandbox.expiresAt,
+        );
         // Try </body> first, fall back to </html>, fall back to append
         const injected = html.includes("</body>")
           ? html.replace("</body>", `${banner}</body>`)
@@ -512,9 +532,15 @@ export default {
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       if (message.startsWith("Worker not found")) {
-        return Response.json({ error: "not_found", message: "Sandbox deployment not found" }, { status: 404 });
+        return Response.json(
+          { error: "not_found", message: "Sandbox deployment not found" },
+          { status: 404 },
+        );
       }
-      return Response.json({ error: "internal", message: `Sandbox error: ${message}` }, { status: 500 });
+      return Response.json(
+        { error: "internal", message: `Sandbox error: ${message}` },
+        { status: 500 },
+      );
     }
   },
 };

@@ -9,11 +9,7 @@ interface Env {
 
 // ─── HMAC-SHA256 verification ───────────────────────────────────────────────
 
-async function verifyHmac(
-  masterKey: string,
-  slug: string,
-  token: string,
-): Promise<boolean> {
+async function verifyHmac(masterKey: string, slug: string, token: string): Promise<boolean> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(masterKey),
@@ -22,11 +18,7 @@ async function verifyHmac(
     ["sign"],
   );
 
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(slug),
-  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(slug));
 
   const expected = Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -49,11 +41,7 @@ const WS_TOKEN_MAX_AGE = 5 * 60; // 5 minutes
  * HMAC is computed over "{slug}:ws:{timestamp}" using the per-project secret.
  * The per-project secret is HMAC(masterKey, slug).
  */
-async function verifyWsToken(
-  masterKey: string,
-  slug: string,
-  token: string,
-): Promise<boolean> {
+async function verifyWsToken(masterKey: string, slug: string, token: string): Promise<boolean> {
   const dotIdx = token.indexOf(".");
   if (dotIdx === -1) return false;
 
@@ -124,9 +112,7 @@ export class RealtimeRoom implements DurableObject {
 
     // Auto-response: CF handles ping/pong WITHOUT waking the DO.
     // Keeps connections alive during hibernation at zero compute cost.
-    this.state.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair("ping", "pong"),
-    );
+    this.state.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -182,7 +168,11 @@ export class RealtimeRoom implements DurableObject {
         live++;
       } catch {
         // Socket is dead — close it so getWebSockets() won't return it again
-        try { ws.close(1011, "Unexpected error"); } catch { /* already closed */ }
+        try {
+          ws.close(1011, "Unexpected error");
+        } catch {
+          /* already closed */
+        }
       }
     }
     return live;
@@ -191,9 +181,7 @@ export class RealtimeRoom implements DurableObject {
   private broadcastPeers(exclude?: WebSocket): void {
     // Count only live sockets (exclude the one being closed)
     const allSockets = this.state.getWebSockets();
-    const count = exclude
-      ? allSockets.filter((ws) => ws !== exclude).length
-      : allSockets.length;
+    const count = exclude ? allSockets.filter((ws) => ws !== exclude).length : allSockets.length;
     this.broadcast(JSON.stringify({ type: "peers", count }), exclude);
   }
 
@@ -202,14 +190,27 @@ export class RealtimeRoom implements DurableObject {
     // ping/pong handled by setWebSocketAutoResponse — doesn't wake the DO.
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    try { ws.close(code, reason); } catch { /* already closed */ }
+  async webSocketClose(
+    ws: WebSocket,
+    code: number,
+    reason: string,
+    wasClean: boolean,
+  ): Promise<void> {
+    try {
+      ws.close(code, reason);
+    } catch {
+      /* already closed */
+    }
     // Exclude the closing socket from peer count
     this.broadcastPeers(ws);
   }
 
   async webSocketError(ws: WebSocket): Promise<void> {
-    try { ws.close(1011, "WebSocket error"); } catch { /* already closed */ }
+    try {
+      ws.close(1011, "WebSocket error");
+    } catch {
+      /* already closed */
+    }
     this.broadcastPeers(ws);
   }
 }
@@ -252,12 +253,18 @@ export default {
       if (!isPublicRoom) {
         const wsToken = url.searchParams.get("token");
         if (!wsToken) {
-          return Response.json({ error: "unauthorized", message: "Missing token" }, { status: 401 });
+          return Response.json(
+            { error: "unauthorized", message: "Missing token" },
+            { status: 401 },
+          );
         }
 
         const valid = await verifyWsToken(env.REALTIME_MASTER_KEY, route.slug, wsToken);
         if (!valid) {
-          return Response.json({ error: "unauthorized", message: "Invalid or expired token" }, { status: 401 });
+          return Response.json(
+            { error: "unauthorized", message: "Invalid or expired token" },
+            { status: 401 },
+          );
         }
       }
     }

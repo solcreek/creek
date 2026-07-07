@@ -238,14 +238,27 @@ export default function App() {
       name: "Pro",
       price: "$29",
       period: "/mo",
-      features: ["Up to 1M events/mo", "Unlimited dashboards", "1-year retention", "Priority support", "Custom alerts"],
+      features: [
+        "Up to 1M events/mo",
+        "Unlimited dashboards",
+        "1-year retention",
+        "Priority support",
+        "Custom alerts",
+      ],
       primary: true,
     },
     {
       name: "Enterprise",
       price: "Custom",
       period: "",
-      features: ["Unlimited events", "Unlimited dashboards", "Unlimited retention", "Dedicated support", "SSO & SAML", "SLA guarantee"],
+      features: [
+        "Unlimited events",
+        "Unlimited dashboards",
+        "Unlimited retention",
+        "Dedicated support",
+        "SSO & SAML",
+        "SLA guarantee",
+      ],
       primary: false,
     },
   ];
@@ -256,9 +269,21 @@ export default function App() {
       <nav style={styles.nav}>
         <span style={styles.logo}>Metrix</span>
         <ul style={styles.navLinks}>
-          <li><a style={styles.navLink} href="#features">Features</a></li>
-          <li><a style={styles.navLink} href="#pricing">Pricing</a></li>
-          <li><a style={styles.navLink} href="#docs">Docs</a></li>
+          <li>
+            <a style={styles.navLink} href="#features">
+              Features
+            </a>
+          </li>
+          <li>
+            <a style={styles.navLink} href="#pricing">
+              Pricing
+            </a>
+          </li>
+          <li>
+            <a style={styles.navLink} href="#docs">
+              Docs
+            </a>
+          </li>
         </ul>
         <button style={styles.ctaButton}>Get Started</button>
       </nav>
@@ -267,8 +292,8 @@ export default function App() {
       <section style={styles.hero}>
         <h1 style={styles.headline}>Analytics that make sense</h1>
         <p style={styles.subtitle}>
-          Understand your users, track what matters, and make data-driven decisions
-          without the complexity. Set up in minutes, not days.
+          Understand your users, track what matters, and make data-driven decisions without the
+          complexity. Set up in minutes, not days.
         </p>
         <div style={styles.dashboard}>
           {stats.map((s) => (

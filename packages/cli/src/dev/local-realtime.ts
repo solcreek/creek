@@ -4,12 +4,7 @@
 // with a lightweight Node.js WebSocket server. Same URL routing and
 // message format — client code works unchanged.
 
-import {
-  createServer,
-  type Server,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 
 // ─── URL Routing ──────────────────────────────────────────────────────────────
@@ -155,11 +150,7 @@ export class LocalRealtimeServer {
   // ─── Public handlers (for DevProxy integration) ────────────────────────────
 
   /** Handle WebSocket upgrade from an external HTTP server. */
-  handleUpgrade(
-    req: IncomingMessage,
-    socket: import("node:net").Socket,
-    head: Buffer,
-  ): void {
+  handleUpgrade(req: IncomingMessage, socket: import("node:net").Socket, head: Buffer): void {
     const url = new URL(req.url ?? "/", "http://localhost");
     const route = parseRealtimePath(url.pathname);
 

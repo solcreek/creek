@@ -23,9 +23,7 @@ describe("collectAssets", () => {
     expect(result.fileList).toHaveLength(2);
     expect(result.fileList).toContain("index.html");
     expect(result.fileList).toContain("style.css");
-    expect(result.assets["index.html"]).toBe(
-      Buffer.from("<h1>hi</h1>").toString("base64"),
-    );
+    expect(result.assets["index.html"]).toBe(Buffer.from("<h1>hi</h1>").toString("base64"));
   });
 
   test("collects nested directories", () => {

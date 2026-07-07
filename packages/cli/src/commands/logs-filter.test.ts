@@ -32,15 +32,13 @@ describe("matchesClientSide", () => {
   });
 
   test("outcome filter passes match", () => {
-    expect(
-      matchesClientSide(entry({ outcome: "exception" }), { outcomes: ["exception"] }),
-    ).toBe(true);
+    expect(matchesClientSide(entry({ outcome: "exception" }), { outcomes: ["exception"] })).toBe(
+      true,
+    );
   });
 
   test("outcome filter rejects non-match", () => {
-    expect(
-      matchesClientSide(entry({ outcome: "ok" }), { outcomes: ["exception"] }),
-    ).toBe(false);
+    expect(matchesClientSide(entry({ outcome: "ok" }), { outcomes: ["exception"] })).toBe(false);
   });
 
   test("multiple outcomes — entry matches any in the set", () => {
@@ -66,10 +64,9 @@ describe("matchesClientSide", () => {
 
   test("deployment filter scopes to that deploy", () => {
     expect(
-      matchesClientSide(
-        entry({ scriptType: "deployment", deployId: "a1b2c3d4" }),
-        { deployment: "a1b2c3d4" },
-      ),
+      matchesClientSide(entry({ scriptType: "deployment", deployId: "a1b2c3d4" }), {
+        deployment: "a1b2c3d4",
+      }),
     ).toBe(true);
     expect(matchesClientSide(entry(), { deployment: "a1b2c3d4" })).toBe(false);
   });
@@ -135,10 +132,9 @@ describe("matchesClientSide", () => {
 
   test("search hits request URL", () => {
     expect(
-      matchesClientSide(
-        entry({ request: { url: "https://x.com/api/checkout", method: "POST" } }),
-        { search: "checkout" },
-      ),
+      matchesClientSide(entry({ request: { url: "https://x.com/api/checkout", method: "POST" } }), {
+        search: "checkout",
+      }),
     ).toBe(true);
   });
 

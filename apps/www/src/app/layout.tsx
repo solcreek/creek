@@ -25,8 +25,7 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   metadataBase: new URL("https://creek.dev"),
   title: "Creek — Deploy to the edge",
-  description:
-    "Open-source edge deployment platform. Ship full-stack apps to the edge in seconds.",
+  description: "Open-source edge deployment platform. Ship full-stack apps to the edge in seconds.",
   // Default openGraph / twitter metadata for every page that doesn't
   // override it in its own generateMetadata(). The image resolves to
   // the generic Creek brand card rendered by the og-api worker at
@@ -58,7 +57,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn("h-full antialiased dark", geist.variable, jetbrainsMono.variable, fraunces.variable)} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={cn(
+        "h-full antialiased dark",
+        geist.variable,
+        jetbrainsMono.variable,
+        fraunces.variable,
+      )}
+      suppressHydrationWarning
+    >
       <body className="min-h-full flex flex-col">
         {/*
           esbuild __name helper polyfill.

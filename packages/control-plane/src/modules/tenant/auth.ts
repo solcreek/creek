@@ -83,11 +83,11 @@ export function createAuth(env: Env): any {
     },
 
     session: {
-      expiresIn: 60 * 60 * 24 * 7,   // 7 days
-      updateAge: 60 * 60 * 24,        // refresh after 1 day
+      expiresIn: 60 * 60 * 24 * 7, // 7 days
+      updateAge: 60 * 60 * 24, // refresh after 1 day
       cookieCache: {
         enabled: true,
-        maxAge: 300,                   // 5 min cookie cache
+        maxAge: 300, // 5 min cookie cache
       },
     },
 

@@ -2,13 +2,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import {
-  LiveRoom,
-  useRoom,
-  useQuery,
-  useLiveQuery,
-  usePresence,
-} from "./react.js";
+import { LiveRoom, useRoom, useQuery, useLiveQuery, usePresence } from "./react.js";
 
 // ── Mock fetch ──
 
@@ -156,9 +150,7 @@ describe("useRoom", () => {
       }
     });
 
-    expect(result.current.error).toBe(
-      "useRoom must be used within <LiveRoom>",
-    );
+    expect(result.current.error).toBe("useRoom must be used within <LiveRoom>");
   });
 });
 
@@ -180,15 +172,14 @@ describe("useLiveQuery inside LiveRoom", () => {
     });
 
     // Check that fetch was called with the room header
-    const fetchCalls = fetchMock.mock.calls.filter(
-      ([url]: [string]) => url === "/api/todos",
-    );
+    const fetchCalls = fetchMock.mock.calls.filter(([url]: [string]) => url === "/api/todos");
     expect(fetchCalls.length).toBeGreaterThan(0);
     const [, opts] = fetchCalls[0];
     // Headers may be a Headers object or a plain object
-    const headers = opts?.headers instanceof Headers
-      ? opts.headers.get("x-creek-room")
-      : opts?.headers?.["x-creek-room"];
+    const headers =
+      opts?.headers instanceof Headers
+        ? opts.headers.get("x-creek-room")
+        : opts?.headers?.["x-creek-room"];
     expect(headers).toBe("room-42");
   });
 
@@ -206,9 +197,7 @@ describe("useLiveQuery inside LiveRoom", () => {
       // Only the LiveRoom should create a WebSocket, not useLiveQuery
       // LiveRoom creates 1 WS
       expect(MockWebSocket.instances.length).toBe(1);
-      expect(MockWebSocket.instances[0].url).toBe(
-        "wss://rt.example.com/test/rooms/room-42/ws",
-      );
+      expect(MockWebSocket.instances[0].url).toBe("wss://rt.example.com/test/rooms/room-42/ws");
     });
   });
 
@@ -242,9 +231,7 @@ describe("useLiveQuery inside LiveRoom", () => {
     });
 
     await waitFor(() => {
-      const fetchCalls = fetchMock.mock.calls.filter(
-        ([url]: [string]) => url === "/api/todos",
-      );
+      const fetchCalls = fetchMock.mock.calls.filter(([url]: [string]) => url === "/api/todos");
       expect(fetchCalls.length).toBeGreaterThan(0);
     });
   });
@@ -275,15 +262,11 @@ describe("useLiveQuery standalone (outside LiveRoom)", () => {
       json: () => Promise.resolve([]),
     });
 
-    renderHook(() =>
-      useLiveQuery("/api/todos", { realtimeUrl: "wss://custom.example.com/ws" }),
-    );
+    renderHook(() => useLiveQuery("/api/todos", { realtimeUrl: "wss://custom.example.com/ws" }));
 
     await waitFor(() => {
       expect(MockWebSocket.instances.length).toBe(1);
-      expect(MockWebSocket.instances[0].url).toBe(
-        "wss://custom.example.com/ws",
-      );
+      expect(MockWebSocket.instances[0].url).toBe("wss://custom.example.com/ws");
     });
   });
 });
@@ -341,7 +324,10 @@ describe("useLiveQuery mutate with optimistic updates", () => {
       json: () => Promise.resolve(originalData),
     });
 
-    const wrapper = createRoomWrapper("room-rollback", "wss://rt.example.com/test/rooms/room-rollback/ws");
+    const wrapper = createRoomWrapper(
+      "room-rollback",
+      "wss://rt.example.com/test/rooms/room-rollback/ws",
+    );
 
     const { result } = renderHook(() => useLiveQuery("/api/todos"), { wrapper });
 
@@ -452,9 +438,7 @@ describe("usePresence", () => {
     );
 
     await waitFor(() => {
-      expect(MockWebSocket.instances[0].url).toBe(
-        "ws://localhost:8788/dev/rooms/public-test/ws",
-      );
+      expect(MockWebSocket.instances[0].url).toBe("ws://localhost:8788/dev/rooms/public-test/ws");
     });
   });
 

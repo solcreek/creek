@@ -20,15 +20,15 @@ interface Project {
 
 const FRAMEWORK_COLORS: Record<string, string> = {
   "vite-react": "bg-blue-500",
-  "nextjs": "bg-white text-black",
+  nextjs: "bg-white text-black",
   "react-router": "bg-red-500",
   "tanstack-start": "bg-orange-500",
-  "sveltekit": "bg-orange-600",
-  "nuxt": "bg-green-500",
+  sveltekit: "bg-orange-600",
+  nuxt: "bg-green-500",
   "vite-vue": "bg-green-500",
   "vite-svelte": "bg-orange-500",
   "vite-solid": "bg-blue-400",
-  "solidstart": "bg-blue-400",
+  solidstart: "bg-blue-400",
 };
 
 function FrameworkIcon({ framework, slug }: { framework: string | null; slug: string }) {
@@ -36,7 +36,9 @@ function FrameworkIcon({ framework, slug }: { framework: string | null; slug: st
   const color = framework ? (FRAMEWORK_COLORS[framework] ?? "bg-muted") : "bg-muted";
 
   return (
-    <div className={`flex size-6 items-center justify-center rounded text-[10px] font-bold ${color}`}>
+    <div
+      className={`flex size-6 items-center justify-center rounded text-[10px] font-bold ${color}`}
+    >
       {letter}
     </div>
   );

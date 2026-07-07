@@ -33,13 +33,17 @@ export const dashboardCommand = defineCommand({
       await client.listApps();
     } catch (err) {
       if (err instanceof CreekdApiError && err.status === 401) {
-        if (jsonMode) jsonOutput({ ok: false, error: "unauthorized", message: "Authentication required" }, 1);
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "unauthorized", message: "Authentication required" }, 1);
         consola.error("Authentication failed. Set CREEKD_TOKEN or use --token.");
         process.exit(1);
       }
-      if (jsonMode) jsonOutput({ ok: false, error: "unreachable", message: `Cannot reach creekd at ${url}` }, 1, [
-        { command: "creek top --server <url>", description: "Check connection" },
-      ]);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "unreachable", message: `Cannot reach creekd at ${url}` },
+          1,
+          [{ command: "creek top --server <url>", description: "Check connection" }],
+        );
       consola.error(`Cannot reach creekd at ${url}`);
       consola.info("Is creekd running? Start it with: creekd");
       process.exit(1);
@@ -47,9 +51,7 @@ export const dashboardCommand = defineCommand({
 
     // In production, dashboard is served at the same URL as creekd (via Caddy).
     // In dev, it's typically at localhost:3000 (Vite).
-    const dashboardUrl = url.includes(":9080")
-      ? url.replace(":9080", ":3000")
-      : url;
+    const dashboardUrl = url.includes(":9080") ? url.replace(":9080", ":3000") : url;
 
     if (jsonMode) {
       jsonOutput({ ok: true, url: dashboardUrl }, 0, [
@@ -64,11 +66,12 @@ export const dashboardCommand = defineCommand({
 
 function openBrowser(url: string) {
   try {
-    const cmd = process.platform === "darwin"
-      ? `open "${url}"`
-      : process.platform === "win32"
-        ? `start "" "${url}"`
-        : `xdg-open "${url}"`;
+    const cmd =
+      process.platform === "darwin"
+        ? `open "${url}"`
+        : process.platform === "win32"
+          ? `start "" "${url}"`
+          : `xdg-open "${url}"`;
     execSync(cmd, { stdio: "ignore" });
   } catch {
     consola.info(`Open manually: ${url}`);

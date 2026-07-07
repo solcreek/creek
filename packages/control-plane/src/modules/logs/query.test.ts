@@ -129,9 +129,7 @@ describe("matchesQuery", () => {
   });
 
   test("entry before sinceMs is filtered out", () => {
-    expect(
-      matchesQuery(entry({ timestamp: NOW - 2 * 60 * 60 * 1000 }), baseQuery),
-    ).toBe(false);
+    expect(matchesQuery(entry({ timestamp: NOW - 2 * 60 * 60 * 1000 }), baseQuery)).toBe(false);
   });
 
   test("outcome filter: only matching outcomes pass", () => {
@@ -149,29 +147,15 @@ describe("matchesQuery", () => {
   test("deployment filter — only entries with that deployId match", () => {
     const q = parseQuery(new URLSearchParams({ deployment: "a1b2c3d4" }), NOW);
     expect(matchesQuery(entry({ scriptType: "production" }), q)).toBe(false);
-    expect(
-      matchesQuery(
-        entry({ scriptType: "deployment", deployId: "deadbeef" }),
-        q,
-      ),
-    ).toBe(false);
-    expect(
-      matchesQuery(
-        entry({ scriptType: "deployment", deployId: "a1b2c3d4" }),
-        q,
-      ),
-    ).toBe(true);
+    expect(matchesQuery(entry({ scriptType: "deployment", deployId: "deadbeef" }), q)).toBe(false);
+    expect(matchesQuery(entry({ scriptType: "deployment", deployId: "a1b2c3d4" }), q)).toBe(true);
   });
 
   test("branch filter", () => {
     const q = parseQuery(new URLSearchParams({ branch: "feat-x" }), NOW);
     expect(matchesQuery(entry({ scriptType: "production" }), q)).toBe(false);
-    expect(
-      matchesQuery(entry({ scriptType: "branch", branch: "main" }), q),
-    ).toBe(false);
-    expect(
-      matchesQuery(entry({ scriptType: "branch", branch: "feat-x" }), q),
-    ).toBe(true);
+    expect(matchesQuery(entry({ scriptType: "branch", branch: "main" }), q)).toBe(false);
+    expect(matchesQuery(entry({ scriptType: "branch", branch: "feat-x" }), q)).toBe(true);
   });
 
   test("level filter — entry needs a log line at one of the levels", () => {
@@ -221,12 +205,9 @@ describe("matchesQuery", () => {
 
   test("search matches request URL", () => {
     const q = parseQuery(new URLSearchParams({ search: "/api/checkout" }), NOW);
-    expect(
-      matchesQuery(
-        entry({ request: { url: "/api/checkout/123", method: "POST" } }),
-        q,
-      ),
-    ).toBe(true);
+    expect(matchesQuery(entry({ request: { url: "/api/checkout/123", method: "POST" } }), q)).toBe(
+      true,
+    );
   });
 
   test("search miss → false", () => {

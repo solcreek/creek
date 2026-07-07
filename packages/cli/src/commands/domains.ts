@@ -22,7 +22,10 @@ const domainsLs = defineCommand({
 
     if (jsonMode) {
       jsonOutput({ ok: true, project: slug, domains }, 0, [
-        { command: `creek domains add <HOSTNAME> --project ${slug}`, description: "Add a custom domain" },
+        {
+          command: `creek domains add <HOSTNAME> --project ${slug}`,
+          description: "Add a custom domain",
+        },
       ]);
       return;
     }
@@ -34,9 +37,13 @@ const domainsLs = defineCommand({
 
     for (const d of domains) {
       const statusIcon =
-        d.status === "active" ? "\x1b[32m●\x1b[0m" :
-        d.status === "pending" ? "\x1b[33m○\x1b[0m" :
-        d.status === "failed" ? "\x1b[31m✕\x1b[0m" : "○";
+        d.status === "active"
+          ? "\x1b[32m●\x1b[0m"
+          : d.status === "pending"
+            ? "\x1b[33m○\x1b[0m"
+            : d.status === "failed"
+              ? "\x1b[31m✕\x1b[0m"
+              : "○";
       consola.log(`  ${statusIcon} ${d.hostname}  ${d.status}  (${d.id.slice(0, 8)})`);
     }
   },
@@ -45,7 +52,11 @@ const domainsLs = defineCommand({
 const domainsAdd = defineCommand({
   meta: { name: "add", description: "Add a custom domain" },
   args: {
-    hostname: { type: "positional", description: "Domain to add (e.g., app.example.com)", required: true },
+    hostname: {
+      type: "positional",
+      description: "Domain to add (e.g., app.example.com)",
+      required: true,
+    },
     ...projectArg,
     ...globalArgs,
   },
@@ -54,17 +65,30 @@ const domainsAdd = defineCommand({
     const client = requireClient(jsonMode);
     const slug = resolveProjectSlug(args.project, jsonMode);
 
-    const result = await apiCall(jsonMode, "add_failed", () => client.addDomain(slug, args.hostname));
+    const result = await apiCall(jsonMode, "add_failed", () =>
+      client.addDomain(slug, args.hostname),
+    );
     const { domain, verification, idempotent } = result;
 
     if (jsonMode) {
-      const crumbs = domain.status === "active"
-        ? [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }]
-        : [
-            { command: `creek domains show ${domain.hostname} --project ${slug}`, description: "Retrieve the DNS records to set" },
-            { command: `creek domains activate ${domain.hostname} --project ${slug}`, description: "Activate after DNS setup" },
-          ];
-      jsonOutput({ ok: true, project: slug, domain, verification, idempotent: idempotent ?? false }, 0, crumbs);
+      const crumbs =
+        domain.status === "active"
+          ? [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }]
+          : [
+              {
+                command: `creek domains show ${domain.hostname} --project ${slug}`,
+                description: "Retrieve the DNS records to set",
+              },
+              {
+                command: `creek domains activate ${domain.hostname} --project ${slug}`,
+                description: "Activate after DNS setup",
+              },
+            ];
+      jsonOutput(
+        { ok: true, project: slug, domain, verification, idempotent: idempotent ?? false },
+        0,
+        crumbs,
+      );
       return;
     }
 
@@ -89,7 +113,12 @@ const domainsAdd = defineCommand({
   },
 });
 
-async function resolveDomain(client: CreekClient, slug: string, hostname: string, jsonMode: boolean) {
+async function resolveDomain(
+  client: CreekClient,
+  slug: string,
+  hostname: string,
+  jsonMode: boolean,
+) {
   const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
   return domains.find((d) => d.hostname === hostname.toLowerCase());
 }
@@ -128,7 +157,10 @@ const domainsShow = defineCommand({
 
     if (jsonMode) {
       jsonOutput({ ok: true, project: slug, domain: detail, dns: detail.dns }, 0, [
-        { command: `creek domains activate ${detail.hostname} --project ${slug}`, description: "Activate once DNS resolves" },
+        {
+          command: `creek domains activate ${detail.hostname} --project ${slug}`,
+          description: "Activate once DNS resolves",
+        },
       ]);
       return;
     }
@@ -141,7 +173,9 @@ const domainsShow = defineCommand({
     if (detail.status === "active") {
       consola.info("  This domain is active — SSL is provisioned.");
     } else {
-      consola.info(`  Once the CNAME resolves, run \`creek domains activate ${detail.hostname} --project ${slug}\`.`);
+      consola.info(
+        `  Once the CNAME resolves, run \`creek domains activate ${detail.hostname} --project ${slug}\`.`,
+      );
     }
   },
 });
@@ -198,16 +232,33 @@ const domainsActivate = defineCommand({
       return;
     }
 
-    const result = await apiCall(jsonMode, "activate_failed", () => client.activateDomain(slug, domain.id));
+    const result = await apiCall(jsonMode, "activate_failed", () =>
+      client.activateDomain(slug, domain.id),
+    );
 
     // Honest activate: only report success when the edge confirms the hostname.
     // pending_dns means DNS isn't resolving yet — surface it as a non-success
     // (exit 1) with the actionable reason, not a misleading "Activated".
     if (result.status === "pending_dns" || result.ok === false) {
-      const message = result.message ?? "Domain is not verified yet — set the DNS record and retry.";
-      const showCrumb = { command: `creek domains show ${domain.hostname} --project ${slug}`, description: "Retrieve the DNS records to set" };
+      const message =
+        result.message ?? "Domain is not verified yet — set the DNS record and retry.";
+      const showCrumb = {
+        command: `creek domains show ${domain.hostname} --project ${slug}`,
+        description: "Retrieve the DNS records to set",
+      };
       if (jsonMode) {
-        jsonOutput({ ok: false, error: "pending_dns", hostname: domain.hostname, status: "pending_dns", message, project: slug }, 1, [showCrumb]);
+        jsonOutput(
+          {
+            ok: false,
+            error: "pending_dns",
+            hostname: domain.hostname,
+            status: "pending_dns",
+            message,
+            project: slug,
+          },
+          1,
+          [showCrumb],
+        );
         return;
       }
       consola.warn(`${domain.hostname} is not active yet.`);
@@ -217,9 +268,17 @@ const domainsActivate = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, hostname: domain.hostname, status: "active", manual: result.manual ?? false, project: slug }, 0, [
-        { command: `creek domains ls --project ${slug}`, description: "List all domains" },
-      ]);
+      jsonOutput(
+        {
+          ok: true,
+          hostname: domain.hostname,
+          status: "active",
+          manual: result.manual ?? false,
+          project: slug,
+        },
+        0,
+        [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }],
+      );
       return;
     }
 

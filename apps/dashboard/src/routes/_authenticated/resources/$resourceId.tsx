@@ -33,9 +33,7 @@ const CF_TYPE_LABELS: Record<string, string> = {
   kv: "KV Namespace",
 };
 
-export const Route = createFileRoute(
-  "/_authenticated/resources/$resourceId",
-)({
+export const Route = createFileRoute("/_authenticated/resources/$resourceId")({
   component: ResourceDetailPage,
 });
 
@@ -60,7 +58,10 @@ function ResourceDetailPage() {
     return (
       <div className="p-6">
         <p className="text-sm text-destructive">Resource not found.</p>
-        <Link to="/resources/database" className="mt-2 text-sm text-muted-foreground hover:underline">
+        <Link
+          to="/resources/database"
+          className="mt-2 text-sm text-muted-foreground hover:underline"
+        >
           Back to Resources
         </Link>
       </div>
@@ -85,11 +86,13 @@ function ResourceDetailPage() {
         <span className="rounded border border-border bg-code-bg px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {data.kind}
         </span>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] ${
-          data.status === "active"
-            ? "bg-green-500/10 text-green-400 border border-green-500/30"
-            : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
-        }`}>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] ${
+            data.status === "active"
+              ? "bg-green-500/10 text-green-400 border border-green-500/30"
+              : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
+          }`}
+        >
           {data.status}
         </span>
       </div>
@@ -112,7 +115,7 @@ function MetadataSection({ resource }: { resource: ResourceDetail }) {
     {
       label: "Cloudflare Type",
       value: resource.cfResourceType
-        ? CF_TYPE_LABELS[resource.cfResourceType] ?? resource.cfResourceType
+        ? (CF_TYPE_LABELS[resource.cfResourceType] ?? resource.cfResourceType)
         : "Not provisioned",
     },
     {
@@ -174,7 +177,11 @@ function MetricsSection({ resourceId, kind }: { resourceId: string; kind: string
   if (kind === "database") {
     if (data.size != null) {
       const sizeMb = Number(data.size) / (1024 * 1024);
-      metrics.push({ label: "Database Size", value: sizeMb < 1 ? `${(Number(data.size) / 1024).toFixed(1)} KB` : `${sizeMb.toFixed(2)} MB` });
+      metrics.push({
+        label: "Database Size",
+        value:
+          sizeMb < 1 ? `${(Number(data.size) / 1024).toFixed(1)} KB` : `${sizeMb.toFixed(2)} MB`,
+      });
     }
     if (data.tables != null) metrics.push({ label: "Tables", value: String(data.tables) });
     if (data.version != null) metrics.push({ label: "Version", value: String(data.version) });
@@ -208,11 +215,15 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
   const [attaching, setAttaching] = useState(false);
   const [selectedProject, setSelectedProject] = useState("");
   const [bindingName, setBindingName] = useState(
-    resource.kind === "database" ? "DB"
-    : resource.kind === "storage" ? "STORAGE"
-    : resource.kind === "cache" ? "KV"
-    : resource.kind === "ai" ? "AI"
-    : "BINDING",
+    resource.kind === "database"
+      ? "DB"
+      : resource.kind === "storage"
+        ? "STORAGE"
+        : resource.kind === "cache"
+          ? "KV"
+          : resource.kind === "ai"
+            ? "AI"
+            : "BINDING",
   );
   const [attachError, setAttachError] = useState<string | null>(null);
 
@@ -274,7 +285,9 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
             >
               <option value="">Choose project...</option>
               {availableProjects.map((p) => (
-                <option key={p.id} value={p.slug}>{p.slug}</option>
+                <option key={p.id} value={p.slug}>
+                  {p.slug}
+                </option>
               ))}
             </select>
             <span className="text-xs text-muted-foreground">as env.</span>
@@ -286,15 +299,24 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
             <Button
               size="sm"
               disabled={!selectedProject || !BINDING_NAME_RE.test(bindingName) || attach.isPending}
-              onClick={() => attach.mutate({
-                projectSlug: selectedProject,
-                resourceId: resource.id,
-                bindingName,
-              })}
+              onClick={() =>
+                attach.mutate({
+                  projectSlug: selectedProject,
+                  resourceId: resource.id,
+                  bindingName,
+                })
+              }
             >
               {attach.isPending ? "Attaching..." : "Attach"}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setAttaching(false); setAttachError(null); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setAttaching(false);
+                setAttachError(null);
+              }}
+            >
               Cancel
             </Button>
           </div>
@@ -315,7 +337,10 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">
           {resource.bindings.map((b) => (
-            <div key={`${b.projectId}-${b.bindingName}`} className="flex items-center justify-between px-4 py-2.5">
+            <div
+              key={`${b.projectId}-${b.bindingName}`}
+              className="flex items-center justify-between px-4 py-2.5"
+            >
               <div className="flex items-center gap-2">
                 <Link
                   to="/projects/$projectId/settings"
@@ -324,9 +349,7 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
                 >
                   {b.projectSlug}
                 </Link>
-                <span className="text-xs text-muted-foreground">
-                  env.{b.bindingName}
-                </span>
+                <span className="text-xs text-muted-foreground">env.{b.bindingName}</span>
               </div>
               <Button
                 variant="ghost"
@@ -393,7 +416,14 @@ function RenameSection({ resource }: { resource: ResourceDetail }) {
               >
                 {rename.isPending ? "Renaming..." : "Save"}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setNewName(resource.name); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditing(false);
+                  setNewName(resource.name);
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -401,7 +431,8 @@ function RenameSection({ resource }: { resource: ResourceDetail }) {
         ) : (
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Rename this resource. All existing bindings continue to work — they reference the stable ID, not the name.
+              Rename this resource. All existing bindings continue to work — they reference the
+              stable ID, not the name.
             </p>
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
               Rename
@@ -434,12 +465,14 @@ function DeleteSection({ resource }: { resource: ResourceDetail }) {
       <div className="rounded-lg border border-destructive/30 p-4">
         {hasBindings ? (
           <p className="text-sm text-muted-foreground">
-            This resource is attached to {resource.bindings.length} project(s). Detach from all projects before deleting.
+            This resource is attached to {resource.bindings.length} project(s). Detach from all
+            projects before deleting.
           </p>
         ) : confirming ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Delete <span className="font-mono font-medium text-foreground">{resource.name}</span>? The backing Cloudflare resource will be scheduled for cleanup. This cannot be undone.
+              Delete <span className="font-mono font-medium text-foreground">{resource.name}</span>?
+              The backing Cloudflare resource will be scheduled for cleanup. This cannot be undone.
             </p>
             <div className="flex gap-2">
               <Button

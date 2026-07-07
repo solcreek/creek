@@ -54,7 +54,8 @@ export const claimCommand = defineCommand({
     },
     name: {
       type: "string",
-      description: "Project name to reserve (defaults to creek.toml's [project].name, then the sandbox template/id)",
+      description:
+        "Project name to reserve (defaults to creek.toml's [project].name, then the sandbox template/id)",
       required: false,
     },
     ...globalArgs,
@@ -64,7 +65,12 @@ export const claimCommand = defineCommand({
     const token = getToken();
 
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated", message: "Run `creek login` first" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "not_authenticated", message: "Run `creek login` first" },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("You need to be logged in to claim a sandbox.");
       consola.info("Run `creek login` first, then `creek claim` again.");
       process.exit(1);
@@ -80,16 +86,18 @@ export const claimCommand = defineCommand({
       statusRes = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
     } catch (err) {
       const msg = `Couldn't reach the sandbox API: ${err instanceof Error ? err.message : String(err)}`;
-      if (jsonMode) jsonOutput({ ok: false, error: "sandbox_api_unreachable", message: msg }, 1, []);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "sandbox_api_unreachable", message: msg }, 1, []);
       consola.error(msg);
       process.exit(1);
     }
 
     if (!statusRes.ok) {
       const msg = "Sandbox not found. It may have expired.";
-      if (jsonMode) jsonOutput({ ok: false, error: "sandbox_not_found", sandboxId, message: msg }, 1, [
-        { command: "creek deploy", description: "Deploy your project permanently" },
-      ]);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "sandbox_not_found", sandboxId, message: msg }, 1, [
+          { command: "creek deploy", description: "Deploy your project permanently" },
+        ]);
       consola.error(msg);
       process.exit(1);
     }
@@ -103,14 +111,17 @@ export const claimCommand = defineCommand({
     };
 
     if (!sandbox.claimable) {
-      const msg = sandbox.status === "expired"
-        ? "This sandbox has expired and can no longer be claimed."
-        : `Sandbox is in '${sandbox.status}' state and cannot be claimed.`;
-      if (jsonMode) jsonOutput({ ok: false, error: "not_claimable", status: sandbox.status, message: msg }, 1, [
-        { command: "creek deploy", description: "Deploy your project permanently" },
-      ]);
+      const msg =
+        sandbox.status === "expired"
+          ? "This sandbox has expired and can no longer be claimed."
+          : `Sandbox is in '${sandbox.status}' state and cannot be claimed.`;
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "not_claimable", status: sandbox.status, message: msg }, 1, [
+          { command: "creek deploy", description: "Deploy your project permanently" },
+        ]);
       consola.error(msg);
-      if (sandbox.status === "expired") consola.info("Run `creek deploy` to deploy your project permanently.");
+      if (sandbox.status === "expired")
+        consola.info("Run `creek deploy` to deploy your project permanently.");
       process.exit(1);
     }
 
@@ -125,7 +136,10 @@ export const claimCommand = defineCommand({
     // project. Normalize to the server's slug rules (charset + reserved
     // `-git-` infix) so a user-supplied --name resolves to an acceptable slug.
     const rawSlug =
-      (args.name as string | undefined) ?? localProjectName(process.cwd()) ?? sandbox.templateId ?? sandboxId;
+      (args.name as string | undefined) ??
+      localProjectName(process.cwd()) ??
+      sandbox.templateId ??
+      sandboxId;
     const slug = normalizeSlug(rawSlug) || sandboxId;
     let project: { id: string; slug: string };
 
@@ -147,7 +161,8 @@ export const claimCommand = defineCommand({
         project = res.project;
       } catch (err) {
         const msg = `Couldn't create a project for this sandbox: ${err instanceof Error ? err.message : String(err)}`;
-        if (jsonMode) jsonOutput({ ok: false, error: "create_project_failed", sandboxId, message: msg }, 1, []);
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "create_project_failed", sandboxId, message: msg }, 1, []);
         consola.error(msg);
         process.exit(1);
       }
@@ -183,19 +198,27 @@ export const claimCommand = defineCommand({
         0,
         [
           { command: "creek init", description: "Initialize creek.toml for local development" },
-          { command: "creek deploy", description: "Required — claim only reserved the project; this creates the production deployment (sandbox data does not transfer)" },
+          {
+            command: "creek deploy",
+            description:
+              "Required — claim only reserved the project; this creates the production deployment (sandbox data does not transfer)",
+          },
         ],
       );
     }
 
     consola.success(`Reserved project: ${project.slug}`);
     consola.info("");
-    consola.warn("Claim reserved the project name only — it has no deployment yet, and the sandbox's data (ephemeral D1) does not carry over.");
+    consola.warn(
+      "Claim reserved the project name only — it has no deployment yet, and the sandbox's data (ephemeral D1) does not carry over.",
+    );
     consola.info("Run `creek deploy` to create the production deployment:");
     consola.info(`  cd your-project`);
     consola.info(`  creek init`);
     consola.info(`  creek deploy    # creates the production deployment`);
     consola.info("");
-    consola.info(`Make sure your local project config name is "${project.slug}" — \`creek deploy\` resolves the name from creek.toml/wrangler.*/package.json and deploys by it; a different name creates a separate project.`);
+    consola.info(
+      `Make sure your local project config name is "${project.slug}" — \`creek deploy\` resolves the name from creek.toml/wrangler.*/package.json and deploys by it; a different name creates a separate project.`,
+    );
   },
 });

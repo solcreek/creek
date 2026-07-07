@@ -41,7 +41,8 @@ import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-clie
 export const logsCommand = defineCommand({
   meta: {
     name: "logs",
-    description: "Read recent log entries for a project. Only worker invocations appear — edge-cached requests don't invoke the worker and won't show here. Use `creek metrics` for total traffic including cache hits.",
+    description:
+      "Read recent log entries for a project. Only worker invocations appear — edge-cached requests don't invoke the worker and won't show here. Use `creek metrics` for total traffic including cache hits.",
   },
   args: {
     project: {
@@ -58,13 +59,11 @@ export const logsCommand = defineCommand({
     },
     outcome: {
       type: "string",
-      description:
-        "Filter by tail outcome. Repeatable via comma (ok,exception).",
+      description: "Filter by tail outcome. Repeatable via comma (ok,exception).",
     },
     "script-type": {
       type: "string",
-      description:
-        "Filter by production/branch/deployment. Repeatable via comma.",
+      description: "Filter by production/branch/deployment. Repeatable via comma.",
     },
     deployment: {
       type: "string",
@@ -81,8 +80,7 @@ export const logsCommand = defineCommand({
     },
     search: {
       type: "string",
-      description:
-        "Substring match against console messages, exceptions, and request URLs.",
+      description: "Substring match against console messages, exceptions, and request URLs.",
     },
     limit: {
       type: "string",
@@ -95,7 +93,8 @@ export const logsCommand = defineCommand({
     },
     server: {
       type: "string",
-      description: "creekd admin API URL — routes to creekd log tail instead of control-plane (or $CREEKD_URL)",
+      description:
+        "creekd admin API URL — routes to creekd log tail instead of control-plane (or $CREEKD_URL)",
     },
     "creekd-token": {
       type: "string",
@@ -136,9 +135,7 @@ export const logsCommand = defineCommand({
         : {}),
       ...(args["script-type"]
         ? {
-            scriptTypes: parseList(
-              args["script-type"] as string,
-            ) as LogEntry["scriptType"][],
+            scriptTypes: parseList(args["script-type"] as string) as LogEntry["scriptType"][],
           }
         : {}),
       ...(args.level
@@ -188,9 +185,8 @@ export const logsCommand = defineCommand({
     if (!args.follow) return;
 
     // --follow → switch to WebSocket live tail.
-    const seenAfter = response.entries.length > 0
-      ? Math.max(...response.entries.map((e) => e.timestamp))
-      : 0;
+    const seenAfter =
+      response.entries.length > 0 ? Math.max(...response.entries.map((e) => e.timestamp)) : 0;
     await follow(client, projectSlug, filters, seenAfter, jsonMode);
   },
 });
@@ -221,9 +217,7 @@ async function follow(
   jsonMode: boolean,
 ): Promise<void> {
   if (!jsonMode) {
-    consola.info(
-      `Live tail — Ctrl+C to exit. Filtering: ${describeFilters(filters)}`,
-    );
+    consola.info(`Live tail — Ctrl+C to exit. Filtering: ${describeFilters(filters)}`);
   }
 
   let seenAfter = initialSeenAfter;
@@ -252,7 +246,10 @@ async function follow(
       if (stopped) return;
       const msg = err instanceof Error ? err.message : String(err);
       if (jsonMode) process.stderr.write(`# ws-token failed: ${msg}\n`);
-      else consola.warn(`Failed to mint subscribe token: ${msg}. Retrying in ${Math.round(backoffMs / 1000)}s.`);
+      else
+        consola.warn(
+          `Failed to mint subscribe token: ${msg}. Retrying in ${Math.round(backoffMs / 1000)}s.`,
+        );
       await sleep(backoffMs);
       backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
       continue;
@@ -270,7 +267,11 @@ async function follow(
         const remaining = Math.max(5_000, TOKEN_REFRESH_MS - elapsed);
         refreshTimer = setTimeout(() => {
           if (!closed) {
-            try { ws.close(1000, "token refresh"); } catch { /* already closed */ }
+            try {
+              ws.close(1000, "token refresh");
+            } catch {
+              /* already closed */
+            }
           }
         }, remaining);
       });
@@ -320,13 +321,17 @@ async function follow(
 async function creekdLogs(args: Record<string, unknown>, jsonMode: boolean): Promise<void> {
   const client = new CreekdClient(
     (args.server as string) || getCreekdUrl(),
-    (args["creekd-token"] as string) || process.env.CREEKD_TOKEN || process.env.CREEKCTL_TOKEN || "",
+    (args["creekd-token"] as string) ||
+      process.env.CREEKD_TOKEN ||
+      process.env.CREEKCTL_TOKEN ||
+      "",
   );
   const id = (args.project as string) || (args.id as string);
   if (!id) {
-    if (jsonMode) jsonOutput({ ok: false, error: "missing_id", message: "App ID required" }, 1, [
-      { command: "creek logs --server <url> --project <id>", description: "Specify app ID" },
-    ]);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "missing_id", message: "App ID required" }, 1, [
+        { command: "creek logs --server <url> --project <id>", description: "Specify app ID" },
+      ]);
     consola.error("App ID required. Use --project <id>.");
     process.exit(1);
   }
@@ -338,7 +343,10 @@ async function creekdLogs(args: Record<string, unknown>, jsonMode: boolean): Pro
     if (jsonMode) {
       const lines = text.split("\n").filter(Boolean);
       jsonOutput({ ok: true, app_id: id, lines, count: lines.length }, 0, [
-        { command: `creek logs --server ${(args.server as string) || getCreekdUrl()} --project ${id} --follow`, description: "Stream live logs" },
+        {
+          command: `creek logs --server ${(args.server as string) || getCreekdUrl()} --project ${id} --follow`,
+          description: "Stream live logs",
+        },
       ]);
     }
     printCreekdLogs(text);
@@ -404,19 +412,16 @@ function color(s: string, c: keyof typeof COLOR): string {
 function printEntry(entry: LogEntry): void {
   const ts = new Date(entry.timestamp).toISOString().replace("T", " ").slice(0, 19);
   const outcomeColor: keyof typeof COLOR =
-    entry.outcome === "ok"
-      ? "gray"
-      : entry.outcome === "exception"
-        ? "red"
-        : "yellow";
+    entry.outcome === "ok" ? "gray" : entry.outcome === "exception" ? "red" : "yellow";
   const status = entry.request?.status;
-  const statusStr = status === undefined
-    ? ""
-    : status >= 500
-      ? color(String(status), "red")
-      : status >= 400
-        ? color(String(status), "yellow")
-        : color(String(status), "green");
+  const statusStr =
+    status === undefined
+      ? ""
+      : status >= 500
+        ? color(String(status), "red")
+        : status >= 400
+          ? color(String(status), "yellow")
+          : color(String(status), "green");
 
   const variant =
     entry.scriptType === "production"
@@ -442,15 +447,11 @@ function printEntry(entry: LogEntry): void {
   for (const log of entry.logs) {
     const levelColor: keyof typeof COLOR =
       log.level === "error" ? "red" : log.level === "warn" ? "yellow" : "cyan";
-    const msg = log.message
-      .map((m) => (typeof m === "string" ? m : safeStringify(m)))
-      .join(" ");
+    const msg = log.message.map((m) => (typeof m === "string" ? m : safeStringify(m))).join(" ");
     process.stdout.write(`  ${color(log.level.padEnd(5), levelColor)} ${msg}\n`);
   }
   for (const ex of entry.exceptions) {
-    process.stdout.write(
-      `  ${color("exc", "red")} ${color(ex.name, "red")}: ${ex.message}\n`,
-    );
+    process.stdout.write(`  ${color("exc", "red")} ${color(ex.name, "red")}: ${ex.message}\n`);
   }
 }
 
@@ -471,9 +472,7 @@ function printCreekdLogs(text: string): void {
     const ts = rec.ts
       ? color(new Date(rec.ts).toISOString().replace("T", " ").slice(0, 23), "dim")
       : "";
-    const stream = rec.stream === "stderr"
-      ? color("err", "red")
-      : color("out", "cyan");
+    const stream = rec.stream === "stderr" ? color("err", "red") : color("out", "cyan");
     process.stdout.write(`${ts} ${stream} ${rec.msg ?? ""}\n`);
   }
 }

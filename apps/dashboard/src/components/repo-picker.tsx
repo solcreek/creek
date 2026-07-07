@@ -43,9 +43,7 @@ const FRAMEWORK_LABELS: Record<string, string> = {
 export function RepoPicker({ repos, installationId, onImport }: RepoPickerProps) {
   const [search, setSearch] = useState("");
 
-  const filtered = repos.filter((repo) =>
-    repo.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = repos.filter((repo) => repo.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div>
@@ -110,7 +108,9 @@ export function RepoPicker({ repos, installationId, onImport }: RepoPickerProps)
                 {/* Import button */}
                 <Button
                   size="sm"
-                  onClick={() => onImport({ owner, name: repo.name, defaultBranch: repo.default_branch })}
+                  onClick={() =>
+                    onImport({ owner, name: repo.name, defaultBranch: repo.default_branch })
+                  }
                 >
                   Import <ArrowRight className="ml-1 size-3" />
                 </Button>

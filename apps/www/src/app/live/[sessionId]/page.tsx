@@ -4,11 +4,7 @@ import { use } from "react";
 
 const DEMO_URL = "https://todo-demo.creek.dev";
 
-export default function LiveSessionPage({
-  params,
-}: {
-  params: Promise<{ sessionId: string }>;
-}) {
+export default function LiveSessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
 
   return (
@@ -27,10 +23,7 @@ export default function LiveSessionPage({
               You&apos;re viewing a live demo session
             </span>
           </div>
-          <a
-            href="/"
-            className="text-xs font-mono text-accent hover:underline"
-          >
+          <a href="/" className="text-xs font-mono text-accent hover:underline">
             Start your own
           </a>
         </div>

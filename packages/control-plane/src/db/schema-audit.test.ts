@@ -29,8 +29,9 @@ const REPO_ROOT = resolve(__dirname, "../../../..");
 
 function getDrizzleTables(schemaTsPath: string): Set<string> {
   const content = readFileSync(schemaTsPath, "utf-8");
-  // Match: sqliteTable("table_name", ...)
-  const re = /sqliteTable\(["']([^"']+)["']/g;
+  // Match: sqliteTable("table_name", ...) — tolerate a wrapped first arg
+  // (`sqliteTable(\n  "table_name",`) so the audit is formatter-independent.
+  const re = /sqliteTable\(\s*["']([^"']+)["']/g;
   const tables = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(content)) !== null) {
@@ -61,7 +62,8 @@ const EXCLUDED_FILES: string[] = [
 
 function walkSourceFiles(dir: string, files: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist" || entry === ".creek" || entry.startsWith(".")) continue;
+    if (entry === "node_modules" || entry === "dist" || entry === ".creek" || entry.startsWith("."))
+      continue;
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) {
@@ -140,9 +142,7 @@ describe("schema audit", () => {
   const drizzleTables = getDrizzleTables(
     join(REPO_ROOT, "packages/control-plane/src/db/schema.ts"),
   );
-  const sandboxTables = getSqlSchemaTables(
-    join(REPO_ROOT, "packages/sandbox-api/src/schema.sql"),
-  );
+  const sandboxTables = getSqlSchemaTables(join(REPO_ROOT, "packages/sandbox-api/src/schema.sql"));
 
   // Better Auth creates tables that aren't in our schema files but exist at runtime
   // (it manages its own migrations). Allow these.

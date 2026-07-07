@@ -15,17 +15,42 @@ export default function Home() {
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg">
         <div className="mx-auto max-w-5xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none">
-            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
+          <a
+            href="/"
+            className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none"
+          >
+            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">
+              ⬡
+            </span>
             <span className="font-brand">Creek</span>
           </a>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>
-            <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
-            <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
-            <a href="/changelog" className="hover:text-foreground transition-colors">Changelog</a>
-            <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="/discord" className="hover:text-foreground transition-colors">Discord</a>
+            <a href="/docs" className="hover:text-foreground transition-colors">
+              Docs
+            </a>
+            <a href="/pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </a>
+            <a
+              href="https://templates.creek.dev"
+              className="hover:text-foreground transition-colors"
+            >
+              Templates
+            </a>
+            <a href="/changelog" className="hover:text-foreground transition-colors">
+              Changelog
+            </a>
+            <a
+              href="https://github.com/solcreek/creek"
+              className="hover:text-foreground transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
+            <a href="/discord" className="hover:text-foreground transition-colors">
+              Discord
+            </a>
           </div>
         </div>
       </nav>
@@ -56,12 +81,9 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="mt-5 text-muted-foreground leading-relaxed max-w-md"
             >
-              <span className="text-foreground font-medium">
-                One command, zero config.
-              </span>{" "}
-              Creek provisions the database, cron, queues, and WebSockets —
-              use any ORM, or bring your own DB.{" "}
-              <span className="text-accent font-medium">Free to start.</span>
+              <span className="text-foreground font-medium">One command, zero config.</span> Creek
+              provisions the database, cron, queues, and WebSockets — use any ORM, or bring your own
+              DB. <span className="text-accent font-medium">Free to start.</span>
             </motion.p>
 
             <motion.div
@@ -194,12 +216,8 @@ export default function Home() {
           <div className="mx-auto max-w-md flex justify-center">
             <CopyCommand command="npx creek deploy" />
           </div>
-          <h2 className="mt-8 text-2xl font-semibold tracking-tight">
-            Deploy in 10 seconds
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            No account needed. Try it right now.
-          </p>
+          <h2 className="mt-8 text-2xl font-semibold tracking-tight">Deploy in 10 seconds</h2>
+          <p className="mt-2 text-sm text-muted-foreground">No account needed. Try it right now.</p>
           <div className="mt-6 flex items-center justify-center gap-3">
             <a
               href="/docs/getting-started"
@@ -245,12 +263,26 @@ function HeroDemo() {
 
 /* ─── Sub-components ─── */
 
-function SectionHeader({ label, title, description }: { label: string; title: string; description: string }) {
+function SectionHeader({
+  label,
+  title,
+  description,
+}: {
+  label: string;
+  title: string;
+  description: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-60px" });
 
   return (
-    <motion.div ref={ref} initial={{ opacity: 0, y: 20 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5 }} className="mb-8">
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 20 }}
+      animate={isInView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.5 }}
+      className="mb-8"
+    >
       <p className="font-mono text-xs text-muted-foreground mb-3">{label}</p>
       <h2 className="text-2xl font-semibold tracking-tight mb-2">{title}</h2>
       <p className="text-muted-foreground leading-relaxed max-w-lg">{description}</p>
@@ -281,11 +313,14 @@ function ZeroConfigDemo() {
           <LineworkCard className="p-5">
             <p className="text-sm font-medium mb-3">{fw.name}</p>
             <div className="font-mono text-[12px] leading-6 text-muted-foreground space-y-0.5">
-              <p><span className="text-muted-foreground/50">$ </span><span className="text-foreground">creek deploy</span></p>
-              <p className="text-accent">  Detected: {fw.detect}</p>
-              <p>  Building...</p>
-              <p>  Output: {fw.output}</p>
-              <p className="text-green-400">  Live in {fw.time} →</p>
+              <p>
+                <span className="text-muted-foreground/50">$ </span>
+                <span className="text-foreground">creek deploy</span>
+              </p>
+              <p className="text-accent"> Detected: {fw.detect}</p>
+              <p> Building...</p>
+              <p> Output: {fw.output}</p>
+              <p className="text-green-400"> Live in {fw.time} →</p>
             </div>
           </LineworkCard>
         </motion.div>
@@ -324,7 +359,10 @@ function AgentFirstDemo() {
 }`}</pre>
           <p className="mt-4 text-xs text-muted-foreground/70">
             Add one line. Any AI agent can deploy. No CAPTCHAs — verified via{" "}
-            <a href="/docs/api#agent-challenge" className="underline hover:text-accent transition-colors">
+            <a
+              href="/docs/api#agent-challenge"
+              className="underline hover:text-accent transition-colors"
+            >
               Agent Challenge
             </a>
             .
@@ -370,8 +408,8 @@ function AgentFirstDemo() {
           </div>
           <div>
             <p className="text-[13px] text-muted-foreground leading-6">
-              Agents get the full CLI reference, deployment modes, trigger
-              schema, and troubleshooting tree — loaded on demand via the{" "}
+              Agents get the full CLI reference, deployment modes, trigger schema, and
+              troubleshooting tree — loaded on demand via the{" "}
               <a
                 href="https://agentskills.io"
                 target="_blank"
@@ -445,7 +483,9 @@ function PerformanceComparison() {
               <motion.div
                 className="h-full rounded-full bg-muted-foreground/30"
                 initial={{ width: 0 }}
-                animate={isInView ? { width: `${Math.min((region.traditional / 400) * 100, 100)}%` } : {}}
+                animate={
+                  isInView ? { width: `${Math.min((region.traditional / 400) * 100, 100)}%` } : {}
+                }
                 transition={{ delay: i * 0.1 + 0.3, duration: 0.6, ease: "easeOut" }}
               />
             </div>
@@ -462,9 +502,18 @@ function OpenSourceSection() {
 
   const items = [
     { title: "Apache 2.0", desc: "Use it, modify it, self-host it. Full source on GitHub." },
-    { title: "Self-hostable", desc: "Run Creek on your own Cloudflare account with a single command." },
-    { title: "Eject anytime", desc: "Creek deploys standard Cloudflare primitives. Your code runs on raw wrangler too." },
-    { title: "BYO stack", desc: "Three modes: use Creek's built-in db, layer Drizzle or Prisma on Creek's auto-provisioned D1, or connect Neon / Supabase / any external database. Your data, your ORM, your choice." },
+    {
+      title: "Self-hostable",
+      desc: "Run Creek on your own Cloudflare account with a single command.",
+    },
+    {
+      title: "Eject anytime",
+      desc: "Creek deploys standard Cloudflare primitives. Your code runs on raw wrangler too.",
+    },
+    {
+      title: "BYO stack",
+      desc: "Three modes: use Creek's built-in db, layer Drizzle or Prisma on Creek's auto-provisioned D1, or connect Neon / Supabase / any external database. Your data, your ORM, your choice.",
+    },
   ];
 
   return (
@@ -583,7 +632,14 @@ function FrameworksSection() {
       label: "Zero-config",
       tint: "accent",
       caption: "Detected from package.json + vite.config. Deploy with no flags.",
-      frameworks: ["Vite + React", "Vite + Vue", "Vite + Svelte", "Vite + Solid", "Astro", "TanStack Start"],
+      frameworks: [
+        "Vite + React",
+        "Vite + Vue",
+        "Vite + Svelte",
+        "Vite + Solid",
+        "Astro",
+        "TanStack Start",
+      ],
     },
     {
       label: "Supported",
@@ -643,9 +699,7 @@ function FrameworksSection() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
-            {tier.caption}
-          </p>
+          <p className="mt-4 text-xs text-muted-foreground leading-relaxed">{tier.caption}</p>
         </motion.div>
       ))}
     </div>
@@ -683,14 +737,32 @@ function FeatureGrid() {
 
   const features = [
     { title: "10-second deploys", description: "From CLI to live URL on the global edge." },
-    { title: "GitHub auto-deploy", description: "Push to main. Preview URLs on every pull request. Commit status in the diff." },
-    { title: "Realtime sync", description: "db.mutate() auto-broadcasts. useLiveQuery() auto-refetches." },
-    { title: "Cron triggers", description: "Schedule background jobs in creek.toml. No extra services." },
-    { title: "Queues", description: "Per-project queue, auto-provisioned. Producer + consumer wired up." },
-    { title: "Per-tenant analytics", description: "Requests, errors, p50/p99 latency. Cron execution log." },
+    {
+      title: "GitHub auto-deploy",
+      description: "Push to main. Preview URLs on every pull request. Commit status in the diff.",
+    },
+    {
+      title: "Realtime sync",
+      description: "db.mutate() auto-broadcasts. useLiveQuery() auto-refetches.",
+    },
+    {
+      title: "Cron triggers",
+      description: "Schedule background jobs in creek.toml. No extra services.",
+    },
+    {
+      title: "Queues",
+      description: "Per-project queue, auto-provisioned. Producer + consumer wired up.",
+    },
+    {
+      title: "Per-tenant analytics",
+      description: "Requests, errors, p50/p99 latency. Cron execution log.",
+    },
     { title: "Custom domains", description: "Automatic SSL. One CLI command to set up." },
     { title: "Environment variables", description: "Encrypted at rest, injected at runtime." },
-    { title: "Framework detection", description: "React, Vue, Svelte, Astro, Solid — auto-detected." },
+    {
+      title: "Framework detection",
+      description: "React, Vue, Svelte, Astro, Solid — auto-detected.",
+    },
   ];
 
   return (
@@ -702,10 +774,7 @@ function FeatureGrid() {
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: i * 0.06, duration: 0.4 }}
         >
-          <LineworkCard
-            index={i + 1}
-            className="p-6 hover:border-accent/20 transition-colors"
-          >
+          <LineworkCard index={i + 1} className="p-6 hover:border-accent/20 transition-colors">
             <h3 className="text-sm font-medium mb-1.5">{f.title}</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
           </LineworkCard>

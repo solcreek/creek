@@ -19,8 +19,12 @@ function makeProject(): string {
 }
 
 let project: string;
-beforeEach(() => { project = makeProject(); });
-afterEach(() => { rmSync(project, { recursive: true, force: true }); });
+beforeEach(() => {
+  project = makeProject();
+});
+afterEach(() => {
+  rmSync(project, { recursive: true, force: true });
+});
 
 describe("localCachePath", () => {
   it("resolves to <project>/.creek/local.json", () => {
@@ -38,8 +42,11 @@ describe("readLocalCache", () => {
     const want = {
       schemaVersion: 1,
       lastDeploy: {
-        appId: "x", host: "h", resourceVersion: "42",
-        generation: 7, at: "2026-05-24T00:00:00Z",
+        appId: "x",
+        host: "h",
+        resourceVersion: "42",
+        generation: 7,
+        at: "2026-05-24T00:00:00Z",
       },
     };
     writeFileSync(join(project, ".creek", "local.json"), JSON.stringify(want));
@@ -80,8 +87,11 @@ describe("writeLocalCache", () => {
 
 describe("recordLastDeploy", () => {
   const sample: LastDeploy = {
-    appId: "a", host: "h", resourceVersion: "1",
-    generation: 1, at: "2026-05-24T00:00:00Z",
+    appId: "a",
+    host: "h",
+    resourceVersion: "1",
+    generation: 1,
+    at: "2026-05-24T00:00:00Z",
   };
 
   it("creates the file when absent", () => {
@@ -113,8 +123,11 @@ describe("recordLastDeploy", () => {
 
 describe("cachedResourceVersion", () => {
   const last: LastDeploy = {
-    appId: "myapp", host: "prod", resourceVersion: "42",
-    generation: 1, at: "t",
+    appId: "myapp",
+    host: "prod",
+    resourceVersion: "42",
+    generation: 1,
+    at: "t",
   };
 
   it("returns rv when appId + host match", () => {

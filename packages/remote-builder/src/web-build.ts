@@ -45,7 +45,12 @@ function bundleCacheKey(msg: WebBuildMessage): string | null {
 export async function handleWebBuild(
   message: WebBuildMessage,
   env: WebBuildEnv,
-  buildFn: (req: { repoUrl: string; path?: string; branch?: string; templateData?: Record<string, unknown> }) => Promise<any>,
+  buildFn: (req: {
+    repoUrl: string;
+    path?: string;
+    branch?: string;
+    templateData?: Record<string, unknown>;
+  }) => Promise<any>,
 ): Promise<void> {
   const { buildId } = message;
   const cacheKey = bundleCacheKey(message);
@@ -62,7 +67,9 @@ export async function handleWebBuild(
       if (cached) {
         bundleJson = cached;
         cacheHit = true;
-        console.log(`[build-cache] HIT ${cacheKey.slice(0, 80)} (${(cached.length / 1024).toFixed(0)} KB)`);
+        console.log(
+          `[build-cache] HIT ${cacheKey.slice(0, 80)} (${(cached.length / 1024).toFixed(0)} KB)`,
+        );
       } else {
         console.log(`[build-cache] MISS ${cacheKey.slice(0, 80)}`);
       }
@@ -116,7 +123,8 @@ export async function handleWebBuild(
     // Validate bundle
     const assets = buildResult.bundle?.assets;
     if (!assets || Object.keys(assets).length === 0) {
-      const hasWorker = buildResult.bundle?.serverFiles && Object.keys(buildResult.bundle.serverFiles).length > 0;
+      const hasWorker =
+        buildResult.bundle?.serverFiles && Object.keys(buildResult.bundle.serverFiles).length > 0;
       await updateKV(env, buildId, {
         status: "failed",
         error: hasWorker
@@ -303,7 +311,9 @@ async function writeBundleCache(
 
   const sizeKB = (bundleJson.length / 1024).toFixed(0);
   if (bundleJson.length > MAX_CACHE_SIZE) {
-    console.log(`[build-cache] WRITE SKIP ${cacheKey.slice(0, 80)} — ${sizeKB} KB exceeds ${(MAX_CACHE_SIZE / 1024 / 1024).toFixed(0)} MiB cap`);
+    console.log(
+      `[build-cache] WRITE SKIP ${cacheKey.slice(0, 80)} — ${sizeKB} KB exceeds ${(MAX_CACHE_SIZE / 1024 / 1024).toFixed(0)} MiB cap`,
+    );
     return;
   }
 

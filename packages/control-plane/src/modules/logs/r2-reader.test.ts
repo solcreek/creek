@@ -52,9 +52,7 @@ describe("hourPrefixes", () => {
   test("single hour window → one prefix", () => {
     const start = Date.UTC(2026, 3, 13, 17, 0, 0);
     const end = Date.UTC(2026, 3, 13, 17, 59, 0);
-    expect(hourPrefixes("acme", "blog", start, end)).toEqual([
-      "logs/acme/blog/2026-04-13/17-",
-    ]);
+    expect(hourPrefixes("acme", "blog", start, end)).toEqual(["logs/acme/blog/2026-04-13/17-"]);
   });
 
   test("range spanning 3 hours → 3 prefixes", () => {
@@ -72,17 +70,12 @@ describe("hourPrefixes", () => {
     const start = Date.UTC(2026, 3, 13, 23, 0, 0);
     const end = Date.UTC(2026, 3, 14, 1, 0, 0);
     const prefixes = hourPrefixes("acme", "blog", start, end);
-    expect(prefixes).toEqual([
-      "logs/acme/blog/2026-04-13/23-",
-      "logs/acme/blog/2026-04-14/00-",
-    ]);
+    expect(prefixes).toEqual(["logs/acme/blog/2026-04-13/23-", "logs/acme/blog/2026-04-14/00-"]);
   });
 
   test("zero-padded month/day/hour", () => {
     const start = Date.UTC(2026, 0, 5, 7, 0, 0);
-    expect(hourPrefixes("a", "p", start, start + 1)).toEqual([
-      "logs/a/p/2026-01-05/07-",
-    ]);
+    expect(hourPrefixes("a", "p", start, start + 1)).toEqual(["logs/a/p/2026-01-05/07-"]);
   });
 });
 
@@ -108,10 +101,7 @@ describe("readLogs", () => {
         entry({ timestamp: NOW - 20 * 60_000, outcome: "ok" }),
       ],
     });
-    const query = parseQuery(
-      new URLSearchParams({ since: "1h", outcome: "exception" }),
-      NOW,
-    );
+    const query = parseQuery(new URLSearchParams({ since: "1h", outcome: "exception" }), NOW);
     const result = await readLogs({ bucket, team: "acme", project: "blog", query });
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].outcome).toBe("exception");
@@ -119,15 +109,11 @@ describe("readLogs", () => {
 
   test("limit caps results, truncated=true when more available", async () => {
     const bucket = makeBucket({
-      "logs/acme/blog/2026-04-13/17-production-aaa.ndjson": Array.from(
-        { length: 10 },
-        (_, i) => entry({ timestamp: NOW - (i + 1) * 60_000 }),
+      "logs/acme/blog/2026-04-13/17-production-aaa.ndjson": Array.from({ length: 10 }, (_, i) =>
+        entry({ timestamp: NOW - (i + 1) * 60_000 }),
       ),
     });
-    const query = parseQuery(
-      new URLSearchParams({ since: "1h", limit: "3" }),
-      NOW,
-    );
+    const query = parseQuery(new URLSearchParams({ since: "1h", limit: "3" }), NOW);
     const result = await readLogs({ bucket, team: "acme", project: "blog", query });
     expect(result.entries).toHaveLength(3);
     expect(result.truncated).toBe(true);
@@ -142,10 +128,7 @@ describe("readLogs", () => {
         entry({ timestamp: Date.UTC(2026, 3, 13, 17, 30, 0) }),
       ],
     });
-    const query = parseQuery(
-      new URLSearchParams({ since: "3h", limit: "1" }),
-      NOW,
-    );
+    const query = parseQuery(new URLSearchParams({ since: "3h", limit: "1" }), NOW);
     const result = await readLogs({ bucket, team: "acme", project: "blog", query });
     expect(result.entries).toHaveLength(1);
     // Newest (17:30) wins, not 16:30
@@ -172,12 +155,7 @@ describe("readLogs", () => {
         return {
           text: () =>
             Promise.resolve(
-              [
-                "{not json",
-                JSON.stringify(entry()),
-                "",
-                "another bad line",
-              ].join("\n"),
+              ["{not json", JSON.stringify(entry()), "", "another bad line"].join("\n"),
             ),
         } as R2ObjectBody;
       },
@@ -189,9 +167,7 @@ describe("readLogs", () => {
 
   test("tenant prefix is enforced — bucket keys outside logs/{team}/{project}/ ignored", async () => {
     const bucket = makeBucket({
-      "logs/other-team/blog/2026-04-13/17-production-x.ndjson": [
-        entry({ team: "other-team" }),
-      ],
+      "logs/other-team/blog/2026-04-13/17-production-x.ndjson": [entry({ team: "other-team" })],
       "logs/acme/blog/2026-04-13/17-production-y.ndjson": [entry()],
     });
     const query = parseQuery(new URLSearchParams(), NOW);

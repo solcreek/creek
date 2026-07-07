@@ -28,7 +28,9 @@ async function insertBuildLog(
   await testEnv.env.DB.prepare(
     `INSERT INTO build_log (deploymentId, r2Key, status, bytes, lines, startedAt, endedAt)
      VALUES (?, ?, ?, 100, 10, ?, ?)`,
-  ).bind(deploymentId, r2Key, status, startedAt, startedAt).run();
+  )
+    .bind(deploymentId, r2Key, status, startedAt, startedAt)
+    .run();
 }
 
 describe("purgeExpiredBuildLogs", () => {
@@ -55,7 +57,9 @@ describe("purgeExpiredBuildLogs", () => {
     expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-2.ndjson.gz")).toBeNull();
 
     // D1 rows deleted
-    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    const remaining = (await testEnv.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM build_log",
+    ).first()) as any;
     expect(remaining.cnt).toBe(0);
   });
 
@@ -66,7 +70,9 @@ describe("purgeExpiredBuildLogs", () => {
     const deleted = await purgeExpiredBuildLogs(testEnv.env);
     expect(deleted).toBe(0);
 
-    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    const remaining = (await testEnv.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM build_log",
+    ).first()) as any;
     expect(remaining.cnt).toBe(1);
   });
 
@@ -78,7 +84,9 @@ describe("purgeExpiredBuildLogs", () => {
     const deleted = await purgeExpiredBuildLogs(testEnv.env);
     expect(deleted).toBe(1);
 
-    const remaining = await testEnv.env.DB.prepare("SELECT COUNT(*) as cnt FROM build_log").first() as any;
+    const remaining = (await testEnv.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM build_log",
+    ).first()) as any;
     expect(remaining.cnt).toBe(0);
   });
 
@@ -94,7 +102,9 @@ describe("purgeExpiredBuildLogs", () => {
     const deleted = await purgeExpiredBuildLogs(testEnv.env);
     expect(deleted).toBe(1);
 
-    const remaining = await testEnv.env.DB.prepare("SELECT deploymentId FROM build_log").all() as any;
+    const remaining = (await testEnv.env.DB.prepare(
+      "SELECT deploymentId FROM build_log",
+    ).all()) as any;
     expect(remaining.results).toHaveLength(1);
     expect(remaining.results[0].deploymentId).toBe("dep-recent-fail");
   });

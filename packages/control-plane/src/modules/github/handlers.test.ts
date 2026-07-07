@@ -52,7 +52,9 @@ describe("handleInstallation", () => {
 
     await handleInstallation(testEnv.env, payload);
 
-    const row = testEnv.db.db.prepare("SELECT * FROM github_installation WHERE id = 12345").get() as any;
+    const row = testEnv.db.db
+      .prepare("SELECT * FROM github_installation WHERE id = 12345")
+      .get() as any;
     expect(row).toBeDefined();
     expect(row.id).toBe(12345);
     expect(row.accountLogin).toBe("myorg");
@@ -61,10 +63,18 @@ describe("handleInstallation", () => {
   test("deleted action removes installation and related data", async () => {
     // Seed installation + project (FK target) + connection + scan
     const now = Date.now();
-    testEnv.db.db.exec(`INSERT INTO github_installation (id, accountLogin, accountType, appId, createdAt, updatedAt) VALUES (12345, 'myorg', 'Organization', 999, ${now}, ${now})`);
-    testEnv.db.db.exec(`INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('proj-test', 'test-app', '${TEST_TEAM.id}', ${now}, ${now})`);
-    testEnv.db.db.exec(`INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt) VALUES ('conn-1', 'proj-test', 12345, 'myorg', 'my-app', 'main', 1, 1, ${now})`);
-    testEnv.db.db.exec(`INSERT INTO repo_scan (repoOwner, repoName, installationId, deployable, scannedAt) VALUES ('myorg', 'my-app', 12345, 0, ${now})`);
+    testEnv.db.db.exec(
+      `INSERT INTO github_installation (id, accountLogin, accountType, appId, createdAt, updatedAt) VALUES (12345, 'myorg', 'Organization', 999, ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('proj-test', 'test-app', '${TEST_TEAM.id}', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO github_connection (id, projectId, installationId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt) VALUES ('conn-1', 'proj-test', 12345, 'myorg', 'my-app', 'main', 1, 1, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO repo_scan (repoOwner, repoName, installationId, deployable, scannedAt) VALUES ('myorg', 'my-app', 12345, 0, ${now})`,
+    );
 
     const payload: InstallationPayload = {
       action: "deleted",
@@ -74,9 +84,15 @@ describe("handleInstallation", () => {
     await handleInstallation(testEnv.env, payload);
 
     // Should have deleted connections, scans, and installation
-    expect(testEnv.db.db.prepare("SELECT * FROM github_connection WHERE installationId = 12345").get()).toBeUndefined();
-    expect(testEnv.db.db.prepare("SELECT * FROM repo_scan WHERE installationId = 12345").get()).toBeUndefined();
-    expect(testEnv.db.db.prepare("SELECT * FROM github_installation WHERE id = 12345").get()).toBeUndefined();
+    expect(
+      testEnv.db.db.prepare("SELECT * FROM github_connection WHERE installationId = 12345").get(),
+    ).toBeUndefined();
+    expect(
+      testEnv.db.db.prepare("SELECT * FROM repo_scan WHERE installationId = 12345").get(),
+    ).toBeUndefined();
+    expect(
+      testEnv.db.db.prepare("SELECT * FROM github_installation WHERE id = 12345").get(),
+    ).toBeUndefined();
   });
 });
 
@@ -87,7 +103,11 @@ describe("handlePush", () => {
     ref: "refs/heads/main",
     after: "abc123def456",
     head_commit: { message: "fix: update styles" },
-    repository: { owner: { login: "myorg" }, name: "my-app", clone_url: "https://github.com/myorg/my-app.git" },
+    repository: {
+      owner: { login: "myorg" },
+      name: "my-app",
+      clone_url: "https://github.com/myorg/my-app.git",
+    },
     installation: { id: 12345 },
   };
 
@@ -115,7 +135,9 @@ describe("handlePush", () => {
 
     await handlePush(testEnv.env, basePushPayload).catch(() => {});
 
-    const row = testEnv.db.db.prepare("SELECT * FROM deployment WHERE projectId = 'proj-1'").get() as any;
+    const row = testEnv.db.db
+      .prepare("SELECT * FROM deployment WHERE projectId = 'proj-1'")
+      .get() as any;
     expect(row).toBeDefined();
     expect(row.branch).toBe("main");
     expect(row.commitSha).toBe("abc123def456");
@@ -126,9 +148,9 @@ describe("handlePush", () => {
     seedConnection();
     seedProjectForPush();
 
-    const builderFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: false, error: "stop here" })),
-    );
+    const builderFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: false, error: "stop here" })));
     testEnv.env.REMOTE_BUILDER = { fetch: builderFetch } as unknown as Fetcher;
 
     await handlePush(testEnv.env, basePushPayload).catch(() => {});
@@ -209,12 +231,16 @@ describe("handleRepository", () => {
 
     await handleRepository(testEnv.env, payload);
 
-    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-1'").get() as any;
+    const conn = testEnv.db.db
+      .prepare("SELECT * FROM github_connection WHERE id = 'conn-1'")
+      .get() as any;
     expect(conn.repoOwner).toBe("linyiru");
     expect(conn.repoName).toBe("new-name");
     expect(conn.repoId).toBe(12345);
 
-    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'").get() as any;
+    const proj = testEnv.db.db
+      .prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'")
+      .get() as any;
     expect(proj.githubRepo).toBe("linyiru/new-name");
   });
 
@@ -239,7 +265,9 @@ describe("handleRepository", () => {
 
     await handleRepository(testEnv.env, payload);
 
-    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-legacy'").get() as any;
+    const conn = testEnv.db.db
+      .prepare("SELECT * FROM github_connection WHERE id = 'conn-legacy'")
+      .get() as any;
     expect(conn.repoName).toBe("new-name");
     // Backfills the previously-null repoId
     expect(conn.repoId).toBe(12345);
@@ -278,11 +306,15 @@ describe("handleRepository", () => {
 
     await handleRepository(testEnv.env, payload);
 
-    const conn = testEnv.db.db.prepare("SELECT * FROM github_connection WHERE id = 'conn-xfer'").get() as any;
+    const conn = testEnv.db.db
+      .prepare("SELECT * FROM github_connection WHERE id = 'conn-xfer'")
+      .get() as any;
     expect(conn.repoOwner).toBe("new-org");
     expect(conn.repoName).toBe("my-app");
 
-    const proj = testEnv.db.db.prepare("SELECT githubRepo FROM project WHERE id = 'proj-xfer'").get() as any;
+    const proj = testEnv.db.db
+      .prepare("SELECT githubRepo FROM project WHERE id = 'proj-xfer'")
+      .get() as any;
     expect(proj.githubRepo).toBe("new-org/my-app");
   });
 });

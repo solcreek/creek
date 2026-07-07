@@ -53,10 +53,7 @@ describe("real-world wrangler config fixtures", () => {
           const found = config.bindings.find(
             (b) => b.type === expected.type && b.name === expected.name,
           );
-          expect(
-            found,
-            `missing ${expected.type} binding '${expected.name}'`,
-          ).toBeDefined();
+          expect(found, `missing ${expected.type} binding '${expected.name}'`).toBeDefined();
         }
       });
 

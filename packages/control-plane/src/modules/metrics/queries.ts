@@ -76,11 +76,7 @@ const DIMENSION_BLOB: Record<BreakdownDimension, string> = {
   statusBucket: "blob6",
 };
 
-export function breakdownSql(
-  scope: QueryScope,
-  dimension: BreakdownDimension,
-  limit = 20,
-): string {
+export function breakdownSql(scope: QueryScope, dimension: BreakdownDimension, limit = 20): string {
   const col = DIMENSION_BLOB[dimension];
   return `
     SELECT

@@ -14,7 +14,9 @@ export const Route = createFileRoute("/cli-auth")({
 function CliAuthPage() {
   const { port, state } = Route.useSearch();
   const { data: session, isPending } = authClient.useSession();
-  const [status, setStatus] = useState<"checking" | "creating" | "redirecting" | "done" | "error">("checking");
+  const [status, setStatus] = useState<"checking" | "creating" | "redirecting" | "done" | "error">(
+    "checking",
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -74,13 +76,9 @@ function CliAuthPage() {
           <p className="text-muted-foreground">Checking authentication...</p>
         )}
 
-        {status === "creating" && (
-          <p className="text-muted-foreground">Creating API key...</p>
-        )}
+        {status === "creating" && <p className="text-muted-foreground">Creating API key...</p>}
 
-        {status === "redirecting" && (
-          <p className="text-muted-foreground">Redirecting to CLI...</p>
-        )}
+        {status === "redirecting" && <p className="text-muted-foreground">Redirecting to CLI...</p>}
 
         {status === "done" && (
           <div className="space-y-2">
@@ -94,10 +92,7 @@ function CliAuthPage() {
         {status === "error" && (
           <div className="space-y-3">
             <p className="text-destructive">{error}</p>
-            <Button
-              variant="outline"
-              onClick={() => window.location.reload()}
-            >
+            <Button variant="outline" onClick={() => window.location.reload()}>
               Try again
             </Button>
           </div>

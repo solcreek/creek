@@ -22,8 +22,8 @@ export interface TeamInfo {
 // closer to the platform CPU defaults (Workers Paid default is 30,000ms) so
 // SSR works on every plan, with headroom widening up the tiers.
 export const PLAN_LIMITS: Record<string, { cpuMs: number; subRequests: number }> = {
-  free:       { cpuMs: 1000,  subRequests: 50 },
-  pro:        { cpuMs: 5000,  subRequests: 200 },
+  free: { cpuMs: 1000, subRequests: 50 },
+  pro: { cpuMs: 5000, subRequests: 200 },
   enterprise: { cpuMs: 30000, subRequests: 1000 },
 };
 

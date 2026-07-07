@@ -10,10 +10,10 @@ export const Route = createFileRoute("/_authenticated")({
     }
 
     try {
-      const session = await Promise.race([
+      const session = (await Promise.race([
         authClient.getSession(),
         new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
-      ]) as Awaited<ReturnType<typeof authClient.getSession>>;
+      ])) as Awaited<ReturnType<typeof authClient.getSession>>;
       if (!session?.data?.user) {
         throw redirect({ to: "/login", search: { redirect: undefined } });
       }

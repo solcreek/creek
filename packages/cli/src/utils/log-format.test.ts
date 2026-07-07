@@ -11,7 +11,8 @@ function parseCreekdLogLine(line: string): { ts: string; stream: string; msg: st
 
 describe("parseCreekdLogLine", () => {
   it("parses valid NDJSON log record", () => {
-    const line = '{"ts":"2026-05-24T01:32:59.700857Z","app":"logger","stream":"stdout","msg":"hello world"}';
+    const line =
+      '{"ts":"2026-05-24T01:32:59.700857Z","app":"logger","stream":"stdout","msg":"hello world"}';
     const rec = parseCreekdLogLine(line);
     expect(rec.ts).toBe("2026-05-24T01:32:59.700857Z");
     expect(rec.stream).toBe("stdout");
@@ -19,7 +20,8 @@ describe("parseCreekdLogLine", () => {
   });
 
   it("parses stderr stream", () => {
-    const line = '{"ts":"2026-05-24T01:33:00Z","app":"api","stream":"stderr","msg":"Error: connection refused"}';
+    const line =
+      '{"ts":"2026-05-24T01:33:00Z","app":"api","stream":"stderr","msg":"Error: connection refused"}';
     const rec = parseCreekdLogLine(line);
     expect(rec.stream).toBe("stderr");
     expect(rec.msg).toBe("Error: connection refused");
@@ -39,7 +41,8 @@ describe("parseCreekdLogLine", () => {
   });
 
   it("handles msg with special characters", () => {
-    const line = '{"ts":"2026-05-24T00:00:00Z","stream":"stdout","msg":"line with \\"quotes\\" and \\nnewlines"}';
+    const line =
+      '{"ts":"2026-05-24T00:00:00Z","stream":"stdout","msg":"line with \\"quotes\\" and \\nnewlines"}';
     const rec = parseCreekdLogLine(line);
     expect(rec.msg).toContain("quotes");
   });

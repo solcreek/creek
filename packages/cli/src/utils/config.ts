@@ -35,16 +35,9 @@ export function getToken(): string | undefined {
 }
 
 export function getApiUrl(): string {
-  return (
-    process.env.CREEK_API_URL ??
-    readCliConfig().apiUrl ??
-    "https://api.creek.dev"
-  );
+  return process.env.CREEK_API_URL ?? readCliConfig().apiUrl ?? "https://api.creek.dev";
 }
 
 export function getSandboxApiUrl(): string {
-  return (
-    process.env.CREEK_SANDBOX_API_URL ??
-    "https://sandbox-api.creek.dev"
-  );
+  return process.env.CREEK_SANDBOX_API_URL ?? "https://sandbox-api.creek.dev";
 }

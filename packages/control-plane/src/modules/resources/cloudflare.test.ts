@@ -65,7 +65,9 @@ describe("resource provisioning (CF REST via MSW)", () => {
   });
 
   it("throws on an unknown resource type", async () => {
-    await expect(provisionCFResource(env, "queue-x", "q")).rejects.toThrow(/Unknown CF resource type/);
+    await expect(provisionCFResource(env, "queue-x", "q")).rejects.toThrow(
+      /Unknown CF resource type/,
+    );
   });
 
   it("surfaces CF API errors as thrown errors", async () => {
@@ -107,7 +109,12 @@ describe("custom hostnames — CF for SaaS (via MSW)", () => {
     server.use(
       http.post(ZONE, async ({ request }) => {
         body = await request.json();
-        return ok({ id: "ch-1", hostname: "app.example.com", status: "pending", ssl: { status: "pending_validation" } });
+        return ok({
+          id: "ch-1",
+          hostname: "app.example.com",
+          status: "pending",
+          ssl: { status: "pending_validation" },
+        });
       }),
     );
     const res = await createCustomHostname(env, "app.example.com");

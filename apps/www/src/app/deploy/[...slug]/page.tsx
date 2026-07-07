@@ -43,23 +43,17 @@ interface GitHubRepoMeta {
  * / network failure — the metadata functions fall back to generic copy in
  * that case rather than breaking the page render.
  */
-async function fetchGitHubRepo(
-  owner: string,
-  repo: string,
-): Promise<GitHubRepoMeta | null> {
+async function fetchGitHubRepo(owner: string, repo: string): Promise<GitHubRepoMeta | null> {
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}`,
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": "creek-deploy-button",
-        },
-        // Next.js caches the response for 1 hour — repo metadata doesn't
-        // change often and we don't want to hammer GitHub unauth limits.
-        next: { revalidate: 3600 },
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "creek-deploy-button",
       },
-    );
+      // Next.js caches the response for 1 hour — repo metadata doesn't
+      // change often and we don't want to hammer GitHub unauth limits.
+      next: { revalidate: 3600 },
+    });
     if (!res.ok) return null;
     return (await res.json()) as GitHubRepoMeta;
   } catch {
@@ -67,26 +61,25 @@ async function fetchGitHubRepo(
   }
 }
 
-export async function generateMetadata(
-  { params }: { params: Promise<{ slug: string[] }> },
-): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string[] }>;
+}): Promise<Metadata> {
   const { slug } = await params;
   const parsed = parseDeploySlug(slug);
 
   if (!parsed) {
     return {
       title: "Deploy to Creek",
-      description:
-        "Deploy any GitHub repository to Creek in seconds — no signup, no config.",
+      description: "Deploy any GitHub repository to Creek in seconds — no signup, no config.",
     };
   }
 
   const { owner, repo, branch, subpath, provider } = parsed;
 
   // Only GitHub is wired for description fetch today.
-  const meta = provider.host === "github.com"
-    ? await fetchGitHubRepo(owner, repo)
-    : null;
+  const meta = provider.host === "github.com" ? await fetchGitHubRepo(owner, repo) : null;
 
   // Title: for subpath, include the subpath as a colon suffix so users
   // can tell at a glance which part of the monorepo is being deployed.
@@ -98,9 +91,7 @@ export async function generateMetadata(
   const baseDesc = meta?.description
     ? `${meta.description} — Deploy in ~15 seconds, no signup.`
     : `Deploy this ${provider.displayName} repo to Creek in ~15 seconds — no signup, no config, free sandbox URL.`;
-  const description = subpath
-    ? `${baseDesc} (Deploying from ${subpath})`
-    : baseDesc;
+  const description = subpath ? `${baseDesc} (Deploying from ${subpath})` : baseDesc;
 
   // Canonical URL mirrors the deploy URL grammar exactly.
   const deployPath = buildDeployPath(parsed);
@@ -143,9 +134,7 @@ export async function generateMetadata(
   };
 }
 
-export default async function DeployPathPage(
-  { params }: { params: Promise<{ slug: string[] }> },
-) {
+export default async function DeployPathPage({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params;
   const parsed = parseDeploySlug(slug);
 
@@ -212,13 +201,22 @@ function FallbackShell({
     <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
       <nav className="border-b border-[#222] bg-[#0a0a0a]/80 backdrop-blur-lg">
         <div className="mx-auto max-w-2xl flex items-center justify-between px-6 h-14">
-          <a href="/" className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none">
-            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">⬡</span>
+          <a
+            href="/"
+            className="inline-flex items-center gap-1.5 text-base font-medium tracking-tight leading-none"
+          >
+            <span aria-hidden="true" className="text-[1.05em] -translate-y-[0.5px]">
+              ⬡
+            </span>
             <span className="font-brand">Creek</span>
           </a>
           <div className="flex items-center gap-6 text-sm text-[#888]">
-            <a href="/docs" className="hover:text-[#e5e5e5] transition-colors">Docs</a>
-            <a href="/pricing" className="hover:text-[#e5e5e5] transition-colors">Pricing</a>
+            <a href="/docs" className="hover:text-[#e5e5e5] transition-colors">
+              Docs
+            </a>
+            <a href="/pricing" className="hover:text-[#e5e5e5] transition-colors">
+              Pricing
+            </a>
           </div>
         </div>
       </nav>

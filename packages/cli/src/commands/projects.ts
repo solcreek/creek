@@ -1,7 +1,13 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekApiError } from "@solcreek/sdk";
-import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm, isTTY } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  shouldAutoConfirm,
+  isTTY,
+} from "../utils/output.js";
 import { requireClient, apiCall } from "../utils/command-context.js";
 
 const projectsList = defineCommand({
@@ -13,12 +19,13 @@ const projectsList = defineCommand({
     const projects = await apiCall(jsonMode, "api_error", () => client.listProjects());
 
     if (jsonMode) {
-      const crumbs = projects.length > 0
-        ? projects.slice(0, 3).map((p) => ({
-            command: `creek deployments --project ${p.slug}`,
-            description: `List deployments for ${p.slug}`,
-          }))
-        : [{ command: "creek deploy", description: "Deploy your first project" }];
+      const crumbs =
+        projects.length > 0
+          ? projects.slice(0, 3).map((p) => ({
+              command: `creek deployments --project ${p.slug}`,
+              description: `List deployments for ${p.slug}`,
+            }))
+          : [{ command: "creek deploy", description: "Deploy your first project" }];
       jsonOutput({ ok: true, projects }, 0, crumbs);
     }
 
@@ -37,7 +44,11 @@ const projectsList = defineCommand({
 });
 
 const projectsDelete = defineCommand({
-  meta: { name: "delete", description: "Delete a project (by slug or id). Does not delete its team-owned databases/buckets." },
+  meta: {
+    name: "delete",
+    description:
+      "Delete a project (by slug or id). Does not delete its team-owned databases/buckets.",
+  },
   args: {
     slug: { type: "positional", description: "Project slug or id to delete", required: true },
     ...globalArgs,
@@ -51,7 +62,9 @@ const projectsDelete = defineCommand({
     // --yes. Non-TTY (agents/CI) auto-confirms, consistent with the rest
     // of the CLI's shouldAutoConfirm contract.
     if (!shouldAutoConfirm(args) && isTTY) {
-      const ok = (await consola.prompt(`Delete project "${slug}"? This cannot be undone.`, { type: "confirm" })) as unknown as boolean;
+      const ok = (await consola.prompt(`Delete project "${slug}"? This cannot be undone.`, {
+        type: "confirm",
+      })) as unknown as boolean;
       if (!ok) {
         consola.info("Cancelled.");
         process.exit(0);
@@ -68,16 +81,20 @@ const projectsDelete = defineCommand({
         process.exit(1);
       }
       const msg = err instanceof Error ? err.message : "Failed to delete project";
-      if (jsonMode) jsonOutput({ ok: false, error: "delete_failed", project: slug, message: msg }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "delete_failed", project: slug, message: msg }, 1);
       consola.error(msg);
       process.exit(1);
     }
 
-    if (jsonMode) jsonOutput({ ok: true, project: slug, deleted: true }, 0, [
-      { command: "creek projects", description: "List remaining projects" },
-    ]);
+    if (jsonMode)
+      jsonOutput({ ok: true, project: slug, deleted: true }, 0, [
+        { command: "creek projects", description: "List remaining projects" },
+      ]);
     consola.success(`Deleted project ${slug}`);
-    consola.info("Note: its databases/buckets are team-owned and were not deleted — manage them with `creek db`/`creek storage`.");
+    consola.info(
+      "Note: its databases/buckets are team-owned and were not deleted — manage them with `creek db`/`creek storage`.",
+    );
   },
 });
 
@@ -97,7 +114,7 @@ export const projectsCommand = defineCommand({
   // handler even after a subcommand dispatched, so guard against
   // double-running: only list when no known verb was given.
   run(ctx) {
-    const rawArgs = ((ctx as { rawArgs?: string[] }).rawArgs ?? []);
+    const rawArgs = (ctx as { rawArgs?: string[] }).rawArgs ?? [];
     const verb = rawArgs.find((a) => !a.startsWith("-"));
     if (verb && verb in SUBCOMMANDS) return;
     return projectsList.run!(ctx as Parameters<NonNullable<typeof projectsList.run>>[0]);

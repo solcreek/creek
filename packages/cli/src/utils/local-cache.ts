@@ -73,7 +73,7 @@ export function readLocalCache(projectRoot: string): LocalCacheFile {
   if (parsed.schemaVersion !== LOCAL_SCHEMA_VERSION) {
     throw new Error(
       `local.json: unsupported schemaVersion ${parsed.schemaVersion} ` +
-      `(want ${LOCAL_SCHEMA_VERSION})`,
+        `(want ${LOCAL_SCHEMA_VERSION})`,
     );
   }
   return parsed as LocalCacheFile;

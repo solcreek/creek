@@ -7,11 +7,7 @@ export function StatusBar() {
     <div className="status-bar">
       <span className={`dot ${isConnected ? "connected" : "disconnected"}`} />
       <span className="status-text">
-        {isConnected
-          ? peers > 1
-            ? `${peers} viewers`
-            : "Only you"
-          : "Connecting..."}
+        {isConnected ? (peers > 1 ? `${peers} viewers` : "Only you") : "Connecting..."}
       </span>
     </div>
   );

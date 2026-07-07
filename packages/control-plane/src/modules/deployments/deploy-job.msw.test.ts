@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { gunzipSync } from "node:zlib";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { runDeployJob, withDeployHeartbeat } from "./deploy-job.js";
 import { buildR2Key } from "../build-logs/storage.js";
 import type { BuildLogLine } from "../build-logs/types.js";
@@ -12,7 +17,8 @@ import type { BuildLogLine } from "../build-logs/types.js";
 // MSW mocking every Cloudflare API call. Asserts the status orchestration
 // (active on success, failed + failedStep on a CF error) that nothing else
 // covers. Fabricated IDs only.
-const NS = "https://api.cloudflare.com/client/v4/accounts/:acc/workers/dispatch/namespaces/:ns/scripts/:name";
+const NS =
+  "https://api.cloudflare.com/client/v4/accounts/:acc/workers/dispatch/namespaces/:ns/scripts/:name";
 
 // Captured body of every observability settings PATCH, across all tests. A
 // default handler (below) keeps the call satisfied everywhere; the dedicated
@@ -24,7 +30,7 @@ const server = setupServer(
   // handle it by default so it doesn't trip onUnhandledRequest across tests.
   http.patch(`${NS}/settings`, async ({ request }) => {
     const fd = await (request as unknown as { formData(): Promise<FormData> }).formData();
-    settingsPatches.push(JSON.parse(await (fd.get("settings") as File).text()));
+    settingsPatches.push(JSON.parse(await (fd.get("settings") as unknown as File).text()));
     return HttpResponse.json({ success: true, result: {}, errors: [] });
   }),
 );
@@ -71,7 +77,9 @@ const input = {
 };
 
 function deploymentRow() {
-  return testEnv.db.db.prepare("SELECT status, failedStep, errorMessage FROM deployment WHERE id = 'dep-1'").get() as {
+  return testEnv.db.db
+    .prepare("SELECT status, failedStep, errorMessage FROM deployment WHERE id = 'dep-1'")
+    .get() as {
     status: string;
     failedStep: string | null;
     errorMessage: string | null;
@@ -80,9 +88,18 @@ function deploymentRow() {
 
 function buildLogRow() {
   return testEnv.db.db
-    .prepare("SELECT status, lines, errorCode, errorStep, r2Key, bytes FROM build_log WHERE deploymentId = 'dep-1'")
+    .prepare(
+      "SELECT status, lines, errorCode, errorStep, r2Key, bytes FROM build_log WHERE deploymentId = 'dep-1'",
+    )
     .get() as
-    | { status: string; lines: number; errorCode: string | null; errorStep: string | null; r2Key: string; bytes: number }
+    | {
+        status: string;
+        lines: number;
+        errorCode: string | null;
+        errorStep: string | null;
+        r2Key: string;
+        bytes: number;
+      }
     | undefined;
 }
 
@@ -105,7 +122,11 @@ describe("runDeployJob (integration via MSW)", () => {
     server.use(
       // asset upload session: no buckets => nothing to upload
       http.post(`${NS}/assets-upload-session`, () =>
-        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+        HttpResponse.json({
+          success: true,
+          result: { jwt: "session-jwt", buckets: [] },
+          errors: [],
+        }),
       ),
       // worker script upload
       http.put(NS, () => {
@@ -124,9 +145,15 @@ describe("runDeployJob (integration via MSW)", () => {
   it("enables observability on the deployed tenant script (settings PATCH)", async () => {
     server.use(
       http.post(`${NS}/assets-upload-session`, () =>
-        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+        HttpResponse.json({
+          success: true,
+          result: { jwt: "session-jwt", buckets: [] },
+          errors: [],
+        }),
       ),
-      http.put(NS, () => HttpResponse.json({ success: true, result: { id: "script" }, errors: [] })),
+      http.put(NS, () =>
+        HttpResponse.json({ success: true, result: { id: "script" }, errors: [] }),
+      ),
     );
 
     await stageBundle();
@@ -142,14 +169,20 @@ describe("runDeployJob (integration via MSW)", () => {
     // enable observability — assert every settings PATCH turns it on.
     expect(settingsPatches.length).toBeGreaterThanOrEqual(1);
     expect(
-      settingsPatches.every((p) => (p.observability as { enabled?: boolean } | undefined)?.enabled === true),
+      settingsPatches.every(
+        (p) => (p.observability as { enabled?: boolean } | undefined)?.enabled === true,
+      ),
     ).toBe(true);
   });
 
   it("records failed + failedStep when the WfP deploy errors", async () => {
     server.use(
       http.post(`${NS}/assets-upload-session`, () =>
-        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+        HttpResponse.json({
+          success: true,
+          result: { jwt: "session-jwt", buckets: [] },
+          errors: [],
+        }),
       ),
       http.put(NS, () =>
         HttpResponse.json({ success: false, errors: [{ code: 10000, message: "namespace boom" }] }),
@@ -179,13 +212,19 @@ describe("runDeployJob (integration via MSW)", () => {
     let uploadCalls = 0;
     server.use(
       http.post(`${NS}/assets-upload-session`, () =>
-        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: BUCKETS }, errors: [] }),
+        HttpResponse.json({
+          success: true,
+          result: { jwt: "session-jwt", buckets: BUCKETS },
+          errors: [],
+        }),
       ),
       http.post(UPLOAD, () => {
         uploadCalls++;
         return HttpResponse.json({ success: true, result: { jwt: "completion-jwt" }, errors: [] });
       }),
-      http.put(NS, () => HttpResponse.json({ success: true, result: { id: "script" }, errors: [] })),
+      http.put(NS, () =>
+        HttpResponse.json({ success: true, result: { id: "script" }, errors: [] }),
+      ),
     );
 
     await stageBundle();
@@ -229,7 +268,11 @@ describe("runDeployJob deploy-stage logging (B2)", () => {
   it("persists a failure log with the failing step and an error line", async () => {
     server.use(
       http.post(`${NS}/assets-upload-session`, () =>
-        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+        HttpResponse.json({
+          success: true,
+          result: { jwt: "session-jwt", buckets: [] },
+          errors: [],
+        }),
       ),
       http.put(NS, () =>
         HttpResponse.json({ success: false, errors: [{ code: 10000, message: "namespace boom" }] }),
@@ -323,9 +366,14 @@ describe("withDeployHeartbeat", () => {
   it("propagates the wrapped function's error (and still stops beating)", async () => {
     setDeploying(0);
     await expect(
-      withDeployHeartbeat(testEnv.env, "dep-1", async () => {
-        throw new Error("deploy boom");
-      }, 20),
+      withDeployHeartbeat(
+        testEnv.env,
+        "dep-1",
+        async () => {
+          throw new Error("deploy boom");
+        },
+        20,
+      ),
     ).rejects.toThrow("deploy boom");
   });
 
@@ -344,7 +392,11 @@ describe("withDeployHeartbeat", () => {
     // status guard means the beats no-op'd; updatedAt untouched.
     expect(updatedAt()).toBe(before);
     expect(
-      (testEnv.db.db.prepare("SELECT status FROM deployment WHERE id = 'dep-1'").get() as { status: string }).status,
+      (
+        testEnv.db.db.prepare("SELECT status FROM deployment WHERE id = 'dep-1'").get() as {
+          status: string;
+        }
+      ).status,
     ).toBe("failed");
   });
 });

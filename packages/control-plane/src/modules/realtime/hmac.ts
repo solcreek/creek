@@ -27,11 +27,7 @@ export async function deriveRealtimeSecret(
     ["sign"],
   );
 
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(projectSlug),
-  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(projectSlug));
 
   // Convert to hex string
   return Array.from(new Uint8Array(signature))

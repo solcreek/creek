@@ -59,7 +59,10 @@ github.post("/installations/:id/claim", async (c) => {
 
   // If already claimed by another team, reject
   if (installation.organizationId && installation.organizationId !== teamId) {
-    return c.json({ error: "conflict", message: "Installation already claimed by another team" }, 409);
+    return c.json(
+      { error: "conflict", message: "Installation already claimed by another team" },
+      409,
+    );
   }
 
   // Claim it
@@ -94,9 +97,7 @@ github.get("/installations/:id/repos", async (c) => {
   const repos = await listInstallationRepos(token);
 
   // Get scan data
-  const scans = await c.env.DB.prepare(
-    "SELECT * FROM repo_scan WHERE installationId = ?",
-  )
+  const scans = await c.env.DB.prepare("SELECT * FROM repo_scan WHERE installationId = ?")
     .bind(installationId)
     .all<{
       repoOwner: string;
@@ -109,9 +110,7 @@ github.get("/installations/:id/repos", async (c) => {
       scannedAt: number;
     }>();
 
-  const scanMap = new Map(
-    scans.results.map((s) => [`${s.repoOwner}/${s.repoName}`, s]),
-  );
+  const scanMap = new Map(scans.results.map((s) => [`${s.repoOwner}/${s.repoName}`, s]));
 
   // Merge GitHub repo data with scan results
   const enriched = repos.map((repo) => {
@@ -147,7 +146,13 @@ github.post("/connect", async (c) => {
   }>();
 
   if (!body.projectId || !body.installationId || !body.repoOwner || !body.repoName) {
-    return c.json({ error: "validation", message: "projectId, installationId, repoOwner, repoName are required" }, 400);
+    return c.json(
+      {
+        error: "validation",
+        message: "projectId, installationId, repoOwner, repoName are required",
+      },
+      400,
+    );
   }
 
   // Verify project belongs to this team
@@ -162,14 +167,15 @@ github.post("/connect", async (c) => {
   }
 
   // Check for existing connection on this project
-  const existing = await c.env.DB.prepare(
-    "SELECT id FROM github_connection WHERE projectId = ?",
-  )
+  const existing = await c.env.DB.prepare("SELECT id FROM github_connection WHERE projectId = ?")
     .bind(body.projectId)
     .first();
 
   if (existing) {
-    return c.json({ error: "conflict", message: "Project already has a GitHub connection. Disconnect first." }, 409);
+    return c.json(
+      { error: "conflict", message: "Project already has a GitHub connection. Disconnect first." },
+      409,
+    );
   }
 
   // Check repo not already connected to another project
@@ -180,7 +186,10 @@ github.post("/connect", async (c) => {
     .first<{ projectId: string }>();
 
   if (repoConnected) {
-    return c.json({ error: "conflict", message: `This repo is already connected to another project` }, 409);
+    return c.json(
+      { error: "conflict", message: `This repo is already connected to another project` },
+      409,
+    );
   }
 
   // Fetch GitHub's internal repo ID so we can survive a repo rename/transfer
@@ -216,9 +225,7 @@ github.post("/connect", async (c) => {
     .run();
 
   // Also update project.githubRepo
-  await c.env.DB.prepare(
-    "UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?",
-  )
+  await c.env.DB.prepare("UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?")
     .bind(`${body.repoOwner}/${body.repoName}`, Date.now(), body.projectId)
     .run();
 
@@ -270,10 +277,18 @@ github.post("/deploy-latest", async (c) => {
 
   // Exchange token and fetch latest commit on production branch
   const token = await exchangeInstallationToken(c.env, connection.installationId);
-  const commit = await getLatestCommit(token, connection.repoOwner, connection.repoName, connection.productionBranch);
+  const commit = await getLatestCommit(
+    token,
+    connection.repoOwner,
+    connection.repoName,
+    connection.productionBranch,
+  );
   if (!commit) {
     return c.json(
-      { error: "not_found", message: `Branch '${connection.productionBranch}' not found on ${connection.repoOwner}/${connection.repoName}` },
+      {
+        error: "not_found",
+        message: `Branch '${connection.productionBranch}' not found on ${connection.repoOwner}/${connection.repoName}`,
+      },
       404,
     );
   }
@@ -321,7 +336,10 @@ github.delete("/connections/:id", async (c) => {
 
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM github_connection WHERE id = ?").bind(connectionId),
-    c.env.DB.prepare("UPDATE project SET githubRepo = NULL, updatedAt = ? WHERE id = ?").bind(Date.now(), connection.projectId),
+    c.env.DB.prepare("UPDATE project SET githubRepo = NULL, updatedAt = ? WHERE id = ?").bind(
+      Date.now(),
+      connection.projectId,
+    ),
   ]);
 
   return c.json({ ok: true });
@@ -407,13 +425,21 @@ github.post("/scan/:owner/:repo", async (c) => {
        framework = ?, configType = ?, bindings = ?, envHints = ?, deployable = ?, scannedAt = ?`,
   )
     .bind(
-      owner, repo, scan.installationId,
-      result.framework, result.configType,
-      JSON.stringify(result.bindings), JSON.stringify(result.envHints),
-      result.deployable ? 1 : 0, Date.now(),
-      result.framework, result.configType,
-      JSON.stringify(result.bindings), JSON.stringify(result.envHints),
-      result.deployable ? 1 : 0, Date.now(),
+      owner,
+      repo,
+      scan.installationId,
+      result.framework,
+      result.configType,
+      JSON.stringify(result.bindings),
+      JSON.stringify(result.envHints),
+      result.deployable ? 1 : 0,
+      Date.now(),
+      result.framework,
+      result.configType,
+      JSON.stringify(result.bindings),
+      JSON.stringify(result.envHints),
+      result.deployable ? 1 : 0,
+      Date.now(),
     )
     .run();
 

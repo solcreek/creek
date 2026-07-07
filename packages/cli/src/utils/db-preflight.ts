@@ -32,9 +32,7 @@ export type SqliteOrm = "prisma" | "drizzle";
  * Drizzle pointed straight at `drizzle-orm/d1`), so we never guess a database
  * the project didn't ask for.
  */
-export function detectSqliteOrm(
-  deps: Record<string, string | undefined>,
-): SqliteOrm | null {
+export function detectSqliteOrm(deps: Record<string, string | undefined>): SqliteOrm | null {
   if (deps["@prisma/adapter-better-sqlite3"]) return "prisma";
   if (deps["drizzle-orm"] && deps["better-sqlite3"]) return "drizzle";
   return null;
@@ -76,10 +74,7 @@ export function databaseDirectiveState(rawToml: string | null): DatabaseDirectiv
  * `[resources]` missing (append the section, prepending `[project]` when the
  * file has none so the result is a valid creek.toml).
  */
-export function enableDatabaseResource(
-  rawToml: string | null,
-  projectName: string,
-): string {
+export function enableDatabaseResource(rawToml: string | null, projectName: string): string {
   const resourcesBlock = "[resources]\ndatabase = true\n";
 
   if (rawToml === null || rawToml.trim() === "") {

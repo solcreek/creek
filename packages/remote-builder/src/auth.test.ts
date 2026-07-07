@@ -64,9 +64,7 @@ describe("internal auth", () => {
   });
 
   test("accepts request with correct secret", async () => {
-    mockContainerFetch.mockResolvedValue(
-      Response.json({ success: true, bundle: { assets: {} } }),
-    );
+    mockContainerFetch.mockResolvedValue(Response.json({ success: true, bundle: { assets: {} } }));
 
     const req = new Request("http://localhost/build", {
       method: "POST",
@@ -82,9 +80,7 @@ describe("internal auth", () => {
   });
 
   test("allows request when no INTERNAL_SECRET configured", async () => {
-    mockContainerFetch.mockResolvedValue(
-      Response.json({ success: true, bundle: { assets: {} } }),
-    );
+    mockContainerFetch.mockResolvedValue(Response.json({ success: true, bundle: { assets: {} } }));
 
     const req = new Request("http://localhost/build", {
       method: "POST",
@@ -99,9 +95,7 @@ describe("internal auth", () => {
 
 describe("templateData forwarding", () => {
   test("forwards templateData to container", async () => {
-    mockContainerFetch.mockResolvedValue(
-      Response.json({ success: true, bundle: { assets: {} } }),
-    );
+    mockContainerFetch.mockResolvedValue(Response.json({ success: true, bundle: { assets: {} } }));
 
     const templateData = { title: "Acme", theme: "light" };
     const req = new Request("http://localhost/build", {
@@ -124,9 +118,7 @@ describe("templateData forwarding", () => {
   });
 
   test("omits templateData when not provided", async () => {
-    mockContainerFetch.mockResolvedValue(
-      Response.json({ success: true, bundle: { assets: {} } }),
-    );
+    mockContainerFetch.mockResolvedValue(Response.json({ success: true, bundle: { assets: {} } }));
 
     const req = new Request("http://localhost/build", {
       method: "POST",
@@ -143,13 +135,11 @@ describe("templateData forwarding", () => {
 
 describe("health check", () => {
   test("GET returns worker status", async () => {
-    mockContainerFetch.mockResolvedValue(
-      Response.json({ status: "ready" }),
-    );
+    mockContainerFetch.mockResolvedValue(Response.json({ status: "ready" }));
 
     const req = new Request("http://localhost/", { method: "GET" });
     const res = await worker.fetch(req, createEnv(undefined));
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(body.worker).toBe("ok");
     expect(body.container).toEqual({ status: "ready" });
@@ -160,7 +150,7 @@ describe("health check", () => {
 
     const req = new Request("http://localhost/", { method: "GET" });
     const res = await worker.fetch(req, createEnv(undefined));
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(body.worker).toBe("ok");
     expect(body.container).toBe("starting");
@@ -178,7 +168,7 @@ describe("input validation", () => {
     const res = await worker.fetch(req, createEnv(undefined));
     expect(res.status).toBe(400);
 
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.error).toContain("repoUrl");
   });
 

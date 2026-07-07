@@ -5,11 +5,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-type ConnectMiddleware = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  next: () => void,
-) => void;
+type ConnectMiddleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
 export class ViteBridge {
   private viteServer: any = null; // ViteDevServer — dynamically imported

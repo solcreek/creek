@@ -5,7 +5,13 @@ import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { CreekClient, parseConfig } from "@solcreek/sdk";
 import { createResourceCommand } from "./resource-cmd.js";
-import { detectMigrationDir, parseMigrationFiles, splitStatements, computePending, batchStatements } from "./migrate.js";
+import {
+  detectMigrationDir,
+  parseMigrationFiles,
+  splitStatements,
+  computePending,
+  batchStatements,
+} from "./migrate.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 
@@ -18,17 +24,20 @@ const base = createResourceCommand({
 const shellCommand = defineCommand({
   meta: {
     name: "shell",
-    description: "Execute SQL against a team database. Interactive REPL or single query with --sql.",
+    description:
+      "Execute SQL against a team database. Interactive REPL or single query with --sql.",
   },
   args: {
     name: {
       type: "positional",
-      description: "Database name (as shown by `creek db ls`). Optional when --project is given or run inside a project directory.",
+      description:
+        "Database name (as shown by `creek db ls`). Optional when --project is given or run inside a project directory.",
       required: false,
     },
     project: {
       type: "string",
-      description: "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given.",
+      description:
+        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given.",
       required: false,
     },
     sql: {
@@ -134,7 +143,8 @@ export async function resolveProjectDatabase(
     const { resources } = await client.listResources();
     const db = resources.find((r) => r.name === name && r.kind === "database");
     if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${name}"` }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "not_found", message: `No database named "${name}"` }, 1);
       consola.error(`No database named "${name}"`);
       process.exit(1);
     }
@@ -159,21 +169,33 @@ export async function resolveProjectDatabase(
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     const msg = `Couldn't load bindings for project "${slug}" (${detail}). Check the project exists (\`creek projects\`) or pass an explicit database name (${usage}).`;
-    if (jsonMode) jsonOutput({ ok: false, error: "project_lookup_failed", project: slug, message: msg }, 1);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "project_lookup_failed", project: slug, message: msg }, 1);
     consola.error(msg);
     process.exit(1);
   }
   const dbs = bindings.filter((b) => b.kind === "database");
   if (dbs.length === 0) {
     const msg = `Project "${slug}" has no database bound. Attach one with \`creek db attach\`.`;
-    if (jsonMode) jsonOutput({ ok: false, error: "no_database_bound", project: slug, message: msg }, 1);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "no_database_bound", project: slug, message: msg }, 1);
     consola.error(msg);
     process.exit(1);
   }
   if (dbs.length > 1) {
     const names = dbs.map((b) => b.name).join(", ");
     const msg = `Project "${slug}" binds ${dbs.length} databases (${names}). Pass the name explicitly: ${usage}.`;
-    if (jsonMode) jsonOutput({ ok: false, error: "ambiguous_database", project: slug, databases: dbs.map((b) => b.name), message: msg }, 1);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "ambiguous_database",
+          project: slug,
+          databases: dbs.map((b) => b.name),
+          message: msg,
+        },
+        1,
+      );
     consola.error(msg);
     process.exit(1);
   }
@@ -210,7 +232,9 @@ async function executeAndPrint(
 
     if (result.rows.length === 0) {
       if (result.meta.changes > 0) {
-        consola.info(`${result.meta.changes} row(s) changed (${result.meta.duration.toFixed(1)}ms)`);
+        consola.info(
+          `${result.meta.changes} row(s) changed (${result.meta.duration.toFixed(1)}ms)`,
+        );
       } else {
         consola.info("No results.");
       }
@@ -239,7 +263,9 @@ async function executeAndPrint(
       const line = cols
         .map((c, i) => {
           const val = String(row[c] ?? "NULL");
-          return val.length > maxWidth ? val.slice(0, maxWidth - 1) + "…" : val.padEnd(cappedWidths[i]);
+          return val.length > maxWidth
+            ? val.slice(0, maxWidth - 1) + "…"
+            : val.padEnd(cappedWidths[i]);
         })
         .join("  ");
       console.log(line);
@@ -263,7 +289,8 @@ function escapeSqlLiteral(value: string): string {
 const migrateCommand = defineCommand({
   meta: {
     name: "migrate",
-    description: "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order.",
+    description:
+      "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order.",
   },
   args: {
     // Accept the database name either as the first positional (`db migrate
@@ -272,17 +299,20 @@ const migrateCommand = defineCommand({
     // positional is read from args._ in run().
     name: {
       type: "string",
-      description: "Database name (as shown by `creek db ls`). May also be given as the first positional argument. Optional when --project is given or run inside a project directory with a single bound database.",
+      description:
+        "Database name (as shown by `creek db ls`). May also be given as the first positional argument. Optional when --project is given or run inside a project directory with a single bound database.",
       required: false,
     },
     project: {
       type: "string",
-      description: "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given.",
+      description:
+        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given.",
       required: false,
     },
     dir: {
       type: "string",
-      description: "Migration directory path. Default: auto-detect drizzle/, drizzle/migrations/, prisma/migrations/, migrations/, sql/",
+      description:
+        "Migration directory path. Default: auto-detect drizzle/, drizzle/migrations/, prisma/migrations/, migrations/, sql/",
       required: false,
     },
     "dry-run": {
@@ -292,7 +322,8 @@ const migrateCommand = defineCommand({
     },
     resume: {
       type: "boolean",
-      description: "Reconcile a partially-applied migration: if applying fails because objects already exist, mark it applied and continue. Use after an interrupted run.",
+      description:
+        "Reconcile a partially-applied migration: if applying fails because objects already exist, mark it applied and continue. Use after an interrupted run.",
       default: false,
     },
     ...globalArgs,
@@ -333,14 +364,16 @@ const migrateCommand = defineCommand({
     // 3. Read migration files
     const files = parseMigrationFiles(migrationDir);
     if (files.length === 0) {
-      if (jsonMode) jsonOutput({ ok: true, message: "No .sql files found", applied: 0, pending: 0 }, 0);
+      if (jsonMode)
+        jsonOutput({ ok: true, message: "No .sql files found", applied: 0, pending: 0 }, 0);
       consola.info(`No .sql files found in ${migrationDir}`);
       return;
     }
 
     // 4. Create tracking table + query applied migrations
     try {
-      await client.queryDatabase(db.id,
+      await client.queryDatabase(
+        db.id,
         `CREATE TABLE IF NOT EXISTS _creek_migrations (
           name TEXT PRIMARY KEY,
           applied_at INTEGER NOT NULL
@@ -355,7 +388,10 @@ const migrateCommand = defineCommand({
 
     let appliedRows: { name: string }[];
     try {
-      const result = await client.queryDatabase(db.id, "SELECT name FROM _creek_migrations ORDER BY name;");
+      const result = await client.queryDatabase(
+        db.id,
+        "SELECT name FROM _creek_migrations ORDER BY name;",
+      );
       appliedRows = result.rows as { name: string }[];
     } catch (err) {
       const msg = `Failed to query applied migrations: ${err instanceof Error ? err.message : String(err)}`;
@@ -370,13 +406,16 @@ const migrateCommand = defineCommand({
     // 5. Dry-run
     if (args["dry-run"]) {
       if (jsonMode) {
-        jsonOutput({
-          ok: true,
-          dryRun: true,
-          total: files.length,
-          applied: appliedSet.size,
-          pending: pending.map((f) => f.name),
-        }, 0);
+        jsonOutput(
+          {
+            ok: true,
+            dryRun: true,
+            total: files.length,
+            applied: appliedSet.size,
+            pending: pending.map((f) => f.name),
+          },
+          0,
+        );
       } else if (pending.length === 0) {
         consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       } else {
@@ -391,7 +430,8 @@ const migrateCommand = defineCommand({
 
     // 6. Apply pending
     if (pending.length === 0) {
-      if (jsonMode) jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
+      if (jsonMode)
+        jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
       consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       return;
     }
@@ -409,7 +449,9 @@ const migrateCommand = defineCommand({
         continue;
       }
 
-      consola.start(`  ${file.name} (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
+      consola.start(
+        `  ${file.name} (${statements.length} statement${statements.length > 1 ? "s" : ""})`,
+      );
 
       // Apply the migration AND record it as applied in the same request: the
       // tracking insert rides along as the final statement. This closes the
@@ -441,7 +483,11 @@ const migrateCommand = defineCommand({
             continue;
           } catch (recordErr) {
             const rmsg = recordErr instanceof Error ? recordErr.message : String(recordErr);
-            if (jsonMode) jsonOutput({ ok: false, error: "resume_failed", file: file.name, message: rmsg, migrated }, 1);
+            if (jsonMode)
+              jsonOutput(
+                { ok: false, error: "resume_failed", file: file.name, message: rmsg, migrated },
+                1,
+              );
             consola.error(`  ${file.name} — resume failed: ${rmsg}`);
             process.exit(1);
           }
@@ -451,16 +497,21 @@ const migrateCommand = defineCommand({
         // surface that rather than a now-meaningless global index.
         consola.error(`  ${file.name} — failed: ${msg}`);
         if (jsonMode) {
-          jsonOutput({
-            ok: false,
-            error: "migration_failed",
-            file: file.name,
-            totalStatements: statements.length,
-            message: msg,
-            migrated,
-            remaining: pending.length - migrated,
-            ...(alreadyExists ? { hint: "Re-run with --resume to reconcile a partially-applied migration." } : {}),
-          }, 1);
+          jsonOutput(
+            {
+              ok: false,
+              error: "migration_failed",
+              file: file.name,
+              totalStatements: statements.length,
+              message: msg,
+              migrated,
+              remaining: pending.length - migrated,
+              ...(alreadyExists
+                ? { hint: "Re-run with --resume to reconcile a partially-applied migration." }
+                : {}),
+            },
+            1,
+          );
         }
         if (alreadyExists) {
           consola.info(`  If a previous run was interrupted, re-run with --resume to reconcile.`);
@@ -474,9 +525,14 @@ const migrateCommand = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated }, 0);
+      jsonOutput(
+        { ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated },
+        0,
+      );
     }
-    consola.success(`\n${migrated} migration(s) applied successfully${resumed ? ` (${resumed} reconciled via --resume)` : ""}`);
+    consola.success(
+      `\n${migrated} migration(s) applied successfully${resumed ? ` (${resumed} reconciled via --resume)` : ""}`,
+    );
   },
 });
 
@@ -491,7 +547,8 @@ const SEED_CANDIDATES = [
 const seedCommand = defineCommand({
   meta: {
     name: "seed",
-    description: "Execute a seed SQL file against a team database. Looks for seed.sql in common locations or use --file to specify.",
+    description:
+      "Execute a seed SQL file against a team database. Looks for seed.sql in common locations or use --file to specify.",
   },
   args: {
     name: {
@@ -501,7 +558,8 @@ const seedCommand = defineCommand({
     },
     file: {
       type: "string",
-      description: "Path to seed SQL file. Default: auto-detect seed.sql in drizzle/, migrations/, sql/, or project root.",
+      description:
+        "Path to seed SQL file. Default: auto-detect seed.sql in drizzle/, migrations/, sql/, or project root.",
       required: false,
     },
     ...globalArgs,
@@ -520,7 +578,11 @@ const seedCommand = defineCommand({
     const { resources } = await client.listResources();
     const db = resources.find((r) => r.name === args.name && r.kind === "database");
     if (!db) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: `No database named "${args.name}"` }, 1);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "not_found", message: `No database named "${args.name}"` },
+          1,
+        );
       consola.error(`No database named "${args.name}"`);
       process.exit(1);
     }
@@ -532,7 +594,11 @@ const seedCommand = defineCommand({
     if (args.file) {
       seedPath = resolve(cwd, args.file);
       if (!existsSync(seedPath)) {
-        if (jsonMode) jsonOutput({ ok: false, error: "file_not_found", message: `Seed file not found: ${args.file}` }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "file_not_found", message: `Seed file not found: ${args.file}` },
+            1,
+          );
         consola.error(`Seed file not found: ${args.file}`);
         process.exit(1);
       }
@@ -545,7 +611,10 @@ const seedCommand = defineCommand({
         }
       }
       if (!seedPath) {
-        const msg = "No seed file found. Looked for: " + SEED_CANDIDATES.join(", ") + ". Use --file to specify.";
+        const msg =
+          "No seed file found. Looked for: " +
+          SEED_CANDIDATES.join(", ") +
+          ". Use --file to specify.";
         if (jsonMode) jsonOutput({ ok: false, error: "no_seed_file", message: msg }, 1);
         consola.error(msg);
         process.exit(1);
@@ -571,13 +640,16 @@ const seedCommand = defineCommand({
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (jsonMode) {
-          jsonOutput({
-            ok: false,
-            error: "seed_failed",
-            statement: i + 1,
-            totalStatements: statements.length,
-            message: msg,
-          }, 1);
+          jsonOutput(
+            {
+              ok: false,
+              error: "seed_failed",
+              statement: i + 1,
+              totalStatements: statements.length,
+              message: msg,
+            },
+            1,
+          );
         }
         consola.error(`Statement ${i + 1}/${statements.length} failed: ${msg}`);
         process.exit(1);
@@ -585,7 +657,9 @@ const seedCommand = defineCommand({
     }
 
     if (jsonMode) jsonOutput({ ok: true, executed: statements.length }, 0);
-    consola.success(`Seed complete (${statements.length} statement${statements.length > 1 ? "s" : ""})`);
+    consola.success(
+      `Seed complete (${statements.length} statement${statements.length > 1 ? "s" : ""})`,
+    );
   },
 });
 

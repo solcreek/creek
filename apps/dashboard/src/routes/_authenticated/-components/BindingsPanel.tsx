@@ -66,8 +66,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
   const detach = useMutation({
     mutationFn: (name: string) =>
       api(`/projects/${projectId}/bindings/${name}`, { method: "DELETE" }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["bindings", projectId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bindings", projectId] }),
   });
 
   // Don't show resources that are already bound under any name — users
@@ -75,9 +74,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
   // Keeping the UI simple; attach by CLI is the escape hatch.
   const availableResources = useMemo(() => {
     const bound = new Set(bindings?.bindings.map((b) => b.resourceId) ?? []);
-    return (resources?.resources ?? []).filter(
-      (r) => r.status === "active" && !bound.has(r.id),
-    );
+    return (resources?.resources ?? []).filter((r) => r.status === "active" && !bound.has(r.id));
   }, [resources, bindings]);
 
   return (
@@ -86,9 +83,8 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
         <div>
           <h2 className="text-sm font-medium">Resource bindings</h2>
           <p className="text-xs text-muted-foreground">
-            Which team resources are available in this project's runtime and
-            under which ENV var name. Your code reads{" "}
-            <code className="font-mono">env.DB</code> etc. — no wrangler.toml
+            Which team resources are available in this project's runtime and under which ENV var
+            name. Your code reads <code className="font-mono">env.DB</code> etc. — no wrangler.toml
             hand-editing needed.
           </p>
         </div>
@@ -123,13 +119,9 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
             <Button
               size="sm"
               disabled={
-                !selectedResourceId ||
-                !BINDING_NAME_RE.test(bindingName) ||
-                attach.isPending
+                !selectedResourceId || !BINDING_NAME_RE.test(bindingName) || attach.isPending
               }
-              onClick={() =>
-                attach.mutate({ resourceId: selectedResourceId, bindingName })
-              }
+              onClick={() => attach.mutate({ resourceId: selectedResourceId, bindingName })}
             >
               {attach.isPending ? "Attaching..." : "Attach"}
             </Button>
@@ -144,9 +136,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
               Cancel
             </Button>
           </div>
-          {attachError && (
-            <p className="text-xs text-destructive">{attachError}</p>
-          )}
+          {attachError && <p className="text-xs text-destructive">{attachError}</p>}
           {bindingName && !BINDING_NAME_RE.test(bindingName) && (
             <p className="text-xs text-amber-400">
               Binding name must be uppercase, start with a letter, ≤63 chars.
@@ -160,8 +150,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
       ) : !bindings?.bindings?.length ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-xs text-muted-foreground">
-            No resources attached. Create one in team Settings → Resources, then
-            attach it here.
+            No resources attached. Create one in team Settings → Resources, then attach it here.
           </p>
         </div>
       ) : (

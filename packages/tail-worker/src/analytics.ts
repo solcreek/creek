@@ -31,10 +31,7 @@ export interface AnalyticsEnv {
   ANALYTICS: AnalyticsEngineDataset;
 }
 
-export function writeBatchToAnalytics(
-  env: AnalyticsEnv,
-  entries: LogEntry[],
-): void {
+export function writeBatchToAnalytics(env: AnalyticsEnv, entries: LogEntry[]): void {
   for (const entry of entries) {
     env.ANALYTICS.writeDataPoint({
       indexes: [entry.team],

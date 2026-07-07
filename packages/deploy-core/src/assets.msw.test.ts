@@ -84,7 +84,13 @@ describe("uploadAssetFiles", () => {
 
     const assets = { "/a.js": buf("aaa") };
     const hashToPath = { h1: "/a.js" }; // "h-missing" has no path
-    const jwt = await uploadAssetFiles(env, "upload-jwt", [["h1", "h-missing"], ["h1"]], assets, hashToPath);
+    const jwt = await uploadAssetFiles(
+      env,
+      "upload-jwt",
+      [["h1", "h-missing"], ["h1"]],
+      assets,
+      hashToPath,
+    );
 
     expect(jwt).toBe("completion-jwt");
     // Both buckets uploaded; "h-missing" dropped (every form keyed only by h1).
@@ -104,9 +110,11 @@ describe("uploadAssetFiles", () => {
         await new Promise((r) => setTimeout(r, 15)); // hold the connection so overlap is observable
         inFlight--;
         received++;
-        return HttpResponse.json(
-          { success: true, result: { jwt: received === N ? "completion-jwt" : null }, errors: [] },
-        );
+        return HttpResponse.json({
+          success: true,
+          result: { jwt: received === N ? "completion-jwt" : null },
+          errors: [],
+        });
       }),
     );
 

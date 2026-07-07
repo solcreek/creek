@@ -58,8 +58,7 @@ export function App() {
     <main>
       <h1>Todos</h1>
       <p className="hint">
-        Vite + React + Hono + Drizzle. Same code, two runtimes:
-        better-sqlite3 locally, D1 on Creek.
+        Vite + React + Hono + Drizzle. Same code, two runtimes: better-sqlite3 locally, D1 on Creek.
       </p>
 
       <form onSubmit={add}>

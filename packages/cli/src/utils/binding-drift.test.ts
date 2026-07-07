@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  findUndeclaredBindings,
-  formatBindingDrift,
-  type BindingClient,
-} from "./binding-drift.js";
+import { findUndeclaredBindings, formatBindingDrift, type BindingClient } from "./binding-drift.js";
 
 function fakeClient(opts: {
   bindings?: Array<{ bindingName: string; kind: string }>;

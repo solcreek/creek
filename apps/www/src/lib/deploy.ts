@@ -57,107 +57,109 @@ export function useWebDeploy() {
   const [state, setState] = useState<DeployState>(INITIAL_STATE);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const deploy = useCallback(async (
-    request: {
+  const deploy = useCallback(
+    async (request: {
       type: "template" | "repo";
       template?: string;
       data?: Record<string, string>;
       repo?: string;
       branch?: string;
       path?: string;
-    },
-  ) => {
-    // Clear previous state
-    if (pollRef.current) clearInterval(pollRef.current);
-    setState({ ...INITIAL_STATE, status: "building" });
+    }) => {
+      // Clear previous state
+      if (pollRef.current) clearInterval(pollRef.current);
+      setState({ ...INITIAL_STATE, status: "building" });
 
-    try {
-      const API_BASE = "https://api.creek.dev";
+      try {
+        const API_BASE = "https://api.creek.dev";
 
-      const res = await fetch(`${API_BASE}/web-deploy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
+        const res = await fetch(`${API_BASE}/web-deploy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Request failed" }));
-        const errorMsg = err.error === "rate_limited"
-          ? "rate_limited"
-          : err.message || err.error || `HTTP ${res.status}`;
-        setState({ ...INITIAL_STATE, status: "failed", error: errorMsg });
-        return;
-      }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Request failed" }));
+          const errorMsg =
+            err.error === "rate_limited"
+              ? "rate_limited"
+              : err.message || err.error || `HTTP ${res.status}`;
+          setState({ ...INITIAL_STATE, status: "failed", error: errorMsg });
+          return;
+        }
 
-      const { buildId, statusUrl } = await res.json();
-      setState((s) => ({ ...s, buildId }));
+        const { buildId, statusUrl } = await res.json();
+        setState((s) => ({ ...s, buildId }));
 
-      // Poll for status (statusUrl is relative, prepend API base)
-      const fullStatusUrl = `${API_BASE}${statusUrl}`;
-      let sandboxStatusUrl: string | null = null;
+        // Poll for status (statusUrl is relative, prepend API base)
+        const fullStatusUrl = `${API_BASE}${statusUrl}`;
+        let sandboxStatusUrl: string | null = null;
 
-      pollRef.current = setInterval(async () => {
-        try {
-          // If we have a sandbox status URL, poll it directly for faster updates
-          if (sandboxStatusUrl) {
-            const sandboxRes = await fetch(sandboxStatusUrl);
-            if (sandboxRes.ok) {
-              const sandboxData = await sandboxRes.json();
-              if (sandboxData.status === "active" || sandboxData.status === "failed") {
-                setState((s) => ({
-                  ...s,
-                  status: sandboxData.status,
-                  error: sandboxData.errorMessage || null,
-                }));
-                if (pollRef.current) clearInterval(pollRef.current);
-                return;
+        pollRef.current = setInterval(async () => {
+          try {
+            // If we have a sandbox status URL, poll it directly for faster updates
+            if (sandboxStatusUrl) {
+              const sandboxRes = await fetch(sandboxStatusUrl);
+              if (sandboxRes.ok) {
+                const sandboxData = await sandboxRes.json();
+                if (sandboxData.status === "active" || sandboxData.status === "failed") {
+                  setState((s) => ({
+                    ...s,
+                    status: sandboxData.status,
+                    error: sandboxData.errorMessage || null,
+                  }));
+                  if (pollRef.current) clearInterval(pollRef.current);
+                  return;
+                }
               }
             }
+
+            // Also poll the control-plane status for build phase updates
+            const statusRes = await fetch(fullStatusUrl);
+            if (!statusRes.ok) return;
+
+            const data = await statusRes.json();
+
+            // Capture sandboxStatusUrl when available
+            if (data.sandboxStatusUrl) {
+              sandboxStatusUrl = data.sandboxStatusUrl;
+            }
+
+            setState((s) => ({
+              ...s,
+              status: data.status,
+              previewUrl: data.previewUrl || s.previewUrl,
+              sandboxId: data.sandboxId || s.sandboxId,
+              expiresAt: data.expiresAt || s.expiresAt,
+              error: data.error || null,
+              cacheHit: data.cacheHit ?? s.cacheHit,
+              hint: data.hint ?? s.hint,
+              // Preserve existing log on later status ticks that don't
+              // carry it — remote-builder only writes buildLog once per
+              // build, so subsequent 'deploying' / 'active' updates
+              // overwrite the field back to null without this guard.
+              buildLog: Array.isArray(data.buildLog) ? data.buildLog : s.buildLog,
+            }));
+
+            // Stop polling on terminal states
+            if (data.status === "active" || data.status === "failed") {
+              if (pollRef.current) clearInterval(pollRef.current);
+            }
+          } catch {
+            // Network error during poll — keep trying
           }
-
-          // Also poll the control-plane status for build phase updates
-          const statusRes = await fetch(fullStatusUrl);
-          if (!statusRes.ok) return;
-
-          const data = await statusRes.json();
-
-          // Capture sandboxStatusUrl when available
-          if (data.sandboxStatusUrl) {
-            sandboxStatusUrl = data.sandboxStatusUrl;
-          }
-
-          setState((s) => ({
-            ...s,
-            status: data.status,
-            previewUrl: data.previewUrl || s.previewUrl,
-            sandboxId: data.sandboxId || s.sandboxId,
-            expiresAt: data.expiresAt || s.expiresAt,
-            error: data.error || null,
-            cacheHit: data.cacheHit ?? s.cacheHit,
-            hint: data.hint ?? s.hint,
-            // Preserve existing log on later status ticks that don't
-            // carry it — remote-builder only writes buildLog once per
-            // build, so subsequent 'deploying' / 'active' updates
-            // overwrite the field back to null without this guard.
-            buildLog: Array.isArray(data.buildLog) ? data.buildLog : s.buildLog,
-          }));
-
-          // Stop polling on terminal states
-          if (data.status === "active" || data.status === "failed") {
-            if (pollRef.current) clearInterval(pollRef.current);
-          }
-        } catch {
-          // Network error during poll — keep trying
-        }
-      }, 2500);
-    } catch (err) {
-      setState({
-        ...INITIAL_STATE,
-        status: "failed",
-        error: err instanceof Error ? err.message : "Network error",
-      });
-    }
-  }, []);
+        }, 2500);
+      } catch (err) {
+        setState({
+          ...INITIAL_STATE,
+          status: "failed",
+          error: err instanceof Error ? err.message : "Network error",
+        });
+      }
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);

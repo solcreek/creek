@@ -71,13 +71,7 @@ describe("createAppJWT", () => {
   });
 
   test("formatPreviewComment produces valid markdown", () => {
-    const comment = formatPreviewComment(
-      "my-app-git-feat-acme.bycreek.com",
-      94000,
-      "Nuxt",
-      87,
-      41,
-    );
+    const comment = formatPreviewComment("my-app-git-feat-acme.bycreek.com", 94000, "Nuxt", 87, 41);
     expect(comment).toContain("Creek Preview");
     expect(comment).toContain("my-app-git-feat-acme.bycreek.com");
     expect(comment).toContain("94s");
@@ -87,13 +81,7 @@ describe("createAppJWT", () => {
   });
 
   test("formatPreviewComment omits server files when zero", () => {
-    const comment = formatPreviewComment(
-      "app.bycreek.com",
-      5000,
-      "Vite + React",
-      12,
-      0,
-    );
+    const comment = formatPreviewComment("app.bycreek.com", 5000, "Vite + React", 12, 0);
     expect(comment).not.toContain("server files");
   });
 });
@@ -171,9 +159,11 @@ describe("getLatestCommit", () => {
   });
 
   test("url-encodes branches with slashes", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ sha: "x", commit: { message: "m" } }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ sha: "x", commit: { message: "m" } }), { status: 200 }),
+      );
     globalThis.fetch = fetchMock;
 
     await getLatestCommit("token", "org", "repo", "feature/auth");

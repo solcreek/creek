@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 // GET /projects/:slug/deployments/:id/logs — exercises the fallback that
@@ -10,7 +15,9 @@ let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
 
 const executionCtx = {
-  waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
+  waitUntil: (p: Promise<unknown>) => {
+    p.catch(() => {});
+  },
   passThroughOnException: () => {},
 };
 
@@ -72,8 +79,16 @@ describe("GET deployment logs — server-side failure fallback", () => {
 
     // One synthesized error entry carrying the deployment's recorded reason.
     expect(body.entries).toHaveLength(1);
-    expect(body.entries[0]).toMatchObject({ level: "error", msg: "WfP activation timed out", step: "activate" });
-    expect(body.metadata).toMatchObject({ status: "failed", errorStep: "deploying", synthesized: true });
+    expect(body.entries[0]).toMatchObject({
+      level: "error",
+      msg: "WfP activation timed out",
+      step: "activate",
+    });
+    expect(body.metadata).toMatchObject({
+      status: "failed",
+      errorStep: "deploying",
+      synthesized: true,
+    });
     expect(body.message).toContain("deploying");
   });
 
@@ -83,7 +98,8 @@ describe("GET deployment logs — server-side failure fallback", () => {
       id: "dep-timeout",
       status: "failed",
       failedStep: "deploying",
-      errorMessage: "Activation exceeded the 10-minute deploy window — most often the asset count/size.",
+      errorMessage:
+        "Activation exceeded the 10-minute deploy window — most often the asset count/size.",
     });
 
     const res = await getLogs("dep-timeout");
@@ -126,10 +142,18 @@ describe("GET deployment logs — server-side failure fallback", () => {
   });
 
   test("maps server-side step names onto build-log steps", async () => {
-    seedDeployment({ id: "dep-prov", status: "failed", failedStep: "provisioning", errorMessage: "quota exceeded" });
+    seedDeployment({
+      id: "dep-prov",
+      status: "failed",
+      failedStep: "provisioning",
+      errorMessage: "quota exceeded",
+    });
 
     const res = await getLogs("dep-prov");
-    const body = (await res.json()) as { entries: { step: string }[]; metadata: { errorStep: string | null } };
+    const body = (await res.json()) as {
+      entries: { step: string }[];
+      metadata: { errorStep: string | null };
+    };
     expect(body.entries[0].step).toBe("provision");
     // The raw server-side step is preserved in metadata.
     expect(body.metadata.errorStep).toBe("provisioning");

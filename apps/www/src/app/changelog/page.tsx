@@ -10,9 +10,9 @@ const entries = [
     title: "Agent-first polish: five fixes for sandbox DB-backed deploys",
     items: [
       "**`creek init` now writes semantic resource keys.** Previously scaffolded `[resources] d1 = false / kv = false / r2 = false` — exactly the CF-native keys `creek doctor` flags as `CK-RESOURCES-KEYS` (silently dropped at deploy). Agents following the scaffolded output hit a wall at runtime with `env.DB` undefined. Now `init` omits `[resources]` entirely unless the user opts into a database, in which case it writes `database = true`. One less internal inconsistency between what the CLI generates and what it validates.",
-      "**`creek deploy --dry-run` runs the full doctor rule set.** SKILL.md tells agents \"dry-run first,\" but the old dry-run silently returned `bindings: []` when the user wrote `d1 = true` instead of `database = true` — no warning, no blocker. Dry-run now runs the same SDK rule engine as `creek doctor`, surfacing `findings[]` (including `CK-RESOURCES-KEYS`, `CK-WORKER-MISSING`, etc.) in the JSON output and a concise error summary in human mode. The `nextStep` field changes to \"Fix N blocking issues first\" when any error-severity finding fires. Agents get the full pre-deploy picture in one call instead of discovering problems at runtime.",
+      '**`creek deploy --dry-run` runs the full doctor rule set.** SKILL.md tells agents "dry-run first," but the old dry-run silently returned `bindings: []` when the user wrote `d1 = true` instead of `database = true` — no warning, no blocker. Dry-run now runs the same SDK rule engine as `creek doctor`, surfacing `findings[]` (including `CK-RESOURCES-KEYS`, `CK-WORKER-MISSING`, etc.) in the JSON output and a concise error summary in human mode. The `nextStep` field changes to "Fix N blocking issues first" when any error-severity finding fires. Agents get the full pre-deploy picture in one call instead of discovering problems at runtime.',
       "**`sandbox-dispatch` passes through null-body statuses (204 / 205 / 304).** Worker handlers that returned `new Response(null, { status: 204 })` on PATCH/DELETE were hitting 500s: the dispatch layer's response-reconstruction path tried `new Response(body, ...)` on a null-body status, which the Fetch spec rejects. Banner injection would also corrupt the contract. Null-body statuses now short-circuit before any header mutation or body touch — only `X-Sandbox-Id` is added and the response returns as-is. Covered by three new regression tests.",
-      "**SKILL.md adds a \"Sandbox with DB\" recipe.** Sandbox auto-provisions a D1 binding named `DB` when `creek.toml` declares `[resources] database = true` — no login, no `creek db create` required. The skill never said so, so agents building DB-backed demos hit a dead end at `creek db create`'s `not_authenticated` error and either abandoned DB or asked the user to log in. The recipe now lives near the top of the skill with a minimal `creek.toml` + `worker.ts` skeleton and three constraints (public/index.html required, dry-run first, `creek logs` needs auth). Triage table splits \"add a database\" into no-account vs signed-in rows.",
+      '**SKILL.md adds a "Sandbox with DB" recipe.** Sandbox auto-provisions a D1 binding named `DB` when `creek.toml` declares `[resources] database = true` — no login, no `creek db create` required. The skill never said so, so agents building DB-backed demos hit a dead end at `creek db create`\'s `not_authenticated` error and either abandoned DB or asked the user to log in. The recipe now lives near the top of the skill with a minimal `creek.toml` + `worker.ts` skeleton and three constraints (public/index.html required, dry-run first, `creek logs` needs auth). Triage table splits "add a database" into no-account vs signed-in rows.',
       "**The `creek` npm package now bundles the skill references.** SKILL.md told agents to `cat references/*.md` for deeper detail, but those files only lived in the monorepo — `npm install creek` gave you ENOENT on every documented lookup. A `prepack` script now copies the skill content into `packages/creek/skills/` before publish, so `node_modules/creek/skills/creek/SKILL.md` and the eight reference files (commands, creek-toml, deployment-modes, diagnosis, github-setup, observability, resources, workflows) ship with the package. Adds ~29KB to the tarball. The filesystem skill, MCP resources, and `llms.txt` now all resolve to the same files — one source of truth, bundled into every distribution channel.",
       "**Agent e2e validation.** Two rounds of end-to-end testing simulated a naive agent building a DB-backed TODO CRUD for sandbox. Before the five fixes, the path took ~8 steps of trial-and-error through config errors, missing scaffolding, and 500s with no log access. After: 3 steps from SKILL.md recipe to a live URL. The fixes above are what the delta pointed at.",
     ],
@@ -39,9 +39,9 @@ const entries = [
     title: "Close the loop on failed deploys — and stop agents from working around Creek",
     items: [
       "**Build logs shipped end-to-end.** Every `creek deploy`, every GitHub push deploy, and every `creek.dev/new` web deploy now produces a structured build log — phase-grouped (clone / detect / install / build / bundle / upload / provision / activate), with per-line severity, the failing step's CK-* code, and the original subprocess stderr. Content flows from the build-container's stdout through a secret-scrubbing + gzipping control-plane ingest endpoint to a per-tenant R2 prefix (30-day retention on success, 90 on failure, cron-purged). Readable three ways: the Dashboard's Deployments tab auto-expands the panel on any `failed` row with the failing step highlighted; `creek deployments logs <id>` gives a colour-coded terminal view with `--raw` for piping; and MCP's `get_build_log` tool returns a structured JSON summary so a coding agent can call it without a human intermediary.",
-      "**Failure diagnosis now closes on itself.** `creek doctor --last` fetches the most recent failed deployment, reads its build log, and matches `errorCode` against a CK-code → fix table — printing the concrete next step without asking the user to copy deployment IDs around. The MCP `get_build_log` tool now ships a `suggestedFix` field for the same codes, so an agent using the MCP surface gets the fix inline with the log. One failed deploy, one command, one fix — instead of the previous \"check dashboard, copy id, run another command, read log, infer meaning, try something\" loop.",
-      "**Resources v2: databases are team-owned and attachable.** `creek db create <name>` makes a team-level database resource with a stable UUID and a mutable semantic name. `creek db attach <name> --to <project> --as DB` binds it to one project under an ENV var name; attach it to a second project too if you want both to share the same data (the enterprise \"one prod-db, many apps\" shape Heroku / Fly.io / Render have expressed for years; Creek now joins them). Rename the database without recreating the CF resource or breaking bindings. Dashboard Settings → Resources shows all team resources with live attachment badges; each project gains a Bindings panel for attach / detach without wrangler.toml hand-edits.",
-      "**Agent affordances: the CF-inheritance problem, fixed at four surfaces.** Coding agents kept proposing CF-native workarounds (\"swap `better-sqlite3` → D1 before deploy\", \"hand-edit wrangler.toml for D1 binding\", \"maintain parallel sandbox/prod code paths\") because they knew Creek runs on CF and applied CF reasoning. Each of those shortcuts is unnecessary on Creek and sends the user sideways. Fix landed in four coordinated places: an explicit \"What you DON'T need to do on Creek\" section near the top of creek.dev/llms.txt; a `CK-DB-DUAL-DRIVER-SPLIT` rule in `creek doctor` that detects split `db.local.ts` + `db.prod.ts` files and points at the correct shared-schema + thin-boot-split pattern; deploy-output anchors in `creek deploy` that preempt the wrong assumption before it forms; and a Mental Model + anti-patterns block at the top of the agent skill.",
+      '**Failure diagnosis now closes on itself.** `creek doctor --last` fetches the most recent failed deployment, reads its build log, and matches `errorCode` against a CK-code → fix table — printing the concrete next step without asking the user to copy deployment IDs around. The MCP `get_build_log` tool now ships a `suggestedFix` field for the same codes, so an agent using the MCP surface gets the fix inline with the log. One failed deploy, one command, one fix — instead of the previous "check dashboard, copy id, run another command, read log, infer meaning, try something" loop.',
+      '**Resources v2: databases are team-owned and attachable.** `creek db create <name>` makes a team-level database resource with a stable UUID and a mutable semantic name. `creek db attach <name> --to <project> --as DB` binds it to one project under an ENV var name; attach it to a second project too if you want both to share the same data (the enterprise "one prod-db, many apps" shape Heroku / Fly.io / Render have expressed for years; Creek now joins them). Rename the database without recreating the CF resource or breaking bindings. Dashboard Settings → Resources shows all team resources with live attachment badges; each project gains a Bindings panel for attach / detach without wrangler.toml hand-edits.',
+      '**Agent affordances: the CF-inheritance problem, fixed at four surfaces.** Coding agents kept proposing CF-native workarounds ("swap `better-sqlite3` → D1 before deploy", "hand-edit wrangler.toml for D1 binding", "maintain parallel sandbox/prod code paths") because they knew Creek runs on CF and applied CF reasoning. Each of those shortcuts is unnecessary on Creek and sends the user sideways. Fix landed in four coordinated places: an explicit "What you DON\'T need to do on Creek" section near the top of creek.dev/llms.txt; a `CK-DB-DUAL-DRIVER-SPLIT` rule in `creek doctor` that detects split `db.local.ts` + `db.prod.ts` files and points at the correct shared-schema + thin-boot-split pattern; deploy-output anchors in `creek deploy` that preempt the wrong assumption before it forms; and a Mental Model + anti-patterns block at the top of the agent skill.',
       "**Skill v3.0: progressive disclosure, monorepo-backed.** The skill at `npx skills add solcreek/creek/skills` is restructured per Anthropic's official guidance. `SKILL.md` stays lean (~120 lines: mental model, anti-patterns, quick-triage table, agent rules, cheat sheet, references index). Topic-focused detail moves into `references/` (commands / deployment-modes / workflows / creek-toml / diagnosis / observability / resources / github-setup). Claude loads SKILL.md every time the skill matches; reference files load on demand via `bash cat`. Effective per-trigger context shrinks by roughly 78% while the total depth of available content grows — agents pay only for the section they need.",
       "**One source of truth across every agent surface.** The skill content used to live in the standalone `solcreek/skills` repo while the MCP server, the llms.txt file, and the doctor CK-code mapping lived in the main Creek repo. Four surfaces, four copies, manual sync. Consolidated this week into a single location (`skills/` at the monorepo root) with a three-channel distribution: the filesystem skill (`npx skills add solcreek/creek/skills`), MCP resources (`creek://skill/*` exposed by `mcp.creek.dev`, bundled into the worker at deploy time via wrangler's Text module loader), and the creek.dev/llms.txt Quick Triage + Failure Diagnosis playbook. Edit a `.md` once; all three surfaces pick it up on the next deploy. Architectural drift between what the skill says, what the MCP tool says, and what llms.txt says is now impossible by construction — not by discipline.",
       "**Unified Analytics tab is cache-aware.** Builds on yesterday's zone-analytics addition: the Dashboard's Analytics tab now shows *total* HTTP traffic (including CF-edge-cached requests that never invoked the worker) alongside worker-invocation specifics. Requests / Cache hit % / Invocations / Error rate / CPU p50 / p99 in one row. The stacked time-series chart breaks origin vs cached traffic visually. Edge caching is preserved — we layer the observability, not the other way round.",
@@ -89,8 +89,8 @@ const entries = [
       "Static-site sandbox fast path — a directory with only `index.html` (no `package.json`) now deploys cleanly. Previously crashed with ENOENT. The simplest possible onboarding works: `echo '<h1>Hi</h1>' > index.html && npx creek deploy`.",
       "Sandbox content scan allowlists common embed providers — YouTube, Vimeo, Wistia, Loom, Twitter/X, GitHub Gist, CodePen, CodeSandbox, StackBlitz, JSFiddle, Spotify, SoundCloud, Figma, Google Docs/Calendar/Maps, Typeform, Airtable, Notion. The previous regex-only check blocked every dev blog or portfolio that embedded a YouTube video; now the scan parses iframe `src` as a URL and allows known content-embed hosts (subdomain-aware) while still blocking unknown domains and phishing surfaces.",
       "Richer `creek deploy --help` output — `meta.description` and every flag description rewritten to spell out sandbox-vs-production behavior, auto-detection chain, and example invocations. Targets AI coding agents reading help on a cold paste so they can act confidently with fewer turns.",
-      "`/llms.txt` rewritten with an explicit \"Paste-to-agent contract\" section describing what to do when a human pastes `npx creek deploy` with no surrounding context — what `--dry-run` returns, how to read exit codes, CLI conventions (`--json`, `--yes`, non-TTY auto-JSON), and the MCP server + agent-skill distribution channels.",
-      "Agent discoverability caption: the hero under `npx creek deploy` now reads \"no signup · live in seconds · Claude + Codex + Cursor ready\". Empirical testing confirmed a cold Claude pasted with just `npx creek deploy` investigates safely (checks `--help`, scans config, asks for go/no-go) and completes the deploy in a few tool calls.",
+      '`/llms.txt` rewritten with an explicit "Paste-to-agent contract" section describing what to do when a human pastes `npx creek deploy` with no surrounding context — what `--dry-run` returns, how to read exit codes, CLI conventions (`--json`, `--yes`, non-TTY auto-JSON), and the MCP server + agent-skill distribution channels.',
+      'Agent discoverability caption: the hero under `npx creek deploy` now reads "no signup · live in seconds · Claude + Codex + Cursor ready". Empirical testing confirmed a cold Claude pasted with just `npx creek deploy` investigates safely (checks `--help`, scans config, asks for go/no-go) and completes the deploy in a few tool calls.',
       "Docs and breadcrumb scrub — every `--demo` reference across README, docs, pricing page, llms.txt, and internal error-path hints replaced with `creek deploy --template landing`, which actually works and gives users a real editable Vite + React starter (not a throwaway demo page).",
     ],
   },
@@ -116,10 +116,10 @@ const entries = [
     version: "runtime@0.4.0 · cli@0.4.2",
     title: "Cron, queues, analytics, semantic resource names",
     items: [
-      "Cron triggers: declare `[triggers] cron = [\"0 */6 * * *\"]` in `creek.toml` and export a `scheduled()` handler — Creek wires the Cloudflare cron binding at deploy time",
+      'Cron triggers: declare `[triggers] cron = ["0 */6 * * *"]` in `creek.toml` and export a `scheduled()` handler — Creek wires the Cloudflare cron binding at deploy time',
       "Queue triggers: `[triggers] queue = true` provisions a per-project Cloudflare Queue, binds a `queue` producer at runtime (`import { queue } from 'creek'`), and invokes your exported `queue(batch, env, ctx)` consumer",
       "`creek queue send '<json-body>'` — inject a message into the project queue from the CLI",
-      "`creek dev --trigger-cron \"* * * * *\"` — simulate a scheduled event firing during local development",
+      '`creek dev --trigger-cron "* * * * *"` — simulate a scheduled event firing during local development',
       "Per-tenant analytics tab in the dashboard: requests, errors, p50/p99 latency, plus a cron execution log pulled from the Cloudflare GraphQL Analytics API",
       "Semantic resource names in `creek.toml`: `database` / `storage` / `cache` / `ai` (the legacy `d1` / `kv` / `r2` / `ai` still work for backward compatibility)",
       "CLI worker-bundler now auto-generates `scheduled()` and `queue()` handler wrappers alongside `fetch()`",
@@ -212,11 +212,29 @@ export default function ChangelogPage() {
             creek
           </a>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>
-            <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
-            <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
-            <a href="/changelog" className="text-foreground">Changelog</a>
-            <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="/docs" className="hover:text-foreground transition-colors">
+              Docs
+            </a>
+            <a href="/pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </a>
+            <a
+              href="https://templates.creek.dev"
+              className="hover:text-foreground transition-colors"
+            >
+              Templates
+            </a>
+            <a href="/changelog" className="text-foreground">
+              Changelog
+            </a>
+            <a
+              href="https://github.com/solcreek/creek"
+              className="hover:text-foreground transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
           </div>
         </div>
       </nav>
@@ -260,7 +278,10 @@ export default function ChangelogPage() {
               <h2 className="text-lg font-semibold tracking-tight mb-3">{entry.title}</h2>
               <ul className="space-y-1.5">
                 {entry.items.map((item) => (
-                  <li key={item} className="text-sm text-muted-foreground leading-relaxed flex gap-2">
+                  <li
+                    key={item}
+                    className="text-sm text-muted-foreground leading-relaxed flex gap-2"
+                  >
                     <span className="text-accent mt-1.5 shrink-0">-</span>
                     <span>{item}</span>
                   </li>

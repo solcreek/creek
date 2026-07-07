@@ -18,11 +18,12 @@ export default function App() {
     setTitle("");
 
     await mutate(
-      () => fetch("/api/todos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
-      }),
+      () =>
+        fetch("/api/todos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        }),
       // Optimistic: show the todo immediately
       (prev) => ({
         ...prev,
@@ -37,7 +38,7 @@ export default function App() {
       // Optimistic: remove from list immediately
       (prev) => ({
         ...prev,
-        todos: (prev?.todos ?? []).filter(t => t.id !== id),
+        todos: (prev?.todos ?? []).filter((t) => t.id !== id),
       }),
     );
   }
@@ -49,12 +50,21 @@ export default function App() {
         Full-stack on Cloudflare — D1 + KV + Durable Objects realtime
       </p>
 
-      <div style={{ display: "flex", gap: 12, fontSize: "0.75rem", margin: "0 0 1rem", color: "#999" }}>
+      <div
+        style={{ display: "flex", gap: 12, fontSize: "0.75rem", margin: "0 0 1rem", color: "#999" }}
+      >
         <span>
-          <span style={{
-            display: "inline-block", width: 7, height: 7, borderRadius: "50%",
-            background: connected ? "#22c55e" : "#f59e0b", marginRight: 4, verticalAlign: "middle",
-          }} />
+          <span
+            style={{
+              display: "inline-block",
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: connected ? "#22c55e" : "#f59e0b",
+              marginRight: 4,
+              verticalAlign: "middle",
+            }}
+          />
           {connected ? "Live" : "Connecting..."}
         </span>
         <span>Views: {visits}</span>
@@ -63,30 +73,60 @@ export default function App() {
       <form onSubmit={addTodo} style={{ display: "flex", gap: 8, margin: "0 0 1rem" }}>
         <input
           value={title}
-          onChange={e => setTitle(e.target.value)}
+          onChange={(e) => setTitle(e.target.value)}
           placeholder="What needs to be done?"
-          style={{ flex: 1, padding: "0.5rem", border: "1px solid #ddd", borderRadius: 4, fontSize: "0.9rem" }}
+          style={{
+            flex: 1,
+            padding: "0.5rem",
+            border: "1px solid #ddd",
+            borderRadius: 4,
+            fontSize: "0.9rem",
+          }}
         />
-        <button type="submit" style={{ padding: "0.5rem 1rem", background: "#2563eb", color: "white", border: "none", borderRadius: 4, cursor: "pointer", fontSize: "0.9rem" }}>
+        <button
+          type="submit"
+          style={{
+            padding: "0.5rem 1rem",
+            background: "#2563eb",
+            color: "white",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
           Add
         </button>
       </form>
 
-      {loading ? <p>Loading...</p> : (
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {todos.map(todo => (
-            <li key={todo.id} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "0.5rem 0", borderBottom: "1px solid #eee",
-              opacity: todo.id === "optimistic" ? 0.5 : 1,
-            }}>
+          {todos.map((todo) => (
+            <li
+              key={todo.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "0.5rem 0",
+                borderBottom: "1px solid #eee",
+                opacity: todo.id === "optimistic" ? 0.5 : 1,
+              }}
+            >
               <span>{todo.title}</span>
-              <button onClick={() => deleteTodo(todo.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer" }}>
+              <button
+                onClick={() => deleteTodo(todo.id)}
+                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer" }}
+              >
                 delete
               </button>
             </li>
           ))}
-          {todos.length === 0 && <li style={{ color: "#aaa", padding: "0.5rem 0" }}>No todos yet</li>}
+          {todos.length === 0 && (
+            <li style={{ color: "#aaa", padding: "0.5rem 0" }}>No todos yet</li>
+          )}
         </ul>
       )}
 

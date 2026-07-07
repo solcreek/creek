@@ -21,12 +21,20 @@ function fetchMock(body: unknown, status = 200) {
 
 describe("CreekdClient.spawnApp", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("POSTs to /v1/apps with the body", async () => {
     const { fn, captured } = fetchMock({
-      id: "x", command: "c", port: 1, status: "running",
-      pid: 0, uptime_ms: 0, restart_count: 0, health_failures: 0,
+      id: "x",
+      command: "c",
+      port: 1,
+      status: "running",
+      pid: 0,
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
     });
     globalThis.fetch = fn as unknown as typeof fetch;
 
@@ -45,12 +53,20 @@ describe("CreekdClient.spawnApp", () => {
 
 describe("CreekdClient.deployApp", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("POSTs to /v1/apps/{id}/deploy with If-Match when provided", async () => {
     const { fn, captured } = fetchMock({
-      id: "x", command: "c", port: 1, status: "running",
-      pid: 0, uptime_ms: 0, restart_count: 0, health_failures: 0,
+      id: "x",
+      command: "c",
+      port: 1,
+      status: "running",
+      pid: 0,
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
     });
     globalThis.fetch = fn as unknown as typeof fetch;
 
@@ -65,8 +81,14 @@ describe("CreekdClient.deployApp", () => {
 
   it("encodes the app ID for safe URLs", async () => {
     const { fn, captured } = fetchMock({
-      id: "weird/name", command: "c", port: 1, status: "running",
-      pid: 0, uptime_ms: 0, restart_count: 0, health_failures: 0,
+      id: "weird/name",
+      command: "c",
+      port: 1,
+      status: "running",
+      pid: 0,
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
     });
     globalThis.fetch = fn as unknown as typeof fetch;
 
@@ -79,7 +101,9 @@ describe("CreekdClient.deployApp", () => {
 
 describe("CreekdClient.rollbackApp wire shape", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("returns the parsed Release", async () => {
     const wire: Release = {

@@ -124,9 +124,15 @@ export async function prepareDeployBundle(
   // guard so stdout stays JSON-only and the final jsonOutput is parseable
   // (mirrors deploy.ts's makeProgress). error/warn go to stderr — left as-is.
   const say = {
-    start: (m: string) => { if (!jsonMode) consola.start(m); },
-    info: (m: string) => { if (!jsonMode) consola.info(m); },
-    success: (m: string) => { if (!jsonMode) consola.success(m); },
+    start: (m: string) => {
+      if (!jsonMode) consola.start(m);
+    },
+    info: (m: string) => {
+      if (!jsonMode) consola.info(m);
+    },
+    success: (m: string) => {
+      if (!jsonMode) consola.success(m);
+    },
   };
 
   // 1. Framework detection. Trust the resolved config if it carries
@@ -135,11 +141,8 @@ export async function prepareDeployBundle(
   // without creek.toml still gets the auto-detected framework when
   // running against a pre-existing wrangler.* config.
   const pkgJsonPath = join(cwd, "package.json");
-  const pkg = existsSync(pkgJsonPath)
-    ? JSON.parse(readFileSync(pkgJsonPath, "utf-8"))
-    : null;
-  const framework: Framework | null =
-    resolved.framework ?? (pkg ? detectFramework(pkg) : null);
+  const pkg = existsSync(pkgJsonPath) ? JSON.parse(readFileSync(pkgJsonPath, "utf-8")) : null;
+  const framework: Framework | null = resolved.framework ?? (pkg ? detectFramework(pkg) : null);
 
   const nextjsMode = framework === "nextjs" && pkg ? detectNextjsMode(pkg, cwd) : null;
   const monorepo = framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
@@ -151,14 +154,23 @@ export async function prepareDeployBundle(
       try {
         buildNextjs(cwd, monorepo.isMonorepo);
       } catch {
-        if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
         consola.error("Next.js build failed");
         process.exit(1);
       }
     } else {
       const buildCmd = resolved.buildCommand;
       if (buildCmd.length > 500) {
-        if (jsonMode) jsonOutput({ ok: false, error: "invalid_build_command", message: "Invalid build command (too long)" }, 1);
+        if (jsonMode)
+          jsonOutput(
+            {
+              ok: false,
+              error: "invalid_build_command",
+              message: "Invalid build command (too long)",
+            },
+            1,
+          );
         consola.error("Invalid build command (too long)");
         process.exit(1);
       }
@@ -169,8 +181,7 @@ export async function prepareDeployBundle(
       // worker is bundled downstream regardless.
       const scriptName = packageScriptName(buildCmd);
       const scripts = pkg?.scripts;
-      const hasScripts =
-        typeof scripts === "object" && scripts !== null && !Array.isArray(scripts);
+      const hasScripts = typeof scripts === "object" && scripts !== null && !Array.isArray(scripts);
       const scriptMissing =
         scriptName !== null &&
         !(hasScripts && Object.prototype.hasOwnProperty.call(scripts, scriptName));
@@ -181,7 +192,11 @@ export async function prepareDeployBundle(
         try {
           execSync(buildCmd, { cwd, stdio: "inherit" });
         } catch {
-          if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: `Build failed: ${buildCmd}` }, 1);
+          if (jsonMode)
+            jsonOutput(
+              { ok: false, error: "build_failed", message: `Build failed: ${buildCmd}` },
+              1,
+            );
           consola.error("Build failed");
           process.exit(1);
         }
@@ -199,8 +214,7 @@ export async function prepareDeployBundle(
 
   // 4. Post-build framework adapter detection. Astro can be either SSG
   // or CF-adapter-SSR; we only know which after build.
-  const astroAdapter =
-    framework === "astro" ? detectAstroCloudflareBuild(cwd) : null;
+  const astroAdapter = framework === "astro" ? detectAstroCloudflareBuild(cwd) : null;
 
   // 5. Plan the deploy shape. planDeploy is a pure function — pass in
   // detection results, get out a structured plan with explicit error
@@ -209,15 +223,14 @@ export async function prepareDeployBundle(
   const planResult = planDeploy({
     framework,
     workerEntry: resolved.workerEntry ?? null,
-    workerEntryExists:
-      !!resolved.workerEntry &&
-      existsSync(resolve(cwd, resolved.workerEntry)),
+    workerEntryExists: !!resolved.workerEntry && existsSync(resolve(cwd, resolved.workerEntry)),
     buildOutput: resolved.buildOutput || "dist",
     buildOutputExists: existsSync(outputDir),
     astroCF: astroAdapter,
   });
   if (!planResult.ok) {
-    if (jsonMode) jsonOutput({ ok: false, error: "nothing_to_deploy", message: planResult.reason }, 1);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "nothing_to_deploy", message: planResult.reason }, 1);
     consola.error(planResult.reason);
     process.exit(1);
   }
@@ -279,9 +292,7 @@ export async function prepareDeployBundle(
         }
       }
       serverFiles = base64ServerFiles(collected);
-      say.success(
-        `  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`,
-      );
+      say.success(`  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`);
     } else if (framework === "nextjs") {
       // Legacy Next.js: wrangler dry-run produces the bundle.
       const bundleDir = resolve(cwd, ".creek/bundled");
@@ -297,9 +308,7 @@ export async function prepareDeployBundle(
         }
       }
       serverFiles = base64ServerFiles(collected);
-      say.success(
-        `  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`,
-      );
+      say.success(`  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`);
     } else if (isPreBundledFramework(framework)) {
       // Nuxt / SvelteKit / SolidStart — the framework already produced
       // a bundled server; we just collect.
@@ -333,8 +342,7 @@ export async function prepareDeployBundle(
     // index.html so the wrapper can serve SPA deep-links on a miss. CF
     // Static Assets serves real files at the edge and env.ASSETS isn't bound
     // to the dispatched worker, so the shell must travel inside the bundle.
-    const indexHtmlB64 =
-      clientAssets["index.html"] ?? clientAssets["/index.html"];
+    const indexHtmlB64 = clientAssets["index.html"] ?? clientAssets["/index.html"];
     const spaFallbackHtml =
       plan.assets.enabled && indexHtmlB64
         ? Buffer.from(indexHtmlB64, "base64").toString("utf-8")
@@ -368,12 +376,8 @@ export async function prepareDeployBundle(
 
   // 9. Resolve effective render mode + entrypoint. Astro CF post-build
   // detection upgrades a pre-build "spa" classification to true SSR.
-  const effectiveRenderMode: "spa" | "ssr" | "worker" = astroAdapter
-    ? "ssr"
-    : plan.renderMode;
-  const effectiveEntrypoint = astroAdapter
-    ? "entry.mjs"
-    : (plan.worker.entry ?? null);
+  const effectiveRenderMode: "spa" | "ssr" | "worker" = astroAdapter ? "ssr" : plan.renderMode;
+  const effectiveEntrypoint = astroAdapter ? "entry.mjs" : (plan.worker.entry ?? null);
 
   // Resources declared but the deploy carries no server code: the
   // bindings get provisioned with nothing able to read them, and
@@ -410,8 +414,5 @@ function base64ServerFiles(collected: Record<string, Buffer>): Record<string, st
 }
 
 function kb(collected: Record<string, Buffer>): number {
-  return Math.round(
-    Object.values(collected).reduce((s, b) => s + b.length, 0) / 1024,
-  );
+  return Math.round(Object.values(collected).reduce((s, b) => s + b.length, 0) / 1024);
 }
-

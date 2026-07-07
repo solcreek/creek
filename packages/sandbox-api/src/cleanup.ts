@@ -1,10 +1,5 @@
 import type { Env } from "./types.js";
-import {
-  cfApi,
-  deleteD1Database,
-  deleteR2Bucket,
-  deleteKVNamespace,
-} from "@solcreek/deploy-core";
+import { cfApi, deleteD1Database, deleteR2Bucket, deleteKVNamespace } from "@solcreek/deploy-core";
 import type { ProvisionedResources } from "./provision.js";
 
 /**
@@ -119,11 +114,7 @@ export async function cleanupExpiredSandboxes(env: Env): Promise<number> {
 
   // Purge raw IP logs older than 30 days (legal data retention)
   const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
-  await env.DB.prepare(
-    "DELETE FROM sandbox_ip_log WHERE createdAt < ?",
-  )
-    .bind(thirtyDaysAgo)
-    .run();
+  await env.DB.prepare("DELETE FROM sandbox_ip_log WHERE createdAt < ?").bind(thirtyDaysAgo).run();
 
   return cleaned;
 }

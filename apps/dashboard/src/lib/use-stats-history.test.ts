@@ -49,10 +49,13 @@ describe("stats ring buffer logic", () => {
   });
 
   it("calculates CPU% from delta", () => {
-    const result = simulateRingBuffer([
-      { ...baseStats, cpu_usage_usec: 0 },
-      { ...baseStats, cpu_usage_usec: 2_000_000 }, // 2M usec over 2000ms = 100%
-    ], 150);
+    const result = simulateRingBuffer(
+      [
+        { ...baseStats, cpu_usage_usec: 0 },
+        { ...baseStats, cpu_usage_usec: 2_000_000 }, // 2M usec over 2000ms = 100%
+      ],
+      150,
+    );
     expect(result[0].cpuPercent).toBe(0); // first point: no prev
     expect(result[1].cpuPercent).toBeCloseTo(100);
   });
@@ -74,10 +77,13 @@ describe("stats ring buffer logic", () => {
   });
 
   it("handles zero CPU delta", () => {
-    const result = simulateRingBuffer([
-      { ...baseStats, cpu_usage_usec: 1_000_000 },
-      { ...baseStats, cpu_usage_usec: 1_000_000 },
-    ], 150);
+    const result = simulateRingBuffer(
+      [
+        { ...baseStats, cpu_usage_usec: 1_000_000 },
+        { ...baseStats, cpu_usage_usec: 1_000_000 },
+      ],
+      150,
+    );
     expect(result[1].cpuPercent).toBe(0);
   });
 });

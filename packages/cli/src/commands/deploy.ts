@@ -38,14 +38,48 @@ import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js"
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { bundleSSRServer } from "../utils/ssr-bundle.js";
 import { bundleWorker } from "../utils/worker-bundle.js";
-import { sandboxDeploy, pollSandboxStatus, printSandboxSuccess, expiresInMinutes } from "../utils/sandbox.js";
+import {
+  sandboxDeploy,
+  pollSandboxStatus,
+  printSandboxSuccess,
+  expiresInMinutes,
+} from "../utils/sandbox.js";
 import { prepareDeployBundle } from "../utils/prepare-bundle.js";
 import { BuildLogEmitter, flushBuildLog } from "../utils/build-log.js";
-import { isTTY, jsonOutput, resolveJsonMode, globalArgs, shouldAutoConfirm, exitError, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "../utils/output.js";
+import {
+  isTTY,
+  jsonOutput,
+  resolveJsonMode,
+  globalArgs,
+  shouldAutoConfirm,
+  exitError,
+  AUTH_BREADCRUMBS,
+  NO_PROJECT_BREADCRUMBS,
+  type Breadcrumb,
+} from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
-import { buildNextjs, buildNextjsForWorkers, patchBundledWorker, hasAdapterOutput, readAdapterCompat } from "../utils/nextjs.js";
-import { isRepoUrl, parseRepoUrl, validateRepoUrl, validateSubpath, RepoUrlError } from "../utils/repo-url.js";
-import { checkGitInstalled, cloneRepo, detectPackageManager, installDependencies, cleanupDir as cleanupCloneDir, GitCloneError } from "../utils/git-clone.js";
+import {
+  buildNextjs,
+  buildNextjsForWorkers,
+  patchBundledWorker,
+  hasAdapterOutput,
+  readAdapterCompat,
+} from "../utils/nextjs.js";
+import {
+  isRepoUrl,
+  parseRepoUrl,
+  validateRepoUrl,
+  validateSubpath,
+  RepoUrlError,
+} from "../utils/repo-url.js";
+import {
+  checkGitInstalled,
+  cloneRepo,
+  detectPackageManager,
+  installDependencies,
+  cleanupDir as cleanupCloneDir,
+  GitCloneError,
+} from "../utils/git-clone.js";
 import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
 import { watchDeploy, type WatchResult } from "../utils/watch.js";
 
@@ -68,11 +102,21 @@ function section(name: string) {
  */
 export function makeProgress(jsonMode: boolean) {
   return {
-    section: (name: string) => { if (!jsonMode) section(name); },
-    info: (msg: string) => { if (!jsonMode) consola.info(msg); },
-    start: (msg: string) => { if (!jsonMode) consola.start(msg); },
-    success: (msg: string) => { if (!jsonMode) consola.success(msg); },
-    warn: (msg: string) => { if (!jsonMode) consola.warn(msg); },
+    section: (name: string) => {
+      if (!jsonMode) section(name);
+    },
+    info: (msg: string) => {
+      if (!jsonMode) consola.info(msg);
+    },
+    start: (msg: string) => {
+      if (!jsonMode) consola.start(msg);
+    },
+    success: (msg: string) => {
+      if (!jsonMode) consola.success(msg);
+    },
+    warn: (msg: string) => {
+      if (!jsonMode) consola.warn(msg);
+    },
   };
 }
 
@@ -104,11 +148,13 @@ async function dryRunPlan(
   jsonMode: boolean,
 ): Promise<void> {
   // Unsupported modes — report and return cleanly
-  const unsupportedMode =
-    args.template ? "template"
-    : args["from-github"] ? "from-github"
-    : (typeof args.dir === "string" && isRepoUrl(args.dir)) ? "repo-url"
-    : null;
+  const unsupportedMode = args.template
+    ? "template"
+    : args["from-github"]
+      ? "from-github"
+      : typeof args.dir === "string" && isRepoUrl(args.dir)
+        ? "repo-url"
+        : null;
 
   if (unsupportedMode) {
     if (jsonMode) {
@@ -128,9 +174,7 @@ async function dryRunPlan(
     consola.log(
       `\n  \x1b[2m[dry-run]\x1b[0m Dry-run is not yet supported for --${unsupportedMode} deploys.\n`,
     );
-    consola.log(
-      `  Run without --dry-run to execute, or inspect the command docs with --help.\n`,
-    );
+    consola.log(`  Run without --dry-run to execute, or inspect the command docs with --help.\n`);
     return;
   }
 
@@ -182,9 +226,7 @@ async function dryRunPlan(
   // worker. Agents following the SKILL.md "dry-run first" rule need
   // these findings here, not after a 500.
   const doctorReport = runDoctor(buildDoctorContext(cwd));
-  const blockingFindings = doctorReport.findings.filter(
-    (f) => f.severity === "error",
-  );
+  const blockingFindings = doctorReport.findings.filter((f) => f.severity === "error");
 
   const plan = {
     mode: "dry-run" as const,
@@ -222,11 +264,12 @@ async function dryRunPlan(
       buildExecuted: false,
       tosPromptShown: false,
     },
-    nextStep: blockingFindings.length > 0
-      ? `Fix ${blockingFindings.length} blocking issue${blockingFindings.length === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`
-      : wouldDeploy
-      ? "Run without --dry-run to execute: npx creek deploy"
-      : "No project config or build output found. Run `creek init` or `npm create vite@latest` first.",
+    nextStep:
+      blockingFindings.length > 0
+        ? `Fix ${blockingFindings.length} blocking issue${blockingFindings.length === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`
+        : wouldDeploy
+          ? "Run without --dry-run to execute: npx creek deploy"
+          : "No project config or build output found. Run `creek init` or `npm create vite@latest` first.",
   };
 
   if (jsonMode) {
@@ -239,12 +282,8 @@ async function dryRunPlan(
     "\n  \x1b[2m[dry-run]\x1b[0m No deploy will execute. No network calls. No uploads.\n",
   );
   consola.log(`  cwd:              ${cwd}`);
-  consola.log(
-    `  Auth status:      ${authenticated ? "✓ signed in" : "✗ not signed in"}`,
-  );
-  consola.log(
-    `  Deploy target:    ${targetType} — ${plan.target.description}`,
-  );
+  consola.log(`  Auth status:      ${authenticated ? "✓ signed in" : "✗ not signed in"}`);
+  consola.log(`  Deploy target:    ${targetType} — ${plan.target.description}`);
   if (resolved) {
     consola.log(`  Detected:         ${formatDetectionSummary(resolved)}`);
     consola.log(`  Project name:     ${resolved.projectName}`);
@@ -254,9 +293,7 @@ async function dryRunPlan(
     consola.log(`  Build command:    ${resolved.buildCommand}`);
     consola.log(`  Build output:     ${resolved.buildOutput}`);
     if (bindings.length > 0) {
-      consola.log(
-        `  Bindings:         ${bindings.map((b) => `${b.name} (${b.type})`).join(", ")}`,
-      );
+      consola.log(`  Bindings:         ${bindings.map((b) => `${b.name} (${b.type})`).join(", ")}`);
     }
     if (resolved.cron.length > 0) {
       consola.log(`  Cron triggers:    ${resolved.cron.join(", ")}`);
@@ -279,9 +316,7 @@ async function dryRunPlan(
       if (errCount) parts.push(`${errCount} error${errCount === 1 ? "" : "s"}`);
       if (warnCount) parts.push(`${warnCount} warning${warnCount === 1 ? "" : "s"}`);
       if (infoCount) parts.push(`${infoCount} info`);
-      consola.log(
-        `  Doctor findings:  ${parts.join(", ")} — run \`creek doctor\` for details`,
-      );
+      consola.log(`  Doctor findings:  ${parts.join(", ")} — run \`creek doctor\` for details`);
       for (const f of doctorReport.findings.filter((f) => f.severity === "error")) {
         consola.log(`    \x1b[31m✗\x1b[0m [${f.code}] ${f.title}`);
       }
@@ -410,7 +445,7 @@ export const deployCommand = defineCommand({
     data: {
       type: "string",
       description:
-        "JSON string of template parameters (used with --template). Example: --data '{\"title\":\"Hello\"}'",
+        'JSON string of template parameters (used with --template). Example: --data \'{"title":"Hello"}\'',
       required: false,
     },
     path: {
@@ -498,9 +533,18 @@ export const deployCommand = defineCommand({
     // this doesn't regress automated deploys.
     if (!isTTY && !args.yes && !args.prod && !args.sandbox) {
       const breadcrumbs: Breadcrumb[] = [
-        { command: "creek deploy --dry-run", description: "Preview the plan without executing (no network, no uploads)" },
-        { command: "creek deploy --prod", description: "Publish to your team's production slot (no prompt; requires sign-in)" },
-        { command: "creek deploy --sandbox", description: "Deploy to an ephemeral 60-minute sandbox preview" },
+        {
+          command: "creek deploy --dry-run",
+          description: "Preview the plan without executing (no network, no uploads)",
+        },
+        {
+          command: "creek deploy --prod",
+          description: "Publish to your team's production slot (no prompt; requires sign-in)",
+        },
+        {
+          command: "creek deploy --sandbox",
+          description: "Deploy to an ephemeral 60-minute sandbox preview",
+        },
       ];
       const message =
         "Refusing to deploy from a non-interactive environment without an explicit target. Re-run with --dry-run to preview, --prod to publish to production, or --sandbox for an ephemeral preview.";
@@ -557,7 +601,12 @@ export const deployCommand = defineCommand({
     // --- Explicit directory (creek deploy ./dist) ---
     if (args.dir) {
       if (!existsSync(cwd)) {
-        if (jsonMode) jsonOutput({ error: "not_found", message: `Directory not found: ${args.dir}` }, 1, NO_PROJECT_BREADCRUMBS);
+        if (jsonMode)
+          jsonOutput(
+            { error: "not_found", message: `Directory not found: ${args.dir}` },
+            1,
+            NO_PROJECT_BREADCRUMBS,
+          );
         consola.error(`Directory not found: ${args.dir}`);
         process.exit(1);
       }
@@ -592,7 +641,9 @@ export const deployCommand = defineCommand({
       if (!jsonMode) {
         consola.info(`  Detected: ${formatDetectionSummary(resolved)}`);
         for (const ub of resolved.unsupportedBindings) {
-          consola.warn(`  Binding '${ub.name}' (${ub.type}) is not yet supported — will be skipped`);
+          consola.warn(
+            `  Binding '${ub.name}' (${ub.type}) is not yet supported — will be skipped`,
+          );
         }
       }
 
@@ -616,7 +667,14 @@ export const deployCommand = defineCommand({
       });
       if (env === "abort") return;
       if (env === "production" && token) {
-        return await deployAuthenticated(cwd, resolved, token, args["skip-build"], jsonMode, args["no-cache"]);
+        return await deployAuthenticated(
+          cwd,
+          resolved,
+          token,
+          args["skip-build"],
+          jsonMode,
+          args["no-cache"],
+        );
       }
       return await deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
     }
@@ -631,7 +689,12 @@ export const deployCommand = defineCommand({
     }
 
     // --- Nothing found → guide the user ---
-    if (jsonMode) jsonOutput({ error: "no_project", message: "No project found in this directory" }, 1, NO_PROJECT_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        { error: "no_project", message: "No project found in this directory" },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
     consola.info("No project found in this directory.\n");
     consola.info("  creek deploy ./dist              Deploy a build output directory");
     consola.info("  npx create-creek-app             Create a new project from a template");
@@ -665,9 +728,10 @@ async function deployCreekd(
     await client.listApps();
   } catch {
     const msg = `Cannot reach creekd at ${getCreekdUrl()}. Is it running?`;
-    if (jsonMode) jsonOutput({ error: "creekd_unreachable", message: msg }, 1, [
-      { command: "creekd", description: "Start the daemon" },
-    ]);
+    if (jsonMode)
+      jsonOutput({ error: "creekd_unreachable", message: msg }, 1, [
+        { command: "creekd", description: "Start the daemon" },
+      ]);
     consola.error(msg);
     process.exit(1);
   }
@@ -741,7 +805,9 @@ async function deployCreekd(
           : `Release command failed: ${e.stderr?.toString() || e.message}`;
         if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg }, 1);
         consola.error(msg);
-        try { await client.stopApp(resolved.projectName); } catch {}
+        try {
+          await client.stopApp(resolved.projectName);
+        } catch {}
         process.exit(1);
       }
     }
@@ -771,29 +837,37 @@ async function deployCreekd(
     }
 
     if (jsonMode) {
-      jsonOutput({
-        ok: watchSummary ? watchSummary.ok : true,
-        url: `http://localhost:${port}`,
-        appId: resolved.projectName,
-        port,
-        runtime,
-        target: "creekd",
-        buildTimeS: parseFloat(elapsedS),
-        mode: "creekd-local",
-        ...(watchSummary ? { watch: watchSummaryWire(watchSummary) } : {}),
-      }, watchSummary && !watchSummary.ok ? 1 : 0, [
-        { command: `creek top ${resolved.projectName}`, description: "Check app status" },
-        { command: `creek logs --server ${resolved.projectName}`, description: "View app logs" },
-        { command: `creek exec -- bun run seed.ts`, description: "Run one-off command" },
-      ]);
+      jsonOutput(
+        {
+          ok: watchSummary ? watchSummary.ok : true,
+          url: `http://localhost:${port}`,
+          appId: resolved.projectName,
+          port,
+          runtime,
+          target: "creekd",
+          buildTimeS: parseFloat(elapsedS),
+          mode: "creekd-local",
+          ...(watchSummary ? { watch: watchSummaryWire(watchSummary) } : {}),
+        },
+        watchSummary && !watchSummary.ok ? 1 : 0,
+        [
+          { command: `creek top ${resolved.projectName}`, description: "Check app status" },
+          { command: `creek logs --server ${resolved.projectName}`, description: "View app logs" },
+          { command: `creek exec -- bun run seed.ts`, description: "Run one-off command" },
+        ],
+      );
     } else {
       if (watchSummary && !watchSummary.ok) {
         consola.error(`  Watch failed: ${watchSummary.reason}`);
         if (watchSummary.reason === "deploy_stuck") {
-          consola.info("  The daemon flipped Degraded reason=DeployTimeout — supervisor did not converge.");
+          consola.info(
+            "  The daemon flipped Degraded reason=DeployTimeout — supervisor did not converge.",
+          );
           consola.info(`    creek logs --server ${resolved.projectName}     Inspect why`);
         } else if (watchSummary.reason === "watch_timeout") {
-          consola.info(`  Client gave up after ${watchSummary.elapsedMs}ms. The daemon may still converge.`);
+          consola.info(
+            `  Client gave up after ${watchSummary.elapsedMs}ms. The daemon may still converge.`,
+          );
         } else if (watchSummary.reason === "fetch_failed") {
           consola.info(`  Polling failed: ${watchSummary.error.message}`);
         }
@@ -869,12 +943,7 @@ export interface CliDeployment {
 }
 
 export const CLI_TERMINAL_STATUSES = new Set(["active", "failed", "cancelled"]);
-export const CLI_IN_FLIGHT_STATUSES = new Set([
-  "queued",
-  "uploading",
-  "provisioning",
-  "deploying",
-]);
+export const CLI_IN_FLIGHT_STATUSES = new Set(["queued", "uploading", "provisioning", "deploying"]);
 
 /**
  * Given a deployment list and a "previous latest createdAt" snapshot,
@@ -905,7 +974,12 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
 
   const token = getToken();
   if (!token) {
-    if (jsonMode) jsonOutput({ error: "not_authenticated", message: "Run `creek login` first." }, 1, AUTH_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        { error: "not_authenticated", message: "Run `creek login` first." },
+        1,
+        AUTH_BREADCRUMBS,
+      );
     consola.error("Not logged in. Run `creek login` first.");
     process.exit(1);
   }
@@ -924,8 +998,18 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   }
 
   if (!projectSlug) {
-    if (jsonMode) jsonOutput({ error: "validation", message: "Could not determine target project. Pass --project <slug>." }, 1, NO_PROJECT_BREADCRUMBS);
-    consola.error("Could not determine target project. Pass --project <slug> or run inside a directory with a creek.toml.");
+    if (jsonMode)
+      jsonOutput(
+        {
+          error: "validation",
+          message: "Could not determine target project. Pass --project <slug>.",
+        },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
+    consola.error(
+      "Could not determine target project. Pass --project <slug> or run inside a directory with a creek.toml.",
+    );
     process.exit(1);
   }
 
@@ -940,8 +1024,15 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     previousLatestCreatedAt = existing.reduce((max, d) => Math.max(max, d.createdAt), 0);
   } catch (err) {
     if (err instanceof CreekAuthError) throw err;
-    if (jsonMode) jsonOutput({ error: "not_found", message: (err as Error).message }, 1, NO_PROJECT_BREADCRUMBS);
-    consola.error(`Could not load deployments for project '${projectSlug}': ${(err as Error).message}`);
+    if (jsonMode)
+      jsonOutput(
+        { error: "not_found", message: (err as Error).message },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
+    consola.error(
+      `Could not load deployments for project '${projectSlug}': ${(err as Error).message}`,
+    );
     process.exit(1);
   }
 
@@ -962,7 +1053,9 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   }
 
   if (!jsonMode) {
-    consola.success(`  Triggered (${triggerResult.branch} @ ${triggerResult.commitSha.slice(0, 7)})`);
+    consola.success(
+      `  Triggered (${triggerResult.branch} @ ${triggerResult.commitSha.slice(0, 7)})`,
+    );
     section("Watch");
   }
 
@@ -1002,7 +1095,15 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
       } else if (Date.now() > rowAppearDeadline) {
         // 20s and no new row — handlePush must have errored before it could
         // insert. Surface the timeout rather than hanging.
-        if (jsonMode) jsonOutput({ error: "no_deployment", message: "Deployment row did not appear within 20s. Check server logs." }, 1, NO_PROJECT_BREADCRUMBS);
+        if (jsonMode)
+          jsonOutput(
+            {
+              error: "no_deployment",
+              message: "Deployment row did not appear within 20s. Check server logs.",
+            },
+            1,
+            NO_PROJECT_BREADCRUMBS,
+          );
         consola.error("  Deployment row did not appear within 20s. Check control-plane logs.");
         process.exit(1);
       } else {
@@ -1037,7 +1138,12 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   }
 
   if (!targetDeployment) {
-    if (jsonMode) jsonOutput({ error: "timeout", message: "Timed out waiting for deployment" }, 1, NO_PROJECT_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        { error: "timeout", message: "Timed out waiting for deployment" },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
     consola.error("Timed out waiting for deployment");
     process.exit(1);
   }
@@ -1174,15 +1280,15 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
         return await deployAuthenticated(workDir, resolved, token, skipBuild, jsonMode);
       }
       return await deploySandbox(workDir, skipBuild, jsonMode, resolved);
-
     } finally {
       cleanupCloneDir(tmpDir);
     }
   } catch (err) {
     if (err instanceof RepoUrlError || err instanceof GitCloneError) {
-      if (jsonMode) jsonOutput({ error: "repo_deploy_failed", message: err.message }, 1, [
-        { command: "npx create-creek-app", description: "Create a new project from a template" },
-      ]);
+      if (jsonMode)
+        jsonOutput({ error: "repo_deploy_failed", message: err.message }, 1, [
+          { command: "npx create-creek-app", description: "Create a new project from a template" },
+        ]);
       consola.error(err.message);
       process.exit(1);
     }
@@ -1199,7 +1305,12 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
   const { assets, fileList } = collectAssets(dir);
 
   if (fileList.length === 0) {
-    if (jsonMode) jsonOutput({ ok: false, error: "no_files", message: `No files found in ${dir}` }, 1, NO_PROJECT_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        { ok: false, error: "no_files", message: `No files found in ${dir}` },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
     consola.error(`No files found in ${dir}\n`);
     consola.info("  creek deploy ./dist              Deploy a build output directory");
     consola.info("  npx create-creek-app             Create a new project from a template");
@@ -1219,19 +1330,23 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     const status = await pollSandboxStatus(result.statusUrl);
 
     if (jsonMode) {
-      jsonOutput({
-        ok: true,
-        sandboxId: result.sandboxId,
-        url: status.previewUrl,
-        deployDurationMs: status.deployDurationMs,
-        expiresAt: result.expiresAt,
-        expiresInMinutes: expiresInMinutes(result.expiresAt),
-        assetCount: fileList.length,
-        mode: "sandbox",
-      }, 0, [
-        { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
-        { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
-      ]);
+      jsonOutput(
+        {
+          ok: true,
+          sandboxId: result.sandboxId,
+          url: status.previewUrl,
+          deployDurationMs: status.deployDurationMs,
+          expiresAt: result.expiresAt,
+          expiresInMinutes: expiresInMinutes(result.expiresAt),
+          assetCount: fileList.length,
+          mode: "sandbox",
+        },
+        0,
+        [
+          { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
+          { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
+        ],
+      );
     }
 
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
@@ -1242,13 +1357,18 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     // so it survives across module boundaries. Other failures keep the simple
     // retry hint.
     const deterministic = (err as { code?: string })?.code === "deploy_timeout";
-    const crumbs = deterministic && result
-      ? [
-          { command: `creek status ${result.sandboxId}`, description: "Check what the deploy is stuck on" },
-          { command: "creek deploy", description: "Retry only if the cause was transient" },
-        ]
-      : [{ command: "creek deploy", description: "Retry deploy" }];
-    if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", deterministic, message }, 1, crumbs);
+    const crumbs =
+      deterministic && result
+        ? [
+            {
+              command: `creek status ${result.sandboxId}`,
+              description: "Check what the deploy is stuck on",
+            },
+            { command: "creek deploy", description: "Retry only if the cause was transient" },
+          ]
+        : [{ command: "creek deploy", description: "Retry deploy" }];
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "deploy_failed", deterministic, message }, 1, crumbs);
     consola.error(message);
     process.exit(1);
   }
@@ -1258,7 +1378,13 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
 // Sandbox deploy — auto-detect framework, build, deploy
 // ============================================================================
 
-async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, resolved?: ResolvedConfig, tos?: TosAcceptance) {
+async function deploySandbox(
+  cwd: string,
+  skipBuild: boolean,
+  jsonMode = false,
+  resolved?: ResolvedConfig,
+  tos?: TosAcceptance,
+) {
   const progress = makeProgress(jsonMode);
   // Static-site fast path: when resolveConfig fell back to index.html, the cwd
   // has no build step and may have no package.json. Delegate to deployDirectory
@@ -1319,7 +1445,8 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
 
   progress.section("Detect");
   progress.info(`  Framework: ${framework ?? "static site"}`);
-  if (nextjsMode) progress.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
+  if (nextjsMode)
+    progress.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
   progress.info("  Mode: sandbox (60 min preview)");
 
   // Pre-build header so the section banner ("Build") still appears
@@ -1335,7 +1462,9 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
   const { plan, fileList, assets: clientAssets, serverFiles, effectiveRenderMode } = prepared;
 
   progress.section("Upload");
-  progress.info(`  Mode: ${effectiveRenderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`);
+  progress.info(
+    `  Mode: ${effectiveRenderMode}${plan.worker.entry ? ` (worker: ${plan.worker.entry})` : ""}`,
+  );
   if (plan.assets.enabled) {
     progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
   }
@@ -1357,64 +1486,72 @@ async function deploySandbox(cwd: string, skipBuild: boolean, jsonMode = false, 
     sandboxAdapterCompat?.compatibilityFlags ??
     (resolved && resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined);
   try {
-    const result = await sandboxDeploy({
-      manifest: {
-        assets: fileList,
-        hasWorker: prepared.serverFiles !== undefined,
-        entrypoint: prepared.effectiveEntrypoint,
-        renderMode: effectiveRenderMode,
+    const result = await sandboxDeploy(
+      {
+        manifest: {
+          assets: fileList,
+          hasWorker: prepared.serverFiles !== undefined,
+          entrypoint: prepared.effectiveEntrypoint,
+          renderMode: effectiveRenderMode,
+        },
+        assets: clientAssets,
+        serverFiles,
+        framework: prepared.framework ?? undefined,
+        source: "cli",
+        ...(resolved ? { bindings: resolvedConfigToBindingRequirements(resolved) } : {}),
+        // Seed the sandbox's ephemeral D1 with the project's migrations so
+        // DB-backed routes work in the preview without `creek db migrate`.
+        ...((): { migrations?: ReturnType<typeof collectMigrations> } => {
+          const migrations = collectMigrations(cwd);
+          return migrations.length > 0 ? { migrations } : {};
+        })(),
+        ...(sandboxCompatDate ? { compatibilityDate: sandboxCompatDate } : {}),
+        ...(sandboxCompatFlags && sandboxCompatFlags.length > 0
+          ? { compatibilityFlags: sandboxCompatFlags }
+          : {}),
       },
-      assets: clientAssets,
-      serverFiles,
-      framework: prepared.framework ?? undefined,
-      source: "cli",
-      ...(resolved
-        ? { bindings: resolvedConfigToBindingRequirements(resolved) }
-        : {}),
-      // Seed the sandbox's ephemeral D1 with the project's migrations so
-      // DB-backed routes work in the preview without `creek db migrate`.
-      ...((): { migrations?: ReturnType<typeof collectMigrations> } => {
-        const migrations = collectMigrations(cwd);
-        return migrations.length > 0 ? { migrations } : {};
-      })(),
-      ...(sandboxCompatDate ? { compatibilityDate: sandboxCompatDate } : {}),
-      ...(sandboxCompatFlags && sandboxCompatFlags.length > 0
-        ? { compatibilityFlags: sandboxCompatFlags }
-        : {}),
-    }, { tos });
+      { tos },
+    );
 
     const status = await pollSandboxStatus(result.statusUrl);
 
     if (jsonMode) {
-      jsonOutput({
-        ok: true,
-        sandboxId: result.sandboxId,
-        url: status.previewUrl,
-        deployDurationMs: status.deployDurationMs,
-        buildTimeS: status.deployDurationMs ? parseFloat((status.deployDurationMs / 1000).toFixed(1)) : null,
-        expiresAt: result.expiresAt,
-        expiresInMinutes: expiresInMinutes(result.expiresAt),
-        framework: framework ?? null,
-        renderMode: effectiveRenderMode,
-        assetCount: fileList.length,
-        mode: "sandbox",
-        sameOriginApi: sandboxApiHint !== null,
-        ...(sandboxApiHint ? { sameOriginApiHint: sandboxApiHint } : {}),
-        ephemeralData: sandboxHasDb,
-        ...(ephemeralDbWarning ? { ephemeralDataWarning: ephemeralDbWarning } : {}),
-      }, 0, [
-        { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
-        { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
-      ]);
+      jsonOutput(
+        {
+          ok: true,
+          sandboxId: result.sandboxId,
+          url: status.previewUrl,
+          deployDurationMs: status.deployDurationMs,
+          buildTimeS: status.deployDurationMs
+            ? parseFloat((status.deployDurationMs / 1000).toFixed(1))
+            : null,
+          expiresAt: result.expiresAt,
+          expiresInMinutes: expiresInMinutes(result.expiresAt),
+          framework: framework ?? null,
+          renderMode: effectiveRenderMode,
+          assetCount: fileList.length,
+          mode: "sandbox",
+          sameOriginApi: sandboxApiHint !== null,
+          ...(sandboxApiHint ? { sameOriginApiHint: sandboxApiHint } : {}),
+          ephemeralData: sandboxHasDb,
+          ...(ephemeralDbWarning ? { ephemeralDataWarning: ephemeralDbWarning } : {}),
+        },
+        0,
+        [
+          { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
+          { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
+        ],
+      );
     }
 
     if (ephemeralDbWarning) progress.warn(`  ${ephemeralDbWarning}`);
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sandbox deploy failed";
-    if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", message }, 1, [
-      { command: "creek deploy", description: "Retry deploy" },
-    ]);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "deploy_failed", message }, 1, [
+        { command: "creek deploy", description: "Retry deploy" },
+      ]);
     consola.error(message);
     process.exit(1);
   }
@@ -1439,12 +1576,12 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
 
   consola.start("Cloning template...");
   try {
-    execFileSync("git", [
-      "clone", "--depth", "1", "--filter=blob:none", "--sparse", repoUrl, tmpDir,
-    ], { stdio: "pipe" });
-    execFileSync("git", [
-      "sparse-checkout", "set", templateId,
-    ], { cwd: tmpDir, stdio: "pipe" });
+    execFileSync(
+      "git",
+      ["clone", "--depth", "1", "--filter=blob:none", "--sparse", repoUrl, tmpDir],
+      { stdio: "pipe" },
+    );
+    execFileSync("git", ["sparse-checkout", "set", templateId], { cwd: tmpDir, stdio: "pipe" });
   } catch {
     consola.error(`Template '${templateId}' not found.`);
     consola.info("Available templates: npx create-creek-app --list");
@@ -1484,12 +1621,18 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
       if (templateConfig.schema) {
         const { default: Ajv } = await import("ajv");
         const ajv = new Ajv({ allErrors: true, useDefaults: true });
-        const { $schema: _, ...schemaWithoutMeta } = templateConfig.schema as Record<string, unknown>;
+        const { $schema: _, ...schemaWithoutMeta } = templateConfig.schema as Record<
+          string,
+          unknown
+        >;
         const validate = ajv.compile(schemaWithoutMeta);
 
         if (!validate(merged)) {
           consola.error("Data validation failed:");
-          for (const err of (validate.errors ?? []) as Array<{ instancePath?: string; message?: string }>) {
+          for (const err of (validate.errors ?? []) as Array<{
+            instancePath?: string;
+            message?: string;
+          }>) {
             consola.error(`  ${err.instancePath || "/"}: ${err.message}`);
           }
           cleanupDir(tmpDir);
@@ -1537,7 +1680,14 @@ function cleanupDir(dir: string): void {
 // Authenticated deploy — existing flow
 // ============================================================================
 
-async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token: string, skipBuild: boolean, jsonMode = false, noCache = false) {
+async function deployAuthenticated(
+  cwd: string,
+  resolved: ResolvedConfig,
+  token: string,
+  skipBuild: boolean,
+  jsonMode = false,
+  noCache = false,
+) {
   const progress = makeProgress(jsonMode);
   try {
     const client = new CreekClient(getApiUrl(), token);
@@ -1591,7 +1741,9 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         consola.info(
           `  ${bindingDrift.length} attached binding(s) not in your config: ${formatBindingDrift(bindingDrift)}`,
         );
-        consola.info("  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.");
+        consola.info(
+          "  Attached server-side, not in your config — a fresh clone wouldn't recreate them. Declare them in config, or detach.",
+        );
       }
     }
 
@@ -1606,7 +1758,8 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       ? JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"))
       : {};
     const nextjsMode = framework === "nextjs" ? detectNextjsMode(pkg, cwd) : null;
-    const monorepo = framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
+    const monorepo =
+      framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
     if (nextjsMode && !jsonMode) {
       consola.info(`  Next.js mode: ${nextjsMode}${monorepo.isMonorepo ? " (monorepo)" : ""}`);
     }
@@ -1768,46 +1921,56 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
 
         if (jsonMode) {
           const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
-          jsonOutput({
-            ok: true,
-            url: res.url ?? res.previewUrl,
-            previewUrl: res.previewUrl,
-            deploymentId: deployment.id,
-            version: res.deployment?.version ?? null,
-            project: project.slug,
-            framework: framework ?? null,
-            renderMode: effectiveRenderMode,
-            assetCount: fileList.length,
-            buildTimeS: parseFloat(elapsedS),
-            mode: "production",
-            sameOriginApi: prodApiHint !== null,
-            ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
-            rollbackCommand: `creek rollback --project ${project.slug}`,
-            ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
-            ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
-              ? {
-                  migrations: {
-                    status: drift.status,
-                    pending: drift.pending,
-                    // Name the evaluated DB (and how many are bound / were
-                    // readable) so a multi-D1 project can tell which database
-                    // the status is for rather than guessing.
-                    database: drift.databaseName,
-                    databaseCount: drift.databaseCount,
-                    databasesEvaluated: drift.databasesEvaluated,
-                    // Bound DBs behind the evaluated one — a lagging peer 500s
-                    // the app even when the reported DB is in sync.
-                    ...(drift.laggingDatabases.length > 0
-                      ? { lagging: drift.laggingDatabases }
-                      : {}),
-                  },
-                }
-              : {}),
-          }, 0, [
-            { command: `creek status`, description: "Check deployment status" },
-            { command: `creek deployments --project ${project.slug}`, description: "View deployment history" },
-            { command: `creek domains add <HOSTNAME> --project ${project.slug}`, description: "Add custom domain" },
-          ]);
+          jsonOutput(
+            {
+              ok: true,
+              url: res.url ?? res.previewUrl,
+              previewUrl: res.previewUrl,
+              deploymentId: deployment.id,
+              version: res.deployment?.version ?? null,
+              project: project.slug,
+              framework: framework ?? null,
+              renderMode: effectiveRenderMode,
+              assetCount: fileList.length,
+              buildTimeS: parseFloat(elapsedS),
+              mode: "production",
+              sameOriginApi: prodApiHint !== null,
+              ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
+              rollbackCommand: `creek rollback --project ${project.slug}`,
+              ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
+              ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
+                ? {
+                    migrations: {
+                      status: drift.status,
+                      pending: drift.pending,
+                      // Name the evaluated DB (and how many are bound / were
+                      // readable) so a multi-D1 project can tell which database
+                      // the status is for rather than guessing.
+                      database: drift.databaseName,
+                      databaseCount: drift.databaseCount,
+                      databasesEvaluated: drift.databasesEvaluated,
+                      // Bound DBs behind the evaluated one — a lagging peer 500s
+                      // the app even when the reported DB is in sync.
+                      ...(drift.laggingDatabases.length > 0
+                        ? { lagging: drift.laggingDatabases }
+                        : {}),
+                    },
+                  }
+                : {}),
+            },
+            0,
+            [
+              { command: `creek status`, description: "Check deployment status" },
+              {
+                command: `creek deployments --project ${project.slug}`,
+                description: "View deployment history",
+              },
+              {
+                command: `creek domains add <HOSTNAME> --project ${project.slug}`,
+                description: "Add custom domain",
+              },
+            ],
+          );
         }
         consola.success(`  ⬡ Deployed! ${res.url ?? res.previewUrl}`);
         if (res.url && res.previewUrl) {
@@ -1837,10 +2000,7 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
       if (status === "failed") {
         const step = failed_step ? ` at ${failed_step}` : "";
         const msg = error_message ?? "Unknown error";
-        buildLog.error(
-          (failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate",
-          msg,
-        );
+        buildLog.error((failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate", msg);
         // Await (capped) so the failure log reaches the server before
         // process.exit() below — otherwise a failed deploy has nothing for
         // `creek deployments logs` to show.
@@ -1851,18 +2011,30 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
             errorStep: failed_step ?? null,
           }),
         );
-        if (jsonMode) jsonOutput({ ok: false, error: "deploy_failed", message: msg, failedStep: failed_step }, 1, [
-          { command: `creek deployments --project ${project.slug}`, description: "Check previous deployments" },
-          { command: `creek rollback --project ${project.slug}`, description: "Rollback to previous version" },
-        ]);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "deploy_failed", message: msg, failedStep: failed_step },
+            1,
+            [
+              {
+                command: `creek deployments --project ${project.slug}`,
+                description: "Check previous deployments",
+              },
+              {
+                command: `creek rollback --project ${project.slug}`,
+                description: "Rollback to previous version",
+              },
+            ],
+          );
         consola.error(`Deploy failed${step}: ${msg}`);
         process.exit(1);
       }
 
       if (status === "cancelled") {
-        if (jsonMode) jsonOutput({ ok: false, error: "cancelled", message: "Deploy was cancelled" }, 1, [
-          { command: "creek deploy", description: "Retry deploy" },
-        ]);
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "cancelled", message: "Deploy was cancelled" }, 1, [
+            { command: "creek deploy", description: "Retry deploy" },
+          ]);
         consola.warn("Deploy was cancelled");
         process.exit(1);
       }
@@ -1880,10 +2052,22 @@ async function deployAuthenticated(cwd: string, resolved: ResolvedConfig, token:
         startedAt: buildLog.startedAt,
       }),
     );
-    if (jsonMode) jsonOutput({ ok: false, error: "timeout", message: "CLI stopped waiting after 2 minutes; the deploy may still be in progress" }, 1, [
-      { command: `creek status`, description: "Check whether the deploy finished" },
-      { command: `creek deployments logs ${deployment.id}`, description: "View the build log so far" },
-    ]);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "timeout",
+          message: "CLI stopped waiting after 2 minutes; the deploy may still be in progress",
+        },
+        1,
+        [
+          { command: `creek status`, description: "Check whether the deploy finished" },
+          {
+            command: `creek deployments logs ${deployment.id}`,
+            description: "View the build log so far",
+          },
+        ],
+      );
     consola.error("CLI stopped waiting after 2 minutes — the deploy may still be in progress.");
     consola.info(`  Check status:  creek status`);
     consola.info(`  View the log:  creek deployments logs ${deployment.id}`);
@@ -1934,10 +2118,10 @@ function printNextStepHint(renderMode: string, config: ResolvedConfig): void {
 
   console.log("");
   consola.info("  Next steps:");
-  consola.info("    import { db } from \"creek\"          Database (managed, no config needed)");
-  consola.info("    import { define } from \"d1-schema\"  Define your tables (auto-created)");
-  consola.info("    import { kv } from \"creek\"          Key-value storage");
-  consola.info("    import { ai } from \"creek\"          AI inference");
+  consola.info('    import { db } from "creek"          Database (managed, no config needed)');
+  consola.info('    import { define } from "d1-schema"  Define your tables (auto-created)');
+  consola.info('    import { kv } from "creek"          Key-value storage');
+  consola.info('    import { ai } from "creek"          AI inference');
   consola.info("    creek dev                           Local development");
   consola.info("    https://creek.dev/docs              Documentation");
 }
@@ -1946,13 +2130,48 @@ function printNextStepHint(renderMode: string, config: ResolvedConfig): void {
 
 /** Node.js built-in modules that may appear as bare imports in bundled workers. */
 const NODE_BUILTINS = new Set([
-  "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
-  "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
-  "events", "fs", "http", "http2", "https", "inspector", "module", "net",
-  "os", "path", "perf_hooks", "process", "punycode", "querystring",
-  "readline", "repl", "stream", "string_decoder", "sys", "timers",
-  "tls", "trace_events", "tty", "url", "util", "v8", "vm", "wasi",
-  "worker_threads", "zlib",
+  "assert",
+  "async_hooks",
+  "buffer",
+  "child_process",
+  "cluster",
+  "console",
+  "constants",
+  "crypto",
+  "dgram",
+  "diagnostics_channel",
+  "dns",
+  "domain",
+  "events",
+  "fs",
+  "http",
+  "http2",
+  "https",
+  "inspector",
+  "module",
+  "net",
+  "os",
+  "path",
+  "perf_hooks",
+  "process",
+  "punycode",
+  "querystring",
+  "readline",
+  "repl",
+  "stream",
+  "string_decoder",
+  "sys",
+  "timers",
+  "tls",
+  "trace_events",
+  "tty",
+  "url",
+  "util",
+  "v8",
+  "vm",
+  "wasi",
+  "worker_threads",
+  "zlib",
 ]);
 
 /**
@@ -1962,13 +2181,15 @@ const NODE_BUILTINS = new Set([
  */
 export function patchBareNodeImports(code: string): string {
   return code
-    .replace(
-      /from\s+["']([a-z_]+)["']/g,
-      (match, mod) => NODE_BUILTINS.has(mod) ? match.replace(`"${mod}"`, `"node:${mod}"`).replace(`'${mod}'`, `'node:${mod}'`) : match,
+    .replace(/from\s+["']([a-z_]+)["']/g, (match, mod) =>
+      NODE_BUILTINS.has(mod)
+        ? match.replace(`"${mod}"`, `"node:${mod}"`).replace(`'${mod}'`, `'node:${mod}'`)
+        : match,
     )
-    .replace(
-      /require\(["']([a-z_]+)["']\)/g,
-      (match, mod) => NODE_BUILTINS.has(mod) ? match.replace(`"${mod}"`, `"node:${mod}"`).replace(`'${mod}'`, `'node:${mod}'`) : match,
+    .replace(/require\(["']([a-z_]+)["']\)/g, (match, mod) =>
+      NODE_BUILTINS.has(mod)
+        ? match.replace(`"${mod}"`, `"node:${mod}"`).replace(`'${mod}'`, `'node:${mod}'`)
+        : match,
     );
 }
 
@@ -2080,16 +2301,20 @@ async function tryTurboDeploy(
         if (s === "active") {
           const elapsed = ((Date.now() - start) / 1000).toFixed(1);
           if (jsonMode) {
-            jsonOutput({
-              ok: true,
-              url: status.url ?? status.previewUrl,
-              previewUrl: status.previewUrl,
-              deploymentId: res.deployment.id,
-              project: project.slug,
-              mode: "production",
-              turbo: true,
-              elapsed: `${elapsed}s`,
-            }, 0, []);
+            jsonOutput(
+              {
+                ok: true,
+                url: status.url ?? status.previewUrl,
+                previewUrl: status.previewUrl,
+                deploymentId: res.deployment.id,
+                project: project.slug,
+                mode: "production",
+                turbo: true,
+                elapsed: `${elapsed}s`,
+              },
+              0,
+              [],
+            );
           }
           consola.success(`  ⬡ Deployed! ${status.url ?? status.previewUrl}`);
           consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
@@ -2101,13 +2326,17 @@ async function tryTurboDeploy(
         // the caller return and exit 0 — a failed deploy reading as success.
         const errMsg = status.deployment.error_message || "unknown";
         if (jsonMode) {
-          jsonOutput({
-            ok: false,
-            error: "deploy_failed",
-            message: `Deploy from cache failed: ${errMsg}`,
-            deploymentId: res.deployment.id,
-            project: project.slug,
-          }, 1, []);
+          jsonOutput(
+            {
+              ok: false,
+              error: "deploy_failed",
+              message: `Deploy from cache failed: ${errMsg}`,
+              deploymentId: res.deployment.id,
+              project: project.slug,
+            },
+            1,
+            [],
+          );
         }
         consola.error(`  Deploy from cache failed: ${errMsg}`);
         process.exit(1);
@@ -2121,13 +2350,18 @@ async function tryTurboDeploy(
     // JSON + non-zero exit so automation doesn't read an unconfirmed deploy as
     // a green success.
     if (jsonMode) {
-      jsonOutput({
-        ok: false,
-        error: "timeout",
-        message: "Cache deploy timed out; the deploy may still be in progress. Check `creek status`.",
-        deploymentId: res.deployment.id,
-        project: project.slug,
-      }, 1, []);
+      jsonOutput(
+        {
+          ok: false,
+          error: "timeout",
+          message:
+            "Cache deploy timed out; the deploy may still be in progress. Check `creek status`.",
+          deploymentId: res.deployment.id,
+          project: project.slug,
+        },
+        1,
+        [],
+      );
     }
     consola.warn("  Cache deploy timed out — check `creek status`");
     process.exit(1);

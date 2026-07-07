@@ -15,7 +15,12 @@ const MAX_POINTS = 150;
  * Polls stats independently via fetch and accumulates into a ring buffer.
  * Avoids React Query structural sharing issues entirely.
  */
-export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 2000, token?: string): StatsSnapshot[] {
+export function useStatsRingBuffer(
+  appId: string,
+  baseUrl: string,
+  intervalMs = 2000,
+  token?: string,
+): StatsSnapshot[] {
   const [history, setHistory] = useState<StatsSnapshot[]>([]);
   const prevCpu = useRef<{ usec: number; ts: number } | null>(null);
 
@@ -26,7 +31,9 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
       try {
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(`${baseUrl}/v1/apps/${encodeURIComponent(appId)}/stats`, { headers });
+        const res = await fetch(`${baseUrl}/v1/apps/${encodeURIComponent(appId)}/stats`, {
+          headers,
+        });
         if (!res.ok) return;
         const stats: StatsView = await res.json();
         if (!stats.cgroup_enabled) return;
@@ -45,13 +52,16 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
 
         if (!stopped) {
           setHistory((prev) => {
-            const next = [...prev, {
-              ts: now,
-              memoryBytes: stats.memory_current_bytes ?? 0,
-              memoryMaxBytes: stats.memory_max_bytes ?? 0,
-              cpuPercent,
-              pids: stats.pids_current ?? 0,
-            }];
+            const next = [
+              ...prev,
+              {
+                ts: now,
+                memoryBytes: stats.memory_current_bytes ?? 0,
+                memoryMaxBytes: stats.memory_max_bytes ?? 0,
+                cpuPercent,
+                pids: stats.pids_current ?? 0,
+              },
+            ];
             return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
           });
         }
@@ -62,7 +72,10 @@ export function useStatsRingBuffer(appId: string, baseUrl: string, intervalMs = 
 
     poll();
     const id = setInterval(poll, intervalMs);
-    return () => { stopped = true; clearInterval(id); };
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
   }, [appId, baseUrl, intervalMs]);
 
   return history;

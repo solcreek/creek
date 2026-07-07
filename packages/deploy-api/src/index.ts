@@ -39,7 +39,10 @@ app.post("/deploy", async (c) => {
   if (origin) {
     try {
       const url = new URL(origin);
-      const allowed = url.hostname === "creek.dev" || url.hostname.endsWith(".creek.dev") || url.hostname === "localhost";
+      const allowed =
+        url.hostname === "creek.dev" ||
+        url.hostname.endsWith(".creek.dev") ||
+        url.hostname === "localhost";
       if (!allowed) return c.json({ error: "forbidden" }, 403);
     } catch {
       return c.json({ error: "forbidden" }, 403);
@@ -75,7 +78,7 @@ app.post("/deploy", async (c) => {
   // Rate limit: 3/hr per IP
   const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";
   const rateLimitKey = `rate:${hashIp(ip)}`;
-  const currentCount = parseInt(await c.env.BUILD_STATUS.get(rateLimitKey) || "0");
+  const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
   if (currentCount >= 3) {
     return c.json({ error: "Rate limit exceeded. Max 3 web deploys per hour." }, 429);
   }
@@ -85,17 +88,19 @@ app.post("/deploy", async (c) => {
   const buildId = crypto.randomUUID().slice(0, 12);
 
   // Store initial status
-  await c.env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-    buildId,
-    status: "building",
-    type: body.type,
-    createdAt: new Date().toISOString(),
-  }), { expirationTtl: 3600 });
+  await c.env.BUILD_STATUS.put(
+    `build:${buildId}`,
+    JSON.stringify({
+      buildId,
+      status: "building",
+      type: body.type,
+      createdAt: new Date().toISOString(),
+    }),
+    { expirationTtl: 3600 },
+  );
 
   // Background: build + deploy
-  c.executionCtx.waitUntil(
-    buildAndDeploy(buildId, body, c.env),
-  );
+  c.executionCtx.waitUntil(buildAndDeploy(buildId, body, c.env));
 
   return c.json({ buildId, statusUrl: `/deploy/${buildId}/status` }, 202);
 });
@@ -123,7 +128,9 @@ async function buildAndDeploy(buildId: string, body: DeployRequest, env: Env) {
         templateData: body.data,
       };
     } else {
-      const repoUrl = body.repo!.startsWith("http") ? body.repo! : `https://github.com/${body.repo}`;
+      const repoUrl = body.repo!.startsWith("http")
+        ? body.repo!
+        : `https://github.com/${body.repo}`;
       buildReq = { repoUrl, branch: body.branch, path: body.path };
     }
 
@@ -137,22 +144,31 @@ async function buildAndDeploy(buildId: string, body: DeployRequest, env: Env) {
       body: JSON.stringify(buildReq),
     });
 
-    const buildResult = await buildRes.json() as any;
+    const buildResult = (await buildRes.json()) as any;
 
     if (!buildResult.success) {
-      await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-        buildId,
-        status: "failed",
-        error: buildResult.message || buildResult.error || "Build failed",
-        failedStep: "build",
-      }), { expirationTtl: 3600 });
+      await env.BUILD_STATUS.put(
+        `build:${buildId}`,
+        JSON.stringify({
+          buildId,
+          status: "failed",
+          error: buildResult.message || buildResult.error || "Build failed",
+          failedStep: "build",
+        }),
+        { expirationTtl: 3600 },
+      );
       return;
     }
 
     // Update: deploying
-    await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-      buildId, status: "deploying",
-    }), { expirationTtl: 3600 });
+    await env.BUILD_STATUS.put(
+      `build:${buildId}`,
+      JSON.stringify({
+        buildId,
+        status: "deploying",
+      }),
+      { expirationTtl: 3600 },
+    );
 
     // Forward bundle to sandbox API
     const sandboxRes = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
@@ -172,15 +188,20 @@ async function buildAndDeploy(buildId: string, body: DeployRequest, env: Env) {
 
     if (!sandboxRes.ok) {
       const err = await sandboxRes.text();
-      await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-        buildId, status: "failed",
-        error: `Deploy failed: ${err.slice(0, 200)}`,
-        failedStep: "deploy",
-      }), { expirationTtl: 3600 });
+      await env.BUILD_STATUS.put(
+        `build:${buildId}`,
+        JSON.stringify({
+          buildId,
+          status: "failed",
+          error: `Deploy failed: ${err.slice(0, 200)}`,
+          failedStep: "deploy",
+        }),
+        { expirationTtl: 3600 },
+      );
       return;
     }
 
-    const sandbox = await sandboxRes.json() as any;
+    const sandbox = (await sandboxRes.json()) as any;
 
     // Poll sandbox until active
     let sandboxStatus = sandbox;
@@ -192,32 +213,47 @@ async function buildAndDeploy(buildId: string, body: DeployRequest, env: Env) {
     }
 
     if (sandboxStatus.status === "active") {
-      await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-        buildId, status: "active",
-        sandboxId: sandbox.sandboxId,
-        previewUrl: sandbox.previewUrl,
-        expiresAt: sandbox.expiresAt,
-      }), { expirationTtl: 3600 });
+      await env.BUILD_STATUS.put(
+        `build:${buildId}`,
+        JSON.stringify({
+          buildId,
+          status: "active",
+          sandboxId: sandbox.sandboxId,
+          previewUrl: sandbox.previewUrl,
+          expiresAt: sandbox.expiresAt,
+        }),
+        { expirationTtl: 3600 },
+      );
     } else {
-      await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-        buildId, status: "failed",
-        error: sandboxStatus.errorMessage || "Deploy timed out",
-        failedStep: "deploy",
-      }), { expirationTtl: 3600 });
+      await env.BUILD_STATUS.put(
+        `build:${buildId}`,
+        JSON.stringify({
+          buildId,
+          status: "failed",
+          error: sandboxStatus.errorMessage || "Deploy timed out",
+          failedStep: "deploy",
+        }),
+        { expirationTtl: 3600 },
+      );
     }
   } catch (err) {
-    await env.BUILD_STATUS.put(`build:${buildId}`, JSON.stringify({
-      buildId, status: "failed",
-      error: err instanceof Error ? err.message : String(err),
-      failedStep: "build",
-    }), { expirationTtl: 3600 });
+    await env.BUILD_STATUS.put(
+      `build:${buildId}`,
+      JSON.stringify({
+        buildId,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        failedStep: "build",
+      }),
+      { expirationTtl: 3600 },
+    );
   }
 }
 
 function hashIp(ip: string): string {
   let hash = 0;
   for (let i = 0; i < ip.length; i++) {
-    hash = ((hash << 5) - hash) + ip.charCodeAt(i);
+    hash = (hash << 5) - hash + ip.charCodeAt(i);
     hash |= 0;
   }
   return Math.abs(hash).toString(36);

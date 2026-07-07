@@ -38,8 +38,16 @@ export function sanitizeBranch(branch: string): string {
 // Kept in sync with the production control-plane deploy path.
 const NEXTJS_DO_BINDINGS: WfPBinding[] = [
   { type: "durable_object_namespace", name: "NEXT_CACHE_DO_QUEUE", class_name: "DOQueueHandler" },
-  { type: "durable_object_namespace", name: "NEXT_TAG_CACHE_DO_SHARDED", class_name: "DOShardedTagCache" },
-  { type: "durable_object_namespace", name: "NEXT_CACHE_DO_BUCKET_PURGE", class_name: "BucketCachePurge" },
+  {
+    type: "durable_object_namespace",
+    name: "NEXT_TAG_CACHE_DO_SHARDED",
+    class_name: "DOShardedTagCache",
+  },
+  {
+    type: "durable_object_namespace",
+    name: "NEXT_CACHE_DO_BUCKET_PURGE",
+    class_name: "BucketCachePurge",
+  },
 ] as WfPBinding[];
 
 const NEXTJS_DO_MIGRATION_TAG = "v1";
@@ -122,10 +130,7 @@ export async function deployScriptWithAssets(
 
   async function attemptDeploy(meta: Record<string, unknown>): Promise<void> {
     const form = new FormData();
-    form.append(
-      "metadata",
-      new Blob([JSON.stringify(meta)], { type: "application/json" }),
-    );
+    form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
     for (const file of workerFiles) {
       form.append(file.name, file);
     }
@@ -135,7 +140,11 @@ export async function deployScriptWithAssets(
   try {
     await attemptDeploy(metadata);
   } catch (err) {
-    if (isNext && err instanceof Error && err.message.includes("migration tag precondition failed")) {
+    if (
+      isNext &&
+      err instanceof Error &&
+      err.message.includes("migration tag precondition failed")
+    ) {
       delete metadata.migrations;
       metadata.migration_tag = NEXTJS_DO_MIGRATION_TAG;
       await attemptDeploy(metadata);
@@ -162,7 +171,10 @@ export async function deployScriptWithAssets(
   } catch (err) {
     // never block a deploy on observability — but log why it didn't stick,
     // so a broken enablement is visible instead of silently absent.
-    console.warn(`[creek] observability enable failed for ${scriptName}:`, err instanceof Error ? err.message : String(err));
+    console.warn(
+      `[creek] observability enable failed for ${scriptName}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -182,9 +194,7 @@ export function buildSpaWorker(indexHtmlContent: ArrayBuffer | undefined): {
 
   return {
     mainModule: "worker.mjs",
-    workerFiles: [
-      new File([script], "worker.mjs", { type: "application/javascript+module" }),
-    ],
+    workerFiles: [new File([script], "worker.mjs", { type: "application/javascript+module" })],
   };
 }
 
@@ -226,21 +236,21 @@ export async function deployWithAssets(
 
   if ((input.renderMode === "ssr" || input.renderMode === "worker") && input.serverFiles) {
     workerFiles = Object.entries(input.serverFiles).map(
-      ([name, content]) =>
-        new File([content], name, { type: workerFileType(name) }),
+      ([name, content]) => new File([content], name, { type: workerFileType(name) }),
     );
     // Prefer the framework's canonical entrypoint name. `entry.mjs` is
     // emitted by `@astrojs/cloudflare`; the others cover our older
     // SSR paths (Nuxt/SolidStart nitro, custom workers). Fallback to
     // the first file only if none match.
-    mainModule = Object.keys(input.serverFiles).find(
-      (n) =>
-        n === "worker.js" ||
-        n === "server.js" ||
-        n === "index.js" ||
-        n === "index.mjs" ||
-        n === "entry.mjs",
-    ) ?? Object.keys(input.serverFiles)[0];
+    mainModule =
+      Object.keys(input.serverFiles).find(
+        (n) =>
+          n === "worker.js" ||
+          n === "server.js" ||
+          n === "index.js" ||
+          n === "index.mjs" ||
+          n === "entry.mjs",
+      ) ?? Object.keys(input.serverFiles)[0];
   } else {
     const indexHtml = input.clientAssets["/index.html"] ?? input.clientAssets["index.html"];
     const spa = buildSpaWorker(indexHtml);

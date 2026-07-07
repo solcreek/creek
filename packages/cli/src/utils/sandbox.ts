@@ -36,7 +36,12 @@ interface SandboxStatusResponse {
  */
 export async function sandboxDeploy(
   bundle: {
-    manifest?: { assets: string[]; hasWorker: boolean; entrypoint: string | null; renderMode: string };
+    manifest?: {
+      assets: string[];
+      hasWorker: boolean;
+      entrypoint: string | null;
+      renderMode: string;
+    };
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
     framework?: string;
@@ -99,7 +104,7 @@ export async function sandboxDeploy(
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText })) as any;
+    const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
     throw new Error(err.message ?? `Sandbox deploy failed (${res.status})`);
   }
 

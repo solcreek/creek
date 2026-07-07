@@ -73,16 +73,29 @@ describe("creek status <id> (sandbox)", () => {
   it("prints the sandbox status as JSON and exits 0", async () => {
     server.use(
       http.get(`${SBX}/api/sandbox/sb-1/status`, () =>
-        HttpResponse.json({ sandboxId: "sb-1", status: "active", previewUrl: "https://sb-1.test", claimable: true, expiresInSeconds: 3600 }),
+        HttpResponse.json({
+          sandboxId: "sb-1",
+          status: "active",
+          previewUrl: "https://sb-1.test",
+          claimable: true,
+          expiresInSeconds: 3600,
+        }),
       ),
     );
     const code = await runExit(statusCommand.run!({ args: { id: "sb-1" } } as never));
     expect(code).toBe(0);
-    expect(json()).toMatchObject({ ok: true, type: "sandbox", status: "active", sandboxId: "sb-1" });
+    expect(json()).toMatchObject({
+      ok: true,
+      type: "sandbox",
+      status: "active",
+      sandboxId: "sb-1",
+    });
   });
 
   it("exits 1 with a not_found error when the sandbox is gone", async () => {
-    server.use(http.get(`${SBX}/api/sandbox/gone/status`, () => new HttpResponse(null, { status: 404 })));
+    server.use(
+      http.get(`${SBX}/api/sandbox/gone/status`, () => new HttpResponse(null, { status: 404 })),
+    );
     const code = await runExit(statusCommand.run!({ args: { id: "gone" } } as never));
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "not_found" });
@@ -118,7 +131,9 @@ describe("creek ops deployments", () => {
         ]),
       ),
     );
-    const code = await runExit(opsCommand.run!({ args: { sub: "deployments", env: "production" } } as never));
+    const code = await runExit(
+      opsCommand.run!({ args: { sub: "deployments", env: "production" } } as never),
+    );
     expect(code).toBe(0);
     expect(json()).toMatchObject({ ok: true, count: 1 });
   });
@@ -135,7 +150,13 @@ describe("creek claim <id>", () => {
     process.env.CREEK_TOKEN = "tok";
     server.use(
       http.get(`${SBX}/api/sandbox/sb-old/status`, () =>
-        HttpResponse.json({ sandboxId: "sb-old", status: "expired", claimable: false, framework: null, templateId: null }),
+        HttpResponse.json({
+          sandboxId: "sb-old",
+          status: "expired",
+          claimable: false,
+          framework: null,
+          templateId: null,
+        }),
       ),
     );
     const code = await runExit(claimCommand.run!({ args: { sandboxId: "sb-old" } } as never));
@@ -147,7 +168,13 @@ describe("creek claim <id>", () => {
     process.env.CREEK_TOKEN = "tok";
     server.use(
       http.get(`${SBX}/api/sandbox/sb-ok/status`, () =>
-        HttpResponse.json({ sandboxId: "sb-ok", status: "active", claimable: true, framework: "vite", templateId: "landing" }),
+        HttpResponse.json({
+          sandboxId: "sb-ok",
+          status: "active",
+          claimable: true,
+          framework: "vite",
+          templateId: "landing",
+        }),
       ),
       http.post(`${API}/projects`, () =>
         HttpResponse.json({ project: { id: "proj-1", slug: "landing" } }),
@@ -158,9 +185,16 @@ describe("creek claim <id>", () => {
     expect(code).toBe(0);
     // Claim only reserves the project — agents must not assume it's live.
     const out = json();
-    expect(out).toMatchObject({ ok: true, project: "landing", deployed: false, productionDeploymentId: null });
+    expect(out).toMatchObject({
+      ok: true,
+      project: "landing",
+      deployed: false,
+      productionDeploymentId: null,
+    });
     expect(out.note).toMatch(/deploy/i);
-    const deployCrumb = out.breadcrumbs.find((b: { command: string }) => b.command === "creek deploy");
+    const deployCrumb = out.breadcrumbs.find(
+      (b: { command: string }) => b.command === "creek deploy",
+    );
     expect(deployCrumb.description).toMatch(/required/i);
   });
 });
@@ -196,16 +230,26 @@ describe("creek env", () => {
         return HttpResponse.json({ ok: true });
       }),
     );
-    const code = await runExit(envCommand.subCommands!.unset.run!({ args: { key: "DEMO_PROBE", _: [] } } as never));
+    const code = await runExit(
+      envCommand.subCommands!.unset.run!({ args: { key: "DEMO_PROBE", _: [] } } as never),
+    );
     expect(code).toBe(0);
     expect(deleted).toBe("DEMO_PROBE");
     // Removal isn't live until redeploy — must be signalled structurally.
-    expect(json()).toMatchObject({ ok: true, key: "DEMO_PROBE", removed: true, applied: false, pendingDeploy: true });
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "DEMO_PROBE",
+      removed: true,
+      applied: false,
+      pendingDeploy: true,
+    });
   });
 
   it("`set` signals the change is pending a deploy (not yet live)", async () => {
     server.use(
-      http.post(`${API}/projects/demo/env`, () => HttpResponse.json({ ok: true, key: "DEMO_PROBE" })),
+      http.post(`${API}/projects/demo/env`, () =>
+        HttpResponse.json({ ok: true, key: "DEMO_PROBE" }),
+      ),
     );
     const code = await runExit(
       envCommand.subCommands!.set.run!({ args: { key: "DEMO_PROBE", value: "1", _: [] } } as never),
@@ -226,8 +270,22 @@ describe("db shell resolution (resolveShellDatabase)", () => {
       http.get(`${API}/projects/hivemind/bindings`, () =>
         HttpResponse.json({
           bindings: [
-            { bindingName: "DB", resourceId: "res-d1", kind: "database", name: "creek-97d8c075", status: "active", createdAt: 0 },
-            { bindingName: "ASSETS", resourceId: "res-r2", kind: "storage", name: "bucket-1", status: "active", createdAt: 0 },
+            {
+              bindingName: "DB",
+              resourceId: "res-d1",
+              kind: "database",
+              name: "creek-97d8c075",
+              status: "active",
+              createdAt: 0,
+            },
+            {
+              bindingName: "ASSETS",
+              resourceId: "res-r2",
+              kind: "storage",
+              name: "bucket-1",
+              status: "active",
+              createdAt: 0,
+            },
           ],
         }),
       ),
@@ -240,7 +298,9 @@ describe("db shell resolution (resolveShellDatabase)", () => {
     server.use(
       http.get(`${API}/projects/empty/bindings`, () => HttpResponse.json({ bindings: [] })),
     );
-    const code = await runExit(resolveShellDatabase(client(), { project: "empty", jsonMode: true }));
+    const code = await runExit(
+      resolveShellDatabase(client(), { project: "empty", jsonMode: true }),
+    );
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "no_database_bound", project: "empty" });
   });
@@ -250,15 +310,35 @@ describe("db shell resolution (resolveShellDatabase)", () => {
       http.get(`${API}/projects/multi/bindings`, () =>
         HttpResponse.json({
           bindings: [
-            { bindingName: "DB", resourceId: "r1", kind: "database", name: "db-a", status: "active", createdAt: 0 },
-            { bindingName: "DB2", resourceId: "r2", kind: "database", name: "db-b", status: "active", createdAt: 0 },
+            {
+              bindingName: "DB",
+              resourceId: "r1",
+              kind: "database",
+              name: "db-a",
+              status: "active",
+              createdAt: 0,
+            },
+            {
+              bindingName: "DB2",
+              resourceId: "r2",
+              kind: "database",
+              name: "db-b",
+              status: "active",
+              createdAt: 0,
+            },
           ],
         }),
       ),
     );
-    const code = await runExit(resolveShellDatabase(client(), { project: "multi", jsonMode: true }));
+    const code = await runExit(
+      resolveShellDatabase(client(), { project: "multi", jsonMode: true }),
+    );
     expect(code).toBe(1);
-    expect(json()).toMatchObject({ ok: false, error: "ambiguous_database", databases: ["db-a", "db-b"] });
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "ambiguous_database",
+      databases: ["db-a", "db-b"],
+    });
   });
 
   it("an explicit name still resolves via listResources", async () => {
@@ -266,7 +346,17 @@ describe("db shell resolution (resolveShellDatabase)", () => {
       http.get(`${API}/resources`, () =>
         HttpResponse.json({
           resources: [
-            { id: "res-x", teamId: "t", kind: "database", name: "creek-abc", cfResourceId: null, cfResourceType: null, status: "active", createdAt: 0, updatedAt: 0 },
+            {
+              id: "res-x",
+              teamId: "t",
+              kind: "database",
+              name: "creek-abc",
+              cfResourceId: null,
+              cfResourceType: null,
+              status: "active",
+              createdAt: 0,
+              updatedAt: 0,
+            },
           ],
         }),
       ),
@@ -282,7 +372,9 @@ describe("db shell resolution (resolveShellDatabase)", () => {
         HttpResponse.json({ error: "not_found", message: "project not found" }, { status: 404 }),
       ),
     );
-    const code = await runExit(resolveShellDatabase(client(), { project: "ghost", jsonMode: true }));
+    const code = await runExit(
+      resolveShellDatabase(client(), { project: "ghost", jsonMode: true }),
+    );
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "project_lookup_failed", project: "ghost" });
   });
@@ -302,7 +394,9 @@ describe("creek projects delete", () => {
       }),
     );
     // Non-TTY auto-confirms (no prompt), matching agent/CI behaviour.
-    const code = await runExit(projectsCommand.subCommands!.delete.run!({ args: { slug: "ghost", _: [] } } as never));
+    const code = await runExit(
+      projectsCommand.subCommands!.delete.run!({ args: { slug: "ghost", _: [] } } as never),
+    );
     expect(code).toBe(0);
     expect(hit).toBe("ghost");
     expect(json()).toMatchObject({ ok: true, project: "ghost", deleted: true });
@@ -310,9 +404,13 @@ describe("creek projects delete", () => {
 
   it("maps a 404 to a structured not_found error", async () => {
     server.use(
-      http.delete(`${API}/projects/:slug`, () => HttpResponse.json({ error: "not_found", message: "nope" }, { status: 404 })),
+      http.delete(`${API}/projects/:slug`, () =>
+        HttpResponse.json({ error: "not_found", message: "nope" }, { status: 404 }),
+      ),
     );
-    const code = await runExit(projectsCommand.subCommands!.delete.run!({ args: { slug: "missing", _: [] } } as never));
+    const code = await runExit(
+      projectsCommand.subCommands!.delete.run!({ args: { slug: "missing", _: [] } } as never),
+    );
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "not_found", project: "missing" });
   });
@@ -320,8 +418,13 @@ describe("creek projects delete", () => {
   it("bare `creek projects` still lists (parent run doesn't double-fire)", async () => {
     let deleteCalls = 0;
     server.use(
-      http.get(`${API}/projects`, () => HttpResponse.json([{ slug: "a", framework: null, production_deployment_id: null }])),
-      http.delete(`${API}/projects/:slug`, () => { deleteCalls++; return HttpResponse.json({ ok: true }); }),
+      http.get(`${API}/projects`, () =>
+        HttpResponse.json([{ slug: "a", framework: null, production_deployment_id: null }]),
+      ),
+      http.delete(`${API}/projects/:slug`, () => {
+        deleteCalls++;
+        return HttpResponse.json({ ok: true });
+      }),
     );
     const code = await runExit(projectsCommand.run!({ args: { _: [] }, rawArgs: [] } as never));
     expect(code).toBe(0);
@@ -334,7 +437,10 @@ describe("creek projects delete", () => {
     // handler must NOT also list (which would hit /projects).
     let listCalls = 0;
     server.use(
-      http.get(`${API}/projects`, () => { listCalls++; return HttpResponse.json([]); }),
+      http.get(`${API}/projects`, () => {
+        listCalls++;
+        return HttpResponse.json([]);
+      }),
     );
     await projectsCommand.run!({ args: { _: ["delete"] }, rawArgs: ["delete", "x"] } as never);
     expect(listCalls).toBe(0);

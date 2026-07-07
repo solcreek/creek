@@ -1,12 +1,22 @@
 import type { Env } from "../../types.js";
-import { ensureProjectBindings, ensureQueue, buildBindings, type BundleBindingRequirement } from "../resources/service.js";
+import {
+  ensureProjectBindings,
+  ensureQueue,
+  buildBindings,
+  type BundleBindingRequirement,
+} from "../resources/service.js";
 import { setQueueConsumer } from "../resources/cloudflare.js";
 import { deployWithAssets } from "./deploy.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
 import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
-import type { BuildLogLine, BuildLogLevel, BuildLogStep, BuildLogStatus } from "../build-logs/types.js";
+import type {
+  BuildLogLine,
+  BuildLogLevel,
+  BuildLogStep,
+  BuildLogStatus,
+} from "../build-logs/types.js";
 
 /**
  * Bundle as stored in R2 staging.
@@ -52,7 +62,8 @@ interface DeployJobInput {
  * Each step updates deployment status. Failures are recorded with failedStep + errorMessage.
  */
 export async function runDeployJob(env: Env, input: DeployJobInput): Promise<void> {
-  const { deploymentId, projectId, projectSlug, teamId, teamSlug, plan, branch, productionBranch } = input;
+  const { deploymentId, projectId, projectSlug, teamId, teamSlug, plan, branch, productionBranch } =
+    input;
 
   // Accumulate a structured server-side log across the deploy stages so a
   // deploy that fails at upload/provision/activate isn't log-less. Persisted
@@ -101,7 +112,10 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
           )
         : undefined;
     } catch (err) {
-      throw new StepError("uploading", `Malformed bundle: ${err instanceof Error ? err.message : String(err)}`);
+      throw new StepError(
+        "uploading",
+        `Malformed bundle: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     log(
@@ -235,9 +249,10 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     const isProduction = !branch || branch === productionBranch;
 
     const batchOps = [
-      env.DB.prepare(
-        "UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?",
-      ).bind(Date.now(), deploymentId),
+      env.DB.prepare("UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?").bind(
+        Date.now(),
+        deploymentId,
+      ),
     ];
 
     if (isProduction) {
@@ -328,7 +343,9 @@ async function persistDeployLog(
 ): Promise<void> {
   if (!env.LOGS_BUCKET) return; // logs are optional infra
   try {
-    const body = opts.lines.length ? opts.lines.map((l) => JSON.stringify(l)).join("\n") + "\n" : "";
+    const body = opts.lines.length
+      ? opts.lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
+      : "";
     // Atomic no-clobber: only writes if no client/remote-builder log already
     // owns this deployment (they carry the richer build-stage log).
     await storeBuildLogIfAbsent(env, {
@@ -350,9 +367,7 @@ async function persistDeployLog(
 // --- Helpers ---
 
 async function setDeploymentStatus(env: Env, deploymentId: string, status: string): Promise<void> {
-  await env.DB.prepare(
-    "UPDATE deployment SET status = ?, updatedAt = ? WHERE id = ?",
-  )
+  await env.DB.prepare("UPDATE deployment SET status = ?, updatedAt = ? WHERE id = ?")
     .bind(status, Date.now(), deploymentId)
     .run();
 }
@@ -380,9 +395,7 @@ export const DEPLOY_HEARTBEAT_MS = 60_000;
  * (avoids racing the stale-deploy sweep).
  */
 async function touchDeployment(env: Env, deploymentId: string): Promise<void> {
-  await env.DB.prepare(
-    "UPDATE deployment SET updatedAt = ? WHERE id = ? AND status = 'deploying'",
-  )
+  await env.DB.prepare("UPDATE deployment SET updatedAt = ? WHERE id = ? AND status = 'deploying'")
     .bind(Date.now(), deploymentId)
     .run();
 }

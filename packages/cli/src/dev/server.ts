@@ -117,10 +117,7 @@ export class DevServer {
       if (viteWss) {
         httpServer.on("upgrade", (req, socket, head) => {
           // Only handle Vite's HMR paths
-          if (
-            req.url?.startsWith("/__vite") ||
-            req.url?.startsWith("/@vite")
-          ) {
+          if (req.url?.startsWith("/__vite") || req.url?.startsWith("/@vite")) {
             viteWss.handleUpgrade(req, socket, head);
           }
         });
@@ -158,7 +155,7 @@ export class DevServer {
         consola.info("  cron                      Trigger scheduled() handler");
       }
       if (config.queue) {
-        consola.info('  queue <message>           Send a message to queue() handler');
+        consola.info("  queue <message>           Send a message to queue() handler");
       }
     }
   }

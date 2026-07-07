@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WebSocket } from "ws";
-import {
-  LocalRealtimeServer,
-  parseRealtimePath,
-  getDoName,
-} from "./local-realtime.js";
+import { LocalRealtimeServer, parseRealtimePath, getDoName } from "./local-realtime.js";
 
 // ─── URL Routing (matches realtime-worker/src/parse.test.ts contract) ────────
 
@@ -68,15 +64,11 @@ describe("parseRealtimePath", () => {
 
 describe("getDoName", () => {
   it("returns slug for project-wide route", () => {
-    expect(getDoName({ slug: "proj", roomId: null, action: "/ws" })).toBe(
-      "proj",
-    );
+    expect(getDoName({ slug: "proj", roomId: null, action: "/ws" })).toBe("proj");
   });
 
   it("returns slug:roomId for room-scoped route", () => {
-    expect(getDoName({ slug: "proj", roomId: "r1", action: "/ws" })).toBe(
-      "proj:r1",
-    );
+    expect(getDoName({ slug: "proj", roomId: "r1", action: "/ws" })).toBe("proj:r1");
   });
 });
 
@@ -106,12 +98,8 @@ describe("LocalRealtimeServer unit", () => {
 
     server.broadcast("proj:room1", { type: "db_changed", table: "todos" });
 
-    expect((ws1.send as any).mock.calls[0][0]).toBe(
-      '{"type":"db_changed","table":"todos"}',
-    );
-    expect((ws2.send as any).mock.calls[0][0]).toBe(
-      '{"type":"db_changed","table":"todos"}',
-    );
+    expect((ws1.send as any).mock.calls[0][0]).toBe('{"type":"db_changed","table":"todos"}');
+    expect((ws2.send as any).mock.calls[0][0]).toBe('{"type":"db_changed","table":"todos"}');
   });
 
   it("skips closed sockets", () => {
@@ -211,9 +199,7 @@ describe("LocalRealtimeServer integration", () => {
   });
 
   it("status returns 0 clients for empty room", async () => {
-    const res = await fetch(
-      `http://127.0.0.1:${port}/proj/rooms/r1/status`,
-    );
+    const res = await fetch(`http://127.0.0.1:${port}/proj/rooms/r1/status`);
     const body = await res.json();
     expect(body).toEqual({ clients: 0 });
   });
@@ -225,14 +211,11 @@ describe("LocalRealtimeServer integration", () => {
     await waitForMessages(ws, 1);
 
     // POST broadcast
-    const res = await fetch(
-      `http://127.0.0.1:${port}/proj/rooms/r1/broadcast`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ table: "todos", operation: "INSERT" }),
-      },
-    );
+    const res = await fetch(`http://127.0.0.1:${port}/proj/rooms/r1/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ table: "todos", operation: "INSERT" }),
+    });
 
     const broadcastResult = await res.json();
     expect(broadcastResult).toEqual({ ok: true, clients: 1 });
@@ -312,14 +295,11 @@ describe("LocalRealtimeServer integration", () => {
   });
 
   it("returns 400 for malformed JSON in broadcast", async () => {
-    const res = await fetch(
-      `http://127.0.0.1:${port}/proj/rooms/r1/broadcast`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "not json",
-      },
-    );
+    const res = await fetch(`http://127.0.0.1:${port}/proj/rooms/r1/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not json",
+    });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body).toEqual({ error: "invalid JSON" });
@@ -415,9 +395,7 @@ describe("LocalRealtimeServer integration", () => {
     await waitForMessages(ws1, 2); // peers:1, peers:2
     await waitForMessages(ws2, 1); // peers:2
 
-    const res = await fetch(
-      `http://127.0.0.1:${port}/proj/rooms/r1/status`,
-    );
+    const res = await fetch(`http://127.0.0.1:${port}/proj/rooms/r1/status`);
     const body = await res.json();
     expect(body).toEqual({ clients: 2 });
 
@@ -427,8 +405,6 @@ describe("LocalRealtimeServer integration", () => {
 
   it("rejects WebSocket upgrade on non-ws paths", async () => {
     // Attempting WS upgrade on /broadcast should fail
-    await expect(
-      connectWs("/proj/rooms/r1/broadcast"),
-    ).rejects.toThrow();
+    await expect(connectWs("/proj/rooms/r1/broadcast")).rejects.toThrow();
   });
 });

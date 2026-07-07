@@ -114,14 +114,12 @@ describe("parseRealtimePath", () => {
 
 describe("getDoName", () => {
   test("project-wide: returns slug", () => {
-    expect(getDoName({ slug: "my-project", roomId: null, action: "/ws" })).toBe(
-      "my-project",
-    );
+    expect(getDoName({ slug: "my-project", roomId: null, action: "/ws" })).toBe("my-project");
   });
 
   test("room-scoped: returns slug:roomId", () => {
-    expect(
-      getDoName({ slug: "my-project", roomId: "abc123", action: "/ws" }),
-    ).toBe("my-project:abc123");
+    expect(getDoName({ slug: "my-project", roomId: "abc123", action: "/ws" })).toBe(
+      "my-project:abc123",
+    );
   });
 });

@@ -43,14 +43,10 @@ export const topCommand = defineCommand({
 
     if (jsonMode) {
       const snapshot = await collectSnapshot(client);
-      jsonOutput(
-        { ok: true, ...snapshot },
-        0,
-        [
-          { command: "creek top --json", description: "Refresh snapshot" },
-          { command: "creek logs <app-id>", description: "Stream app logs" },
-        ],
-      );
+      jsonOutput({ ok: true, ...snapshot }, 0, [
+        { command: "creek top --json", description: "Refresh snapshot" },
+        { command: "creek logs <app-id>", description: "Stream app logs" },
+      ]);
     }
 
     await liveTop(client, intervalMs);
@@ -81,15 +77,14 @@ async function collectSnapshot(client: CreekdClient): Promise<Snapshot> {
   const now = Date.now();
   const rows: AppRow[] = [];
 
-  const statsResults = await Promise.allSettled(
-    apps.map((app) => client.getStats(app.id)),
-  );
+  const statsResults = await Promise.allSettled(apps.map((app) => client.getStats(app.id)));
 
   for (let i = 0; i < apps.length; i++) {
     const app = apps[i];
-    const stats = statsResults[i].status === "fulfilled"
-      ? (statsResults[i] as PromiseFulfilledResult<StatsView>).value
-      : null;
+    const stats =
+      statsResults[i].status === "fulfilled"
+        ? (statsResults[i] as PromiseFulfilledResult<StatsView>).value
+        : null;
 
     let cpuStr = "—";
     if (stats?.cgroup_enabled && stats.cpu_usage_usec != null) {
@@ -106,9 +101,10 @@ async function collectSnapshot(client: CreekdClient): Promise<Snapshot> {
       status: app.status,
       cpu: cpuStr,
       mem: stats?.memory_current_bytes != null ? fmtBytes(stats.memory_current_bytes) : "—",
-      memLimit: stats?.memory_max_bytes != null && stats.memory_max_bytes > 0
-        ? fmtBytes(stats.memory_max_bytes)
-        : "—",
+      memLimit:
+        stats?.memory_max_bytes != null && stats.memory_max_bytes > 0
+          ? fmtBytes(stats.memory_max_bytes)
+          : "—",
       pids: stats?.pids_current != null ? String(stats.pids_current) : "—",
       restarts: app.restart_count,
       uptime: fmtDuration(app.uptime_ms),
@@ -126,9 +122,7 @@ async function collectSnapshot(client: CreekdClient): Promise<Snapshot> {
 }
 
 async function liveTop(client: CreekdClient, intervalMs: number) {
-  const url = client instanceof CreekdClient
-    ? getCreekdUrl()
-    : "creekd";
+  const url = client instanceof CreekdClient ? getCreekdUrl() : "creekd";
 
   let first = true;
   // eslint-disable-next-line no-constant-condition
@@ -165,7 +159,8 @@ function render(snap: Snapshot, url: string) {
   const red = "\x1b[31m";
   const yellow = "\x1b[33m";
 
-  const header = `${bold}creek top${reset}${dim} — ${url}${reset}  ` +
+  const header =
+    `${bold}creek top${reset}${dim} — ${url}${reset}  ` +
     `${summary.total} apps, ${green}${summary.running} running${reset}` +
     (summary.crashed > 0 ? `, ${red}${summary.crashed} crashed${reset}` : "");
   process.stdout.write(header + "\n\n");
@@ -185,10 +180,14 @@ function render(snap: Snapshot, url: string) {
   process.stdout.write(`${dim}  ${headerLine}${reset}\n`);
 
   for (const row of apps) {
-    const statusColor = row.status === "running" ? green
-      : row.status === "crash_loop" ? red
-      : row.status === "starting" ? yellow
-      : dim;
+    const statusColor =
+      row.status === "running"
+        ? green
+        : row.status === "crash_loop"
+          ? red
+          : row.status === "starting"
+            ? yellow
+            : dim;
 
     const cells = cols.map((_, i) => {
       const val = String(cellValue(row, i));
@@ -198,20 +197,31 @@ function render(snap: Snapshot, url: string) {
     process.stdout.write("  " + cells.join("  ") + "\n");
   }
 
-  process.stdout.write(`\n${dim}  Refreshing every ${(snap as any)._intervalS || 2}s — Ctrl+C to quit${reset}\n`);
+  process.stdout.write(
+    `\n${dim}  Refreshing every ${(snap as any)._intervalS || 2}s — Ctrl+C to quit${reset}\n`,
+  );
 }
 
 function cellValue(row: AppRow, col: number): string | number {
   switch (col) {
-    case 0: return row.id;
-    case 1: return row.status;
-    case 2: return row.cpu;
-    case 3: return row.mem;
-    case 4: return row.memLimit;
-    case 5: return row.pids;
-    case 6: return row.restarts;
-    case 7: return row.uptime;
-    default: return "";
+    case 0:
+      return row.id;
+    case 1:
+      return row.status;
+    case 2:
+      return row.cpu;
+    case 3:
+      return row.mem;
+    case 4:
+      return row.memLimit;
+    case 5:
+      return row.pids;
+    case 6:
+      return row.restarts;
+    case 7:
+      return row.uptime;
+    default:
+      return "";
   }
 }
 

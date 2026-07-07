@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -9,7 +14,9 @@ let teamSlug: string;
 
 // Mock execution context for waitUntil
 const executionCtx = {
-  waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
+  waitUntil: (p: Promise<unknown>) => {
+    p.catch(() => {});
+  },
   passThroughOnException: () => {},
 };
 
@@ -53,7 +60,7 @@ describe("POST /projects/:id/deployments", () => {
 
     const res = await req("POST", `/projects/${PROJECT_ID}/deployments`);
     expect(res.status).toBe(201);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.deployment).toBeDefined();
   });
 
@@ -90,7 +97,7 @@ describe("PUT /bundle", () => {
       bundle,
     );
     expect(res.status).toBe(202);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.deployment).toBeDefined();
   });
 
@@ -144,18 +151,14 @@ describe("PUT /bundle", () => {
       bundle,
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("already completed");
   });
 
   test("returns 404 for non-existent deployment", async () => {
     seedTestProject();
 
-    const res = await req(
-      "PUT",
-      `/projects/${PROJECT_ID}/deployments/nonexistent/bundle`,
-      bundle,
-    );
+    const res = await req("PUT", `/projects/${PROJECT_ID}/deployments/nonexistent/bundle`, bundle);
     expect(res.status).toBe(404);
   });
 
@@ -176,7 +179,7 @@ describe("PUT /bundle", () => {
       executionCtx as any,
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("Invalid JSON");
   });
 
@@ -184,13 +187,11 @@ describe("PUT /bundle", () => {
     seedTestProject();
     seedDeployment("queued");
 
-    const res = await req(
-      "PUT",
-      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
-      { assets: { "index.html": btoa("hi") } },
-    );
+    const res = await req("PUT", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`, {
+      assets: { "index.html": btoa("hi") },
+    });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("manifest");
   });
 
@@ -198,13 +199,12 @@ describe("PUT /bundle", () => {
     seedTestProject();
     seedDeployment("queued");
 
-    const res = await req(
-      "PUT",
-      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
-      { manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null }, assets: {} },
-    );
+    const res = await req("PUT", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`, {
+      manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null },
+      assets: {},
+    });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("at least one asset");
   });
 });
@@ -225,7 +225,7 @@ describe("GET /deployments/:id", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.deployment).toBeDefined();
     expect(json.url).toContain("my-app");
     expect(json.previewUrl).toBeDefined();
@@ -243,7 +243,7 @@ describe("GET /deployments/:id", () => {
     );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.url).toBeNull();
   });
 });
@@ -266,7 +266,7 @@ describe("GET /deployments list", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/deployments`);
     expect(res.status).toBe(200);
-    const json = await res.json() as Array<{ id: string; status: string; url: string | null }>;
+    const json = (await res.json()) as Array<{ id: string; status: string; url: string | null }>;
     expect(json).toHaveLength(3);
 
     // Active production deployment -> bare slug URL
@@ -279,8 +279,6 @@ describe("GET /deployments list", () => {
 
     // Active non-production -> preview URL with 8-char short id
     const preview = json.find((d) => d.id === "d3preview000")!;
-    expect(preview.url).toBe(
-      `https://my-app-d3previe-${TEST_TEAM.slug}.${"bycreek.com"}`,
-    );
+    expect(preview.url).toBe(`https://my-app-d3previe-${TEST_TEAM.slug}.${"bycreek.com"}`);
   });
 });

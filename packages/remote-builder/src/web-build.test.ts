@@ -13,7 +13,13 @@ function createMockKV() {
   } as unknown as KVNamespace & { _store: Map<string, { value: string; ttl?: number }> };
 }
 
-function createEnv(overrides?: Partial<{ BUILD_STATUS: KVNamespace; SANDBOX_API_URL: string; INTERNAL_SECRET: string }>) {
+function createEnv(
+  overrides?: Partial<{
+    BUILD_STATUS: KVNamespace;
+    SANDBOX_API_URL: string;
+    INTERNAL_SECRET: string;
+  }>,
+) {
   return {
     BUILD_STATUS: createMockKV(),
     SANDBOX_API_URL: "https://sandbox-api.creek.dev",
@@ -32,7 +38,12 @@ function successBuild(assets: Record<string, string> = { "index.html": "PCFET0N.
     success: true,
     config: { framework: "vite", renderMode: "spa" },
     bundle: {
-      manifest: { assets: Object.keys(assets), hasWorker: false, entrypoint: null, renderMode: "spa" },
+      manifest: {
+        assets: Object.keys(assets),
+        hasWorker: false,
+        entrypoint: null,
+        renderMode: "spa",
+      },
       assets,
       serverFiles: undefined,
     },
@@ -64,7 +75,9 @@ function failedBuild(error: string) {
 }
 
 function throwingBuild(error: string) {
-  return async () => { throw new Error(error); };
+  return async () => {
+    throw new Error(error);
+  };
 }
 
 // ============================================================================
@@ -73,16 +86,30 @@ function throwingBuild(error: string) {
 
 describe("handleWebBuild — happy path", () => {
   let originalFetch: typeof globalThis.fetch;
-  beforeEach(() => { originalFetch = globalThis.fetch; });
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   test("build + sandbox active → KV status active with previewUrl", async () => {
     const env = createEnv();
     globalThis.fetch = vi.fn(async () =>
-      Response.json({ sandboxId: "sb-1", status: "active", previewUrl: "https://sb-1.creeksandbox.com", statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-1/status", expiresAt: "2026-04-06T23:00:00Z" })
+      Response.json({
+        sandboxId: "sb-1",
+        status: "active",
+        previewUrl: "https://sb-1.creeksandbox.com",
+        statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-1/status",
+        expiresAt: "2026-04-06T23:00:00Z",
+      }),
     ) as any;
 
-    await handleWebBuild({ buildId: "b-1", repoUrl: "https://github.com/solcreek/templates", path: "landing" }, env, successBuild());
+    await handleWebBuild(
+      { buildId: "b-1", repoUrl: "https://github.com/solcreek/templates", path: "landing" },
+      env,
+      successBuild(),
+    );
 
     const s = getStatus(env, "b-1");
     expect(s.status).toBe("active");
@@ -99,7 +126,13 @@ describe("handleWebBuild — happy path", () => {
     globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       if (urlStr.includes("/api/sandbox/deploy")) {
-        return Response.json({ sandboxId: "sb-2", status: "queued", previewUrl: "https://sb-2.creeksandbox.com", statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-2/status", expiresAt: "2026-04-06T23:00:00Z" });
+        return Response.json({
+          sandboxId: "sb-2",
+          status: "queued",
+          previewUrl: "https://sb-2.creeksandbox.com",
+          statusUrl: "https://sandbox-api.creek.dev/api/sandbox/sb-2/status",
+          expiresAt: "2026-04-06T23:00:00Z",
+        });
       }
       if (urlStr.includes("/status")) {
         callCount++;
@@ -108,7 +141,11 @@ describe("handleWebBuild — happy path", () => {
       return new Response("", { status: 404 });
     }) as any;
 
-    await handleWebBuild({ buildId: "b-2", repoUrl: "https://github.com/solcreek/templates", path: "landing" }, env, successBuild());
+    await handleWebBuild(
+      { buildId: "b-2", repoUrl: "https://github.com/solcreek/templates", path: "landing" },
+      env,
+      successBuild(),
+    );
 
     vi.restoreAllMocks();
 
@@ -125,7 +162,11 @@ describe("handleWebBuild — happy path", () => {
 describe("handleWebBuild — build failures", () => {
   test("build returns success: false → KV failed", async () => {
     const env = createEnv();
-    await handleWebBuild({ buildId: "b-fail", repoUrl: "..." }, env, failedBuild("npm install failed"));
+    await handleWebBuild(
+      { buildId: "b-fail", repoUrl: "..." },
+      env,
+      failedBuild("npm install failed"),
+    );
 
     const s = getStatus(env, "b-fail");
     expect(s.status).toBe("failed");
@@ -135,7 +176,11 @@ describe("handleWebBuild — build failures", () => {
 
   test("build throws → KV failed", async () => {
     const env = createEnv();
-    await handleWebBuild({ buildId: "b-throw", repoUrl: "..." }, env, throwingBuild("Container crashed"));
+    await handleWebBuild(
+      { buildId: "b-throw", repoUrl: "..." },
+      env,
+      throwingBuild("Container crashed"),
+    );
 
     const s = getStatus(env, "b-throw");
     expect(s.status).toBe("failed");
@@ -174,13 +219,20 @@ describe("handleWebBuild — bundle validation", () => {
 
 describe("handleWebBuild — sandbox failures", () => {
   let originalFetch: typeof globalThis.fetch;
-  beforeEach(() => { originalFetch = globalThis.fetch; });
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   test("sandbox returns 400 → KV failed with error message", async () => {
     const env = createEnv();
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ error: "validation", message: "Bundle too large" }), { status: 400 })
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "validation", message: "Bundle too large" }), {
+          status: 400,
+        }),
     ) as any;
 
     await handleWebBuild({ buildId: "b-400", repoUrl: "..." }, env, successBuild());
@@ -193,8 +245,11 @@ describe("handleWebBuild — sandbox failures", () => {
 
   test("sandbox returns 429 (rate limited) → KV failed", async () => {
     const env = createEnv();
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ error: "rate_limited", message: "3/hr limit" }), { status: 429 })
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "rate_limited", message: "3/hr limit" }), {
+          status: 429,
+        }),
     ) as any;
 
     await handleWebBuild({ buildId: "b-429", repoUrl: "..." }, env, successBuild());
@@ -206,7 +261,9 @@ describe("handleWebBuild — sandbox failures", () => {
 
   test("sandbox fetch throws (network error) → KV failed", async () => {
     const env = createEnv();
-    globalThis.fetch = vi.fn(async () => { throw new Error("DNS resolution failed"); }) as any;
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("DNS resolution failed");
+    }) as any;
 
     await handleWebBuild({ buildId: "b-net", repoUrl: "..." }, env, successBuild());
 
@@ -223,8 +280,12 @@ describe("handleWebBuild — sandbox failures", () => {
 
 describe("handleWebBuild — state progression", () => {
   let originalFetch: typeof globalThis.fetch;
-  beforeEach(() => { originalFetch = globalThis.fetch; });
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   test("writes deploying before sandbox call, then active after", async () => {
     const env = createEnv();
@@ -236,7 +297,13 @@ describe("handleWebBuild — state progression", () => {
     });
 
     globalThis.fetch = vi.fn(async () =>
-      Response.json({ sandboxId: "sb-prog", status: "active", previewUrl: "https://sb-prog.creeksandbox.com", statusUrl: "...", expiresAt: "..." })
+      Response.json({
+        sandboxId: "sb-prog",
+        status: "active",
+        previewUrl: "https://sb-prog.creeksandbox.com",
+        statusUrl: "...",
+        expiresAt: "...",
+      }),
     ) as any;
 
     await handleWebBuild({ buildId: "b-prog", repoUrl: "..." }, env, successBuild());
@@ -247,7 +314,13 @@ describe("handleWebBuild — state progression", () => {
   test("all KV writes have TTL 3600", async () => {
     const env = createEnv();
     globalThis.fetch = vi.fn(async () =>
-      Response.json({ sandboxId: "sb-ttl", status: "active", previewUrl: "...", statusUrl: "...", expiresAt: "..." })
+      Response.json({
+        sandboxId: "sb-ttl",
+        status: "active",
+        previewUrl: "...",
+        statusUrl: "...",
+        expiresAt: "...",
+      }),
     ) as any;
 
     await handleWebBuild({ buildId: "b-ttl", repoUrl: "..." }, env, successBuild());

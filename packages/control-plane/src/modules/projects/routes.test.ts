@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -32,13 +37,13 @@ describe("POST /projects", () => {
   test("creates project with valid slug", async () => {
     const res = await req("POST", "/projects", { slug: "my-app" });
     expect(res.status).toBe(201);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.project).toBeDefined();
 
     // Verify project actually exists in DB
-    const row = testEnv.db.db.prepare(
-      "SELECT slug FROM project WHERE organizationId = ? AND slug = ?",
-    ).get(teamId, "my-app") as any;
+    const row = testEnv.db.db
+      .prepare("SELECT slug FROM project WHERE organizationId = ? AND slug = ?")
+      .get(teamId, "my-app") as any;
     expect(row).toBeDefined();
     expect(row.slug).toBe("my-app");
   });
@@ -51,7 +56,7 @@ describe("POST /projects", () => {
   test("rejects slug containing -git-", async () => {
     const res = await req("POST", "/projects", { slug: "my-git-app" });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("-git-");
   });
 
@@ -71,13 +76,13 @@ describe("POST /projects", () => {
     expect(res.status).toBe(201);
 
     // Verify the resolved slug is "my-app-2"
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.project.slug).toBe("my-app-2");
 
     // Verify in DB
-    const row = testEnv.db.db.prepare(
-      "SELECT slug FROM project WHERE organizationId = ? AND slug = ?",
-    ).get(teamId, "my-app-2") as any;
+    const row = testEnv.db.db
+      .prepare("SELECT slug FROM project WHERE organizationId = ? AND slug = ?")
+      .get(teamId, "my-app-2") as any;
     expect(row).toBeDefined();
   });
 
@@ -92,7 +97,7 @@ describe("POST /projects", () => {
     });
     expect(res.status).toBe(201);
 
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.project.slug).toBe("my-app-4");
   });
 
@@ -103,7 +108,7 @@ describe("POST /projects", () => {
     });
     expect(res.status).toBe(201);
 
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.project.slug).toBe("my-app");
   });
 
@@ -115,9 +120,9 @@ describe("POST /projects", () => {
     expect(res.status).toBe(201);
 
     // Verify githubRepo in DB
-    const row = testEnv.db.db.prepare(
-      "SELECT githubRepo FROM project WHERE slug = ? AND organizationId = ?",
-    ).get("my-app", teamId) as any;
+    const row = testEnv.db.db
+      .prepare("SELECT githubRepo FROM project WHERE slug = ? AND organizationId = ?")
+      .get("my-app", teamId) as any;
     expect(row).toBeDefined();
     expect(row.githubRepo).toBe("linyiru/my-app");
   });
@@ -130,14 +135,14 @@ describe("GET /projects", () => {
 
     const res = await req("GET", "/projects");
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toHaveLength(2);
   });
 
   test("returns empty array when no projects", async () => {
     const res = await req("GET", "/projects");
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toEqual([]);
   });
 });
@@ -148,7 +153,7 @@ describe("GET /projects/:idOrSlug", () => {
 
     const res = await req("GET", "/projects/my-app");
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.slug).toBe("my-app");
   });
 
@@ -164,13 +169,13 @@ describe("DELETE /projects/:idOrSlug", () => {
 
     const res = await req("DELETE", "/projects/my-app");
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.ok).toBe(true);
 
     // Verify it's actually gone
-    const row = testEnv.db.db.prepare(
-      "SELECT id FROM project WHERE slug = ? AND organizationId = ?",
-    ).get("my-app", teamId);
+    const row = testEnv.db.db
+      .prepare("SELECT id FROM project WHERE slug = ? AND organizationId = ?")
+      .get("my-app", teamId);
     expect(row).toBeUndefined();
   });
 
@@ -186,7 +191,7 @@ describe("GET /health", () => {
   test("returns ok", async () => {
     const res = await app.request("/health", { method: "GET" }, testEnv.env);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.status).toBe("ok");
   });
 });
@@ -204,7 +209,7 @@ describe("RBAC", () => {
 
     const res = await req("POST", "/projects", { slug: "new-app" });
     expect(res.status).toBe(403);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("forbidden");
   });
 
@@ -247,7 +252,7 @@ describe("RBAC", () => {
 
     const res = await req("POST", "/projects", { slug: "new-app" });
     expect(res.status).toBe(403);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("Not a member");
   });
 });

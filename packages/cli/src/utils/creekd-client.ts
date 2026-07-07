@@ -34,11 +34,23 @@ export interface StatsView {
 export interface AppEnvelope {
   apiVersion: string;
   kind: string;
-  metadata: { name: string; uid: string; generation: number; resourceVersion: string; creationTimestamp: string };
+  metadata: {
+    name: string;
+    uid: string;
+    generation: number;
+    resourceVersion: string;
+    creationTimestamp: string;
+  };
   spec: { runtime?: string; command?: string; args?: string[]; env?: string[]; port?: number };
   status: {
     observedGeneration: number;
-    conditions: Array<{ type: string; status: string; lastTransitionTime: string; reason: string; message?: string }>;
+    conditions: Array<{
+      type: string;
+      status: string;
+      lastTransitionTime: string;
+      reason: string;
+      message?: string;
+    }>;
     currentPid: number;
     currentPort: number;
     restartCount: number;
@@ -179,7 +191,12 @@ export class CreekdClient {
    * fresh getApp) — 412 surfaces as CreekdResourceVersionMismatchError.
    */
   async deployApp(id: string, body: unknown, opts: MutateOptions = {}): Promise<AppView> {
-    const res = await this.request("POST", `/v1/apps/${encodeURIComponent(id)}/deploy`, body, opts.ifMatch);
+    const res = await this.request(
+      "POST",
+      `/v1/apps/${encodeURIComponent(id)}/deploy`,
+      body,
+      opts.ifMatch,
+    );
     return res.json() as Promise<AppView>;
   }
 
@@ -211,7 +228,12 @@ export class CreekdClient {
     return res.json() as Promise<T>;
   }
 
-  private async request(method: string, path: string, body?: unknown, ifMatch?: string): Promise<Response> {
+  private async request(
+    method: string,
+    path: string,
+    body?: unknown,
+    ifMatch?: string,
+  ): Promise<Response> {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -224,7 +246,9 @@ export class CreekdClient {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ code: "unknown", error: res.statusText })) as ErrorResponse & {
+      const err = (await res
+        .json()
+        .catch(() => ({ code: "unknown", error: res.statusText }))) as ErrorResponse & {
         currentResourceVersion?: string;
       };
       // 412 carries the daemon's current rv in the body so the

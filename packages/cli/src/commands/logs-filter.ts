@@ -11,10 +11,7 @@
 
 import type { LogEntry, LogQueryFilters } from "@solcreek/sdk";
 
-export function matchesClientSide(
-  entry: LogEntry,
-  filters: LogQueryFilters,
-): boolean {
+export function matchesClientSide(entry: LogEntry, filters: LogQueryFilters): boolean {
   if (filters.outcomes?.length && !filters.outcomes.includes(entry.outcome)) return false;
   if (filters.scriptTypes?.length && !filters.scriptTypes.includes(entry.scriptType)) return false;
   if (filters.deployment && entry.deployId !== filters.deployment) return false;

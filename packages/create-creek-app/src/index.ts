@@ -75,7 +75,8 @@ const main = defineCommand({
     if (args.registry) {
       console.log(
         JSON.stringify({
-          error: "Private template registry is an enterprise feature. Coming soon — creek.dev/enterprise",
+          error:
+            "Private template registry is an enterprise feature. Coming soon — creek.dev/enterprise",
         }),
       );
       process.exit(0);

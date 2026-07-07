@@ -2,9 +2,16 @@ import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 
 const FRAMEWORKS = [
-  "nextjs", "tanstack-start", "react-router",
-  "vite-react", "vite-vue", "vite-svelte", "vite-solid",
-  "sveltekit", "solidstart", "nuxt",
+  "nextjs",
+  "tanstack-start",
+  "react-router",
+  "vite-react",
+  "vite-vue",
+  "vite-svelte",
+  "vite-solid",
+  "sveltekit",
+  "solidstart",
+  "nuxt",
 ] as const;
 
 export const DEPLOY_TARGETS = ["cf", "creekd"] as const;
@@ -16,43 +23,61 @@ const STORAGE_DRIVERS = ["fs", "s3"] as const;
 
 export const CreekConfigSchema = z.object({
   project: z.object({
-    name: z.string().regex(/^[a-z0-9-]+$/, "Project name must be lowercase alphanumeric with hyphens"),
+    name: z
+      .string()
+      .regex(/^[a-z0-9-]+$/, "Project name must be lowercase alphanumeric with hyphens"),
     target: z.enum(DEPLOY_TARGETS).optional(),
     framework: z.enum(FRAMEWORKS).optional(),
   }),
-  build: z.object({
-    command: z.string().default("npm run build"),
-    output: z.string().default("dist"),
-    worker: z.string().optional(),
-  }).default({}),
+  build: z
+    .object({
+      command: z.string().default("npm run build"),
+      output: z.string().default("dist"),
+      worker: z.string().optional(),
+    })
+    .default({}),
   // v1 format: boolean resource flags (CF Workers bindings)
-  resources: z.object({
-    database: z.boolean().default(false),
-    cache: z.boolean().default(false),
-    storage: z.boolean().default(false),
-    ai: z.boolean().default(false),
-  }).default({}),
+  resources: z
+    .object({
+      database: z.boolean().default(false),
+      cache: z.boolean().default(false),
+      storage: z.boolean().default(false),
+      ai: z.boolean().default(false),
+    })
+    .default({}),
   // v2 format: semantic driver declarations (multi-target)
-  database: z.object({
-    driver: z.enum(DATABASE_DRIVERS).default("sqlite"),
-  }).optional(),
-  cache: z.object({
-    driver: z.enum(CACHE_DRIVERS).default("sqlite"),
-  }).optional(),
-  storage: z.object({
-    driver: z.enum(STORAGE_DRIVERS).default("fs"),
-  }).optional(),
-  email: z.object({
-    enabled: z.boolean().default(false),
-  }).optional(),
-  release: z.object({
-    command: z.string(),
-    timeout: z.number().default(60),
-  }).optional(),
-  triggers: z.object({
-    cron: z.array(z.string()).default([]),
-    queue: z.boolean().default(false),
-  }).default({}),
+  database: z
+    .object({
+      driver: z.enum(DATABASE_DRIVERS).default("sqlite"),
+    })
+    .optional(),
+  cache: z
+    .object({
+      driver: z.enum(CACHE_DRIVERS).default("sqlite"),
+    })
+    .optional(),
+  storage: z
+    .object({
+      driver: z.enum(STORAGE_DRIVERS).default("fs"),
+    })
+    .optional(),
+  email: z
+    .object({
+      enabled: z.boolean().default(false),
+    })
+    .optional(),
+  release: z
+    .object({
+      command: z.string(),
+      timeout: z.number().default(60),
+    })
+    .optional(),
+  triggers: z
+    .object({
+      cron: z.array(z.string()).default([]),
+      queue: z.boolean().default(false),
+    })
+    .default({}),
 });
 
 export type CreekConfig = z.infer<typeof CreekConfigSchema>;
@@ -102,13 +127,13 @@ export function validateTargetDrivers(config: CreekConfig): void {
     if (dbDriver === "postgres" || dbDriver === "mysql") {
       throw new Error(
         `Incompatible: target "cf" does not support database driver "${dbDriver}". ` +
-        `Use driver = "sqlite" (maps to D1) or set target = "creekd".`
+          `Use driver = "sqlite" (maps to D1) or set target = "creekd".`,
       );
     }
     if (cacheDriver === "redis") {
       throw new Error(
         `Incompatible: target "cf" does not support cache driver "redis". ` +
-        `Use driver = "sqlite" (maps to KV) or set target = "creekd".`
+          `Use driver = "sqlite" (maps to KV) or set target = "creekd".`,
       );
     }
   }

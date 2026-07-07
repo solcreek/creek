@@ -91,7 +91,12 @@ const QUESTION_BANK: ChallengeQuestion[] = [
     format: "sorted,comma,separated,lowercase",
     solve(html) {
       const commands = extractCodeFromHeadings(html)
-        .map((c) => c.replace(/^creek\s+/, "").toLowerCase().trim())
+        .map((c) =>
+          c
+            .replace(/^creek\s+/, "")
+            .toLowerCase()
+            .trim(),
+        )
         .filter((c) => c.length > 0 && !c.includes(" "));
       if (commands.length === 0) return null;
       return [...new Set(commands)].sort().join(",");
@@ -125,10 +130,7 @@ const QUESTION_BANK: ChallengeQuestion[] = [
       "Fetch the Creek supported frameworks page. Extract all framework names mentioned in headings (h2 or h3). Return them sorted alphabetically, lowercase, separated by commas.",
     format: "sorted,comma,separated,lowercase",
     solve(html) {
-      const headings = [
-        ...extractTextByTag(html, "h2"),
-        ...extractTextByTag(html, "h3"),
-      ]
+      const headings = [...extractTextByTag(html, "h2"), ...extractTextByTag(html, "h3")]
         .map((h) => h.toLowerCase().trim())
         .filter((h) => h.length > 0 && h.length < 40);
       if (headings.length === 0) return null;
@@ -204,9 +206,7 @@ function pruneExpired() {
 async function sha256hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
-  return [...new Uint8Array(hash)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -222,10 +222,7 @@ async function createAgentToken(
   const exp = now + TOKEN_TTL;
 
   const payload = JSON.stringify({ ipHash, iat: now, exp });
-  const payloadB64 = btoa(payload)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const payloadB64 = btoa(payload).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -234,11 +231,7 @@ async function createAgentToken(
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payloadB64),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payloadB64));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -318,7 +311,10 @@ challengeRoutes.post("/start", async (c) => {
     (ch) => ch.ipHash === ipHash && Date.now() - ch.createdAt < 3600_000,
   ).length;
   if (recentFromIp >= 20) {
-    return c.json({ error: "rate_limited", message: "Too many challenge requests. Try again later." }, 429);
+    return c.json(
+      { error: "rate_limited", message: "Too many challenge requests. Try again later." },
+      429,
+    );
   }
 
   // Pick a random question
@@ -336,7 +332,10 @@ challengeRoutes.post("/start", async (c) => {
     });
     if (!res.ok) {
       return c.json(
-        { error: "challenge_unavailable", message: "Challenge source temporarily unavailable. Try again." },
+        {
+          error: "challenge_unavailable",
+          message: "Challenge source temporarily unavailable. Try again.",
+        },
         503,
       );
     }
@@ -393,7 +392,9 @@ challengeRoutes.post("/:id/submit", async (c) => {
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   const ipHash = await sha256hex(ip + (env.IP_HASH_SALT || "creek-sandbox-salt"));
 
-  const body = await c.req.json<{ digest?: string; tosAccepted?: boolean; tosVersion?: string }>().catch(() => ({}));
+  const body = await c.req
+    .json<{ digest?: string; tosAccepted?: boolean; tosVersion?: string }>()
+    .catch(() => ({}));
   const digest = (body as any).digest;
   const tosAccepted = (body as any).tosAccepted;
   const tosVersion = (body as any).tosVersion;
@@ -403,36 +404,37 @@ challengeRoutes.post("/:id/submit", async (c) => {
   }
 
   if (!tosAccepted || !tosVersion) {
-    return c.json({
-      error: "tos_required",
-      message: "You must accept the Terms of Service. Include tosAccepted: true and tosVersion in your request.",
-      tosUrl: "https://creek.dev/legal/terms",
-      aupUrl: "https://creek.dev/legal/acceptable-use",
-    }, 400);
+    return c.json(
+      {
+        error: "tos_required",
+        message:
+          "You must accept the Terms of Service. Include tosAccepted: true and tosVersion in your request.",
+        tosUrl: "https://creek.dev/legal/terms",
+        aupUrl: "https://creek.dev/legal/acceptable-use",
+      },
+      400,
+    );
   }
 
   // Look up pending challenge
   const challenge = pendingChallenges.get(challengeId);
 
   if (!challenge) {
-    return c.json(
-      { error: "challenge_not_found", message: "Challenge not found or expired" },
-      404,
-    );
+    return c.json({ error: "challenge_not_found", message: "Challenge not found or expired" }, 404);
   }
 
   // Prevent replay
   if (challenge.used) {
-    return c.json(
-      { error: "challenge_used", message: "Challenge already submitted" },
-      400,
-    );
+    return c.json({ error: "challenge_used", message: "Challenge already submitted" }, 400);
   }
 
   // Check IP binding (same IP that started must submit)
   if (challenge.ipHash !== ipHash) {
     return c.json(
-      { error: "forbidden", message: "Challenge must be submitted from the same IP that started it" },
+      {
+        error: "forbidden",
+        message: "Challenge must be submitted from the same IP that started it",
+      },
       403,
     );
   }

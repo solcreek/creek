@@ -87,17 +87,18 @@ export function BuildLogPanel({
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["build-log", projectId, deploymentId],
-    queryFn: () =>
-      api<LogResponse>(`/projects/${projectId}/deployments/${deploymentId}/logs`),
+    queryFn: () => api<LogResponse>(`/projects/${projectId}/deployments/${deploymentId}/logs`),
   });
 
   const filteredEntries = useMemo(() => {
     if (!data?.entries) return [] as LogLine[];
     const needle = search.trim().toLowerCase();
     const levelMin =
-      levelFilter === "error-only" ? LEVEL_RANK.error :
-      levelFilter === "warn-up" ? LEVEL_RANK.warn :
-      0;
+      levelFilter === "error-only"
+        ? LEVEL_RANK.error
+        : levelFilter === "warn-up"
+          ? LEVEL_RANK.warn
+          : 0;
     return data.entries.filter((e) => {
       if (hiddenSteps.has(e.step)) return false;
       if (LEVEL_RANK[e.level] < levelMin) return false;
@@ -136,8 +137,7 @@ export function BuildLogPanel({
   const byStepFiltered = groupByStep(filteredEntries);
   const byStepAll = groupByStep(data.entries);
   const allSteps = STEP_ORDER.filter((s) => byStepAll.has(s));
-  const filterActive =
-    levelFilter !== "all" || hiddenSteps.size > 0 || search.trim().length > 0;
+  const filterActive = levelFilter !== "all" || hiddenSteps.size > 0 || search.trim().length > 0;
 
   function toggleStep(step: Step): void {
     setHiddenSteps((prev) => {
@@ -244,12 +244,8 @@ export function BuildLogPanel({
             : `${data.entries.length} lines`}{" "}
           · {formatBytes(meta.bytes)} compressed
         </span>
-        {meta.truncated && (
-          <span className="text-amber-400">truncated</span>
-        )}
-        {meta.errorCode && (
-          <span className="font-mono text-destructive">{meta.errorCode}</span>
-        )}
+        {meta.truncated && <span className="text-amber-400">truncated</span>}
+        {meta.errorCode && <span className="font-mono text-destructive">{meta.errorCode}</span>}
         <button
           type="button"
           onClick={() => setShowRaw((v) => !v)}
@@ -320,9 +316,7 @@ function StepRow({
           </span>
         )}
         {duration !== null && (
-          <span className="tabular-nums text-muted-foreground">
-            {formatDuration(duration)}
-          </span>
+          <span className="tabular-nums text-muted-foreground">{formatDuration(duration)}</span>
         )}
         <span className="text-muted-foreground">{expanded ? "−" : "+"}</span>
       </button>
@@ -334,19 +328,20 @@ function StepRow({
             </div>
           ) : (
             (expanded ? lines : preview).map((l, i) => (
-            <div
-              key={i}
-              className={`whitespace-pre-wrap break-words ${
-                l.level === "error" || l.level === "fatal"
-                  ? "text-destructive"
-                  : l.level === "warn"
-                    ? "text-amber-400"
-                    : "text-foreground/80"
-              }`}
-            >
-              {l.msg}
-            </div>
-          )))}
+              <div
+                key={i}
+                className={`whitespace-pre-wrap break-words ${
+                  l.level === "error" || l.level === "fatal"
+                    ? "text-destructive"
+                    : l.level === "warn"
+                      ? "text-amber-400"
+                      : "text-foreground/80"
+                }`}
+              >
+                {l.msg}
+              </div>
+            ))
+          )}
         </div>
       )}
     </li>
@@ -370,7 +365,11 @@ function stepStatus(
   lines: LogLine[],
   meta: LogMetadata,
   step: Step,
-): { status: "success" | "failed" | "running" | "unknown"; duration: number | null; errorCode: string | null } {
+): {
+  status: "success" | "failed" | "running" | "unknown";
+  duration: number | null;
+  errorCode: string | null;
+} {
   const hasFatal = lines.some((l) => l.level === "fatal");
   const hasError = lines.some((l) => l.level === "error");
 

@@ -83,11 +83,13 @@ const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
 // Only these extensions are valid CF Workers module types
 const VALID_WORKER_EXTENSIONS = new Set([
-  ".js", ".mjs", ".cjs",  // JavaScript modules
-  ".json",                 // JSON modules
-  ".wasm",                 // WebAssembly
-  ".txt",                  // Text modules
-  ".html",                 // Text modules
+  ".js",
+  ".mjs",
+  ".cjs", // JavaScript modules
+  ".json", // JSON modules
+  ".wasm", // WebAssembly
+  ".txt", // Text modules
+  ".html", // Text modules
 ]);
 
 // Config-style files that adapters may drop into the server output
@@ -98,12 +100,7 @@ const VALID_WORKER_EXTENSIONS = new Set([
 // Example: @astrojs/cloudflare writes dist/server/wrangler.json with
 // the adapter-resolved bindings for downstream `wrangler deploy`; it
 // is never imported by entry.mjs.
-const SKIP_FILENAMES = new Set([
-  "wrangler.json",
-  "wrangler.jsonc",
-  "wrangler.toml",
-  ".wrangler",
-]);
+const SKIP_FILENAMES = new Set(["wrangler.json", "wrangler.jsonc", "wrangler.toml", ".wrangler"]);
 
 function shouldSkipFile(name: string): boolean {
   if (name.endsWith(".map")) return true;

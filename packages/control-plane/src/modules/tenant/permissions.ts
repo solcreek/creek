@@ -14,23 +14,28 @@ export type Permission =
   | "team:delete";
 
 const ALL_PERMISSIONS: Permission[] = [
-  "project:read", "project:create", "project:delete",
-  "deploy:read", "deploy:create",
-  "envvar:manage", "domain:manage",
-  "member:manage", "team:delete",
+  "project:read",
+  "project:create",
+  "project:delete",
+  "deploy:read",
+  "deploy:create",
+  "envvar:manage",
+  "domain:manage",
+  "member:manage",
+  "team:delete",
 ];
 
 const ROLE_PERMISSIONS: Record<string, Set<Permission>> = {
   owner: new Set(ALL_PERMISSIONS),
   admin: new Set([
-    "project:read", "project:create",
-    "deploy:read", "deploy:create",
-    "envvar:manage", "domain:manage",
-  ]),
-  member: new Set([
     "project:read",
-    "deploy:read", "deploy:create",
+    "project:create",
+    "deploy:read",
+    "deploy:create",
+    "envvar:manage",
+    "domain:manage",
   ]),
+  member: new Set(["project:read", "deploy:read", "deploy:create"]),
 };
 
 type RbacEnv = {

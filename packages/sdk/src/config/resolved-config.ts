@@ -174,9 +174,10 @@ function fromWranglerConfig(
 
   // AI
   if (wrangler.ai) {
-    const aiBindingName = typeof wrangler.ai === "object" && wrangler.ai.binding
-      ? wrangler.ai.binding
-      : BINDING_NAMES.ai;
+    const aiBindingName =
+      typeof wrangler.ai === "object" && wrangler.ai.binding
+        ? wrangler.ai.binding
+        : BINDING_NAMES.ai;
     bindings.push({ type: "ai", name: aiBindingName });
   }
 
@@ -209,7 +210,9 @@ function fromWranglerConfig(
     }
   }
 
-  const dirName = basename(cwd).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const dirName = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
   const isPureWorker = !!wrangler.main && !framework;
 
   return {
@@ -219,7 +222,7 @@ function fromWranglerConfig(
     framework,
     // Pure Worker: no traditional build step — entry IS the app
     buildCommand: isPureWorker ? "" : "npm run build",
-    buildOutput: framework ? getDefaultBuildOutput(framework, cwd) : (isPureWorker ? "." : "dist"),
+    buildOutput: framework ? getDefaultBuildOutput(framework, cwd) : isPureWorker ? "." : "dist",
     workerEntry: wrangler.main ?? null,
     bindings,
     unsupportedBindings,
@@ -234,14 +237,19 @@ function fromWranglerConfig(
 }
 
 function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
-  const dirName = basename(cwd).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const dirName = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
 
   // Prefer package.json name as project slug (strip scope prefix)
   let projectName = dirName;
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
     if (pkg.name && typeof pkg.name === "string") {
-      projectName = pkg.name.replace(/^@[^/]+\//, "").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      projectName = pkg.name
+        .replace(/^@[^/]+\//, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-");
     }
   } catch {}
 
@@ -266,7 +274,9 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
 }
 
 function fromStaticSite(cwd: string): ResolvedConfig {
-  const dirName = basename(cwd).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const dirName = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
   const hasPublicDir = existsSync(join(cwd, "public/index.html"));
 
   return {
@@ -353,9 +363,7 @@ export function resolvedConfigToResources(config: ResolvedConfig): ResourceRequi
  * Convert ResolvedConfig to BindingRequirements (with user-defined names).
  * For the new control plane API path.
  */
-export function resolvedConfigToBindingRequirements(
-  config: ResolvedConfig,
-): BindingRequirement[] {
+export function resolvedConfigToBindingRequirements(config: ResolvedConfig): BindingRequirement[] {
   return config.bindings
     .filter((b): b is BindingDeclaration & { type: "d1" | "r2" | "kv" | "ai" } =>
       ["d1", "r2", "kv", "ai"].includes(b.type),

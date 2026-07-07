@@ -24,18 +24,16 @@ export const tenantMiddleware = createMiddleware<TenantEnv>(async (c, next) => {
   });
 
   if (!session?.user) {
-    return c.json(
-      { error: "unauthorized", message: "Missing or invalid authentication" },
-      401,
-    );
+    return c.json({ error: "unauthorized", message: "Missing or invalid authentication" }, 401);
   }
 
   const user: AuthUser = {
     id: session.user.id,
     email: session.user.email,
     name: session.user.name,
-    role: (session.user as Record<string, unknown>).role as string | null ?? null,
-    activeOrganizationId: (session.session as Record<string, unknown>).activeOrganizationId as string | null ?? null,
+    role: ((session.user as Record<string, unknown>).role as string | null) ?? null,
+    activeOrganizationId:
+      ((session.session as Record<string, unknown>).activeOrganizationId as string | null) ?? null,
   };
 
   c.set("user", user);

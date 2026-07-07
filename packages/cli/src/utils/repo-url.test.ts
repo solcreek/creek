@@ -189,79 +189,59 @@ describe("parseRepoUrl — errors", () => {
 
 describe("validateRepoUrl — protocol attacks", () => {
   test("rejects git:// protocol", () => {
-    expect(() =>
-      parseRepoUrl("git://github.com/user/repo"),
-    ).toThrow(/Only HTTPS/);
+    expect(() => parseRepoUrl("git://github.com/user/repo")).toThrow(/Only HTTPS/);
   });
 
   test("rejects ssh:// protocol", () => {
-    expect(() =>
-      parseRepoUrl("ssh://git@github.com/user/repo"),
-    ).toThrow(/Only HTTPS/);
+    expect(() => parseRepoUrl("ssh://git@github.com/user/repo")).toThrow(/Only HTTPS/);
   });
 
   test("rejects file:// protocol", () => {
-    expect(() =>
-      parseRepoUrl("file:///etc/passwd"),
-    ).toThrow(/Only HTTPS/);
+    expect(() => parseRepoUrl("file:///etc/passwd")).toThrow(/Only HTTPS/);
   });
 
   test("rejects http:// (non-TLS)", () => {
-    expect(() =>
-      parseRepoUrl("http://github.com/user/repo"),
-    ).toThrow(/Only HTTPS/);
+    expect(() => parseRepoUrl("http://github.com/user/repo")).toThrow(/Only HTTPS/);
   });
 });
 
 describe("validateRepoUrl — SSRF prevention", () => {
   test("rejects localhost", () => {
-    expect(() =>
-      parseRepoUrl("https://localhost/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://localhost/user/repo")).toThrow(/Unsupported host/);
   });
 
   test("rejects 127.0.0.1", () => {
-    expect(() =>
-      parseRepoUrl("https://127.0.0.1/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://127.0.0.1/user/repo")).toThrow(/Unsupported host/);
   });
 
   test("rejects 10.0.0.1 (private IP)", () => {
-    expect(() =>
-      parseRepoUrl("https://10.0.0.1/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://10.0.0.1/user/repo")).toThrow(/Unsupported host/);
   });
 
   test("rejects 192.168.1.1 (private IP)", () => {
-    expect(() =>
-      parseRepoUrl("https://192.168.1.1/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://192.168.1.1/user/repo")).toThrow(/Unsupported host/);
   });
 
   test("rejects [::1] (IPv6 loopback)", () => {
-    expect(() =>
-      parseRepoUrl("https://[::1]/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://[::1]/user/repo")).toThrow(/Unsupported host/);
   });
 
   test("rejects unknown hostname", () => {
-    expect(() =>
-      parseRepoUrl("https://evil.com/user/repo"),
-    ).toThrow(/Unsupported host/);
+    expect(() => parseRepoUrl("https://evil.com/user/repo")).toThrow(/Unsupported host/);
   });
 });
 
 describe("validateRepoUrl — credential leaks", () => {
   test("rejects URL with embedded token", () => {
-    expect(() =>
-      parseRepoUrl("https://ghp_token123@github.com/user/repo"),
-    ).toThrow(/embedded credentials/);
+    expect(() => parseRepoUrl("https://ghp_token123@github.com/user/repo")).toThrow(
+      /embedded credentials/,
+    );
   });
 
   test("rejects URL with username:password", () => {
-    expect(() =>
-      parseRepoUrl("https://user:pass@github.com/user/repo"),
-    ).toThrow(/embedded credentials/);
+    expect(() => parseRepoUrl("https://user:pass@github.com/user/repo")).toThrow(
+      /embedded credentials/,
+    );
   });
 });
 

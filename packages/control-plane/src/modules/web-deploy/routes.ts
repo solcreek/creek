@@ -11,7 +11,13 @@
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import { isAllowedOrigin } from "../tenant/origin-guard.js";
-import { buildAndDeploy, fetchCommitSha, updateStatus, hashIp, type DeployRequest } from "./build-and-deploy.js";
+import {
+  buildAndDeploy,
+  fetchCommitSha,
+  updateStatus,
+  hashIp,
+  type DeployRequest,
+} from "./build-and-deploy.js";
 
 type AppEnv = { Bindings: Env };
 
@@ -70,7 +76,9 @@ webDeploy.post("/", async (c) => {
       ? body.repo!
       : `https://github.com/${body.repo}`;
     commitSha = await fetchCommitSha(normalizedRepo, body.branch || "main");
-    console.log(`[web-deploy] SHA resolve: ${normalizedRepo} → ${commitSha ?? "null (cache will be skipped)"}`);
+    console.log(
+      `[web-deploy] SHA resolve: ${normalizedRepo} → ${commitSha ?? "null (cache will be skipped)"}`,
+    );
 
     if (commitSha) {
       try {
@@ -92,11 +100,15 @@ webDeploy.post("/", async (c) => {
     const rateLimitKey = `rate:${hashIp(ip)}`;
     const currentCount = parseInt((await c.env.BUILD_STATUS.get(rateLimitKey)) || "0");
     if (currentCount >= 5) {
-      return c.json({
-        error: "rate_limited",
-        message: "You've used all 5 free builds this hour. Deploy a cached repo (any repo someone else deployed recently) or wait.",
-        retryAfter: 3600,
-      }, 429);
+      return c.json(
+        {
+          error: "rate_limited",
+          message:
+            "You've used all 5 free builds this hour. Deploy a cached repo (any repo someone else deployed recently) or wait.",
+          retryAfter: 3600,
+        },
+        429,
+      );
     }
     await c.env.BUILD_STATUS.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 3600 });
   }
@@ -136,7 +148,7 @@ webDeploy.get("/list", async (c) => {
       headers: { "X-Internal-Secret": c.env.INTERNAL_SECRET },
     });
     if (res.ok) {
-      sandboxDeploys = (await res.json() as any[]).map((d) => ({ ...d, source: "db" }));
+      sandboxDeploys = ((await res.json()) as any[]).map((d) => ({ ...d, source: "db" }));
     }
   } catch {
     // sandbox-api unreachable — return KV data only
@@ -154,7 +166,9 @@ webDeploy.get("/list", async (c) => {
   }
 
   // 4. Sort by time descending
-  merged.sort((a, b) => (b.createdAt || b.updatedAt || "").localeCompare(a.createdAt || a.updatedAt || ""));
+  merged.sort((a, b) =>
+    (b.createdAt || b.updatedAt || "").localeCompare(a.createdAt || a.updatedAt || ""),
+  );
 
   return c.json(merged);
 });
@@ -172,9 +186,7 @@ webDeploy.get("/preflight", async (c) => {
     return c.json({ cached: false, reason: "missing_repo" });
   }
 
-  const normalizedRepo = repo.startsWith("http")
-    ? repo
-    : `https://github.com/${repo}`;
+  const normalizedRepo = repo.startsWith("http") ? repo : `https://github.com/${repo}`;
 
   try {
     const sha = await fetchCommitSha(normalizedRepo, branch);

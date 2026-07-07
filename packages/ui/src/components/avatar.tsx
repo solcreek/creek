@@ -1,30 +1,19 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cn } from "../lib/utils"
+import * as React from "react";
+import { cn } from "../lib/utils";
 
-function Avatar({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement>) {
+function Avatar({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       data-slot="avatar"
-      className={cn(
-        "relative flex size-10 shrink-0 overflow-hidden rounded-full",
-        className
-      )}
+      className={cn("relative flex size-10 shrink-0 overflow-hidden rounded-full", className)}
       {...props}
     />
-  )
+  );
 }
 
-function AvatarImage({
-  className,
-  src,
-  alt,
-  ...props
-}: React.ImgHTMLAttributes<HTMLImageElement>) {
+function AvatarImage({ className, src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
   return (
     <img
       data-slot="avatar-image"
@@ -33,23 +22,17 @@ function AvatarImage({
       alt={alt}
       {...props}
     />
-  )
+  );
 }
 
-function AvatarFallback({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement>) {
+function AvatarFallback({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       data-slot="avatar-fallback"
-      className={cn(
-        "flex size-full items-center justify-center rounded-full bg-muted",
-        className
-      )}
+      className={cn("flex size-full items-center justify-center rounded-full bg-muted", className)}
       {...props}
     />
-  )
+  );
 }
 
-export { Avatar, AvatarImage, AvatarFallback }
+export { Avatar, AvatarImage, AvatarFallback };

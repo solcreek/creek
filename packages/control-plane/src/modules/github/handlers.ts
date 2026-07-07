@@ -6,7 +6,13 @@
 
 import type { Env } from "../../types.js";
 import * as schema from "../../db/schema.js";
-import { exchangeInstallationToken, createCommitStatus, createOrUpdatePRComment, formatPreviewComment, findPRForBranch } from "./api.js";
+import {
+  exchangeInstallationToken,
+  createCommitStatus,
+  createOrUpdatePRComment,
+  formatPreviewComment,
+  findPRForBranch,
+} from "./api.js";
 import { scanRepo } from "./scan.js";
 
 // --- Types for GitHub webhook payloads ---
@@ -67,10 +73,7 @@ export interface RepositoryEventPayload {
  * (repoOwner, repoName) from the payload's `changes.repository.name.from`
  * for renames, and opportunistically backfill repoId while we're at it.
  */
-export async function handleRepository(
-  env: Env,
-  payload: RepositoryEventPayload,
-): Promise<void> {
+export async function handleRepository(env: Env, payload: RepositoryEventPayload): Promise<void> {
   const { action, repository, changes } = payload;
 
   // Only act on shape-changing events
@@ -85,7 +88,13 @@ export async function handleRepository(
     "SELECT id, projectId, repoId, repoOwner, repoName FROM github_connection WHERE repoId = ?",
   )
     .bind(repoId)
-    .first<{ id: string; projectId: string; repoId: number | null; repoOwner: string; repoName: string }>();
+    .first<{
+      id: string;
+      projectId: string;
+      repoId: number | null;
+      repoOwner: string;
+      repoName: string;
+    }>();
 
   // Fallback: legacy row with null repoId. Match on (old owner, old name).
   // For renames that's `changes.repository.name.from` + unchanged owner.
@@ -96,7 +105,13 @@ export async function handleRepository(
       "SELECT id, projectId, repoId, repoOwner, repoName FROM github_connection WHERE repoOwner = ? AND repoName = ?",
     )
       .bind(newOwner, changes.repository.name.from)
-      .first<{ id: string; projectId: string; repoId: number | null; repoOwner: string; repoName: string }>();
+      .first<{
+        id: string;
+        projectId: string;
+        repoId: number | null;
+        repoOwner: string;
+        repoName: string;
+      }>();
   }
 
   if (!connection) {
@@ -114,9 +129,11 @@ export async function handleRepository(
        SET repoOwner = ?, repoName = ?, repoId = ?
        WHERE id = ?`,
     ).bind(newOwner, newName, repoId, connection.id),
-    env.DB.prepare(
-      "UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?",
-    ).bind(`${newOwner}/${newName}`, Date.now(), connection.projectId),
+    env.DB.prepare("UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?").bind(
+      `${newOwner}/${newName}`,
+      Date.now(),
+      connection.projectId,
+    ),
   ]);
 }
 
@@ -161,7 +178,9 @@ export async function handleInstallation(env: Env, payload: InstallationPayload)
   if (action === "deleted") {
     // Clean up: delete installation + connections + scans
     await env.DB.batch([
-      env.DB.prepare("DELETE FROM github_connection WHERE installationId = ?").bind(installation.id),
+      env.DB.prepare("DELETE FROM github_connection WHERE installationId = ?").bind(
+        installation.id,
+      ),
       env.DB.prepare("DELETE FROM repo_scan WHERE installationId = ?").bind(installation.id),
       env.DB.prepare("DELETE FROM github_installation WHERE id = ?").bind(installation.id),
     ]);
@@ -256,7 +275,7 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
       body: JSON.stringify({ repoUrl: cloneUrl, branch }),
     });
 
-    const buildResult = await buildRes.json() as any;
+    const buildResult = (await buildRes.json()) as any;
 
     // Ship the container's build log to R2 immediately — regardless of
     // success/failure, the dashboard panel should have something. Ignore
@@ -265,9 +284,7 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
     if (Array.isArray(buildResult.logs) && buildResult.logs.length > 0) {
       try {
         const { storeBuildLog } = await import("../build-logs/storage.js");
-        const ndjson = (buildResult.logs as unknown[])
-          .map((l) => JSON.stringify(l))
-          .join("\n");
+        const ndjson = (buildResult.logs as unknown[]).map((l) => JSON.stringify(l)).join("\n");
         await storeBuildLog(env, {
           team: project.teamSlug,
           project: project.slug,
@@ -297,9 +314,7 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
     const bundleKey = `bundles/${deploymentId}.json`;
     await env.ASSETS.put(bundleKey, JSON.stringify(buildResult.bundle));
 
-    await env.DB.prepare(
-      "UPDATE deployment SET status = 'uploading', updatedAt = ? WHERE id = ?",
-    )
+    await env.DB.prepare("UPDATE deployment SET status = 'uploading', updatedAt = ? WHERE id = ?")
       .bind(Date.now(), deploymentId)
       .run();
 
@@ -371,7 +386,13 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
               ? Object.keys(buildResult.bundle.serverFiles).length
               : 0;
             const framework = buildResult.config?.framework ?? null;
-            const comment = formatPreviewComment(url, buildTime, framework, assetCount, serverCount);
+            const comment = formatPreviewComment(
+              url,
+              buildTime,
+              framework,
+              assetCount,
+              serverCount,
+            );
             await createOrUpdatePRComment(token, owner, repo, prNumber, comment);
           }
         } catch {
@@ -385,7 +406,12 @@ export async function handlePush(env: Env, payload: PushPayload): Promise<void> 
       });
     }
   } catch (err) {
-    await failDeployment(env, deploymentId, "building", err instanceof Error ? err.message : String(err));
+    await failDeployment(
+      env,
+      deploymentId,
+      "building",
+      err instanceof Error ? err.message : String(err),
+    );
     await createCommitStatus(token, owner, repo, after, "failure", {
       description: "Deploy failed",
       context: "Creek",
@@ -413,7 +439,12 @@ export async function handlePullRequest(env: Env, payload: PullRequestPayload): 
 
 // --- Helpers ---
 
-async function failDeployment(env: Env, deploymentId: string, step: string, message: string): Promise<void> {
+async function failDeployment(
+  env: Env,
+  deploymentId: string,
+  step: string,
+  message: string,
+): Promise<void> {
   await env.DB.prepare(
     "UPDATE deployment SET status = 'failed', failedStep = ?, errorMessage = ?, updatedAt = ? WHERE id = ?",
   )
@@ -435,14 +466,22 @@ async function upsertRepoScan(
        framework = ?, configType = ?, bindings = ?, envHints = ?, deployable = ?, scannedAt = ?`,
   )
     .bind(
-      owner, name, installationId,
-      result.framework, result.configType,
-      JSON.stringify(result.bindings), JSON.stringify(result.envHints),
-      result.deployable ? 1 : 0, Date.now(),
+      owner,
+      name,
+      installationId,
+      result.framework,
+      result.configType,
+      JSON.stringify(result.bindings),
+      JSON.stringify(result.envHints),
+      result.deployable ? 1 : 0,
+      Date.now(),
       // ON CONFLICT update values
-      result.framework, result.configType,
-      JSON.stringify(result.bindings), JSON.stringify(result.envHints),
-      result.deployable ? 1 : 0, Date.now(),
+      result.framework,
+      result.configType,
+      JSON.stringify(result.bindings),
+      JSON.stringify(result.envHints),
+      result.deployable ? 1 : 0,
+      Date.now(),
     )
     .run();
 }

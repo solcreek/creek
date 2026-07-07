@@ -57,7 +57,7 @@ describe("originGuard middleware", () => {
   test("state-changing POST with foreign Origin → 403", async () => {
     const res = await call("POST", { Origin: "https://evil.com" });
     expect(res.status).toBe(403);
-    expect((await res.json() as { error: string }).error).toBe("forbidden");
+    expect(((await res.json()) as { error: string }).error).toBe("forbidden");
   });
 
   test("state-changing POST with no Origin (CLI / webhook) → allowed", async () => {
@@ -70,13 +70,10 @@ describe("originGuard middleware", () => {
     expect(res.status).toBe(200);
   });
 
-  test.each(["PUT", "PATCH", "DELETE"])(
-    "%s with foreign Origin → 403",
-    async (method) => {
-      const res = await call(method, { Origin: "https://evil.com" });
-      expect(res.status).toBe(403);
-    },
-  );
+  test.each(["PUT", "PATCH", "DELETE"])("%s with foreign Origin → 403", async (method) => {
+    const res = await call(method, { Origin: "https://evil.com" });
+    expect(res.status).toBe(403);
+  });
 
   test("GET with foreign Origin → allowed (safe method, not a write vector)", async () => {
     const res = await call("GET", { Origin: "https://evil.com" });

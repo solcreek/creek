@@ -178,9 +178,7 @@ describe("creek-tail handler", () => {
     );
     // Two tenant entries → split across (acme, blog) and (bob, shop)
     expect(r2Puts).toHaveLength(2);
-    const teams = r2Puts
-      .map((p) => JSON.parse(p.body.trim()).team)
-      .sort();
+    const teams = r2Puts.map((p) => JSON.parse(p.body.trim()).team).sort();
     expect(teams).toEqual(["acme", "bob"]);
   });
 
@@ -289,9 +287,7 @@ describe("creek-tail handler", () => {
   });
 
   test("realtime push failure does NOT prevent R2 write (best-effort fan-out)", async () => {
-    vi.stubGlobal("fetch", () =>
-      Promise.resolve(new Response("oops", { status: 500 })),
-    );
+    vi.stubGlobal("fetch", () => Promise.resolve(new Response("oops", { status: 500 })));
     await handler.tail([makeTailEvent()], env);
     expect(r2Puts).toHaveLength(1);
     expect(aePoints).toHaveLength(1);

@@ -41,7 +41,8 @@ export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolea
   const configPath = join(process.cwd(), "creek.toml");
   if (!existsSync(configPath)) {
     const message = "No creek.toml found. Use --project <slug> or run from a project directory.";
-    if (jsonMode) jsonOutput({ ok: false, error: "no_project", message }, 1, NO_PROJECT_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput({ ok: false, error: "no_project", message }, 1, NO_PROJECT_BREADCRUMBS);
     consola.error(message);
     process.exit(1);
   }

@@ -19,8 +19,7 @@ function GitHubSetupPage() {
 
   // Claim the installation for the current team
   const claimMutation = useMutation({
-    mutationFn: () =>
-      api(`/github/installations/${installation_id}/claim`, { method: "POST" }),
+    mutationFn: () => api(`/github/installations/${installation_id}/claim`, { method: "POST" }),
     onSuccess: () => setClaimed(true),
     onError: (err: any) => {
       // Already claimed is fine

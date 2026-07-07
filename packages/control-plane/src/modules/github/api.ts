@@ -21,9 +21,21 @@ const GITHUB_API = "https://api.github.com";
 function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array<ArrayBuffer> {
   // AlgorithmIdentifier for rsaEncryption (OID 1.2.840.113549.1.1.1) + NULL params
   const algId = new Uint8Array([
-    0x30, 0x0d, // SEQUENCE, length 13
-    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, // OID
-    0x05, 0x00, // NULL
+    0x30,
+    0x0d, // SEQUENCE, length 13
+    0x06,
+    0x09,
+    0x2a,
+    0x86,
+    0x48,
+    0x86,
+    0xf7,
+    0x0d,
+    0x01,
+    0x01,
+    0x01, // OID
+    0x05,
+    0x00, // NULL
   ]);
   const version = new Uint8Array([0x02, 0x01, 0x00]); // INTEGER 0
 
@@ -39,10 +51,14 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array<ArrayBuffer> {
 
   const out = new Uint8Array(outerHeader.length + innerLen);
   let off = 0;
-  out.set(outerHeader, off); off += outerHeader.length;
-  out.set(version, off); off += version.length;
-  out.set(algId, off); off += algId.length;
-  out.set(octetStringHeader, off); off += octetStringHeader.length;
+  out.set(outerHeader, off);
+  off += outerHeader.length;
+  out.set(version, off);
+  off += version.length;
+  out.set(algId, off);
+  off += algId.length;
+  out.set(octetStringHeader, off);
+  off += octetStringHeader.length;
   out.set(pkcs1, off);
   return out;
 }
@@ -67,9 +83,7 @@ export async function createAppJWT(appId: string, privateKeyPem: string): Promis
   // Copy into a fresh ArrayBuffer-backed Uint8Array so Web Crypto's stricter
   // `Uint8Array<ArrayBuffer>` type (as of TS 5.8 / workers-types 2026) accepts it.
   const raw = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
-  const keyData: Uint8Array<ArrayBuffer> = isPkcs1
-    ? pkcs1ToPkcs8(raw)
-    : new Uint8Array(raw);
+  const keyData: Uint8Array<ArrayBuffer> = isPkcs1 ? pkcs1ToPkcs8(raw) : new Uint8Array(raw);
 
   const key = await crypto.subtle.importKey(
     "pkcs8",
@@ -81,11 +95,13 @@ export async function createAppJWT(appId: string, privateKeyPem: string): Promis
 
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = base64url(JSON.stringify({
-    iss: appId,
-    iat: now - 60,  // 60s clock skew tolerance
-    exp: now + 600, // 10 min max
-  }));
+  const payload = base64url(
+    JSON.stringify({
+      iss: appId,
+      iat: now - 60, // 60s clock skew tolerance
+      exp: now + 600, // 10 min max
+    }),
+  );
 
   const data = new TextEncoder().encode(`${header}.${payload}`);
   const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, data);
@@ -103,10 +119,7 @@ const tokenCache = new Map<number, { token: string; expiresAt: number }>();
  * Exchange a GitHub App JWT for an installation access token.
  * Tokens are cached for 50 minutes (they expire after 1 hour).
  */
-export async function exchangeInstallationToken(
-  env: Env,
-  installationId: number,
-): Promise<string> {
+export async function exchangeInstallationToken(env: Env, installationId: number): Promise<string> {
   // Check cache
   const cached = tokenCache.get(installationId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -115,23 +128,20 @@ export async function exchangeInstallationToken(
 
   const jwt = await createAppJWT(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
 
-  const res = await fetch(
-    `${GITHUB_API}/app/installations/${installationId}/access_tokens`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "Creek-Deploy",
-      },
+  const res = await fetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "Creek-Deploy",
     },
-  );
+  });
 
   if (!res.ok) {
     throw new Error(`Failed to exchange installation token: ${res.status} ${await res.text()}`);
   }
 
-  const { token } = await res.json() as { token: string };
+  const { token } = (await res.json()) as { token: string };
 
   // Cache for 50 minutes (tokens expire after 1 hour)
   tokenCache.set(installationId, {
@@ -166,9 +176,10 @@ export async function listInstallationRepos(token: string): Promise<GitHubRepo[]
   const repos: GitHubRepo[] = [];
   let page = 1;
 
-  while (page <= 10) { // Safety limit
+  while (page <= 10) {
+    // Safety limit
     const res = await githubFetch(token, `/installation/repositories?per_page=100&page=${page}`);
-    const data = await res.json() as { repositories: GitHubRepo[]; total_count: number };
+    const data = (await res.json()) as { repositories: GitHubRepo[]; total_count: number };
     repos.push(...data.repositories);
     if (repos.length >= data.total_count || data.repositories.length < 100) break;
     page++;
@@ -189,7 +200,7 @@ export async function getRepoInfo(
 ): Promise<{ id: number; defaultBranch: string } | null> {
   const res = await githubFetch(token, `/repos/${owner}/${repo}`);
   if (!res.ok) return null;
-  const data = await res.json() as { id: number; default_branch: string };
+  const data = (await res.json()) as { id: number; default_branch: string };
   return { id: data.id, defaultBranch: data.default_branch };
 }
 
@@ -202,9 +213,12 @@ export async function getLatestCommit(
   repo: string,
   branch: string,
 ): Promise<{ sha: string; message: string } | null> {
-  const res = await githubFetch(token, `/repos/${owner}/${repo}/commits/${encodeURIComponent(branch)}`);
+  const res = await githubFetch(
+    token,
+    `/repos/${owner}/${repo}/commits/${encodeURIComponent(branch)}`,
+  );
   if (!res.ok) return null;
-  const data = await res.json() as { sha: string; commit: { message: string } };
+  const data = (await res.json()) as { sha: string; commit: { message: string } };
   return { sha: data.sha, message: data.commit.message };
 }
 
@@ -222,7 +236,7 @@ export async function getRepoContents(
   if (res.status === 404) return null;
   if (!res.ok) return null;
 
-  const data = await res.json() as { content?: string; encoding?: string };
+  const data = (await res.json()) as { content?: string; encoding?: string };
   if (data.encoding === "base64" && data.content) {
     return atob(data.content.replace(/\n/g, ""));
   }
@@ -269,12 +283,17 @@ export async function createOrUpdatePRComment(
   body: string,
 ): Promise<void> {
   // Check for existing Creek comment
-  const commentsRes = await githubFetch(token, `/repos/${owner}/${repo}/issues/${prNumber}/comments`);
+  const commentsRes = await githubFetch(
+    token,
+    `/repos/${owner}/${repo}/issues/${prNumber}/comments`,
+  );
   if (commentsRes.ok) {
-    const comments = await commentsRes.json() as Array<{ id: number; body: string; user: { login: string } }>;
-    const existing = comments.find((c) =>
-      c.body.includes("<!-- creek-preview -->"),
-    );
+    const comments = (await commentsRes.json()) as Array<{
+      id: number;
+      body: string;
+      user: { login: string };
+    }>;
+    const existing = comments.find((c) => c.body.includes("<!-- creek-preview -->"));
 
     if (existing) {
       // Update existing comment
@@ -337,7 +356,7 @@ export async function findPRForBranch(
     `/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open&per_page=1`,
   );
   if (!res.ok) return null;
-  const prs = await res.json() as Array<{ number: number }>;
+  const prs = (await res.json()) as Array<{ number: number }>;
   return prs.length > 0 ? prs[0].number : null;
 }
 
@@ -351,14 +370,13 @@ async function githubFetch(token: string, path: string, init?: RequestInit): Pro
       Accept: "application/vnd.github+json",
       "User-Agent": "Creek-Deploy",
       "Content-Type": "application/json",
-      ...(init?.headers as Record<string, string> || {}),
+      ...((init?.headers as Record<string, string>) || {}),
     },
   });
 }
 
 function base64url(input: string | ArrayBuffer): string {
-  const str = typeof input === "string"
-    ? btoa(input)
-    : btoa(String.fromCharCode(...new Uint8Array(input)));
+  const str =
+    typeof input === "string" ? btoa(input) : btoa(String.fromCharCode(...new Uint8Array(input)));
   return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }

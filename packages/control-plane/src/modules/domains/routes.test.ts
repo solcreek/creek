@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { createLocalTestEnv, seedTestData, seedProject, type LocalTestEnv } from "../../local/test-env.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 
 let testEnv: LocalTestEnv;
@@ -17,17 +22,23 @@ beforeEach(() => {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("custom_hostnames")) {
-      return new Response(JSON.stringify({
-        success: true,
-        result: {
-          id: "cf-hostname-123",
-          hostname: "test.example.com",
-          status: "pending",
-          ownership_verification: { type: "txt", name: "_cf-custom-hostname.test.example.com", value: "uuid-123" },
-          ownership_verification_http: null,
-          ssl: { status: "initializing", method: "http", type: "dv", validation_records: null },
-        },
-      }));
+      return new Response(
+        JSON.stringify({
+          success: true,
+          result: {
+            id: "cf-hostname-123",
+            hostname: "test.example.com",
+            status: "pending",
+            ownership_verification: {
+              type: "txt",
+              name: "_cf-custom-hostname.test.example.com",
+              value: "uuid-123",
+            },
+            ownership_verification_http: null,
+            ssl: { status: "initializing", method: "http", type: "dv", validation_records: null },
+          },
+        }),
+      );
     }
     return originalFetch(input as any);
   }) as any;
@@ -70,7 +81,7 @@ describe("GET /projects/:id/domains", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toHaveLength(1);
     expect(json[0].hostname).toBe("app.example.com");
   });
@@ -94,7 +105,7 @@ describe("GET /projects/:id/domains/:domainId", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.hostname).toBe("app.example.com");
   });
 
@@ -113,7 +124,7 @@ describe("GET /projects/:id/domains/:domainId", () => {
     );
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/d2`);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.dns.cname).toEqual({ name: "site.example.com", target: "cname.creek.dev" });
   });
 });
@@ -128,7 +139,7 @@ describe("POST /projects/:id/domains", () => {
       hostname: "app.example.com",
     });
     expect(res.status).toBe(201);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.domain).toBeDefined();
     // CF returned pending status, so verification instructions are included
     expect(json.verification).toBeDefined();
@@ -157,7 +168,7 @@ describe("POST /projects/:id/domains", () => {
       hostname: "app.example.com",
     });
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.idempotent).toBe(true);
     expect(json.domain.id).toBe("existing");
     expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
@@ -196,7 +207,7 @@ describe("POST /projects/:id/domains", () => {
       hostname: "localhost",
     });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.error).toBe("validation");
   });
 
@@ -225,7 +236,12 @@ describe("POST /projects/:id/domains", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("custom_hostnames")) {
-        return new Response(JSON.stringify({ success: true, result: { id: "cf-id", status: "pending", ownership_verification: null } }));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: { id: "cf-id", status: "pending", ownership_verification: null },
+          }),
+        );
       }
       return originalFetch(input as any);
     }) as any;
@@ -234,7 +250,7 @@ describe("POST /projects/:id/domains", () => {
       hostname: "evil.bycreek.com",
     });
     expect(res.status).toBe(400);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.message).toContain("reserved");
   });
 
@@ -253,7 +269,12 @@ describe("POST /projects/:id/domains", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("custom_hostnames")) {
-        return new Response(JSON.stringify({ success: true, result: { id: "cf-id", status: "pending", ownership_verification: null } }));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: { id: "cf-id", status: "pending", ownership_verification: null },
+          }),
+        );
       }
       return originalFetch(input as any);
     }) as any;
@@ -294,7 +315,7 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toMatchObject({ ok: true, status: "active", manual: true });
   });
 
@@ -309,9 +330,11 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toMatchObject({ ok: false, status: "pending_dns" });
-    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as { status: string };
+    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as {
+      status: string;
+    };
     expect(row.status).toBe("pending"); // not falsely activated
   });
 
@@ -325,15 +348,22 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("custom_hostnames")) {
-        return new Response(JSON.stringify({ success: true, result: { id: "cf-1", status: "active", ssl: { status: "active" } } }));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: { id: "cf-1", status: "active", ssl: { status: "active" } },
+          }),
+        );
       }
       return originalFetch(input as any);
     }) as any;
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json).toMatchObject({ ok: true, status: "active" });
-    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as { status: string };
+    const row = testEnv.db.db.prepare("SELECT status FROM custom_domain WHERE id = 'd1'").get() as {
+      status: string;
+    };
     expect(row.status).toBe("active");
   });
 
@@ -363,12 +393,12 @@ describe("DELETE /projects/:id/domains/:domainId", () => {
 
     const res = await req("DELETE", `/projects/${PROJECT_ID}/domains/dom-1`);
     expect(res.status).toBe(200);
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     expect(json.ok).toBe(true);
 
     // Verify CF delete was called
-    const cfCalls = (globalThis.fetch as any).mock.calls.filter(
-      ([url]: [string]) => url.includes("custom_hostnames/cf-id-123"),
+    const cfCalls = (globalThis.fetch as any).mock.calls.filter(([url]: [string]) =>
+      url.includes("custom_hostnames/cf-id-123"),
     );
     expect(cfCalls.length).toBe(1);
   });

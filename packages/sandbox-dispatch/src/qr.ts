@@ -55,13 +55,13 @@ function rsEncode(data: number[], ecCount: number): number[] {
 
 // Version info: [totalCodewords, ecCodewordsPerBlock, numBlocks]
 const VERSION_INFO: [number, number, number][] = [
-  [0, 0, 0],       // placeholder for index 0
-  [26, 7, 1],      // V1-L: 26 total, 7 EC per block, 1 block
-  [44, 10, 1],     // V2-L
-  [70, 15, 1],     // V3-L
-  [100, 20, 1],    // V4-L
-  [134, 26, 1],    // V5-L
-  [172, 18, 2],    // V6-L
+  [0, 0, 0], // placeholder for index 0
+  [26, 7, 1], // V1-L: 26 total, 7 EC per block, 1 block
+  [44, 10, 1], // V2-L
+  [70, 15, 1], // V3-L
+  [100, 20, 1], // V4-L
+  [134, 26, 1], // V5-L
+  [172, 18, 2], // V6-L
 ];
 
 function selectVersion(dataLen: number): number {
@@ -148,7 +148,8 @@ function createMatrix(version: number): { matrix: number[][]; size: number } {
   const drawFinder = (r: number, c: number) => {
     for (let dr = -1; dr <= 7; dr++) {
       for (let dc = -1; dc <= 7; dc++) {
-        const rr = r + dr, cc = c + dc;
+        const rr = r + dr,
+          cc = c + dc;
         if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
         if (dr === -1 || dr === 7 || dc === -1 || dc === 7) matrix[rr][cc] = 0;
         else if (dr === 0 || dr === 6 || dc === 0 || dc === 6) matrix[rr][cc] = 1;
@@ -261,15 +262,39 @@ function getFormatPositions(size: number): [number, number][][] {
   const positions: [number, number][][] = [];
   // Around top-left finder
   const topLeft: [number, number][] = [
-    [8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8],
-    [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8],
+    [8, 0],
+    [8, 1],
+    [8, 2],
+    [8, 3],
+    [8, 4],
+    [8, 5],
+    [8, 7],
+    [8, 8],
+    [7, 8],
+    [5, 8],
+    [4, 8],
+    [3, 8],
+    [2, 8],
+    [1, 8],
+    [0, 8],
   ];
   // Around bottom-left and top-right finders
   const other: [number, number][] = [
-    [size - 1, 8], [size - 2, 8], [size - 3, 8], [size - 4, 8],
-    [size - 5, 8], [size - 6, 8], [size - 7, 8],
-    [8, size - 8], [8, size - 7], [8, size - 6], [8, size - 5],
-    [8, size - 4], [8, size - 3], [8, size - 2], [8, size - 1],
+    [size - 1, 8],
+    [size - 2, 8],
+    [size - 3, 8],
+    [size - 4, 8],
+    [size - 5, 8],
+    [size - 6, 8],
+    [size - 7, 8],
+    [8, size - 8],
+    [8, size - 7],
+    [8, size - 6],
+    [8, size - 5],
+    [8, size - 4],
+    [8, size - 3],
+    [8, size - 2],
+    [8, size - 1],
   ];
   for (let i = 0; i < 15; i++) {
     positions.push([topLeft[i], other[i]]);

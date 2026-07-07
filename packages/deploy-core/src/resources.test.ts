@@ -25,15 +25,17 @@ afterEach(() => {
 });
 
 function mockCfSuccess(result: unknown) {
-  globalThis.fetch = vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ success: true, result })),
-  );
+  globalThis.fetch = vi
+    .fn()
+    .mockResolvedValue(new Response(JSON.stringify({ success: true, result })));
 }
 
 function mockCfError() {
-  globalThis.fetch = vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ success: false, errors: [{ message: "fail" }] })),
-  );
+  globalThis.fetch = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(JSON.stringify({ success: false, errors: [{ message: "fail" }] })),
+    );
 }
 
 // --- D1 ---

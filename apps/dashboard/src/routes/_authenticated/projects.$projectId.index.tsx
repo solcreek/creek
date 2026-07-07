@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { getApp, getAppStats, restartApp, stopApp, type AppView, type AppDetail, type StatsView, type Condition } from "@/lib/adapter";
+import {
+  getApp,
+  getAppStats,
+  restartApp,
+  stopApp,
+  type AppView,
+  type AppDetail,
+  type StatsView,
+  type Condition,
+} from "@/lib/adapter";
 import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
@@ -13,13 +22,20 @@ import {
   DropdownMenuTrigger,
 } from "@solcreek/ui/components/dropdown-menu";
 import { Button } from "@solcreek/ui/components/button";
-import { MoreHorizontal, ArrowUpCircle, Rocket, Loader2, ExternalLink, ScrollText, RotateCw, Square } from "lucide-react";
+import {
+  MoreHorizontal,
+  ArrowUpCircle,
+  Rocket,
+  Loader2,
+  ExternalLink,
+  ScrollText,
+  RotateCw,
+  Square,
+} from "lucide-react";
 import { BuildLogPanel } from "./-components/BuildLogPanel";
 import { ConnectionError } from "@/components/connection-error";
 
-export const Route = createFileRoute(
-  "/_authenticated/projects/$projectId/",
-)({
+export const Route = createFileRoute("/_authenticated/projects/$projectId/")({
   component: ProjectIndexTab,
 });
 
@@ -76,9 +92,12 @@ function DeploymentsTab() {
   // mutation 200s. This flag forces the refetchInterval for a short window.
   const [forcePoll, setForcePoll] = useState(false);
   const forcePollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (forcePollTimeout.current) clearTimeout(forcePollTimeout.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (forcePollTimeout.current) clearTimeout(forcePollTimeout.current);
+    },
+    [],
+  );
 
   const { data: deployments, isLoading } = useQuery({
     queryKey: ["deployments", projectId],
@@ -94,7 +113,10 @@ function DeploymentsTab() {
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
-    queryFn: () => api<{ productionDeploymentId: string | null; githubRepo: string | null }>(`/projects/${projectId}`),
+    queryFn: () =>
+      api<{ productionDeploymentId: string | null; githubRepo: string | null }>(
+        `/projects/${projectId}`,
+      ),
   });
 
   const promote = useMutation({
@@ -161,9 +183,7 @@ function DeploymentsTab() {
           <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
           <DeployButton />
         </div>
-        {deployError && (
-          <p className="text-sm text-destructive">Deploy failed: {deployError}</p>
-        )}
+        {deployError && <p className="text-sm text-destructive">Deploy failed: {deployError}</p>}
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <h3 className="font-semibold">No deployments yet</h3>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
@@ -189,9 +209,7 @@ function DeploymentsTab() {
         <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
         <DeployButton />
       </div>
-      {deployError && (
-        <p className="text-sm text-destructive">Deploy failed: {deployError}</p>
-      )}
+      {deployError && <p className="text-sm text-destructive">Deploy failed: {deployError}</p>}
       {deployments.map((d) => {
         const isProduction = d.id === productionId;
         const canPromote = d.status === "active" && !isProduction;
@@ -200,103 +218,100 @@ function DeploymentsTab() {
           <div
             key={d.id}
             className={`rounded-lg border p-3 ${
-              d.status === "failed"
-                ? "border-destructive/30 bg-destructive/5"
-                : "border-border"
+              d.status === "failed" ? "border-destructive/30 bg-destructive/5" : "border-border"
             }`}
           >
             <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span
-                className={`size-2.5 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  v{d.version}
-                  {d.branch && (
-                    <span className="ml-2 text-muted-foreground">{d.branch}</span>
-                  )}
-                  {d.commitSha && (
-                    project?.githubRepo ? (
-                      <a
-                        href={`https://github.com/${project.githubRepo}/commit/${d.commitSha}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        {d.commitSha.slice(0, 7)}
-                      </a>
-                    ) : (
-                      <span className="ml-2 font-mono text-xs text-muted-foreground">
-                        {d.commitSha.slice(0, 7)}
+              <div className="flex items-center gap-3">
+                <span
+                  className={`size-2.5 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    v{d.version}
+                    {d.branch && <span className="ml-2 text-muted-foreground">{d.branch}</span>}
+                    {d.commitSha &&
+                      (project?.githubRepo ? (
+                        <a
+                          href={`https://github.com/${project.githubRepo}/commit/${d.commitSha}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          {d.commitSha.slice(0, 7)}
+                        </a>
+                      ) : (
+                        <span className="ml-2 font-mono text-xs text-muted-foreground">
+                          {d.commitSha.slice(0, 7)}
+                        </span>
+                      ))}
+                    {isProduction && (
+                      <span className="ml-2 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-400">
+                        Production
                       </span>
-                    )
-                  )}
-                  {isProduction && (
-                    <span className="ml-2 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-400">
-                      Production
-                    </span>
-                  )}
-                </p>
-                {d.commitMessage && (
-                  <p
-                    className="mt-0.5 max-w-md truncate text-xs text-foreground/80"
-                    title={d.commitMessage}
-                  >
-                    {d.commitMessage.split("\n")[0]}
+                    )}
                   </p>
-                )}
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {d.triggerType} &middot; {d.status}
-                  {d.failedStep && ` at ${d.failedStep}`}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {d.url && (
-                <a
-                  href={d.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title={d.url}
-                >
-                  {/* show the hostname compactly, trimmed */}
-                  <span className="max-w-[240px] truncate font-mono">
-                    {d.url.replace(/^https?:\/\//, "")}
-                  </span>
-                  <ExternalLink className="size-3" />
-                </a>
-              )}
-              <span className="text-xs text-muted-foreground">{d.id.slice(0, 8)}</span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => toggleLog(d.id)}
-                title={openLogs.has(d.id) ? "Hide build log" : "Show build log"}
-              >
-                <ScrollText className="size-4" />
-              </Button>
-              {canPromote && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger render={
-                    <Button variant="ghost" size="icon-xs">
-                      <MoreHorizontal className="size-4" />
-                    </Button>
-                  } />
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => promote.mutate(d.id)}
-                      disabled={promote.isPending}
+                  {d.commitMessage && (
+                    <p
+                      className="mt-0.5 max-w-md truncate text-xs text-foreground/80"
+                      title={d.commitMessage}
                     >
-                      <ArrowUpCircle className="mr-2 size-4" />
-                      {promote.isPending ? "Promoting..." : "Promote to Production"}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
+                      {d.commitMessage.split("\n")[0]}
+                    </p>
+                  )}
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {d.triggerType} &middot; {d.status}
+                    {d.failedStep && ` at ${d.failedStep}`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {d.url && (
+                  <a
+                    href={d.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title={d.url}
+                  >
+                    {/* show the hostname compactly, trimmed */}
+                    <span className="max-w-[240px] truncate font-mono">
+                      {d.url.replace(/^https?:\/\//, "")}
+                    </span>
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+                <span className="text-xs text-muted-foreground">{d.id.slice(0, 8)}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => toggleLog(d.id)}
+                  title={openLogs.has(d.id) ? "Hide build log" : "Show build log"}
+                >
+                  <ScrollText className="size-4" />
+                </Button>
+                {canPromote && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="ghost" size="icon-xs">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => promote.mutate(d.id)}
+                        disabled={promote.isPending}
+                      >
+                        <ArrowUpCircle className="mr-2 size-4" />
+                        {promote.isPending ? "Promoting..." : "Promote to Production"}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
             </div>
 
             {/* Failed state: inline error details so the user can see what
@@ -362,7 +377,12 @@ function AppOverviewTab() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
 
-  const { data: app, error, refetch, isLoading: appLoading } = useQuery({
+  const {
+    data: app,
+    error,
+    refetch,
+    isLoading: appLoading,
+  } = useQuery({
     queryKey: ["app", projectId],
     queryFn: () => getApp(projectId),
     refetchInterval: 2000,
@@ -396,7 +416,8 @@ function AppOverviewTab() {
     },
   });
 
-  if (!appLoading && error && !app) return <ConnectionError error={error} onRetry={() => refetch()} />;
+  if (!appLoading && error && !app)
+    return <ConnectionError error={error} onRetry={() => refetch()} />;
   if (!app) return <p className="text-muted-foreground">Loading...</p>;
 
   const status = String(app.status);
@@ -406,7 +427,9 @@ function AppOverviewTab() {
       {/* Status + Actions */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className={`rounded border px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[status] ?? ""}`}>
+          <span
+            className={`rounded border px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[status] ?? ""}`}
+          >
             {status.replace("_", " ")}
           </span>
           <span className="text-sm text-muted-foreground">
@@ -420,7 +443,11 @@ function AppOverviewTab() {
             onClick={() => restart.mutate()}
             disabled={restart.isPending || status !== "running"}
           >
-            {restart.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RotateCw className="mr-2 size-4" />}
+            {restart.isPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RotateCw className="mr-2 size-4" />
+            )}
             Restart
           </Button>
           <Button
@@ -429,22 +456,32 @@ function AppOverviewTab() {
             onClick={() => stop.mutate()}
             disabled={stop.isPending || status === "stopped"}
           >
-            {stop.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Square className="mr-2 size-4" />}
+            {stop.isPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <Square className="mr-2 size-4" />
+            )}
             Stop
           </Button>
         </div>
       </div>
 
       {/* Conditions */}
-      {app.conditions.length > 0 && (
-        <ConditionsPanel conditions={app.conditions} />
-      )}
+      {app.conditions.length > 0 && <ConditionsPanel conditions={app.conditions} />}
 
       {/* Info grid */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Uptime" value={fmtDuration(app.uptime_ms)} />
-        <StatCard label="Restarts" value={String(app.restart_count)} alert={app.restart_count > 0} />
-        <StatCard label="Health failures" value={String(app.health_failures)} alert={app.health_failures > 0} />
+        <StatCard
+          label="Restarts"
+          value={String(app.restart_count)}
+          alert={app.restart_count > 0}
+        />
+        <StatCard
+          label="Health failures"
+          value={String(app.health_failures)}
+          alert={app.health_failures > 0}
+        />
         <StatCard label="Runtime" value={app.runtime ?? "—"} />
       </div>
 
@@ -454,13 +491,28 @@ function AppOverviewTab() {
           <StatCard
             label="Memory"
             value={stats.memory_current_bytes != null ? fmtBytes(stats.memory_current_bytes) : "—"}
-            sub={stats.memory_max_bytes != null && stats.memory_max_bytes > 0 ? `/ ${fmtBytes(stats.memory_max_bytes)}` : undefined}
+            sub={
+              stats.memory_max_bytes != null && stats.memory_max_bytes > 0
+                ? `/ ${fmtBytes(stats.memory_max_bytes)}`
+                : undefined
+            }
           />
-          <StatCard label="PIDs" value={stats.pids_current != null ? String(stats.pids_current) : "—"} />
-          <StatCard label="OOM kills" value={stats.oom_kills != null ? String(stats.oom_kills) : "0"} alert={(stats.oom_kills ?? 0) > 0} />
+          <StatCard
+            label="PIDs"
+            value={stats.pids_current != null ? String(stats.pids_current) : "—"}
+          />
+          <StatCard
+            label="OOM kills"
+            value={stats.oom_kills != null ? String(stats.oom_kills) : "0"}
+            alert={(stats.oom_kills ?? 0) > 0}
+          />
           <StatCard
             label="CPU time"
-            value={stats.cpu_usage_usec != null ? (stats.cpu_usage_usec / 1_000_000).toFixed(1) + "s" : "—"}
+            value={
+              stats.cpu_usage_usec != null
+                ? (stats.cpu_usage_usec / 1_000_000).toFixed(1) + "s"
+                : "—"
+            }
           />
         </div>
       )}
@@ -508,7 +560,8 @@ function AppOverviewTab() {
       <div>
         <h3 className="mb-2 text-sm font-medium text-muted-foreground">Command</h3>
         <div className="rounded-md bg-code-bg px-3 py-2 font-mono text-xs">
-          {app.command}{app.args && app.args.length > 0 ? " " + app.args.join(" ") : ""}
+          {app.command}
+          {app.args && app.args.length > 0 ? " " + app.args.join(" ") : ""}
         </div>
       </div>
     </div>
@@ -516,14 +569,14 @@ function AppOverviewTab() {
 }
 
 const CONDITION_ICON: Record<string, { true: string; false: string; unknown: string }> = {
-  Ready:       { true: "✅", false: "❌", unknown: "❓" },
-  Progressing: { true: "🔄", false: "—",  unknown: "❓" },
-  Degraded:    { true: "⚠️", false: "—",  unknown: "❓" },
-  BackupReady: { true: "💾", false: "—",  unknown: "❓" },
+  Ready: { true: "✅", false: "❌", unknown: "❓" },
+  Progressing: { true: "🔄", false: "—", unknown: "❓" },
+  Degraded: { true: "⚠️", false: "—", unknown: "❓" },
+  BackupReady: { true: "💾", false: "—", unknown: "❓" },
 };
 
 const CONDITION_ROW_STYLE: Record<string, Record<string, string>> = {
-  Ready:    { True: "", False: "bg-red-500/5", Unknown: "bg-yellow-500/5" },
+  Ready: { True: "", False: "bg-red-500/5", Unknown: "bg-yellow-500/5" },
   Degraded: { True: "bg-amber-500/5", False: "", Unknown: "" },
 };
 
@@ -540,7 +593,8 @@ function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
       </div>
       <div className="divide-y divide-border">
         {sorted.map((c) => {
-          const icon = CONDITION_ICON[c.type]?.[c.status.toLowerCase() as "true" | "false" | "unknown"] ?? "—";
+          const icon =
+            CONDITION_ICON[c.type]?.[c.status.toLowerCase() as "true" | "false" | "unknown"] ?? "—";
           const rowStyle = CONDITION_ROW_STYLE[c.type]?.[c.status] ?? "";
           const timeAgo = c.lastTransitionTime ? fmtTimeAgo(c.lastTransitionTime) : "";
 
@@ -548,12 +602,17 @@ function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
             <div key={c.type} className={`flex items-center gap-3 px-3 py-2 text-xs ${rowStyle}`}>
               <span className="w-5 text-center">{icon}</span>
               <span className="w-24 font-medium">{c.type}</span>
-              <span className={`w-16 ${
-                c.status === "True" && c.type === "Degraded" ? "text-amber-400" :
-                c.status === "True" ? "text-green-400" :
-                c.status === "False" && c.type === "Ready" ? "text-red-400" :
-                "text-muted-foreground"
-              }`}>
+              <span
+                className={`w-16 ${
+                  c.status === "True" && c.type === "Degraded"
+                    ? "text-amber-400"
+                    : c.status === "True"
+                      ? "text-green-400"
+                      : c.status === "False" && c.type === "Ready"
+                        ? "text-red-400"
+                        : "text-muted-foreground"
+                }`}
+              >
                 {c.status}
               </span>
               <span className="font-mono text-muted-foreground">{c.reason}</span>
@@ -562,9 +621,7 @@ function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
                   {c.message}
                 </span>
               )}
-              {timeAgo && (
-                <span className="shrink-0 text-muted-foreground">{timeAgo}</span>
-              )}
+              {timeAgo && <span className="shrink-0 text-muted-foreground">{timeAgo}</span>}
             </div>
           );
         })}
@@ -585,7 +642,17 @@ function fmtTimeAgo(iso: string): string {
   return Math.floor(h / 24) + "d ago";
 }
 
-function StatCard({ label, value, sub, alert }: { label: string; value: string; sub?: string; alert?: boolean }) {
+function StatCard({
+  label,
+  value,
+  sub,
+  alert,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  alert?: boolean;
+}) {
   return (
     <div className="rounded-lg border border-border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>

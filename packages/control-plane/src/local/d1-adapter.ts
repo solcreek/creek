@@ -99,7 +99,12 @@ export class LocalD1Database {
         results.push({
           results: [],
           success: true,
-          meta: { changes: changes.c, last_row_id: lastId.id, rows_read: 0, rows_written: changes.c },
+          meta: {
+            changes: changes.c,
+            last_row_id: lastId.id,
+            rows_read: 0,
+            rows_written: changes.c,
+          },
         });
       }
     });

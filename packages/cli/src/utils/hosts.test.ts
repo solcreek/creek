@@ -41,7 +41,9 @@ describe("hostsPath", () => {
 
 describe("readHosts", () => {
   let env: { dir: string; path: string };
-  beforeEach(() => { env = withTmpHostsPath(); });
+  beforeEach(() => {
+    env = withTmpHostsPath();
+  });
   afterEach(() => cleanup(env.dir));
 
   it("returns empty file when path does not exist", () => {
@@ -53,13 +55,15 @@ describe("readHosts", () => {
     const want: HostsFile = {
       schemaVersion: HOSTS_SCHEMA_VERSION,
       fleetLabel: "test",
-      hosts: [{
-        name: "a",
-        addr: "127.0.0.1:9080",
-        creekdPubkey: "AAAA",
-        fingerprint: "sha256:dead",
-        lastSeen: "2026-05-24T00:00:00Z",
-      }],
+      hosts: [
+        {
+          name: "a",
+          addr: "127.0.0.1:9080",
+          creekdPubkey: "AAAA",
+          fingerprint: "sha256:dead",
+          lastSeen: "2026-05-24T00:00:00Z",
+        },
+      ],
     };
     writeFileSync(env.path, JSON.stringify(want));
     expect(readHosts()).toEqual(want);
@@ -83,7 +87,9 @@ describe("readHosts", () => {
 
 describe("writeHosts", () => {
   let env: { dir: string; path: string };
-  beforeEach(() => { env = withTmpHostsPath(); });
+  beforeEach(() => {
+    env = withTmpHostsPath();
+  });
   afterEach(() => cleanup(env.dir));
 
   it("writes the file atomically — no tmp leftover on success", () => {
@@ -110,13 +116,15 @@ describe("writeHosts", () => {
     const file: HostsFile = {
       schemaVersion: HOSTS_SCHEMA_VERSION,
       fleetLabel: "rt",
-      hosts: [{
-        name: "h",
-        addr: "host:9080",
-        creekdPubkey: "K",
-        fingerprint: "sha256:f",
-        lastSeen: "t",
-      }],
+      hosts: [
+        {
+          name: "h",
+          addr: "host:9080",
+          creekdPubkey: "K",
+          fingerprint: "sha256:f",
+          lastSeen: "t",
+        },
+      ],
     };
     writeHosts(file);
     expect(readHosts()).toEqual(file);
@@ -133,14 +141,26 @@ describe("upsertHost", () => {
   };
 
   it("appends a new entry", () => {
-    const entry: HostEntry = { name: "c", addr: "x", creekdPubkey: "C", fingerprint: "sha256:c", lastSeen: "t2" };
+    const entry: HostEntry = {
+      name: "c",
+      addr: "x",
+      creekdPubkey: "C",
+      fingerprint: "sha256:c",
+      lastSeen: "t2",
+    };
     const next = upsertHost(base, entry);
     expect(next.hosts).toHaveLength(3);
     expect(next.hosts[2]).toEqual(entry);
   });
 
   it("replaces by name in place (preserves order)", () => {
-    const updated: HostEntry = { name: "a", addr: "addr-a-new", creekdPubkey: "PA2", fingerprint: "sha256:a2", lastSeen: "t3" };
+    const updated: HostEntry = {
+      name: "a",
+      addr: "addr-a-new",
+      creekdPubkey: "PA2",
+      fingerprint: "sha256:a2",
+      lastSeen: "t3",
+    };
     const next = upsertHost(base, updated);
     expect(next.hosts).toHaveLength(2);
     expect(next.hosts[0]).toEqual(updated);
@@ -149,7 +169,13 @@ describe("upsertHost", () => {
 
   it("does NOT mutate input", () => {
     const before = JSON.parse(JSON.stringify(base));
-    upsertHost(base, { name: "z", addr: "z", creekdPubkey: "Z", fingerprint: "sha256:z", lastSeen: "t" });
+    upsertHost(base, {
+      name: "z",
+      addr: "z",
+      creekdPubkey: "Z",
+      fingerprint: "sha256:z",
+      lastSeen: "t",
+    });
     expect(base).toEqual(before);
   });
 });
@@ -157,9 +183,7 @@ describe("upsertHost", () => {
 describe("findHost", () => {
   const file: HostsFile = {
     schemaVersion: HOSTS_SCHEMA_VERSION,
-    hosts: [
-      { name: "a", addr: "x", creekdPubkey: "K", fingerprint: "sha256:a", lastSeen: "t" },
-    ],
+    hosts: [{ name: "a", addr: "x", creekdPubkey: "K", fingerprint: "sha256:a", lastSeen: "t" }],
   };
   it("returns the entry by name", () => {
     expect(findHost(file, "a")?.addr).toBe("x");

@@ -82,9 +82,7 @@ function createMockD1(opts: {
   } as unknown as D1Database;
 }
 
-function createMockDispatcher(
-  scriptHandlers: Record<string, (req: Request) => Promise<Response>>,
-) {
+function createMockDispatcher(scriptHandlers: Record<string, (req: Request) => Promise<Response>>) {
   return {
     get(name: string) {
       return {
@@ -305,9 +303,7 @@ describe("dispatch-worker — Set-Cookie Domain narrowing (cross-tenant isolatio
         "Set-Cookie": "sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax",
       },
     });
-    expect(res.headers.get("Set-Cookie")).toBe(
-      "sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax",
-    );
+    expect(res.headers.get("Set-Cookie")).toBe("sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax");
   });
 
   test("multiple Set-Cookie: narrows the one with Domain, leaves the other intact", async () => {
@@ -334,9 +330,7 @@ describe("dispatch-worker — Set-Cookie Domain narrowing (cross-tenant isolatio
         "Set-Cookie": "sid=abc; Domain=.acme-corp.com; Path=/",
       },
     });
-    expect(res.headers.get("Set-Cookie")).toBe(
-      "sid=abc; Domain=.acme-corp.com; Path=/",
-    );
+    expect(res.headers.get("Set-Cookie")).toBe("sid=abc; Domain=.acme-corp.com; Path=/");
   });
 });
 

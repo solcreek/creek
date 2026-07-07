@@ -13,11 +13,7 @@
  */
 
 import { scrubNdjson } from "./scrub.js";
-import {
-  MAX_LOG_BYTES,
-  MAX_LOG_LINES,
-  type BuildLogStatus,
-} from "./types.js";
+import { MAX_LOG_BYTES, MAX_LOG_LINES, type BuildLogStatus } from "./types.js";
 
 export interface StoreEnv {
   DB: D1Database;
@@ -45,7 +41,10 @@ export interface StoreResult {
 
 /** Truncate a string at byte boundary by line. Returns the head + a
  *  flag indicating something was dropped. */
-function truncateByBytes(body: string, maxBytes: number): { text: string; truncated: boolean; lines: number } {
+function truncateByBytes(
+  body: string,
+  maxBytes: number,
+): { text: string; truncated: boolean; lines: number } {
   // Quick path — most inputs fit comfortably.
   const enc = new TextEncoder();
   const bytes = enc.encode(body).length;
@@ -70,13 +69,14 @@ function truncateByBytes(body: string, maxBytes: number): { text: string; trunca
   }
   const head = out.join("\n") + "\n";
   // Append a marker line so readers know why content stopped.
-  const marker = JSON.stringify({
-    ts: Date.now(),
-    step: "cleanup",
-    stream: "creek",
-    level: "warn",
-    msg: `[creek] log truncated — original was ${bytes} bytes / ${lines} lines, capped to ${MAX_LOG_BYTES} bytes / ${MAX_LOG_LINES} lines`,
-  }) + "\n";
+  const marker =
+    JSON.stringify({
+      ts: Date.now(),
+      step: "cleanup",
+      stream: "creek",
+      level: "warn",
+      msg: `[creek] log truncated — original was ${bytes} bytes / ${lines} lines, capped to ${MAX_LOG_BYTES} bytes / ${MAX_LOG_LINES} lines`,
+    }) + "\n";
   return { text: head + marker, truncated: true, lines: out.length + 1 };
 }
 
@@ -107,7 +107,9 @@ export function buildR2Key(team: string, project: string, deploymentId: string):
 }
 
 /** Truncate → scrub → gzip the body into the bytes we persist. */
-async function compressLog(body: string): Promise<{ compressed: Uint8Array; lines: number; truncated: boolean }> {
+async function compressLog(
+  body: string,
+): Promise<{ compressed: Uint8Array; lines: number; truncated: boolean }> {
   const { text: capped, truncated, lines } = truncateByBytes(body, MAX_LOG_BYTES);
   const { text: scrubbed } = scrubNdjson(capped);
   const compressed = await gzip(scrubbed);
@@ -198,7 +200,10 @@ export async function storeBuildLog(env: StoreEnv, input: StoreInput): Promise<S
  * overwrites both row and object consistently) or we lost it and touch nothing.
  * Returns null when another writer already owns the row.
  */
-export async function storeBuildLogIfAbsent(env: StoreEnv, input: StoreInput): Promise<StoreResult | null> {
+export async function storeBuildLogIfAbsent(
+  env: StoreEnv,
+  input: StoreInput,
+): Promise<StoreResult | null> {
   if (!env.LOGS_BUCKET) {
     throw new Error("LOGS_BUCKET binding not configured");
   }

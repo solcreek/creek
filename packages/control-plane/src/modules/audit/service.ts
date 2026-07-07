@@ -27,27 +27,29 @@ export async function recordAudit(
 
   try {
     await db.batch([
-      db.prepare(
-        `INSERT INTO audit_log (id, teamId, userId, userEmail, action, resourceType, resourceId, metadata, ipHash, country, userAgent, cfRay, createdAt)
+      db
+        .prepare(
+          `INSERT INTO audit_log (id, teamId, userId, userEmail, action, resourceType, resourceId, metadata, ipHash, country, userAgent, cfRay, createdAt)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        id,
-        teamId,
-        user.id,
-        user.email,
-        entry.action,
-        entry.resourceType,
-        entry.resourceId ?? null,
-        entry.metadata ? JSON.stringify(entry.metadata) : null,
-        reqCtx.ipHash,
-        reqCtx.country,
-        reqCtx.userAgent?.slice(0, 512) ?? null,
-        reqCtx.cfRay,
-        now,
-      ),
-      db.prepare(
-        "INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)",
-      ).bind(id, reqCtx.ip, now),
+        )
+        .bind(
+          id,
+          teamId,
+          user.id,
+          user.email,
+          entry.action,
+          entry.resourceType,
+          entry.resourceId ?? null,
+          entry.metadata ? JSON.stringify(entry.metadata) : null,
+          reqCtx.ipHash,
+          reqCtx.country,
+          reqCtx.userAgent?.slice(0, 512) ?? null,
+          reqCtx.cfRay,
+          now,
+        ),
+      db
+        .prepare("INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)")
+        .bind(id, reqCtx.ip, now),
     ]);
   } catch (err) {
     // Audit failure must never break the user-facing operation
@@ -58,8 +60,9 @@ export async function recordAudit(
 /** Purge raw IP logs older than 30 days. */
 export async function purgeAuditIpLogs(db: D1Database): Promise<number> {
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const result = await db.prepare(
-    "DELETE FROM audit_ip_log WHERE createdAt < ?",
-  ).bind(thirtyDaysAgo).run();
+  const result = await db
+    .prepare("DELETE FROM audit_ip_log WHERE createdAt < ?")
+    .bind(thirtyDaysAgo)
+    .run();
   return result.meta.changes ?? 0;
 }

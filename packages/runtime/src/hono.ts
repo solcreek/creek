@@ -32,9 +32,6 @@ export function room(): MiddlewareHandler {
  * Manually broadcast a realtime event.
  * Fire-and-forget — does not block.
  */
-export function broadcast(event?: {
-  table?: string;
-  operation?: string;
-}): void {
+export function broadcast(event?: { table?: string; operation?: string }): void {
   notifyRealtime(event?.table ?? "_manual", event?.operation ?? "NOTIFY");
 }

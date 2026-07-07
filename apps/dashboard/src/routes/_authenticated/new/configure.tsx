@@ -156,9 +156,7 @@ function ConfigurePage() {
             onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
             placeholder="my-app"
           />
-          <p className="mt-1 text-xs text-muted-foreground">
-            URL: {slug}-team.bycreek.com
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">URL: {slug}-team.bycreek.com</p>
         </div>
 
         {/* Framework */}
@@ -181,11 +179,7 @@ function ConfigurePage() {
         {/* Production branch */}
         <div>
           <label className="mb-1 block text-sm font-medium">Production Branch</label>
-          <Input
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-          />
+          <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
         </div>
 
         {/* Environment variables */}
@@ -241,9 +235,7 @@ function ConfigurePage() {
           </div>
         )}
 
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button
           className="w-full"

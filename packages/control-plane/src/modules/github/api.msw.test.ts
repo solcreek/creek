@@ -65,7 +65,9 @@ describe("exchangeInstallationToken", () => {
         HttpResponse.text("bad credentials", { status: 401 }),
       ),
     );
-    await expect(exchangeInstallationToken(env, 1)).rejects.toThrow(/Failed to exchange installation token: 401/);
+    await expect(exchangeInstallationToken(env, 1)).rejects.toThrow(
+      /Failed to exchange installation token: 401/,
+    );
   });
 });
 

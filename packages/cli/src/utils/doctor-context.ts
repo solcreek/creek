@@ -16,8 +16,7 @@ interface PackageJson {
 }
 
 export function buildDoctorContext(cwd: string): DoctorContext {
-  const fileExists = (relPath: string): boolean =>
-    existsSync(join(cwd, relPath));
+  const fileExists = (relPath: string): boolean => existsSync(join(cwd, relPath));
   const readFile = (relPath: string): string | null => safeRead(join(cwd, relPath));
   const creekTomlPath = join(cwd, "creek.toml");
   const creekTomlRaw = existsSync(creekTomlPath) ? safeRead(creekTomlPath) : null;

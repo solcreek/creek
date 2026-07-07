@@ -33,9 +33,8 @@ export async function verifyWebhookSignature(
   );
 
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  const expected = "sha256=" + [...new Uint8Array(sig)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const expected =
+    "sha256=" + [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
   return signature === expected;
 }

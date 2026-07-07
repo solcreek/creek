@@ -34,11 +34,7 @@ export function deployButtonCard(props: DeployButtonCardProps) {
   // Subpath chip label. Shown between repo name and description when the
   // slug included a /tree/{branch}/... segment. Flat string, no nested
   // flex — satori renders reliably this way.
-  const subpathLabel = branch
-    ? subpath
-      ? `${branch} / ${subpath}`
-      : branch
-    : "";
+  const subpathLabel = branch ? (subpath ? `${branch} / ${subpath}` : branch) : "";
 
   return (
     <div

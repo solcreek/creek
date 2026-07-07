@@ -14,8 +14,11 @@ import { envCommand } from "./env.js";
 const API = "https://cp.test";
 const SLUG = "myproj";
 
-const setCmd = (envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>).set;
-const rmCmd = (envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>).rm;
+const setCmd = (
+  envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>
+).set;
+const rmCmd = (envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>)
+  .rm;
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -72,7 +75,10 @@ function json() {
 }
 function hasDeployBreadcrumb(): boolean {
   const out = json();
-  return Array.isArray(out.breadcrumbs) && out.breadcrumbs.some((b: { command: string }) => b.command === "creek deploy");
+  return (
+    Array.isArray(out.breadcrumbs) &&
+    out.breadcrumbs.some((b: { command: string }) => b.command === "creek deploy")
+  );
 }
 
 describe("creek env set", () => {
@@ -85,7 +91,9 @@ describe("creek env set", () => {
       }),
     );
 
-    const code = await runExit(setCmd.run!({ args: { key: "DATABASE_URL", value: "postgres://x" } } as never));
+    const code = await runExit(
+      setCmd.run!({ args: { key: "DATABASE_URL", value: "postgres://x" } } as never),
+    );
 
     expect(code).toBe(0);
     expect(json()).toMatchObject({ ok: true, key: "DATABASE_URL", project: SLUG });

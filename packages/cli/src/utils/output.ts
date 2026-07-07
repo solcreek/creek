@@ -14,7 +14,11 @@ export interface Breadcrumb {
 }
 
 /** Output structured JSON and exit. */
-export function jsonOutput(data: Record<string, unknown>, exitCode = 0, breadcrumbs?: Breadcrumb[]): never {
+export function jsonOutput(
+  data: Record<string, unknown>,
+  exitCode = 0,
+  breadcrumbs?: Breadcrumb[],
+): never {
   const output = breadcrumbs?.length ? { ...data, breadcrumbs } : data;
   process.stdout.write(JSON.stringify(output, null, 2) + "\n");
   process.exit(exitCode);
@@ -50,7 +54,13 @@ export function shouldAutoConfirm(args: { yes?: boolean }): boolean {
 }
 
 /** Output an error in the appropriate format and exit. */
-export function exitError(jsonMode: boolean, error: string, message: string, exitCode = 1, breadcrumbs?: Breadcrumb[]): never {
+export function exitError(
+  jsonMode: boolean,
+  error: string,
+  message: string,
+  exitCode = 1,
+  breadcrumbs?: Breadcrumb[],
+): never {
   if (jsonMode) jsonOutput({ ok: false, error, message }, exitCode, breadcrumbs);
   return process.exit(exitCode);
 }
@@ -63,5 +73,8 @@ export const AUTH_BREADCRUMBS: Breadcrumb[] = [
 
 export const NO_PROJECT_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek init", description: "Initialize creek.toml in current directory" },
-  { command: "creek deploy --template landing", description: "Start from a ready-made Vite + React landing page" },
+  {
+    command: "creek deploy --template landing",
+    description: "Start from a ready-made Vite + React landing page",
+  },
 ];

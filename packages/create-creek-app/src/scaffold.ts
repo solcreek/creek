@@ -26,9 +26,7 @@ const GITIGNORE_ENTRIES = [
 
 function ensureGitignoreEntries(dir: string): void {
   const gitignorePath = join(dir, ".gitignore");
-  const existing = existsSync(gitignorePath)
-    ? readFileSync(gitignorePath, "utf-8")
-    : "";
+  const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
   const lines = new Set(existing.split("\n").map((l) => l.trim()));
   const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry));
   if (!missing.length) return;
@@ -57,10 +55,7 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
 
   // 1. Fetch template
   if (!opts.silent) consola.start(`Downloading template: ${opts.template}`);
-  const { dir, templateConfig, defaultData } = await fetchTemplate(
-    opts.template,
-    dest,
-  );
+  const { dir, templateConfig, defaultData } = await fetchTemplate(opts.template, dest);
 
   // 2. Validate user data against schema (if schema exists)
   const userData = { name: projectName, ...(opts.data ?? {}) };

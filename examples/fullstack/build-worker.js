@@ -17,10 +17,7 @@ await build({
 
 // Read the bundled user code and the runtime source
 let userCode = readFileSync("dist/_user_worker.js", "utf-8");
-const runtimeCode = readFileSync(
-  "../../packages/runtime/dist/index.js",
-  "utf-8",
-);
+const runtimeCode = readFileSync("../../packages/runtime/dist/index.js", "utf-8");
 
 // Remove the `import ... from "loopix"` line — we'll inline the runtime instead
 userCode = userCode.replace(/import\s*\{[^}]*\}\s*from\s*["']loopix["'];?\n?/g, "");

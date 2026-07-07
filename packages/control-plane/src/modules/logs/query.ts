@@ -31,11 +31,7 @@ const VALID_OUTCOMES = new Set<LogEntry["outcome"]>([
   "unknown",
 ]);
 
-const VALID_SCRIPT_TYPES = new Set<LogEntry["scriptType"]>([
-  "production",
-  "branch",
-  "deployment",
-]);
+const VALID_SCRIPT_TYPES = new Set<LogEntry["scriptType"]>(["production", "branch", "deployment"]);
 
 const VALID_LEVELS = new Set<LogEntry["logs"][number]["level"]>([
   "log",
@@ -104,10 +100,14 @@ function parseTime(input: string | null, now: number): number | null {
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2].toLowerCase();
-    const ms = unit === "s" ? n * 1000
-             : unit === "m" ? n * 60_000
-             : unit === "h" ? n * 3_600_000
-             :                n * 86_400_000;
+    const ms =
+      unit === "s"
+        ? n * 1000
+        : unit === "m"
+          ? n * 60_000
+          : unit === "h"
+            ? n * 3_600_000
+            : n * 86_400_000;
     return now - ms;
   }
   // ISO timestamp
@@ -120,10 +120,7 @@ function parseTimeOrNow(input: string | null, now: number): number {
   return parseTime(input, now) ?? now;
 }
 
-function pickSet<T extends string>(
-  values: string[],
-  valid: Set<T>,
-): Set<T> {
+function pickSet<T extends string>(values: string[], valid: Set<T>): Set<T> {
   const out = new Set<T>();
   for (const v of values) {
     if (valid.has(v as T)) out.add(v as T);

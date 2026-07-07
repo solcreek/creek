@@ -37,9 +37,7 @@ import {
 import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
 import { useFeatures, useApiMode } from "@/lib/api-context";
 
-const PLATFORM_ITEMS = [
-  { to: "/projects" as const, label: "Projects", icon: Folder },
-];
+const PLATFORM_ITEMS = [{ to: "/projects" as const, label: "Projects", icon: Folder }];
 
 const SETTINGS_ITEMS = [
   { to: "/settings" as const, label: "Settings", icon: Settings },
@@ -126,32 +124,33 @@ export function AppSidebar() {
 function UserFooter() {
   const { data: session } = useSession();
   const user = session?.user;
-  const initials = user?.name
-    ?.split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() ?? "?";
+  const initials =
+    user?.name
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() ?? "?";
 
   return (
     <SidebarFooter>
       <SidebarMenu>
         <SidebarMenuItem>
           <DropdownMenu>
-            <DropdownMenuTrigger render={
-              <SidebarMenuButton size="lg">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
-                  {initials}
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">{user?.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {user?.email}
-                  </span>
-                </div>
-                <ChevronsUpDown className="ml-auto size-4" />
-              </SidebarMenuButton>
-            } />
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuButton size="lg">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
+                    {initials}
+                  </div>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">{user?.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </SidebarMenuButton>
+              }
+            />
             <DropdownMenuContent className="min-w-56" side="top" align="start">
               <DropdownMenuLabel>
                 <div className="flex items-center gap-2 py-1">
@@ -160,9 +159,7 @@ function UserFooter() {
                   </div>
                   <div className="grid text-left text-sm leading-tight">
                     <span className="truncate font-semibold">{user?.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {user?.email}
-                    </span>
+                    <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
                   </div>
                 </div>
               </DropdownMenuLabel>
@@ -228,22 +225,22 @@ function TeamSwitcher() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={
-        <SidebarMenuButton size="lg">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
-            <Rocket className="size-4" />
-          </div>
-          <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">
-              {displayOrg?.name ?? "Select team"}
-            </span>
-            <span className="truncate text-xs text-muted-foreground">
-              {displayOrg?.slug ?? ""}
-            </span>
-          </div>
-          <ChevronsUpDown className="ml-auto size-4" />
-        </SidebarMenuButton>
-      } />
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuButton size="lg">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
+              <Rocket className="size-4" />
+            </div>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-semibold">{displayOrg?.name ?? "Select team"}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {displayOrg?.slug ?? ""}
+              </span>
+            </div>
+            <ChevronsUpDown className="ml-auto size-4" />
+          </SidebarMenuButton>
+        }
+      />
       <DropdownMenuContent className="min-w-56" align="start">
         <DropdownMenuLabel>Teams</DropdownMenuLabel>
         {orgList.map((org: any) => (

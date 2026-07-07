@@ -183,12 +183,8 @@ describe("concurrent request isolation", () => {
     // Verify broadcasts went to correct projects
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const urls = fetchSpy.mock.calls.map(([url]: [string]) => url);
-    expect(urls).toContain(
-      "https://rt.example.com/project-A/broadcast",
-    );
-    expect(urls).toContain(
-      "https://rt.example.com/project-B/broadcast",
-    );
+    expect(urls).toContain("https://rt.example.com/project-A/broadcast");
+    expect(urls).toContain("https://rt.example.com/project-B/broadcast");
   });
 
   test("ctx.waitUntil is isolated between concurrent requests", async () => {
@@ -244,12 +240,8 @@ describe("concurrent request isolation", () => {
     expect(dbA.mockDb.prepare).toHaveBeenCalledWith("SELECT * FROM table_a");
     expect(dbB.mockDb.prepare).toHaveBeenCalledWith("SELECT * FROM table_b");
     // Ensure no cross-contamination
-    expect(dbA.mockDb.prepare).not.toHaveBeenCalledWith(
-      "SELECT * FROM table_b",
-    );
-    expect(dbB.mockDb.prepare).not.toHaveBeenCalledWith(
-      "SELECT * FROM table_a",
-    );
+    expect(dbA.mockDb.prepare).not.toHaveBeenCalledWith("SELECT * FROM table_b");
+    expect(dbB.mockDb.prepare).not.toHaveBeenCalledWith("SELECT * FROM table_a");
   });
 });
 
@@ -259,13 +251,9 @@ describe("queue inside _runRequest", () => {
   test("queue.send() works inside _runRequest context", async () => {
     const mockSend = vi.fn().mockResolvedValue(undefined);
 
-    await _runRequest(
-      { QUEUE: { send: mockSend, sendBatch: vi.fn() } },
-      null,
-      async () => {
-        await queue.send({ type: "job", payload: "data" });
-      },
-    );
+    await _runRequest({ QUEUE: { send: mockSend, sendBatch: vi.fn() } }, null, async () => {
+      await queue.send({ type: "job", payload: "data" });
+    });
 
     expect(mockSend).toHaveBeenCalledWith({ type: "job", payload: "data" });
   });
@@ -274,22 +262,14 @@ describe("queue inside _runRequest", () => {
     const sendA = vi.fn().mockResolvedValue(undefined);
     const sendB = vi.fn().mockResolvedValue(undefined);
 
-    const reqA = _runRequest(
-      { QUEUE: { send: sendA, sendBatch: vi.fn() } },
-      null,
-      async () => {
-        await new Promise((r) => setTimeout(r, 10));
-        await queue.send("from-A");
-      },
-    );
+    const reqA = _runRequest({ QUEUE: { send: sendA, sendBatch: vi.fn() } }, null, async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      await queue.send("from-A");
+    });
 
-    const reqB = _runRequest(
-      { QUEUE: { send: sendB, sendBatch: vi.fn() } },
-      null,
-      async () => {
-        await queue.send("from-B");
-      },
-    );
+    const reqB = _runRequest({ QUEUE: { send: sendB, sendBatch: vi.fn() } }, null, async () => {
+      await queue.send("from-B");
+    });
 
     await Promise.all([reqA, reqB]);
 

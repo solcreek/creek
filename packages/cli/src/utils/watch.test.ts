@@ -3,9 +3,7 @@ import { watchDeploy, classifyConditions, type WatchOptions } from "./watch.js";
 import type { AppEnvelope, CreekdClient } from "./creekd-client.js";
 
 /** Helper: synthesise an AppEnvelope with the named conditions. */
-function envelope(
-  conds: Array<{ type: string; status: string; reason?: string }>,
-): AppEnvelope {
+function envelope(conds: Array<{ type: string; status: string; reason?: string }>): AppEnvelope {
   return {
     apiVersion: "creek.dev/v1alpha1",
     kind: "App",
@@ -19,7 +17,11 @@ function envelope(
         lastTransitionTime: "t",
         reason: c.reason ?? "",
       })),
-      currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0,
+      currentPid: 0,
+      currentPort: 0,
+      restartCount: 0,
+      healthFailures: 0,
+      uptimeMs: 0,
     },
   };
 }
@@ -41,7 +43,9 @@ function fastOpts(extra: Partial<WatchOptions> = {}): WatchOptions {
   let t = 0;
   return {
     now: () => (t += 50), // 50ms advances per call
-    sleep: async () => { /* no-op */ },
+    sleep: async () => {
+      /* no-op */
+    },
     pollIntervalMs: 100, // honoured-but-ignored under fake sleep
     timeoutMs: 60_000,
     ...extra,
@@ -50,17 +54,25 @@ function fastOpts(extra: Partial<WatchOptions> = {}): WatchOptions {
 
 describe("classifyConditions", () => {
   it("Ready=True + Progressing=False → ready", () => {
-    expect(classifyConditions(envelope([
-      { type: "Ready", status: "True" },
-      { type: "Progressing", status: "False" },
-    ]))).toBe("ready");
+    expect(
+      classifyConditions(
+        envelope([
+          { type: "Ready", status: "True" },
+          { type: "Progressing", status: "False" },
+        ]),
+      ),
+    ).toBe("ready");
   });
 
   it("Degraded=True reason=DeployTimeout → deploy_stuck", () => {
-    expect(classifyConditions(envelope([
-      { type: "Degraded", status: "True", reason: "DeployTimeout" },
-      { type: "Ready", status: "False" },
-    ]))).toBe("deploy_stuck");
+    expect(
+      classifyConditions(
+        envelope([
+          { type: "Degraded", status: "True", reason: "DeployTimeout" },
+          { type: "Ready", status: "False" },
+        ]),
+      ),
+    ).toBe("deploy_stuck");
   });
 
   it("Degraded=True reason=DeployTimeout WINS over Ready=True (race window)", () => {
@@ -69,11 +81,15 @@ describe("classifyConditions", () => {
     // failure rather than calling the deploy successful. The
     // daemon already gave up on this generation; surfacing
     // success would let a stuck deploy be reported as healthy.
-    expect(classifyConditions(envelope([
-      { type: "Ready", status: "True" },
-      { type: "Progressing", status: "False" },
-      { type: "Degraded", status: "True", reason: "DeployTimeout" },
-    ]))).toBe("deploy_stuck");
+    expect(
+      classifyConditions(
+        envelope([
+          { type: "Ready", status: "True" },
+          { type: "Progressing", status: "False" },
+          { type: "Degraded", status: "True", reason: "DeployTimeout" },
+        ]),
+      ),
+    ).toBe("deploy_stuck");
   });
 
   it("Degraded=True with OTHER reason is NOT deploy_stuck", () => {
@@ -81,17 +97,25 @@ describe("classifyConditions", () => {
     // timed out. The watcher should keep polling — the supervisor
     // may recover, or the user will see "still progressing"
     // until the wall-clock timeout.
-    expect(classifyConditions(envelope([
-      { type: "Degraded", status: "True", reason: "CrashLooping" },
-      { type: "Progressing", status: "True" },
-    ]))).toBe("progressing");
+    expect(
+      classifyConditions(
+        envelope([
+          { type: "Degraded", status: "True", reason: "CrashLooping" },
+          { type: "Progressing", status: "True" },
+        ]),
+      ),
+    ).toBe("progressing");
   });
 
   it("Progressing=True → progressing (keep polling)", () => {
-    expect(classifyConditions(envelope([
-      { type: "Progressing", status: "True", reason: "DeployInFlight" },
-      { type: "Ready", status: "False" },
-    ]))).toBe("progressing");
+    expect(
+      classifyConditions(
+        envelope([
+          { type: "Progressing", status: "True", reason: "DeployInFlight" },
+          { type: "Ready", status: "False" },
+        ]),
+      ),
+    ).toBe("progressing");
   });
 
   it("no relevant conditions → unknown (defensive default)", () => {
@@ -102,16 +126,17 @@ describe("classifyConditions", () => {
     // Defensive: a partial response missing Progressing should
     // NOT be treated as ready. Real daemon always emits all four
     // conditions, but a buggy proxy might filter them.
-    expect(classifyConditions(envelope([
-      { type: "Ready", status: "True" },
-    ]))).toBe("unknown");
+    expect(classifyConditions(envelope([{ type: "Ready", status: "True" }]))).toBe("unknown");
   });
 });
 
 describe("watchDeploy", () => {
   it("returns ready on first poll when already converged", async () => {
     const client = clientFromQueue([
-      envelope([{ type: "Ready", status: "True" }, { type: "Progressing", status: "False" }]),
+      envelope([
+        { type: "Ready", status: "True" },
+        { type: "Progressing", status: "False" },
+      ]),
     ]);
     const result = await watchDeploy(client, "x", fastOpts());
     expect(result.ok).toBe(true);
@@ -122,7 +147,10 @@ describe("watchDeploy", () => {
     const client = clientFromQueue([
       envelope([{ type: "Progressing", status: "True", reason: "DeployInFlight" }]),
       envelope([{ type: "Progressing", status: "True", reason: "DeployInFlight" }]),
-      envelope([{ type: "Ready", status: "True" }, { type: "Progressing", status: "False" }]),
+      envelope([
+        { type: "Ready", status: "True" },
+        { type: "Progressing", status: "False" },
+      ]),
     ]);
     const result = await watchDeploy(client, "x", fastOpts());
     expect(result.ok).toBe(true);
@@ -150,11 +178,18 @@ describe("watchDeploy", () => {
     const stillProgressing = envelope([
       { type: "Progressing", status: "True", reason: "DeployInFlight" },
     ]);
-    const client = clientFromQueue([stillProgressing, stillProgressing, stillProgressing, stillProgressing]);
+    const client = clientFromQueue([
+      stillProgressing,
+      stillProgressing,
+      stillProgressing,
+      stillProgressing,
+    ]);
     let t = 0;
     const result = await watchDeploy(client, "x", {
       now: () => (t += 60),
-      sleep: async () => { /* noop */ },
+      sleep: async () => {
+        /* noop */
+      },
       timeoutMs: 100,
       pollIntervalMs: 100,
     });
@@ -165,7 +200,9 @@ describe("watchDeploy", () => {
 
   it("returns fetch_failed when getApp throws", async () => {
     const client = {
-      getApp: vi.fn(async () => { throw new Error("ECONNREFUSED"); }),
+      getApp: vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
     } as unknown as CreekdClient;
     const result = await watchDeploy(client, "x", fastOpts());
     expect(result.ok).toBe(false);
@@ -179,11 +216,16 @@ describe("watchDeploy", () => {
     let sleepArg: number | undefined;
     const client = clientFromQueue([
       envelope([{ type: "Progressing", status: "True", reason: "..." }]),
-      envelope([{ type: "Ready", status: "True" }, { type: "Progressing", status: "False" }]),
+      envelope([
+        { type: "Ready", status: "True" },
+        { type: "Progressing", status: "False" },
+      ]),
     ]);
     await watchDeploy(client, "x", {
       now: () => 0,
-      sleep: async (ms) => { sleepArg = ms; },
+      sleep: async (ms) => {
+        sleepArg = ms;
+      },
       pollIntervalMs: 1, // request 1ms
       timeoutMs: 10_000,
     });
@@ -193,7 +235,10 @@ describe("watchDeploy", () => {
   it("invokes onPoll for every observation including the terminal one", async () => {
     const client = clientFromQueue([
       envelope([{ type: "Progressing", status: "True", reason: "..." }]),
-      envelope([{ type: "Ready", status: "True" }, { type: "Progressing", status: "False" }]),
+      envelope([
+        { type: "Ready", status: "True" },
+        { type: "Progressing", status: "False" },
+      ]),
     ]);
     const seen: string[] = [];
     await watchDeploy(client, "x", {

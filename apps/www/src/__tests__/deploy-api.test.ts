@@ -57,7 +57,7 @@ describe("rate limiting logic", () => {
     function hashIp(ip: string): string {
       let hash = 0;
       for (let i = 0; i < ip.length; i++) {
-        hash = ((hash << 5) - hash) + ip.charCodeAt(i);
+        hash = (hash << 5) - hash + ip.charCodeAt(i);
         hash |= 0;
       }
       return Math.abs(hash).toString(36);
@@ -128,7 +128,11 @@ describe("CSRF origin check", () => {
       if (!origin) return true;
       try {
         const url = new URL(origin);
-        return url.hostname === "creek.dev" || url.hostname.endsWith(".creek.dev") || url.hostname === "localhost";
+        return (
+          url.hostname === "creek.dev" ||
+          url.hostname.endsWith(".creek.dev") ||
+          url.hostname === "localhost"
+        );
       } catch {
         return false;
       }

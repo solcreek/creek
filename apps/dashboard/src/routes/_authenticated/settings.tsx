@@ -55,26 +55,14 @@ function TeamSettings() {
       <div className="space-y-4 rounded-lg border border-border p-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Team Name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My Team"
-          />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Team" />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Team URL</label>
-          <Input
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="my-team"
-          />
+          <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="my-team" />
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => updateOrg.mutate()}
-            disabled={updateOrg.isPending}
-          >
+          <Button size="sm" onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
             {updateOrg.isPending ? "Saving..." : "Save"}
           </Button>
           {saved && <span className="text-sm text-green-400">Saved</span>}
@@ -92,9 +80,11 @@ function MembersList() {
 
   useEffect(() => {
     if (!activeOrg?.id) return;
-    authClient.organization.listMembers({ query: { organizationId: activeOrg.id } }).then((res: any) => {
-      setMembers(res.data?.members ?? []);
-    });
+    authClient.organization
+      .listMembers({ query: { organizationId: activeOrg.id } })
+      .then((res: any) => {
+        setMembers(res.data?.members ?? []);
+      });
   }, [activeOrg?.id]);
 
   return (

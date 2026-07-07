@@ -6,12 +6,14 @@ import { stringify } from "smol-toml";
 import { detectFramework, runDoctor, type Finding } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm } from "../utils/output.js";
-import { readHosts, writeHosts, upsertHost, HOSTS_SCHEMA_VERSION, type HostEntry } from "../utils/hosts.js";
 import {
-  fetchHostkey,
-  parsePastedFingerprint,
-  HostkeyResponseError,
-} from "../utils/hostkey.js";
+  readHosts,
+  writeHosts,
+  upsertHost,
+  HOSTS_SCHEMA_VERSION,
+  type HostEntry,
+} from "../utils/hosts.js";
+import { fetchHostkey, parsePastedFingerprint, HostkeyResponseError } from "../utils/hostkey.js";
 import { ensureGitignoreEntries } from "../utils/gitignore.js";
 
 export const initCommand = defineCommand({
@@ -28,17 +30,20 @@ export const initCommand = defineCommand({
     },
     db: {
       type: "boolean",
-      description: "Add a database without prompting — writes [resources] database = true and scaffolds worker/index.ts. Required to get the database path in non-interactive runs (the prompt is skipped there).",
+      description:
+        "Add a database without prompting — writes [resources] database = true and scaffolds worker/index.ts. Required to get the database path in non-interactive runs (the prompt is skipped there).",
       default: false,
     },
     adopt: {
       type: "string",
-      description: "TOFU-pin a creekd host at <addr> (Path B). Fetches GET /v1/hostkey, prompts to verify, writes ~/.creek/hosts.json.",
+      description:
+        "TOFU-pin a creekd host at <addr> (Path B). Fetches GET /v1/hostkey, prompts to verify, writes ~/.creek/hosts.json.",
       required: false,
     },
     "hostkey-fingerprint": {
       type: "string",
-      description: "Out-of-band fingerprint paste (Path C). \"sha256:<hex>\" — pasted from provider console or paper bundle. Requires --adopt for the addr.",
+      description:
+        'Out-of-band fingerprint paste (Path C). "sha256:<hex>" — pasted from provider console or paper bundle. Requires --adopt for the addr.',
       required: false,
     },
     ...globalArgs,
@@ -81,7 +86,9 @@ export const initCommand = defineCommand({
       }
     }
 
-    const defaultName = basename(cwd).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const defaultName = basename(cwd)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-");
     const name = args.name ?? defaultName;
 
     // Ask about database. --db answers without prompting; otherwise the
@@ -93,7 +100,9 @@ export const initCommand = defineCommand({
     let dbPromptSkipped = false;
     if (!useDb) {
       if (!jsonMode && !shouldAutoConfirm(args)) {
-        useDb = await consola.prompt("Add a database?", { type: "confirm" }) as unknown as boolean;
+        useDb = (await consola.prompt("Add a database?", {
+          type: "confirm",
+        })) as unknown as boolean;
       } else {
         dbPromptSkipped = true;
       }
@@ -202,41 +211,76 @@ export default app;
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, name, framework: framework ?? null, database: useDb, databasePromptSkipped: dbPromptSkipped, path: configPath, gitignoreAdded, ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}), ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}) }, 0, [
-        ...(dbPromptSkipped
-          ? [{ command: "creek init --db", description: "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts" }]
-          : []),
-        // Install MUST come before deploy: the scaffolded worker imports
-        // these and `creek deploy` fails to bundle without them.
-        ...(scaffoldedWorker
-          ? [{ command: installCommand, description: "Install the scaffolded worker's dependencies — required before deploy" }]
-          : []),
-        ...(compatBlockers.length
-          ? [{ command: "creek doctor", description: "Review stack-compatibility warnings before building further" }]
-          : []),
-        { command: "creek deploy", description: "Deploy the project" },
-        { command: "creek dev", description: "Start local development server" },
-      ]);
+      jsonOutput(
+        {
+          ok: true,
+          name,
+          framework: framework ?? null,
+          database: useDb,
+          databasePromptSkipped: dbPromptSkipped,
+          path: configPath,
+          gitignoreAdded,
+          ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}),
+          ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}),
+        },
+        0,
+        [
+          ...(dbPromptSkipped
+            ? [
+                {
+                  command: "creek init --db",
+                  description:
+                    "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts",
+                },
+              ]
+            : []),
+          // Install MUST come before deploy: the scaffolded worker imports
+          // these and `creek deploy` fails to bundle without them.
+          ...(scaffoldedWorker
+            ? [
+                {
+                  command: installCommand,
+                  description:
+                    "Install the scaffolded worker's dependencies — required before deploy",
+                },
+              ]
+            : []),
+          ...(compatBlockers.length
+            ? [
+                {
+                  command: "creek doctor",
+                  description: "Review stack-compatibility warnings before building further",
+                },
+              ]
+            : []),
+          { command: "creek deploy", description: "Deploy the project" },
+          { command: "creek dev", description: "Start local development server" },
+        ],
+      );
     }
 
     consola.success(`Created creek.toml for "${name}"`);
 
     if (!jsonMode) {
       if (gitignoreAdded.length > 0) {
-        consola.info(`Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`);
+        consola.info(
+          `Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`,
+        );
       }
       if (dbPromptSkipped) {
-        consola.info("Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.");
+        consola.info(
+          "Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.",
+        );
       }
       if (compatBlockers.length > 0) {
         console.log("");
-        consola.warn(
-          "Heads up — parts of your stack won't run on Cloudflare Workers:",
-        );
+        consola.warn("Heads up — parts of your stack won't run on Cloudflare Workers:");
         for (const f of compatBlockers) {
           consola.log(`    • ${f.title}`);
         }
-        consola.info("    Run `creek doctor` for the fixes (porting these now avoids a rewrite later).");
+        consola.info(
+          "    Run `creek doctor` for the fixes (porting these now avoids a rewrite later).",
+        );
       }
       console.log("");
       consola.info("  Next steps:");
@@ -311,7 +355,8 @@ async function initHostAdopt(
     info = await fetchHostkey(addr);
   } catch (e) {
     if (e instanceof HostkeyResponseError) {
-      if (jsonMode) jsonOutput({ ok: false, error: "hostkey_fetch_failed", message: e.message }, 1, []);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "hostkey_fetch_failed", message: e.message }, 1, []);
       consola.error(e.message);
       process.exit(1);
     }
@@ -327,9 +372,22 @@ async function initHostAdopt(
   // Either way refuse to pin.
   if (expectFingerprint && expectFingerprint !== info.fingerprint) {
     const msg = `fingerprint mismatch: pasted ${expectFingerprint}, daemon at ${addr} returned ${info.fingerprint}`;
-    if (jsonMode) jsonOutput({ ok: false, error: "hostkey_fingerprint_mismatch", message: msg, expected: expectFingerprint, got: info.fingerprint }, 1, []);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "hostkey_fingerprint_mismatch",
+          message: msg,
+          expected: expectFingerprint,
+          got: info.fingerprint,
+        },
+        1,
+        [],
+      );
     consola.error(msg);
-    consola.info("Possible MITM on first-contact wire, or you pasted the wrong fingerprint. Verify against provider console before retrying.");
+    consola.info(
+      "Possible MITM on first-contact wire, or you pasted the wrong fingerprint. Verify against provider console before retrying.",
+    );
     process.exit(1);
   }
 
@@ -340,10 +398,17 @@ async function initHostAdopt(
     consola.info(`Fingerprint from ${addr}:`);
     consola.info(`  ${info.fingerprint}`);
     consola.info("");
-    consola.info("Verify this matches the provider console / serial output / paper bundle BEFORE confirming.");
+    consola.info(
+      "Verify this matches the provider console / serial output / paper bundle BEFORE confirming.",
+    );
     const ok = (await consola.prompt("Pin this host?", { type: "confirm" })) as unknown as boolean;
     if (!ok) {
-      if (jsonMode) jsonOutput({ ok: false, error: "user_aborted", message: "operator declined to pin fingerprint" }, 1, []);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "user_aborted", message: "operator declined to pin fingerprint" },
+          1,
+          [],
+        );
       consola.warn("Aborted — host not pinned.");
       process.exit(1);
     }
@@ -363,15 +428,17 @@ async function initHostAdopt(
   writeHosts(next);
 
   if (jsonMode) {
-    jsonOutput({
-      ok: true,
-      name,
-      addr,
-      fingerprint: info.fingerprint,
-      path: "~/.creek/hosts.json",
-    }, 0, [
-      { command: `creek deploy --host ${name}`, description: "Deploy to this host" },
-    ]);
+    jsonOutput(
+      {
+        ok: true,
+        name,
+        addr,
+        fingerprint: info.fingerprint,
+        path: "~/.creek/hosts.json",
+      },
+      0,
+      [{ command: `creek deploy --host ${name}`, description: "Deploy to this host" }],
+    );
   }
   consola.success(`Pinned ${name} → ${addr}`);
   consola.info(`  fingerprint: ${info.fingerprint}`);

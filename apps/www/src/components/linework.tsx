@@ -44,9 +44,7 @@ export function CornerMarkers() {
   // pull the cross centre onto the border midline.
   return (
     <>
-      <CrossMark
-        className={cn("top-0 left-0 -translate-[calc(50%+0.5px)]", hover)}
-      />
+      <CrossMark className={cn("top-0 left-0 -translate-[calc(50%+0.5px)]", hover)} />
       <CrossMark
         className={cn(
           "top-0 right-0 translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]",
@@ -59,9 +57,7 @@ export function CornerMarkers() {
           hover,
         )}
       />
-      <CrossMark
-        className={cn("bottom-0 right-0 translate-[calc(50%+0.5px)]", hover)}
-      />
+      <CrossMark className={cn("bottom-0 right-0 translate-[calc(50%+0.5px)]", hover)} />
     </>
   );
 }
@@ -118,17 +114,9 @@ export function LineworkSection({
 }) {
   return (
     <section className={cn("border-t border-border", className)}>
-      <div
-        className={cn(
-          "relative mx-auto w-full max-w-5xl px-6 py-20",
-          innerClassName,
-        )}
-      >
+      <div className={cn("relative mx-auto w-full max-w-5xl px-6 py-20", innerClassName)}>
         {/* Vertical frame lines at container edges */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border"
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border" />
         <div
           aria-hidden
           className="pointer-events-none absolute inset-y-0 right-0 w-px bg-border"

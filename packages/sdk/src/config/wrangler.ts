@@ -46,7 +46,7 @@ export function parseWranglerConfig(content: string, format: WranglerFormat): Wr
     d1_databases: asBindingArray(raw.d1_databases, "binding"),
     kv_namespaces: asBindingArray(raw.kv_namespaces, "binding"),
     r2_buckets: asBindingArray(raw.r2_buckets, "binding"),
-    ai: raw.ai != null ? raw.ai as WranglerConfig["ai"] : undefined,
+    ai: raw.ai != null ? (raw.ai as WranglerConfig["ai"]) : undefined,
     durable_objects: raw.durable_objects as WranglerConfig["durable_objects"],
     analytics_engine_datasets: asBindingArray(raw.analytics_engine_datasets, "binding"),
     vars: raw.vars as Record<string, string> | undefined,
@@ -75,6 +75,8 @@ function asBindingArray<T extends { binding: string }>(
   if (!Array.isArray(val)) return undefined;
   return val.filter(
     (item): item is T =>
-      typeof item === "object" && item !== null && typeof (item as Record<string, unknown>)[bindingKey] === "string",
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Record<string, unknown>)[bindingKey] === "string",
   );
 }

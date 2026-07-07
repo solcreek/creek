@@ -24,14 +24,8 @@ afterEach(() => {
 
 describe("resolveConfig detection chain", () => {
   test("creek.toml wins over wrangler.toml", () => {
-    writeFileSync(
-      join(cwd, "creek.toml"),
-      `[project]\nname = "from-creek"\n`,
-    );
-    writeFileSync(
-      join(cwd, "wrangler.toml"),
-      `name = "from-wrangler"\nmain = "src/index.ts"\n`,
-    );
+    writeFileSync(join(cwd, "creek.toml"), `[project]\nname = "from-creek"\n`);
+    writeFileSync(join(cwd, "wrangler.toml"), `name = "from-wrangler"\nmain = "src/index.ts"\n`);
 
     const config = resolveConfig(cwd);
     expect(config.source).toBe("creek.toml");
@@ -39,14 +33,8 @@ describe("resolveConfig detection chain", () => {
   });
 
   test("wrangler.jsonc wins over wrangler.json", () => {
-    writeFileSync(
-      join(cwd, "wrangler.jsonc"),
-      `{ "name": "from-jsonc", "main": "src/index.ts" }`,
-    );
-    writeFileSync(
-      join(cwd, "wrangler.json"),
-      `{ "name": "from-json", "main": "src/index.ts" }`,
-    );
+    writeFileSync(join(cwd, "wrangler.jsonc"), `{ "name": "from-jsonc", "main": "src/index.ts" }`);
+    writeFileSync(join(cwd, "wrangler.json"), `{ "name": "from-json", "main": "src/index.ts" }`);
 
     const config = resolveConfig(cwd);
     expect(config.source).toBe("wrangler.jsonc");
@@ -54,28 +42,16 @@ describe("resolveConfig detection chain", () => {
   });
 
   test("wrangler.json wins over wrangler.toml", () => {
-    writeFileSync(
-      join(cwd, "wrangler.json"),
-      `{ "name": "from-json", "main": "src/index.ts" }`,
-    );
-    writeFileSync(
-      join(cwd, "wrangler.toml"),
-      `name = "from-toml"\nmain = "src/index.ts"\n`,
-    );
+    writeFileSync(join(cwd, "wrangler.json"), `{ "name": "from-json", "main": "src/index.ts" }`);
+    writeFileSync(join(cwd, "wrangler.toml"), `name = "from-toml"\nmain = "src/index.ts"\n`);
 
     const config = resolveConfig(cwd);
     expect(config.source).toBe("wrangler.json");
   });
 
   test("wrangler wins over package.json", () => {
-    writeFileSync(
-      join(cwd, "wrangler.toml"),
-      `name = "my-worker"\nmain = "src/index.ts"\n`,
-    );
-    writeFileSync(
-      join(cwd, "package.json"),
-      JSON.stringify({ dependencies: { next: "14.0.0" } }),
-    );
+    writeFileSync(join(cwd, "wrangler.toml"), `name = "my-worker"\nmain = "src/index.ts"\n`);
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ dependencies: { next: "14.0.0" } }));
 
     const config = resolveConfig(cwd);
     expect(config.source).toBe("wrangler.toml");
@@ -188,10 +164,7 @@ id = "yyy"
   });
 
   test("detects framework from package.json alongside wrangler", () => {
-    writeFileSync(
-      join(cwd, "wrangler.toml"),
-      `name = "app"\nmain = "src/index.ts"\n`,
-    );
+    writeFileSync(join(cwd, "wrangler.toml"), `name = "app"\nmain = "src/index.ts"\n`);
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ dependencies: { hono: "4.0.0", vite: "5.0.0", react: "18.0.0" } }),
@@ -272,10 +245,7 @@ describe("formatDetectionSummary", () => {
   });
 
   test("package.json with framework", () => {
-    writeFileSync(
-      join(cwd, "package.json"),
-      JSON.stringify({ dependencies: { next: "14.0.0" } }),
-    );
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ dependencies: { next: "14.0.0" } }));
     const config = resolveConfig(cwd);
     expect(formatDetectionSummary(config)).toBe("package.json (Next.js)");
   });

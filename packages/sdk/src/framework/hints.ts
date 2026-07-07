@@ -50,16 +50,12 @@ export interface DeployHint {
  */
 export function detectEmdash(pkg: PackageJson): DeployHint | null {
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-  const hasEmdash =
-    "emdash" in deps ||
-    Object.keys(deps).some((k) => k.startsWith("@emdash-cms/"));
+  const hasEmdash = "emdash" in deps || Object.keys(deps).some((k) => k.startsWith("@emdash-cms/"));
   if (!hasEmdash) return null;
   return {
     adminPath: "/_emdash/admin",
     adminLabel: "Set up your CMS",
-    warnings: [
-      "The site root will 404 until you create your first page. Open the admin to start.",
-    ],
+    warnings: ["The site root will 404 until you create your first page. Open the admin to start."],
   };
 }
 

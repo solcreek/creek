@@ -38,11 +38,7 @@ export async function encrypt(plaintext: string, encryptionKey: string): Promise
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encoded = new TextEncoder().encode(plaintext);
 
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: ALGO, iv },
-    key,
-    encoded,
-  );
+  const ciphertext = await crypto.subtle.encrypt({ name: ALGO, iv }, key, encoded);
 
   // Prepend IV to ciphertext, then base64 encode
   const combined = new Uint8Array(iv.length + ciphertext.byteLength);
@@ -62,11 +58,7 @@ export async function decrypt(encrypted: string, encryptionKey: string): Promise
   const iv = combined.slice(0, IV_LENGTH);
   const ciphertext = combined.slice(IV_LENGTH);
 
-  const decrypted = await crypto.subtle.decrypt(
-    { name: ALGO, iv },
-    key,
-    ciphertext,
-  );
+  const decrypted = await crypto.subtle.decrypt({ name: ALGO, iv }, key, ciphertext);
 
   return new TextDecoder().decode(decrypted);
 }

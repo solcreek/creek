@@ -40,7 +40,10 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.route("/", createApi<Env>((env) => drizzle(env.DB)));
+app.route(
+  "/",
+  createApi<Env>((env) => drizzle(env.DB)),
+);
 
 // Anything not matched by the API falls through to the static React build.
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));

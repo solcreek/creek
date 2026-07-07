@@ -7,11 +7,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <DocsLayout
       tree={source.pageTree}
       nav={{
-        title: (
-          <span className="font-mono text-sm font-medium tracking-tight">
-            creek
-          </span>
-        ),
+        title: <span className="font-mono text-sm font-medium tracking-tight">creek</span>,
         url: "/",
       }}
       sidebar={{

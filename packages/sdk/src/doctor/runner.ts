@@ -16,10 +16,7 @@ export interface RunDoctorOptions {
   rules?: typeof BUILTIN_RULES;
 }
 
-export function runDoctor(
-  ctx: DoctorContext,
-  opts: RunDoctorOptions = {},
-): DoctorReport {
+export function runDoctor(ctx: DoctorContext, opts: RunDoctorOptions = {}): DoctorReport {
   const findings = collectFindings(ctx, opts.rules ?? BUILTIN_RULES);
   const summary = countBySeverity(findings);
   return {
@@ -44,8 +41,7 @@ function detectArchetype(ctx: DoctorContext): DoctorReport["archetype"] {
   // framework in creek.toml gets archetype="worker-only" or "unknown"
   // despite being a real SPA+Worker coexist.
   const framework =
-    ctx.resolved.framework ??
-    (ctx.packageJson ? detectFramework(ctx.packageJson) : null);
+    ctx.resolved.framework ?? (ctx.packageJson ? detectFramework(ctx.packageJson) : null);
   const hasWorker = !!ctx.resolved.workerEntry;
   const isSSR = isSSRFramework(framework);
 

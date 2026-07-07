@@ -104,21 +104,19 @@ export function LiveRoom({
 
     let cancelled = false;
     fetch("/__creek/config")
-      .then((r) => r.json() as Promise<{ realtimeUrl: string; projectSlug: string; wsToken?: string }>)
+      .then(
+        (r) => r.json() as Promise<{ realtimeUrl: string; projectSlug: string; wsToken?: string }>,
+      )
       .then((config) => {
         if (cancelled) return;
-        const protocol =
-          config.realtimeUrl.startsWith("https") ? "wss:" : "ws:";
+        const protocol = config.realtimeUrl.startsWith("https") ? "wss:" : "ws:";
         const host = config.realtimeUrl.replace(/^https?:\/\//, "");
         const tokenParam = config.wsToken ? `?token=${config.wsToken}` : "";
-        setWsUrl(
-          `${protocol}//${host}/${config.projectSlug}/rooms/${id}/ws${tokenParam}`,
-        );
+        setWsUrl(`${protocol}//${host}/${config.projectSlug}/rooms/${id}/ws${tokenParam}`);
       })
       .catch(() => {
         if (!cancelled) {
-          const protocol =
-            location.protocol === "https:" ? "wss:" : "ws:";
+          const protocol = location.protocol === "https:" ? "wss:" : "ws:";
           setWsUrl(`${protocol}//${location.host}/ws?room=${id}`);
         }
       });
@@ -200,11 +198,7 @@ export function LiveRoom({
     [id, isConnected, peers, subscribe],
   );
 
-  return createElement(
-    RoomContext.Provider,
-    { value: contextValue },
-    children,
-  );
+  return createElement(RoomContext.Provider, { value: contextValue }, children);
 }
 
 /**
@@ -280,7 +274,10 @@ export interface LiveQueryOptions<T> {
 }
 
 // Suspense cache — stores in-flight promises for Suspense mode
-const suspenseCache = new Map<string, { promise: Promise<unknown>; data?: unknown; error?: unknown }>();
+const suspenseCache = new Map<
+  string,
+  { promise: Promise<unknown>; data?: unknown; error?: unknown }
+>();
 
 // Overloads: when initialData is provided, data is never null
 export function useLiveQuery<T>(
@@ -401,7 +398,7 @@ export function useLiveQuery<T = unknown>(
       const res = await roomFetch(path);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = (await res.json()) as T;
-      const json = selectRef.current ? selectRef.current(raw) as T : raw;
+      const json = selectRef.current ? (selectRef.current(raw) as T) : raw;
 
       // Only apply if no mutations happened during this fetch
       if (mutationGenRef.current === genAtStart) {
@@ -650,7 +647,9 @@ export function usePresence(
     // Auto-discover from /__creek/config
     let cancelled = false;
     fetch("/__creek/config")
-      .then((r) => r.json() as Promise<{ realtimeUrl: string; projectSlug: string; wsToken?: string }>)
+      .then(
+        (r) => r.json() as Promise<{ realtimeUrl: string; projectSlug: string; wsToken?: string }>,
+      )
       .then((config) => {
         if (cancelled) return;
         const protocol = config.realtimeUrl.startsWith("https") ? "wss:" : "ws:";
@@ -666,7 +665,9 @@ export function usePresence(
         }
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [roomId, options?.realtimeUrl, options?.projectSlug]);
 
   // WebSocket connection

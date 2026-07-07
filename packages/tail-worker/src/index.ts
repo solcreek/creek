@@ -97,9 +97,6 @@ export default {
     //      Failures don't fail the tail handler; subscribers are
     //      expected to resync from R2 if they need a complete trace.
     writeBatchToAnalytics(env, entries);
-    await Promise.allSettled([
-      writeBatchToR2(env, entries),
-      pushBatchToRealtime(env, entries),
-    ]);
+    await Promise.allSettled([writeBatchToR2(env, entries), pushBatchToRealtime(env, entries)]);
   },
 };

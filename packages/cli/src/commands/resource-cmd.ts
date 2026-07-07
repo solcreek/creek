@@ -11,12 +11,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-} from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiCall } from "../utils/command-context.js";
 
 interface Resource {
@@ -58,7 +53,9 @@ async function findByName(
   // Called before the ops' own try/catch, so wrap the list here — otherwise a
   // rejection escapes to the top-level catch as unstructured text in JSON mode.
   const { resources } = await apiCall(jsonMode, "api_error", () => client.listResources());
-  return (resources.find((r) => r.name === name && r.kind === kind) as Resource | undefined) ?? null;
+  return (
+    (resources.find((r) => r.name === name && r.kind === kind) as Resource | undefined) ?? null
+  );
 }
 
 export function createResourceCommand(opts: ResourceCmdOptions) {
@@ -76,7 +73,8 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const { resources } = await apiCall(jsonMode, "api_error", () => client.listResources());
       const filtered = resources.filter((r) => r.kind === kind);
 
-      if (jsonMode) jsonOutput({ ok: true, [kind === "database" ? "databases" : kind]: filtered }, 0);
+      if (jsonMode)
+        jsonOutput({ ok: true, [kind === "database" ? "databases" : kind]: filtered }, 0);
 
       if (filtered.length === 0) {
         consola.info(`No ${label}s. Run \`creek ${cmdName} create <name>\` to provision one.`);
@@ -85,16 +83,25 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
 
       consola.info(`${filtered.length} ${label}(s):\n`);
       for (const r of filtered) {
-        const backing = r.cfResourceId ? `cf:${r.cfResourceType}/${r.cfResourceId.slice(0, 8)}` : "unprovisioned";
+        const backing = r.cfResourceId
+          ? `cf:${r.cfResourceType}/${r.cfResourceId.slice(0, 8)}`
+          : "unprovisioned";
         consola.log(`  ${r.name.padEnd(24)}  ${backing}  ${r.status}`);
       }
     },
   });
 
   const create = defineCommand({
-    meta: { name: "create", description: `Create a new team ${label}. Backing infrastructure is auto-provisioned.` },
+    meta: {
+      name: "create",
+      description: `Create a new team ${label}. Backing infrastructure is auto-provisioned.`,
+    },
     args: {
-      name: { type: "positional", description: `${label} name (lowercase, dash/underscore, ≤63 chars)`, required: true },
+      name: {
+        type: "positional",
+        description: `${label} name (lowercase, dash/underscore, ≤63 chars)`,
+        required: true,
+      },
       ...globalArgs,
     },
     async run({ args }) {
@@ -106,7 +113,9 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         const created = await client.createResource({ kind, name: args.name });
         if (jsonMode) jsonOutput({ ok: true, resource: created }, 0);
         consola.success(`Created ${label} "${created.name}" (${created.id.slice(0, 8)})`);
-        consola.info(`  Attach with: creek ${cmdName} attach ${created.name} --to <project> --as ${defaultBinding}`);
+        consola.info(
+          `  Attach with: creek ${cmdName} attach ${created.name} --to <project> --as ${defaultBinding}`,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (jsonMode) jsonOutput({ ok: false, error: "create_failed", message: msg }, 1);
@@ -117,11 +126,27 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   });
 
   const attach = defineCommand({
-    meta: { name: "attach", description: `Attach a ${label} to a project under the given ENV var name` },
+    meta: {
+      name: "attach",
+      description: `Attach a ${label} to a project under the given ENV var name`,
+    },
     args: {
-      name: { type: "positional", description: `${label} name (as shown by \`creek ${cmdName} ls\`)`, required: true },
-      to: { type: "string", description: "Project slug to attach to", required: true, valueHint: "project" },
-      as: { type: "string", description: `ENV var name (uppercase, default: ${defaultBinding})`, default: defaultBinding },
+      name: {
+        type: "positional",
+        description: `${label} name (as shown by \`creek ${cmdName} ls\`)`,
+        required: true,
+      },
+      to: {
+        type: "string",
+        description: "Project slug to attach to",
+        required: true,
+        valueHint: "project",
+      },
+      as: {
+        type: "string",
+        description: `ENV var name (uppercase, default: ${defaultBinding})`,
+        default: defaultBinding,
+      },
       ...globalArgs,
     },
     async run({ args }) {
@@ -138,7 +163,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       }
 
       try {
-        const binding = await client.attachBinding(args.to, { resourceId: resource.id, bindingName: args.as });
+        const binding = await client.attachBinding(args.to, {
+          resourceId: resource.id,
+          bindingName: args.as,
+        });
         if (jsonMode) jsonOutput({ ok: true, binding }, 0);
         consola.success(`Attached "${resource.name}" → ${args.to} as env.${args.as}`);
       } catch (err) {
@@ -155,7 +183,11 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
       from: { type: "string", description: "Project slug to detach from", required: true },
-      as: { type: "string", description: `ENV var name (default: ${defaultBinding})`, default: defaultBinding },
+      as: {
+        type: "string",
+        description: `ENV var name (default: ${defaultBinding})`,
+        default: defaultBinding,
+      },
       ...globalArgs,
     },
     async run({ args }) {
@@ -177,7 +209,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   });
 
   const rename = defineCommand({
-    meta: { name: "rename", description: `Rename a ${label} (stable UUID is preserved; all bindings keep working)` },
+    meta: {
+      name: "rename",
+      description: `Rename a ${label} (stable UUID is preserved; all bindings keep working)`,
+    },
     args: {
       name: { type: "positional", description: `Current ${label} name`, required: true },
       to: { type: "string", description: "New name", required: true },
@@ -210,7 +245,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   });
 
   const del = defineCommand({
-    meta: { name: "delete", description: `Delete a ${label}. Fails if any project still binds to it — detach first.` },
+    meta: {
+      name: "delete",
+      description: `Delete a ${label}. Fails if any project still binds to it — detach first.`,
+    },
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
       ...globalArgs,

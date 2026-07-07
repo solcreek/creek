@@ -28,17 +28,31 @@ function mockFetchSeq(responses: Array<{ ok: boolean; status: number; body: unkn
 
 describe("CreekdClient deploy flow", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("spawnApp creates a new app", async () => {
-    globalThis.fetch = mockFetchOk({
-      id: "my-app", command: "bun", port: 3000, status: "running",
-      pid: 1234, uptime_ms: 0, restart_count: 0, health_failures: 0,
-    }, 201);
+    globalThis.fetch = mockFetchOk(
+      {
+        id: "my-app",
+        command: "bun",
+        port: 3000,
+        status: "running",
+        pid: 1234,
+        uptime_ms: 0,
+        restart_count: 0,
+        health_failures: 0,
+      },
+      201,
+    );
 
     const client = new CreekdClient(BASE, "");
     const app = await client.spawnApp({
-      id: "my-app", runtime: "bun", entry: "dist/index.js", port: 3000,
+      id: "my-app",
+      runtime: "bun",
+      entry: "dist/index.js",
+      port: 3000,
     });
 
     expect(app.id).toBe("my-app");
@@ -62,13 +76,21 @@ describe("CreekdClient deploy flow", () => {
 
   it("deployApp sends POST to /v1/apps/{id}/deploy", async () => {
     globalThis.fetch = mockFetchOk({
-      id: "my-app", command: "bun", port: 3001, status: "running",
-      pid: 5678, uptime_ms: 0, restart_count: 0, health_failures: 0,
+      id: "my-app",
+      command: "bun",
+      port: 3001,
+      status: "running",
+      pid: 5678,
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
     });
 
     const client = new CreekdClient(BASE, "tok");
     const app = await client.deployApp("my-app", {
-      runtime: "bun", entry: "dist/index.js", port: 3001,
+      runtime: "bun",
+      entry: "dist/index.js",
+      port: 3001,
     });
 
     expect(app.pid).toBe(5678);
@@ -79,7 +101,16 @@ describe("CreekdClient deploy flow", () => {
   });
 
   it("deployApp sends If-Match header when provided", async () => {
-    globalThis.fetch = mockFetchOk({ id: "my-app", status: "running", pid: 1, port: 3000, command: "", uptime_ms: 0, restart_count: 0, health_failures: 0 });
+    globalThis.fetch = mockFetchOk({
+      id: "my-app",
+      status: "running",
+      pid: 1,
+      port: 3000,
+      command: "",
+      uptime_ms: 0,
+      restart_count: 0,
+      health_failures: 0,
+    });
 
     const client = new CreekdClient(BASE, "tok");
     await client.deployApp("my-app", { port: 3001 }, { ifMatch: "rv-42" });
@@ -95,7 +126,20 @@ describe("CreekdClient deploy flow", () => {
       // spawnApp → 409 already_running
       { ok: false, status: 409, body: { code: "already_running", error: "already running" } },
       // deployApp → success
-      { ok: true, status: 200, body: { id: "my-app", command: "bun", port: 3001, status: "running", pid: 9999, uptime_ms: 0, restart_count: 0, health_failures: 0 } },
+      {
+        ok: true,
+        status: 200,
+        body: {
+          id: "my-app",
+          command: "bun",
+          port: 3001,
+          status: "running",
+          pid: 9999,
+          uptime_ms: 0,
+          restart_count: 0,
+          health_failures: 0,
+        },
+      },
     ]);
 
     const client = new CreekdClient(BASE, "");
@@ -105,10 +149,19 @@ describe("CreekdClient deploy flow", () => {
 
     let app;
     try {
-      app = await client.spawnApp({ id: "my-app", runtime: "bun", entry: "dist/index.js", port: 3001 });
+      app = await client.spawnApp({
+        id: "my-app",
+        runtime: "bun",
+        entry: "dist/index.js",
+        port: 3001,
+      });
     } catch (e: any) {
       if (e.code === "already_running") {
-        app = await client.deployApp("my-app", { runtime: "bun", entry: "dist/index.js", port: 3001 });
+        app = await client.deployApp("my-app", {
+          runtime: "bun",
+          entry: "dist/index.js",
+          port: 3001,
+        });
       } else {
         throw e;
       }
@@ -130,7 +183,8 @@ describe("CreekdClient deploy flow", () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
-      json: () => Promise.resolve({ code: "deploy_unhealthy", error: "new version failed health check" }),
+      json: () =>
+        Promise.resolve({ code: "deploy_unhealthy", error: "new version failed health check" }),
     });
 
     const client = new CreekdClient(BASE, "");

@@ -50,7 +50,7 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
     jsonOutput({ error: `Failed to fetch deployments: ${res.status}` }, 1);
   }
 
-  let deploys = await res.json() as any[];
+  let deploys = (await res.json()) as any[];
 
   if (envFilter) {
     deploys = deploys.filter((d: any) => d.environment === envFilter);
@@ -61,9 +61,7 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
       ok: true,
       count: deploys.length,
       deploys,
-      breadcrumbs: [
-        { command: "creek ops health", description: "Check platform health" },
-      ],
+      breadcrumbs: [{ command: "creek ops health", description: "Check platform health" }],
     });
   }
 
@@ -77,10 +75,10 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
   console.log(`\n  ${label} (${deploys.length})\n`);
 
   const statusColors: Record<string, string> = {
-    active: "\x1b[32m",   // green
+    active: "\x1b[32m", // green
     building: "\x1b[34m", // blue
     deploying: "\x1b[33m", // yellow
-    failed: "\x1b[31m",   // red
+    failed: "\x1b[31m", // red
   };
   const reset = "\x1b[0m";
 
@@ -89,7 +87,9 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
     const time = d.createdAt ? timeAgo(d.createdAt) : "";
     const preview = d.previewUrl ? ` → ${d.previewUrl}` : "";
     const error = d.error ? `\n           ${"\x1b[31m"}${d.error.slice(0, 80)}${reset}` : "";
-    console.log(`  ${color}●${reset} ${d.buildId}  ${color}${d.status.padEnd(9)}${reset}  ${d.type || ""}  ${time}${preview}${error}`);
+    console.log(
+      `  ${color}●${reset} ${d.buildId}  ${color}${d.status.padEnd(9)}${reset}  ${d.type || ""}  ${time}${preview}${error}`,
+    );
   }
 
   console.log();
@@ -97,7 +97,9 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
   // Summary
   const active = deploys.filter((d: any) => d.status === "active").length;
   const failed = deploys.filter((d: any) => d.status === "failed").length;
-  const building = deploys.filter((d: any) => d.status === "building" || d.status === "deploying").length;
+  const building = deploys.filter(
+    (d: any) => d.status === "building" || d.status === "deploying",
+  ).length;
   console.log(`  Active: ${active}  Failed: ${failed}  In progress: ${building}\n`);
 }
 
@@ -121,7 +123,8 @@ async function health(jsonMode: boolean) {
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
-    checks["sandbox-api"] = res.status === 400 || res.status === 429 ? "ok" : `unexpected ${res.status}`;
+    checks["sandbox-api"] =
+      res.status === 400 || res.status === 429 ? "ok" : `unexpected ${res.status}`;
   } catch (err) {
     checks["sandbox-api"] = `unreachable: ${err instanceof Error ? err.message : String(err)}`;
   }

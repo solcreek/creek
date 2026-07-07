@@ -158,8 +158,7 @@ describe("sandbox-dispatch worker", () => {
           },
         },
         scriptHandlers: {
-          [`${sandboxId}-sandbox`]: async () =>
-            new Response(null, { status }),
+          [`${sandboxId}-sandbox`]: async () => new Response(null, { status }),
         },
       });
 
@@ -233,62 +232,60 @@ describe("sandbox-dispatch worker", () => {
 
 describe("deriveCacheControl", () => {
   test("fingerprinted Astro build path → 1 year immutable", () => {
-    expect(
-      deriveCacheControl("/_astro/about.x6foEjjJ.css", "text/css; charset=utf-8"),
-    ).toBe("public, max-age=31536000, immutable");
+    expect(deriveCacheControl("/_astro/about.x6foEjjJ.css", "text/css; charset=utf-8")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   test("fingerprinted Next.js static path → 1 year immutable", () => {
-    expect(
-      deriveCacheControl("/_next/static/chunks/abc123.js", "text/javascript"),
-    ).toBe("public, max-age=31536000, immutable");
+    expect(deriveCacheControl("/_next/static/chunks/abc123.js", "text/javascript")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   test("fingerprinted SvelteKit immutable path → 1 year immutable", () => {
-    expect(
-      deriveCacheControl("/_app/immutable/chunks/entry.XYZ.js", "text/javascript"),
-    ).toBe("public, max-age=31536000, immutable");
+    expect(deriveCacheControl("/_app/immutable/chunks/entry.XYZ.js", "text/javascript")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   test("fingerprinted Nuxt path → 1 year immutable", () => {
-    expect(
-      deriveCacheControl("/_nuxt/entry.abc.js", "text/javascript"),
-    ).toBe("public, max-age=31536000, immutable");
+    expect(deriveCacheControl("/_nuxt/entry.abc.js", "text/javascript")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   test("HTML response → 60 second cache", () => {
-    expect(
-      deriveCacheControl("/", "text/html; charset=utf-8"),
-    ).toBe("public, max-age=60, s-maxage=60");
-    expect(
-      deriveCacheControl("/about", "text/html"),
-    ).toBe("public, max-age=60, s-maxage=60");
+    expect(deriveCacheControl("/", "text/html; charset=utf-8")).toBe(
+      "public, max-age=60, s-maxage=60",
+    );
+    expect(deriveCacheControl("/about", "text/html")).toBe("public, max-age=60, s-maxage=60");
   });
 
   test("non-fingerprinted static asset → 1 hour cache", () => {
-    expect(
-      deriveCacheControl("/favicon.svg", "image/svg+xml"),
-    ).toBe("public, max-age=3600, s-maxage=3600");
-    expect(
-      deriveCacheControl("/robots.txt", "text/plain"),
-    ).toBe("public, max-age=3600, s-maxage=3600");
-    expect(
-      deriveCacheControl("/images/hero.png", "image/png"),
-    ).toBe("public, max-age=3600, s-maxage=3600");
+    expect(deriveCacheControl("/favicon.svg", "image/svg+xml")).toBe(
+      "public, max-age=3600, s-maxage=3600",
+    );
+    expect(deriveCacheControl("/robots.txt", "text/plain")).toBe(
+      "public, max-age=3600, s-maxage=3600",
+    );
+    expect(deriveCacheControl("/images/hero.png", "image/png")).toBe(
+      "public, max-age=3600, s-maxage=3600",
+    );
   });
 
   test("fingerprinted path classification beats content-type HTML fallback", () => {
     // If a hashed HTML fragment ever lived under /_astro/, still treat
     // it as immutable — the content hash guarantees freshness.
-    expect(
-      deriveCacheControl("/_astro/page.abc.html", "text/html"),
-    ).toBe("public, max-age=31536000, immutable");
+    expect(deriveCacheControl("/_astro/page.abc.html", "text/html")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   test("path prefix matching is anchored — /fake/_astro/ does NOT match", () => {
-    expect(
-      deriveCacheControl("/fake/_astro/abc.css", "text/css"),
-    ).toBe("public, max-age=3600, s-maxage=3600");
+    expect(deriveCacheControl("/fake/_astro/abc.css", "text/css")).toBe(
+      "public, max-age=3600, s-maxage=3600",
+    );
   });
 });
 
@@ -355,9 +352,7 @@ describe("Cache-Control on dispatched responses", () => {
       contentType: "text/css",
       body: "body{color:red}",
     });
-    expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=31536000, immutable",
-    );
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
     expect(res.headers.get("Vary")).toBe("Host");
     expect(res.headers.get("X-Sandbox-Id")).toBe("abc12345");
   });
@@ -369,9 +364,7 @@ describe("Cache-Control on dispatched responses", () => {
       contentType: "image/svg+xml",
       body: "<svg/>",
     });
-    expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=3600, s-maxage=3600",
-    );
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600, s-maxage=3600");
   });
 });
 
@@ -693,16 +686,12 @@ describe("Set-Cookie Domain narrowing (cross-sandbox isolation)", () => {
 describe("extractPreloadLinks", () => {
   test("extracts a single stylesheet link", () => {
     const html = `<html><head><link rel="stylesheet" href="/_astro/a.css"></head></html>`;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</_astro/a.css>; rel=preload; as=style",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</_astro/a.css>; rel=preload; as=style"]);
   });
 
   test("extracts a single module script", () => {
     const html = `<html><head><script type="module" src="/_astro/client.js"></script></head></html>`;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</_astro/client.js>; rel=preload; as=script",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</_astro/client.js>; rel=preload; as=script"]);
   });
 
   test("extracts multiple stylesheets and scripts together", () => {
@@ -720,9 +709,7 @@ describe("extractPreloadLinks", () => {
 
   test("accepts single-quoted attribute values", () => {
     const html = `<link rel='stylesheet' href='/a.css'>`;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</a.css>; rel=preload; as=style",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</a.css>; rel=preload; as=style"]);
   });
 
   test("skips cross-origin URLs", () => {
@@ -731,9 +718,7 @@ describe("extractPreloadLinks", () => {
       <link rel="stylesheet" href="//cdn.example.com/b.css">
       <link rel="stylesheet" href="/local.css">
     `;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</local.css>; rel=preload; as=style",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</local.css>; rel=preload; as=style"]);
   });
 
   test("skips relative paths without leading slash", () => {
@@ -742,9 +727,7 @@ describe("extractPreloadLinks", () => {
       <link rel="stylesheet" href="b.css">
       <link rel="stylesheet" href="/c.css">
     `;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</c.css>; rel=preload; as=style",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</c.css>; rel=preload; as=style"]);
   });
 
   test("skips non-module classic scripts", () => {
@@ -752,9 +735,7 @@ describe("extractPreloadLinks", () => {
       <script src="/classic.js"></script>
       <script type="module" src="/mod.js"></script>
     `;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</mod.js>; rel=preload; as=script",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</mod.js>; rel=preload; as=script"]);
   });
 
   test("skips <link rel='preload'> and other rel values", () => {
@@ -763,9 +744,7 @@ describe("extractPreloadLinks", () => {
       <link rel="icon" href="/favicon.svg">
       <link rel="stylesheet" href="/style.css">
     `;
-    expect(extractPreloadLinks(html)).toEqual([
-      "</style.css>; rel=preload; as=style",
-    ]);
+    expect(extractPreloadLinks(html)).toEqual(["</style.css>; rel=preload; as=style"]);
   });
 
   test("caps the number of hints at 20", () => {
@@ -808,10 +787,7 @@ describe("Link header on dispatched HTML responses", () => {
           new Response(html, { headers: { "Content-Type": "text/html" } }),
       },
     });
-    return worker.fetch(
-      new Request(`https://${sandboxId}.creeksandbox.com/`),
-      env,
-    );
+    return worker.fetch(new Request(`https://${sandboxId}.creeksandbox.com/`), env);
   }
 
   test("Link header is set with preload hints for Astro-style HTML", async () => {
@@ -826,9 +802,7 @@ describe("Link header on dispatched HTML responses", () => {
     const link = res.headers.get("Link");
     expect(link).not.toBeNull();
     expect(link).toContain("</_astro/about.x6foEjjJ.css>; rel=preload; as=style");
-    expect(link).toContain(
-      "</_astro/ClientRouter.QW52Ox2j.js>; rel=preload; as=script",
-    );
+    expect(link).toContain("</_astro/ClientRouter.QW52Ox2j.js>; rel=preload; as=script");
   });
 
   test("Link header is absent when HTML has no preloadable assets", async () => {

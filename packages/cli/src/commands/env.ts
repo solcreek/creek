@@ -18,10 +18,18 @@ const envSet = defineCommand({
     // Env vars are injected at deploy time — the change is stored but NOT
     // live on the running worker until the next deploy. Signal that
     // structurally so an agent doesn't assume it took effect immediately.
-    if (jsonMode) jsonOutput({ ok: true, key: args.key, project: slug, applied: false, pendingDeploy: true }, 0, [
-      { command: `creek env ls --project ${slug}`, description: "List all environment variables" },
-      { command: `creek deploy`, description: "Deploy to apply changes" },
-    ]);
+    if (jsonMode)
+      jsonOutput(
+        { ok: true, key: args.key, project: slug, applied: false, pendingDeploy: true },
+        0,
+        [
+          {
+            command: `creek env ls --project ${slug}`,
+            description: "List all environment variables",
+          },
+          { command: `creek deploy`, description: "Deploy to apply changes" },
+        ],
+      );
     consola.success(`Set ${args.key}`);
     // Env vars are injected at deploy time, so a change to a live project does
     // nothing until the next deploy. Say so, or it silently 500s on the old value.
@@ -37,7 +45,11 @@ function redact(value: string): string {
 const envGet = defineCommand({
   meta: { name: "ls", description: "List environment variables" },
   args: {
-    show: { type: "boolean", description: "Show values in plaintext (default: redacted)", default: false },
+    show: {
+      type: "boolean",
+      description: "Show values in plaintext (default: redacted)",
+      default: false,
+    },
     ...globalArgs,
   },
   async run({ args }) {
@@ -51,14 +63,21 @@ const envGet = defineCommand({
         { command: `creek env set <KEY> <VALUE>`, description: "Set an environment variable" },
       ];
       if (vars.length > 0) {
-        crumbs.push({ command: `creek env rm ${vars[0].key}`, description: `Remove ${vars[0].key}` });
+        crumbs.push({
+          command: `creek env rm ${vars[0].key}`,
+          description: `Remove ${vars[0].key}`,
+        });
       }
       crumbs.push({ command: "creek deploy", description: "Deploy to apply changes" });
-      jsonOutput({
-        ok: true,
-        project: slug,
-        vars: vars.map((v) => ({ key: v.key, value: args.show ? v.value : redact(v.value) })),
-      }, 0, crumbs);
+      jsonOutput(
+        {
+          ok: true,
+          project: slug,
+          vars: vars.map((v) => ({ key: v.key, value: args.show ? v.value : redact(v.value) })),
+        },
+        0,
+        crumbs,
+      );
     }
 
     if (vars.length === 0) {
@@ -90,10 +109,22 @@ const envRm = defineCommand({
     await apiCall(jsonMode, "rm_failed", () => client.deleteEnvVar(slug, args.key));
     // Same deploy-time injection as `set`: the var is removed from the
     // store but the running worker keeps the old value until redeploy.
-    if (jsonMode) jsonOutput({ ok: true, key: args.key, removed: true, project: slug, applied: false, pendingDeploy: true }, 0, [
-      { command: `creek env ls --project ${slug}`, description: "List remaining variables" },
-      { command: "creek deploy", description: "Deploy to apply changes" },
-    ]);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: true,
+          key: args.key,
+          removed: true,
+          project: slug,
+          applied: false,
+          pendingDeploy: true,
+        },
+        0,
+        [
+          { command: `creek env ls --project ${slug}`, description: "List remaining variables" },
+          { command: "creek deploy", description: "Deploy to apply changes" },
+        ],
+      );
     consola.success(`Removed ${args.key}`);
     consola.info("Run `creek deploy` to apply this to your live deployment.");
   },

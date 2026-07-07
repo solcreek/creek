@@ -62,16 +62,21 @@ function setup(): TestEnv {
   // Pin a host into a per-test hosts.json.
   const hostsPath = join(project, "hosts.json");
   process.env.CREEK_HOSTS_PATH = hostsPath;
-  writeHosts({
-    schemaVersion: HOSTS_SCHEMA_VERSION,
-    hosts: [{
-      name: "prod",
-      addr: "127.0.0.1:9080",
-      creekdPubkey: "PK",
-      fingerprint: "sha256:" + "a".repeat(64),
-      lastSeen: "2026-05-24T00:00:00Z",
-    }],
-  }, hostsPath);
+  writeHosts(
+    {
+      schemaVersion: HOSTS_SCHEMA_VERSION,
+      hosts: [
+        {
+          name: "prod",
+          addr: "127.0.0.1:9080",
+          creekdPubkey: "PK",
+          fingerprint: "sha256:" + "a".repeat(64),
+          lastSeen: "2026-05-24T00:00:00Z",
+        },
+      ],
+    },
+    hostsPath,
+  );
   const originalCwd = process.cwd;
   process.cwd = () => project;
   const originalFetch = globalThis.fetch;
@@ -93,7 +98,9 @@ function teardown(env: TestEnv) {
 
 /** Sentinel thrown by the process.exit stub so the test can catch it. */
 class ProcessExitError extends Error {
-  constructor(public code: number) { super(`exit ${code}`); }
+  constructor(public code: number) {
+    super(`exit ${code}`);
+  }
 }
 
 async function runRollback(args: Record<string, unknown>): Promise<void> {
@@ -110,15 +117,20 @@ async function runRollback(args: Record<string, unknown>): Promise<void> {
 
 describe("rollback --host (self-host)", () => {
   let env: TestEnv;
-  beforeEach(() => { env = setup(); });
+  beforeEach(() => {
+    env = setup();
+  });
   afterEach(() => teardown(env));
 
   it("happy path: posts /rollback?to=N with cached If-Match + records new rv", async () => {
     // Seed local.json with cached rv so the flow uses it (no GET
     // probe before the rollback).
     recordLastDeploy(env.project, {
-      appId: "myapp", host: "prod", resourceVersion: "5",
-      generation: 1, at: "2026-05-24T00:00:00Z",
+      appId: "myapp",
+      host: "prod",
+      resourceVersion: "5",
+      generation: 1,
+      at: "2026-05-24T00:00:00Z",
     });
 
     const mocked = makeFetch([
@@ -126,7 +138,8 @@ describe("rollback --host (self-host)", () => {
       {
         status: 200,
         body: {
-          uid: "rel-uid", phase: "Active",
+          uid: "rel-uid",
+          phase: "Active",
           creationTimestamp: "2026-05-24T01:00:00Z",
           spec: { appUid: "app-uid", releaseSeq: 3, rolledBackFrom: 2, originalArtifactRelease: 2 },
         },
@@ -137,9 +150,23 @@ describe("rollback --host (self-host)", () => {
         body: {
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "myapp", uid: "u", generation: 1, resourceVersion: "6", creationTimestamp: "t" },
+          metadata: {
+            name: "myapp",
+            uid: "u",
+            generation: 1,
+            resourceVersion: "6",
+            creationTimestamp: "t",
+          },
           spec: {},
-          status: { observedGeneration: 1, conditions: [], currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0 },
+          status: {
+            observedGeneration: 1,
+            conditions: [],
+            currentPid: 0,
+            currentPort: 0,
+            restartCount: 0,
+            healthFailures: 0,
+            uptimeMs: 0,
+          },
         },
       },
     ]);
@@ -170,16 +197,31 @@ describe("rollback --host (self-host)", () => {
         body: {
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "myapp", uid: "u", generation: 1, resourceVersion: "9", creationTimestamp: "t" },
+          metadata: {
+            name: "myapp",
+            uid: "u",
+            generation: 1,
+            resourceVersion: "9",
+            creationTimestamp: "t",
+          },
           spec: {},
-          status: { observedGeneration: 1, conditions: [], currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0 },
+          status: {
+            observedGeneration: 1,
+            conditions: [],
+            currentPid: 0,
+            currentPort: 0,
+            restartCount: 0,
+            healthFailures: 0,
+            uptimeMs: 0,
+          },
         },
       },
       // POST /rollback with If-Match: 9
       {
         status: 200,
         body: {
-          uid: "rel-uid", phase: "Active",
+          uid: "rel-uid",
+          phase: "Active",
           creationTimestamp: "2026-05-24T01:00:00Z",
           spec: { appUid: "app-uid", releaseSeq: 4, rolledBackFrom: 1, originalArtifactRelease: 1 },
         },
@@ -190,9 +232,23 @@ describe("rollback --host (self-host)", () => {
         body: {
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "myapp", uid: "u", generation: 1, resourceVersion: "10", creationTimestamp: "t" },
+          metadata: {
+            name: "myapp",
+            uid: "u",
+            generation: 1,
+            resourceVersion: "10",
+            creationTimestamp: "t",
+          },
           spec: {},
-          status: { observedGeneration: 1, conditions: [], currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0 },
+          status: {
+            observedGeneration: 1,
+            conditions: [],
+            currentPid: 0,
+            currentPort: 0,
+            restartCount: 0,
+            healthFailures: 0,
+            uptimeMs: 0,
+          },
         },
       },
     ]);
@@ -211,8 +267,11 @@ describe("rollback --host (self-host)", () => {
 
   it("412 without --bypass-rv surfaces structured error + does NOT retry", async () => {
     recordLastDeploy(env.project, {
-      appId: "myapp", host: "prod", resourceVersion: "3",
-      generation: 1, at: "2026-05-24T00:00:00Z",
+      appId: "myapp",
+      host: "prod",
+      resourceVersion: "3",
+      generation: 1,
+      at: "2026-05-24T00:00:00Z",
     });
     const mocked = makeFetch([
       // POST /rollback → 412
@@ -233,8 +292,11 @@ describe("rollback --host (self-host)", () => {
 
   it("412 WITH --bypass-rv re-fetches and retries exactly once", async () => {
     recordLastDeploy(env.project, {
-      appId: "myapp", host: "prod", resourceVersion: "3",
-      generation: 1, at: "2026-05-24T00:00:00Z",
+      appId: "myapp",
+      host: "prod",
+      resourceVersion: "3",
+      generation: 1,
+      at: "2026-05-24T00:00:00Z",
     });
     const mocked = makeFetch([
       // POST /rollback → 412
@@ -248,16 +310,31 @@ describe("rollback --host (self-host)", () => {
         body: {
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "myapp", uid: "u", generation: 1, resourceVersion: "8", creationTimestamp: "t" },
+          metadata: {
+            name: "myapp",
+            uid: "u",
+            generation: 1,
+            resourceVersion: "8",
+            creationTimestamp: "t",
+          },
           spec: {},
-          status: { observedGeneration: 1, conditions: [], currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0 },
+          status: {
+            observedGeneration: 1,
+            conditions: [],
+            currentPid: 0,
+            currentPort: 0,
+            restartCount: 0,
+            healthFailures: 0,
+            uptimeMs: 0,
+          },
         },
       },
       // Retry POST /rollback with If-Match: 8
       {
         status: 200,
         body: {
-          uid: "rel-uid", phase: "Active",
+          uid: "rel-uid",
+          phase: "Active",
           creationTimestamp: "2026-05-24T01:00:00Z",
           spec: { appUid: "u", releaseSeq: 9, rolledBackFrom: 2, originalArtifactRelease: 2 },
         },
@@ -268,9 +345,23 @@ describe("rollback --host (self-host)", () => {
         body: {
           apiVersion: "creek.dev/v1alpha1",
           kind: "App",
-          metadata: { name: "myapp", uid: "u", generation: 1, resourceVersion: "9", creationTimestamp: "t" },
+          metadata: {
+            name: "myapp",
+            uid: "u",
+            generation: 1,
+            resourceVersion: "9",
+            creationTimestamp: "t",
+          },
           spec: {},
-          status: { observedGeneration: 1, conditions: [], currentPid: 0, currentPort: 0, restartCount: 0, healthFailures: 0, uptimeMs: 0 },
+          status: {
+            observedGeneration: 1,
+            conditions: [],
+            currentPid: 0,
+            currentPort: 0,
+            restartCount: 0,
+            healthFailures: 0,
+            uptimeMs: 0,
+          },
         },
       },
     ]);

@@ -54,10 +54,7 @@ export async function startAuthServer(): Promise<{
       }
 
       res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(htmlPage(
-        "Authenticated!",
-        "You can close this window and return to the terminal.",
-      ));
+      res.end(htmlPage("Authenticated!", "You can close this window and return to the terminal."));
 
       resolveCallback(key);
       setTimeout(() => server.close(), 500);
@@ -98,8 +95,7 @@ export async function startAuthServer(): Promise<{
   return {
     port,
     state,
-    waitForCallback: () =>
-      callbackPromise.finally(() => clearTimeout(timeout)),
+    waitForCallback: () => callbackPromise.finally(() => clearTimeout(timeout)),
     close: () => {
       clearTimeout(timeout);
       server.close();
@@ -108,7 +104,11 @@ export async function startAuthServer(): Promise<{
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function htmlPage(title: string, message: string): string {

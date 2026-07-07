@@ -77,7 +77,11 @@ export async function watchDeploy(
     try {
       envelope = await client.getApp(appId);
     } catch (e) {
-      return { ok: false, reason: "fetch_failed", error: e instanceof Error ? e : new Error(String(e)) };
+      return {
+        ok: false,
+        reason: "fetch_failed",
+        error: e instanceof Error ? e : new Error(String(e)),
+      };
     }
     lastEnvelope = envelope;
     opts.onPoll?.(envelope, elapsedMs);

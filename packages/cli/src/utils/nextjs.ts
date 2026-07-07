@@ -11,7 +11,15 @@
  * The CLI auto-detects the Next.js version and picks the right path.
  */
 
-import { existsSync, cpSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  cpSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { execSync, execFileSync } from "node:child_process";
@@ -192,7 +200,10 @@ export function patchBundledWorker(bundleDir: string, openNextDir: string): void
   let patched = false;
 
   // Read the actual middleware manifest from the build output
-  const manifestPath = join(openNextDir, "server-functions/default/.next/server/middleware-manifest.json");
+  const manifestPath = join(
+    openNextDir,
+    "server-functions/default/.next/server/middleware-manifest.json",
+  );
   let manifest = '{"version":3,"middleware":{},"sortedMiddleware":[],"functions":{}}';
   if (existsSync(manifestPath)) {
     manifest = readFileSync(manifestPath, "utf-8").trim();
@@ -201,7 +212,8 @@ export function patchBundledWorker(bundleDir: string, openNextDir: string): void
   // Patch: getMiddlewareManifest() { return [__]require(this.middlewareManifestPath); }
   // →      getMiddlewareManifest() { return <inline manifest>; }
   // Note: Next.js versions may use `require()` or `__require()` — match both
-  const pattern = /getMiddlewareManifest\(\)\s*\{[^}]*(?:__)?require\(this\.middlewareManifestPath\)[^}]*\}/;
+  const pattern =
+    /getMiddlewareManifest\(\)\s*\{[^}]*(?:__)?require\(this\.middlewareManifestPath\)[^}]*\}/;
   if (pattern.test(code)) {
     code = code.replace(pattern, `getMiddlewareManifest() { return ${manifest}; }`);
     patched = true;
@@ -420,13 +432,20 @@ function ensureWranglerConfig(cwd: string, projectName: string): string | null {
 
   // Create minimal config for opennext
   const configPath = join(cwd, "wrangler.jsonc");
-  writeFileSync(configPath, JSON.stringify({
-    name: projectName,
-    main: ".open-next/worker.js",
-    compatibility_date: "2025-03-14",
-    compatibility_flags: ["nodejs_compat"],
-    assets: { directory: ".open-next/assets", binding: "ASSETS" },
-  }, null, 2));
+  writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        name: projectName,
+        main: ".open-next/worker.js",
+        compatibility_date: "2025-03-14",
+        compatibility_flags: ["nodejs_compat"],
+        assets: { directory: ".open-next/assets", binding: "ASSETS" },
+      },
+      null,
+      2,
+    ),
+  );
 
   return configPath; // caller can clean up after build
 }
@@ -531,7 +550,9 @@ function injectNextConfig(cwd: string, monorepoRoot: string | null): (() => void
     // No next.config found — create a minimal one
     configPath = join(cwd, "next.config.ts");
     const root = monorepoRoot ?? cwd;
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -539,8 +560,11 @@ const nextConfig: NextConfig = {
   turbopack: { root: "${root}" },
 };
 export default nextConfig;
-`);
-    return () => { rmSync(configPath!); };
+`,
+    );
+    return () => {
+      rmSync(configPath!);
+    };
   }
 
   // Check what's missing
@@ -553,7 +577,7 @@ export default nextConfig;
   // Need to patch — wrap the existing config
   const root = monorepoRoot ?? cwd;
   const isTS = configPath.endsWith(".ts");
-  const ext = configPath.endsWith(".mjs") ? "mjs" : (isTS ? "ts" : "js");
+  const ext = configPath.endsWith(".mjs") ? "mjs" : isTS ? "ts" : "js";
 
   // Backup original
   const backupPath = configPath + ".creek-backup";
@@ -581,10 +605,7 @@ export default nextConfig;
   if (!hasTurboRoot && monorepoRoot) {
     if (/turbopack\s*:\s*\{/.test(patched)) {
       // turbopack block exists, add root
-      patched = patched.replace(
-        /turbopack\s*:\s*\{/,
-        `turbopack: {\n    root: "${root}",`,
-      );
+      patched = patched.replace(/turbopack\s*:\s*\{/, `turbopack: {\n    root: "${root}",`);
     } else {
       // No turbopack block, add one
       patched = patched.replace(
@@ -650,10 +671,7 @@ export function buildNextjsForWorkers(cwd: string, isMonorepo: boolean, projectN
     });
 
     // Step 6: Patch handler.mjs to fix dynamic require issues in Workers runtime
-    patchBundledWorker(
-      join(cwd, ".open-next/server-functions/default"),
-      join(cwd, ".open-next"),
-    );
+    patchBundledWorker(join(cwd, ".open-next/server-functions/default"), join(cwd, ".open-next"));
   } finally {
     // Restore original next.config
     if (restoreConfig) restoreConfig();

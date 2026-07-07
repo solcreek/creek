@@ -104,7 +104,8 @@ export function NewProjectDialog() {
               />
               {slug && slug !== normalizedSlug && (
                 <p className="text-xs text-muted-foreground">
-                  Will be created as: <code className="rounded bg-code-bg px-1">{normalizedSlug}</code>
+                  Will be created as:{" "}
+                  <code className="rounded bg-code-bg px-1">{normalizedSlug}</code>
                 </p>
               )}
             </div>
@@ -128,10 +129,7 @@ export function NewProjectDialog() {
           </div>
 
           <DialogFooter className="mt-4">
-            <Button
-              type="submit"
-              disabled={!slug || createProject.isPending}
-            >
+            <Button type="submit" disabled={!slug || createProject.isPending}>
               {createProject.isPending ? "Creating..." : "Create Project"}
             </Button>
           </DialogFooter>

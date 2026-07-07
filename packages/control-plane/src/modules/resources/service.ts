@@ -13,11 +13,7 @@
  */
 
 import type { Env } from "../../types.js";
-import {
-  BINDING_NAMES,
-  DEPRECATED_BINDING_ALIASES,
-  INTERNAL_VARS,
-} from "@solcreek/sdk";
+import { BINDING_NAMES, DEPRECATED_BINDING_ALIASES, INTERNAL_VARS } from "@solcreek/sdk";
 import {
   provisionCFResource,
   findExistingCFResource,
@@ -105,9 +101,7 @@ export async function ensureProjectBindings(
     .bind(projectId)
     .all<ResolvedBinding>();
 
-  const existingByName = new Map(
-    existingRows.results.map((b) => [b.bindingName, b]),
-  );
+  const existingByName = new Map(existingRows.results.map((b) => [b.bindingName, b]));
 
   const result = new Map<string, { bindingName: string; cfResourceId: string; cfType: string }>();
 
@@ -147,8 +141,9 @@ export async function ensureProjectBindings(
       // Binding exists but CF resource not yet provisioned — provision now
       const cfName = `creek-${existing.resourceId.slice(0, 8)}`;
       const cfType = KIND_TO_CF[existing.kind] ?? req.type;
-      const cfId = await findExistingCFResource(env, cfType, cfName)
-        ?? await provisionCFResource(env, cfType, cfName);
+      const cfId =
+        (await findExistingCFResource(env, cfType, cfName)) ??
+        (await provisionCFResource(env, cfType, cfName));
 
       await env.DB.prepare(
         `UPDATE resource SET cfResourceId = ?, cfResourceType = ?, status = 'active', updatedAt = ?
@@ -175,7 +170,7 @@ export async function ensureProjectBindings(
     const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
     const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
     const aliasCfType = aliasBinding
-      ? aliasBinding.cfResourceType ?? KIND_TO_CF[aliasBinding.kind]
+      ? (aliasBinding.cfResourceType ?? KIND_TO_CF[aliasBinding.kind])
       : undefined;
     // Only adopt when the alias's resource TYPE matches the requirement — a
     // user could have named an unrelated resource with the alias (e.g.
@@ -207,8 +202,9 @@ export async function ensureProjectBindings(
     // Provision CF resource
     let cfId: string | null = null;
     if (cfType === "d1" || cfType === "r2" || cfType === "kv") {
-      cfId = await findExistingCFResource(env, cfType, cfName)
-        ?? await provisionCFResource(env, cfType, cfName);
+      cfId =
+        (await findExistingCFResource(env, cfType, cfName)) ??
+        (await provisionCFResource(env, cfType, cfName));
     }
 
     // Insert resource row
@@ -437,10 +433,7 @@ export function buildBindings(
  * resource has no remaining bindings after project deletion, it becomes
  * "unattached" but stays alive until explicitly deleted via the API.
  */
-export async function scheduleResourceCleanup(
-  env: Env,
-  projectId: string,
-): Promise<void> {
+export async function scheduleResourceCleanup(env: Env, projectId: string): Promise<void> {
   // Queue custom domain hostnames for CF cleanup
   await env.DB.prepare(
     `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason)
@@ -458,10 +451,7 @@ export async function scheduleResourceCleanup(
  * Look up the queue CF resource ID for a project. Used by the queue
  * send endpoint in deployments/routes.ts.
  */
-export async function getProjectQueueId(
-  env: Env,
-  projectId: string,
-): Promise<string | null> {
+export async function getProjectQueueId(env: Env, projectId: string): Promise<string | null> {
   const row = await env.DB.prepare(
     `SELECT r.cfResourceId
      FROM project_resource_binding b

@@ -78,7 +78,10 @@ function mapFailedStep(step: string | null): BuildLogStep {
   }
 }
 
-function isInternalAuth(c: { req: { header: (n: string) => string | undefined }; env: Env }): boolean {
+function isInternalAuth(c: {
+  req: { header: (n: string) => string | undefined };
+  env: Env;
+}): boolean {
   const header = c.req.header("Authorization") ?? "";
   if (!header.startsWith("Bearer ")) return false;
   const token = header.slice("Bearer ".length).trim();
@@ -106,147 +109,148 @@ buildLogs.post("/:id/logs", tenantMiddleware, async (c) => ingestHandler(c, { in
 // the deployment's project.
 export const buildLogsRead = new Hono<BuildLogsEnv>();
 
-buildLogsRead.get(
-  "/:slug/deployments/:id/logs",
-  requirePermission("project:read"),
-  async (c) => {
-    const projectSlug = c.req.param("slug");
-    const deploymentId = c.req.param("id");
-    const teamId = c.get("teamId");
-    if (!teamId) return c.json({ error: "unauthorized" }, 401);
+buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read"), async (c) => {
+  const projectSlug = c.req.param("slug");
+  const deploymentId = c.req.param("id");
+  const teamId = c.get("teamId");
+  if (!teamId) return c.json({ error: "unauthorized" }, 401);
 
-    // Ownership: the deployment's project.slug + project.organizationId
-    // must match the URL slug + session team.
-    const row = await c.env.DB.prepare(
-      `SELECT p.slug AS projectSlug, t.slug AS teamSlug
+  // Ownership: the deployment's project.slug + project.organizationId
+  // must match the URL slug + session team.
+  const row = await c.env.DB.prepare(
+    `SELECT p.slug AS projectSlug, t.slug AS teamSlug
        FROM deployment d
        JOIN project p ON d.projectId = p.id
        JOIN organization t ON p.organizationId = t.id
        WHERE d.id = ? AND p.slug = ? AND t.id = ?`,
-    )
-      .bind(deploymentId, projectSlug, teamId)
-      .first<{ projectSlug: string; teamSlug: string }>();
-    if (!row) {
-      return c.json({ error: "not_found" }, 404);
-    }
+  )
+    .bind(deploymentId, projectSlug, teamId)
+    .first<{ projectSlug: string; teamSlug: string }>();
+  if (!row) {
+    return c.json({ error: "not_found" }, 404);
+  }
 
-    // Metadata row — covers the "still running / never uploaded" cases.
-    const meta = await c.env.DB.prepare(
-      `SELECT deploymentId, status, startedAt, endedAt, bytes, lines,
+  // Metadata row — covers the "still running / never uploaded" cases.
+  const meta = await c.env.DB.prepare(
+    `SELECT deploymentId, status, startedAt, endedAt, bytes, lines,
               truncated, errorCode, errorStep, r2Key
        FROM build_log WHERE deploymentId = ?`,
+  )
+    .bind(deploymentId)
+    .first<{
+      deploymentId: string;
+      status: string;
+      startedAt: number;
+      endedAt: number | null;
+      bytes: number;
+      lines: number;
+      truncated: number;
+      errorCode: string | null;
+      errorStep: string | null;
+      r2Key: string;
+    }>();
+
+  if (!meta) {
+    // No build_log row. A server-side failure (deploy-job's failDeployment,
+    // or the stale-deploy reaper) records the reason on the deployment row,
+    // not in build_log — so without this fallback a failed deploy looks
+    // log-less. Surface the recorded failure instead of a bare "not yet
+    // available", and mark it synthesized so callers know it's not an
+    // uploaded log.
+    const dep = await c.env.DB.prepare(
+      `SELECT status, failedStep, errorMessage, updatedAt
+           FROM deployment WHERE id = ?`,
     )
       .bind(deploymentId)
       .first<{
-        deploymentId: string;
         status: string;
-        startedAt: number;
-        endedAt: number | null;
-        bytes: number;
-        lines: number;
-        truncated: number;
-        errorCode: string | null;
-        errorStep: string | null;
-        r2Key: string;
+        failedStep: string | null;
+        errorMessage: string | null;
+        updatedAt: number;
       }>();
 
-    if (!meta) {
-      // No build_log row. A server-side failure (deploy-job's failDeployment,
-      // or the stale-deploy reaper) records the reason on the deployment row,
-      // not in build_log — so without this fallback a failed deploy looks
-      // log-less. Surface the recorded failure instead of a bare "not yet
-      // available", and mark it synthesized so callers know it's not an
-      // uploaded log.
-      const dep = await c.env.DB.prepare(
-        `SELECT status, failedStep, errorMessage, updatedAt
-           FROM deployment WHERE id = ?`,
-      )
-        .bind(deploymentId)
-        .first<{ status: string; failedStep: string | null; errorMessage: string | null; updatedAt: number }>();
-
-      if (dep?.status === "failed") {
-        const ts = dep.updatedAt ?? Date.now();
-        // The deploying/activation stages upload no build log, so this is the
-        // only structured signal for those failures. Classify the recorded
-        // reason into a stable code + actionable hint.
-        const reason = classifyDeployFailure(dep.failedStep, dep.errorMessage);
-        const entry: BuildLogLine = {
-          ts,
-          step: mapFailedStep(dep.failedStep),
-          stream: "creek",
-          level: "error",
-          msg: dep.errorMessage ?? "Deploy failed",
-        };
-        return c.json({
-          entries: [entry],
-          metadata: {
-            deploymentId,
-            status: "failed" as BuildLogStatus,
-            startedAt: ts,
-            endedAt: ts,
-            bytes: 0,
-            lines: 1,
-            truncated: false,
-            errorCode: reason.code,
-            errorStep: dep.failedStep,
-            r2Key: null,
-            synthesized: true,
-          },
-          message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}. ${reason.hint}`,
-        });
-      }
-
+    if (dep?.status === "failed") {
+      const ts = dep.updatedAt ?? Date.now();
+      // The deploying/activation stages upload no build log, so this is the
+      // only structured signal for those failures. Classify the recorded
+      // reason into a stable code + actionable hint.
+      const reason = classifyDeployFailure(dep.failedStep, dep.errorMessage);
+      const entry: BuildLogLine = {
+        ts,
+        step: mapFailedStep(dep.failedStep),
+        stream: "creek",
+        level: "error",
+        msg: dep.errorMessage ?? "Deploy failed",
+      };
       return c.json({
-        entries: [] as BuildLogLine[],
-        metadata: dep ? { deploymentId, status: dep.status, synthesized: true } : null,
-        message: dep
-          ? `Build log not yet available — deployment status is "${dep.status}".`
-          : "Build log not yet available — the deploy may still be running or never uploaded logs.",
+        entries: [entry],
+        metadata: {
+          deploymentId,
+          status: "failed" as BuildLogStatus,
+          startedAt: ts,
+          endedAt: ts,
+          bytes: 0,
+          lines: 1,
+          truncated: false,
+          errorCode: reason.code,
+          errorStep: dep.failedStep,
+          r2Key: null,
+          synthesized: true,
+        },
+        message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}. ${reason.hint}`,
       });
     }
 
-    if (!c.env.LOGS_BUCKET) {
-      return c.json({ error: "logs_unavailable" }, 503);
-    }
-
-    const object = await c.env.LOGS_BUCKET.get(meta.r2Key);
-    if (!object) {
-      // D1 row exists but R2 object missing — consistency issue.
-      return c.json(
-        {
-          entries: [] as BuildLogLine[],
-          metadata: meta,
-          message: "Log archive not found",
-        },
-        200,
-      );
-    }
-
-    // Decompress the gzipped ndjson in-worker. R2 does NOT auto-decode
-    // contentEncoding on .get() — it returns raw bytes.
-    const decoded = await new Response(
-      object.body!.pipeThrough(new DecompressionStream("gzip")),
-    ).text();
-
-    const entries: BuildLogLine[] = [];
-    for (const line of decoded.split("\n")) {
-      if (!line) continue;
-      try {
-        entries.push(JSON.parse(line));
-      } catch {
-        // Non-JSON residue from scrubNdjson fallback path — skip.
-      }
-    }
-
     return c.json({
-      entries,
-      metadata: {
-        ...meta,
-        truncated: Boolean(meta.truncated),
-      },
+      entries: [] as BuildLogLine[],
+      metadata: dep ? { deploymentId, status: dep.status, synthesized: true } : null,
+      message: dep
+        ? `Build log not yet available — deployment status is "${dep.status}".`
+        : "Build log not yet available — the deploy may still be running or never uploaded logs.",
     });
-  },
-);
+  }
+
+  if (!c.env.LOGS_BUCKET) {
+    return c.json({ error: "logs_unavailable" }, 503);
+  }
+
+  const object = await c.env.LOGS_BUCKET.get(meta.r2Key);
+  if (!object) {
+    // D1 row exists but R2 object missing — consistency issue.
+    return c.json(
+      {
+        entries: [] as BuildLogLine[],
+        metadata: meta,
+        message: "Log archive not found",
+      },
+      200,
+    );
+  }
+
+  // Decompress the gzipped ndjson in-worker. R2 does NOT auto-decode
+  // contentEncoding on .get() — it returns raw bytes.
+  const decoded = await new Response(
+    object.body!.pipeThrough(new DecompressionStream("gzip")),
+  ).text();
+
+  const entries: BuildLogLine[] = [];
+  for (const line of decoded.split("\n")) {
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      // Non-JSON residue from scrubNdjson fallback path — skip.
+    }
+  }
+
+  return c.json({
+    entries,
+    metadata: {
+      ...meta,
+      truncated: Boolean(meta.truncated),
+    },
+  });
+});
 
 async function ingestHandler(
   c: {
@@ -276,10 +280,7 @@ async function ingestHandler(
   if (!opts.internal) {
     const sessionTeamId = c.get("teamId");
     if (!sessionTeamId || sessionTeamId !== owner.teamId) {
-      return c.json(
-        { error: "forbidden", message: "deployment not owned by session team" },
-        403,
-      );
+      return c.json({ error: "forbidden", message: "deployment not owned by session team" }, 403);
     }
   }
 

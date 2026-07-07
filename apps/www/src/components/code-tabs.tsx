@@ -40,9 +40,7 @@ export function CodeTabs({ tabs }: { tabs: TabData[] }) {
             {tab.label}
           </button>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground font-mono">
-          {active.file}
-        </span>
+        <span className="ml-auto text-xs text-muted-foreground font-mono">{active.file}</span>
       </div>
 
       {/* Code block */}
@@ -60,9 +58,7 @@ export function CodeTabs({ tabs }: { tabs: TabData[] }) {
       </div>
 
       {/* Callout */}
-      <p className="mt-3 text-xs text-muted-foreground font-mono text-center">
-        {active.callout}
-      </p>
+      <p className="mt-3 text-xs text-muted-foreground font-mono text-center">{active.callout}</p>
     </motion.div>
   );
 }

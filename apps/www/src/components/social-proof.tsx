@@ -5,12 +5,14 @@ import { motion, useInView } from "framer-motion";
 
 const testimonials = [
   {
-    quote: "Went from `git init` to a live URL in 4 minutes. No dashboard. No signup wall. Creek just works.",
+    quote:
+      "Went from `git init` to a live URL in 4 minutes. No dashboard. No signup wall. Creek just works.",
     author: "Early beta user",
     role: "Full-stack developer",
   },
   {
-    quote: "Finally a deployment tool that treats edge SSR as a first-class citizen. No more hacking around Workers limitations.",
+    quote:
+      "Finally a deployment tool that treats edge SSR as a first-class citizen. No more hacking around Workers limitations.",
     author: "Early beta user",
     role: "Platform engineer",
   },

@@ -1,6 +1,6 @@
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { Database as SqliteDatabase } from 'bun:sqlite';
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { Database as SqliteDatabase } from "bun:sqlite";
 
 export type DatabaseResult<T = Record<string, unknown>> = {
   results: T[];
@@ -35,18 +35,14 @@ class CreekPreparedStatement {
         duration: performance.now() - start,
         last_row_id: 0,
         changes: 0,
-        served_by: 'creek-host-database',
+        served_by: "creek-host-database",
       },
     };
   }
 
-  async first<T = Record<string, unknown>>(
-    colName?: string,
-  ): Promise<T | null> {
+  async first<T = Record<string, unknown>>(colName?: string): Promise<T | null> {
     const stmt = this.db.query(this.sql);
-    const row = stmt.get(...(this.params as never[])) as
-      | Record<string, unknown>
-      | null;
+    const row = stmt.get(...(this.params as never[])) as Record<string, unknown> | null;
     if (!row) return null;
     if (colName) return (row[colName] ?? null) as T | null;
     return row as T;
@@ -63,7 +59,7 @@ class CreekPreparedStatement {
         duration: performance.now() - start,
         last_row_id: Number(result.lastInsertRowid ?? 0),
         changes: result.changes,
-        served_by: 'creek-host-database',
+        served_by: "creek-host-database",
       },
     };
   }
@@ -90,10 +86,10 @@ export class CreekDatabase {
 
 export function openDatabase(path: string): CreekDatabase {
   const parent = dirname(path);
-  if (parent && parent !== '.') {
+  if (parent && parent !== ".") {
     mkdirSync(parent, { recursive: true });
   }
   const db = new SqliteDatabase(path);
-  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec("PRAGMA journal_mode = WAL;");
   return new CreekDatabase(db);
 }

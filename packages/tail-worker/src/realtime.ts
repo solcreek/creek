@@ -29,10 +29,7 @@ export interface RealtimeEnv {
   REALTIME_MASTER_KEY?: string;
 }
 
-export async function pushBatchToRealtime(
-  env: RealtimeEnv,
-  entries: LogEntry[],
-): Promise<void> {
+export async function pushBatchToRealtime(env: RealtimeEnv, entries: LogEntry[]): Promise<void> {
   if (!env.REALTIME_URL || !env.REALTIME_MASTER_KEY) return; // not configured (dev)
   if (entries.length === 0) return;
 
@@ -80,7 +77,7 @@ async function pushOne(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body[0]), // see TODO below
   });
@@ -97,7 +94,7 @@ async function pushOne(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body[i]),
     });
@@ -112,11 +109,7 @@ async function hmacSlug(masterKey: string, slug: string): Promise<string> {
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(slug),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(slug));
   return Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

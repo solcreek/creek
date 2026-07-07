@@ -8,7 +8,13 @@ import { requirePermission } from "../tenant/permissions.js";
 
 type ProjectEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole?: string; auditCtx: AuditRequestContext };
+  Variables: {
+    user: AuthUser;
+    teamId: string;
+    teamSlug: string;
+    memberRole?: string;
+    auditCtx: AuditRequestContext;
+  };
 };
 
 const projects = new Hono<ProjectEnv>();
@@ -40,7 +46,10 @@ projects.post("/", requirePermission("project:create"), async (c) => {
 
   if (!body.slug || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.slug)) {
     return c.json(
-      { error: "validation", message: "Slug must be lowercase alphanumeric with hyphens, cannot start/end with hyphen" },
+      {
+        error: "validation",
+        message: "Slug must be lowercase alphanumeric with hyphens, cannot start/end with hyphen",
+      },
       400,
     );
   }
@@ -55,7 +64,12 @@ projects.post("/", requirePermission("project:create"), async (c) => {
   // Find a free slug. In strict mode (the default) we return 409 on any
   // collision. In auto-resolve mode we walk base, base-2, base-3... until
   // the team has no project with that slug.
-  const resolvedSlug = await findFreeSlug(c.env.DB, teamId, body.slug, body.autoResolveSlug ?? false);
+  const resolvedSlug = await findFreeSlug(
+    c.env.DB,
+    teamId,
+    body.slug,
+    body.autoResolveSlug ?? false,
+  );
   if (resolvedSlug === null) {
     return c.json({ error: "conflict", message: "Project slug already taken in this team" }, 409);
   }
@@ -66,27 +80,23 @@ projects.post("/", requirePermission("project:create"), async (c) => {
     `INSERT INTO project (id, slug, organizationId, framework, githubRepo, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(
-      id,
-      resolvedSlug,
-      teamId,
-      body.framework ?? null,
-      body.githubRepo ?? null,
-      now,
-      now,
-    )
+    .bind(id, resolvedSlug, teamId, body.framework ?? null, body.githubRepo ?? null, now, now)
     .run();
 
-  const project = await c.env.DB.prepare("SELECT * FROM project WHERE id = ?")
-    .bind(id)
-    .first();
+  const project = await c.env.DB.prepare("SELECT * FROM project WHERE id = ?").bind(id).first();
 
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "project.create",
-    resourceType: "project",
-    resourceId: id,
-    metadata: { slug: resolvedSlug, requestedSlug: body.slug },
-  }, c.get("auditCtx"));
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "project.create",
+      resourceType: "project",
+      resourceId: id,
+      metadata: { slug: resolvedSlug, requestedSlug: body.slug },
+    },
+    c.get("auditCtx"),
+  );
 
   return c.json({ project }, 201);
 });
@@ -106,9 +116,8 @@ async function findFreeSlug(
   baseSlug: string,
   autoResolve: boolean,
 ): Promise<string | null> {
-  const existing = await db.prepare(
-    "SELECT id FROM project WHERE slug = ? AND organizationId = ?",
-  )
+  const existing = await db
+    .prepare("SELECT id FROM project WHERE slug = ? AND organizationId = ?")
     .bind(baseSlug, teamId)
     .first();
 
@@ -117,9 +126,8 @@ async function findFreeSlug(
 
   for (let n = 2; n <= 100; n++) {
     const candidate = `${baseSlug}-${n}`;
-    const row = await db.prepare(
-      "SELECT id FROM project WHERE slug = ? AND organizationId = ?",
-    )
+    const row = await db
+      .prepare("SELECT id FROM project WHERE slug = ? AND organizationId = ?")
       .bind(candidate, teamId)
       .first();
     if (!row) return candidate;
@@ -163,15 +171,19 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
   // Mark resources for async cleanup before deleting the project
   await scheduleResourceCleanup(c.env, project.id);
 
-  await c.env.DB.prepare("DELETE FROM project WHERE id = ?")
-    .bind(project.id)
-    .run();
+  await c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id).run();
 
-  await recordAudit(c.env.DB, c.get("user"), c.get("teamId"), {
-    action: "project.delete",
-    resourceType: "project",
-    resourceId: project.id,
-  }, c.get("auditCtx"));
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "project.delete",
+      resourceType: "project",
+      resourceId: project.id,
+    },
+    c.get("auditCtx"),
+  );
 
   return c.json({ ok: true });
 });

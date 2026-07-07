@@ -21,7 +21,8 @@ const MODE = detectApiMode();
 
 // --- creekd plain fetch client ---
 
-const CREEKD_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+const CREEKD_BASE =
+  import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
 const CREEKD_TOKEN = import.meta.env.VITE_CREEKD_TOKEN || "";
 
 async function creekdFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -31,7 +32,10 @@ async function creekdFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
   let res: Response;
   try {
-    res = await fetch(`${CREEKD_BASE}${path}`, { ...options, headers: { ...headers, ...(options?.headers as Record<string, string>) } });
+    res = await fetch(`${CREEKD_BASE}${path}`, {
+      ...options,
+      headers: { ...headers, ...(options?.headers as Record<string, string>) },
+    });
   } catch {
     throw new Error("Cannot connect to creekd");
   }
@@ -56,14 +60,23 @@ async function creekdFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // --- Unified API ---
 
-interface ListAppsResponse { apps: AppView[] }
+interface ListAppsResponse {
+  apps: AppView[];
+}
 
 export async function listApps(): Promise<AppView[]> {
   if (MODE === "creekd") {
     const resp = await creekdFetch<ListAppsResponse>("/v1/apps");
     return resp.apps ?? [];
   }
-  const projects = await api<Array<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>>("/projects");
+  const projects = await api<
+    Array<{
+      id: string;
+      slug: string;
+      framework: string | null;
+      productionDeploymentId: string | null;
+    }>
+  >("/projects");
   return projects.map((p) => ({
     id: p.id,
     command: "",
@@ -93,7 +106,12 @@ export async function getApp(id: string): Promise<AppDetail> {
       generation: envelope.metadata?.generation,
     };
   }
-  const p = await api<{ id: string; slug: string; framework: string | null; productionDeploymentId: string | null }>(`/projects/${id}`);
+  const p = await api<{
+    id: string;
+    slug: string;
+    framework: string | null;
+    productionDeploymentId: string | null;
+  }>(`/projects/${id}`);
   return {
     id: p.id,
     command: "",
@@ -121,7 +139,9 @@ export async function getAppLogs(id: string, tail = 100): Promise<string> {
     try {
       const headers: Record<string, string> = {};
       if (CREEKD_TOKEN) headers["Authorization"] = `Bearer ${CREEKD_TOKEN}`;
-      res = await fetch(`${CREEKD_BASE}/v1/apps/${encodeURIComponent(id)}/logs?tail=${tail}`, { headers });
+      res = await fetch(`${CREEKD_BASE}/v1/apps/${encodeURIComponent(id)}/logs?tail=${tail}`, {
+        headers,
+      });
     } catch {
       throw new Error("Cannot connect to creekd");
     }

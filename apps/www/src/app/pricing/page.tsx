@@ -84,11 +84,29 @@ export default function PricingPage() {
             creek
           </a>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="/docs" className="hover:text-foreground transition-colors">Docs</a>
-            <a href="/pricing" className="text-foreground">Pricing</a>
-            <a href="https://templates.creek.dev" className="hover:text-foreground transition-colors">Templates</a>
-            <a href="/changelog" className="hover:text-foreground transition-colors">Changelog</a>
-            <a href="https://github.com/solcreek/creek" className="hover:text-foreground transition-colors" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="/docs" className="hover:text-foreground transition-colors">
+              Docs
+            </a>
+            <a href="/pricing" className="text-foreground">
+              Pricing
+            </a>
+            <a
+              href="https://templates.creek.dev"
+              className="hover:text-foreground transition-colors"
+            >
+              Templates
+            </a>
+            <a href="/changelog" className="hover:text-foreground transition-colors">
+              Changelog
+            </a>
+            <a
+              href="https://github.com/solcreek/creek"
+              className="hover:text-foreground transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
           </div>
         </div>
       </nav>
@@ -123,9 +141,7 @@ export default function PricingPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.08, duration: 0.4 }}
               className={`relative rounded-xl border p-6 flex flex-col ${
-                tier.highlight
-                  ? "border-accent/40 bg-accent/[0.03]"
-                  : "border-border"
+                tier.highlight ? "border-accent/40 bg-accent/[0.03]" : "border-border"
               }`}
             >
               {tier.badge && (
@@ -136,9 +152,13 @@ export default function PricingPage() {
               <h3 className="text-sm font-semibold">{tier.name}</h3>
               <div className="mt-3 flex items-baseline gap-1">
                 <span className="text-3xl font-semibold tracking-tight">{tier.price}</span>
-                {tier.period && <span className="text-sm text-muted-foreground">{tier.period}</span>}
+                {tier.period && (
+                  <span className="text-sm text-muted-foreground">{tier.period}</span>
+                )}
               </div>
-              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{tier.description}</p>
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                {tier.description}
+              </p>
 
               <ul className="mt-6 space-y-2.5 flex-1">
                 {tier.features.map((f) => (
@@ -156,7 +176,11 @@ export default function PricingPage() {
                   </div>
                 ) : (
                   <a
-                    href={tier.name === "Enterprise" ? "mailto:enterprise@creek.dev" : "https://app.creek.dev"}
+                    href={
+                      tier.name === "Enterprise"
+                        ? "mailto:enterprise@creek.dev"
+                        : "https://app.creek.dev"
+                    }
                     className={`block w-full rounded-lg px-4 py-2 text-center text-sm font-medium transition-colors ${
                       tier.ctaStyle === "solid"
                         ? "bg-foreground text-background hover:opacity-90"
@@ -173,10 +197,14 @@ export default function PricingPage() {
 
         {/* FAQ-like note */}
         <div className="mt-12 text-center text-sm text-muted-foreground">
-          <p>All plans include: CLI, API, MCP server, framework auto-detection, edge caching, SSL.</p>
+          <p>
+            All plans include: CLI, API, MCP server, framework auto-detection, edge caching, SSL.
+          </p>
           <p className="mt-1">
             Self-hosting is always free.{" "}
-            <a href="/docs" className="text-accent hover:underline">Learn more</a>
+            <a href="/docs" className="text-accent hover:underline">
+              Learn more
+            </a>
           </p>
         </div>
       </section>

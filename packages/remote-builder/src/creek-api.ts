@@ -34,7 +34,7 @@ export async function deployToCreek(
   let projectId: string;
   const getRes = await fetch(`${apiUrl}/projects/${slug}`, { headers });
   if (getRes.ok) {
-    const project = await getRes.json() as any;
+    const project = (await getRes.json()) as any;
     projectId = project.id;
   } else {
     const createRes = await fetch(`${apiUrl}/projects`, {
@@ -43,10 +43,10 @@ export async function deployToCreek(
       body: JSON.stringify({ slug, framework }),
     });
     if (!createRes.ok) {
-      const err = await createRes.json().catch(() => ({})) as any;
+      const err = (await createRes.json().catch(() => ({}))) as any;
       throw new Error(`Failed to create project: ${err.message || createRes.statusText}`);
     }
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     projectId = created.project?.id || created.id;
   }
 
@@ -59,16 +59,19 @@ export async function deployToCreek(
   if (!deployRes.ok) {
     throw new Error(`Failed to create deployment: ${deployRes.statusText}`);
   }
-  const { deployment } = await deployRes.json() as any;
+  const { deployment } = (await deployRes.json()) as any;
 
   // 3. Upload bundle
-  const uploadRes = await fetch(`${apiUrl}/projects/${projectId}/deployments/${deployment.id}/bundle`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(bundle),
-  });
+  const uploadRes = await fetch(
+    `${apiUrl}/projects/${projectId}/deployments/${deployment.id}/bundle`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(bundle),
+    },
+  );
   if (!uploadRes.ok && uploadRes.status !== 202) {
-    const err = await uploadRes.json().catch(() => ({})) as any;
+    const err = (await uploadRes.json().catch(() => ({}))) as any;
     throw new Error(`Failed to upload bundle: ${err.message || uploadRes.statusText}`);
   }
 
@@ -78,10 +81,12 @@ export async function deployToCreek(
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT) {
-    const statusRes = await fetch(`${apiUrl}/projects/${projectId}/deployments/${deployment.id}`, { headers });
+    const statusRes = await fetch(`${apiUrl}/projects/${projectId}/deployments/${deployment.id}`, {
+      headers,
+    });
     if (!statusRes.ok) break;
 
-    const data = await statusRes.json() as any;
+    const data = (await statusRes.json()) as any;
     const status = data.deployment?.status;
 
     if (status === "active") {
@@ -103,7 +108,7 @@ export async function deployToCreek(
       };
     }
 
-    await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
 
   return {

@@ -24,7 +24,9 @@ afterAll(() => server.close());
 function createMockQueue() {
   const messages: any[] = [];
   return {
-    send: vi.fn(async (message: any) => { messages.push(message); }),
+    send: vi.fn(async (message: any) => {
+      messages.push(message);
+    }),
     _messages: messages,
   } as unknown as Queue & { _messages: any[] };
 }
@@ -60,7 +62,12 @@ function createApp(envOverrides?: Partial<WebDeployEnv>) {
 
   app.route("/web-deploy", webDeploy as any);
 
-  async function req(method: string, path: string, body?: unknown, headers?: Record<string, string>) {
+  async function req(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ) {
     const init: RequestInit = {
       method,
       headers: { "Content-Type": "application/json", ...headers },
@@ -100,14 +107,17 @@ describe("POST /web-deploy — input validation", () => {
     const { req } = createApp();
     const res = await req("POST", "/web-deploy", { type: "template", template: "landing" });
     expect(res.status).toBe(202);
-    const json = await res.json() as { buildId: string; statusUrl: string };
+    const json = (await res.json()) as { buildId: string; statusUrl: string };
     expect(json.buildId).toBeTruthy();
     expect(json.statusUrl).toMatch(/^\/web-deploy\/.+/);
   });
 
   test("valid repo → 202", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "repo", repo: "https://github.com/user/repo" });
+    const res = await req("POST", "/web-deploy", {
+      type: "repo",
+      repo: "https://github.com/user/repo",
+    });
     expect(res.status).toBe(202);
   });
 
@@ -137,31 +147,56 @@ describe("POST /web-deploy — CSRF", () => {
 
   test("origin: creek.dev → allowed", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { Origin: "https://creek.dev" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { Origin: "https://creek.dev" },
+    );
     expect(res.status).toBe(202);
   });
 
   test("origin: templates.creek.dev → allowed", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { Origin: "https://templates.creek.dev" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { Origin: "https://templates.creek.dev" },
+    );
     expect(res.status).toBe(202);
   });
 
   test("origin: localhost → allowed", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { Origin: "http://localhost:3000" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { Origin: "http://localhost:3000" },
+    );
     expect(res.status).toBe(202);
   });
 
   test("origin: evil.com → 403", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { Origin: "https://evil.com" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { Origin: "https://evil.com" },
+    );
     expect(res.status).toBe(403);
   });
 
   test("origin: notcreek.dev → 403", async () => {
     const { req } = createApp();
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { Origin: "https://notcreek.dev" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { Origin: "https://notcreek.dev" },
+    );
     expect(res.status).toBe(403);
   });
 });
@@ -174,7 +209,12 @@ describe("POST /web-deploy — rate limiting", () => {
   test("first 5 requests → 202", async () => {
     const { req } = createApp();
     for (let i = 0; i < 5; i++) {
-      const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "1.2.3.4" });
+      const res = await req(
+        "POST",
+        "/web-deploy",
+        { type: "template", template: "landing" },
+        { "cf-connecting-ip": "1.2.3.4" },
+      );
       expect(res.status).toBe(202);
     }
   });
@@ -182,20 +222,40 @@ describe("POST /web-deploy — rate limiting", () => {
   test("6th request same IP → 429", async () => {
     const { req } = createApp();
     for (let i = 0; i < 5; i++) {
-      await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "1.2.3.4" });
+      await req(
+        "POST",
+        "/web-deploy",
+        { type: "template", template: "landing" },
+        { "cf-connecting-ip": "1.2.3.4" },
+      );
     }
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "1.2.3.4" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { "cf-connecting-ip": "1.2.3.4" },
+    );
     expect(res.status).toBe(429);
-    const json = await res.json() as { retryAfter: number };
+    const json = (await res.json()) as { retryAfter: number };
     expect(json.retryAfter).toBe(3600);
   });
 
   test("different IP → independent counter", async () => {
     const { req } = createApp();
     for (let i = 0; i < 5; i++) {
-      await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "1.2.3.4" });
+      await req(
+        "POST",
+        "/web-deploy",
+        { type: "template", template: "landing" },
+        { "cf-connecting-ip": "1.2.3.4" },
+      );
     }
-    const res = await req("POST", "/web-deploy", { type: "template", template: "landing" }, { "cf-connecting-ip": "5.6.7.8" });
+    const res = await req(
+      "POST",
+      "/web-deploy",
+      { type: "template", template: "landing" },
+      { "cf-connecting-ip": "5.6.7.8" },
+    );
     expect(res.status).toBe(202);
   });
 });
@@ -213,7 +273,10 @@ describe("GET /web-deploy/:buildId — polling", () => {
 
   test("known buildId → returns stored status", async () => {
     const { req, env } = createApp();
-    await env.BUILD_STATUS.put("build:test-123", JSON.stringify({ buildId: "test-123", status: "building" }));
+    await env.BUILD_STATUS.put(
+      "build:test-123",
+      JSON.stringify({ buildId: "test-123", status: "building" }),
+    );
     const res = await req("GET", "/web-deploy/test-123");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ buildId: "test-123", status: "building" });
@@ -221,12 +284,17 @@ describe("GET /web-deploy/:buildId — polling", () => {
 
   test("active status includes previewUrl", async () => {
     const { req, env } = createApp();
-    await env.BUILD_STATUS.put("build:test-456", JSON.stringify({
-      buildId: "test-456", status: "active",
-      previewUrl: "https://abc.creeksandbox.com", expiresAt: "2026-04-06T22:00:00Z",
-    }));
+    await env.BUILD_STATUS.put(
+      "build:test-456",
+      JSON.stringify({
+        buildId: "test-456",
+        status: "active",
+        previewUrl: "https://abc.creeksandbox.com",
+        expiresAt: "2026-04-06T22:00:00Z",
+      }),
+    );
     const res = await req("GET", "/web-deploy/test-456");
-    const json = await res.json() as { status: string; previewUrl: string };
+    const json = (await res.json()) as { status: string; previewUrl: string };
     expect(json.status).toBe("active");
     expect(json.previewUrl).toBe("https://abc.creeksandbox.com");
   });
@@ -254,7 +322,11 @@ describe("buildAndDeploy — queue dispatch", () => {
     const queue = createMockQueue();
     const env = createEnv({ WEB_BUILDS: queue });
 
-    await buildAndDeploy("b-2", { type: "template", template: "landing", data: { title: "Hello" } }, env);
+    await buildAndDeploy(
+      "b-2",
+      { type: "template", template: "landing", data: { title: "Hello" } },
+      env,
+    );
 
     expect(queue._messages[0].templateData).toEqual({ title: "Hello" });
   });
@@ -297,7 +369,7 @@ describe("POST /web-deploy → queue integration", () => {
     const res = await req("POST", "/web-deploy", { type: "template", template: "landing" });
     expect(res.status).toBe(202);
 
-    const { buildId } = await res.json() as { buildId: string };
+    const { buildId } = (await res.json()) as { buildId: string };
 
     // KV has "building" status
     const status = await getKVStatus(env, buildId);

@@ -6,22 +6,22 @@ import createGlobe from "cobe";
 
 // Edge node locations [lat, lng] with stagger groups for ripple
 const markers = [
-  { location: [40.71, -74.01] as [number, number], size: 0.06, group: 0 },   // US East (origin)
-  { location: [37.78, -122.41] as [number, number], size: 0.06, group: 1 },  // US West
-  { location: [19.43, -99.13] as [number, number], size: 0.04, group: 1 },   // Mexico City
-  { location: [-23.55, -46.63] as [number, number], size: 0.05, group: 2 },  // São Paulo
-  { location: [51.51, -0.13] as [number, number], size: 0.06, group: 2 },    // London
-  { location: [48.86, 2.35] as [number, number], size: 0.05, group: 2 },     // Paris
-  { location: [50.11, 8.68] as [number, number], size: 0.06, group: 3 },     // Frankfurt
-  { location: [59.33, 18.07] as [number, number], size: 0.04, group: 3 },    // Stockholm
-  { location: [60.17, 24.94] as [number, number], size: 0.04, group: 3 },    // Helsinki
-  { location: [-33.93, 18.42] as [number, number], size: 0.04, group: 3 },   // Cape Town
-  { location: [25.20, 55.27] as [number, number], size: 0.05, group: 4 },    // Dubai
-  { location: [19.08, 72.88] as [number, number], size: 0.05, group: 4 },    // Mumbai
-  { location: [1.35, 103.82] as [number, number], size: 0.05, group: 5 },    // Singapore
-  { location: [35.68, 139.69] as [number, number], size: 0.06, group: 5 },   // Tokyo
-  { location: [37.57, 126.98] as [number, number], size: 0.05, group: 5 },   // Seoul
-  { location: [-33.87, 151.21] as [number, number], size: 0.05, group: 6 },  // Sydney
+  { location: [40.71, -74.01] as [number, number], size: 0.06, group: 0 }, // US East (origin)
+  { location: [37.78, -122.41] as [number, number], size: 0.06, group: 1 }, // US West
+  { location: [19.43, -99.13] as [number, number], size: 0.04, group: 1 }, // Mexico City
+  { location: [-23.55, -46.63] as [number, number], size: 0.05, group: 2 }, // São Paulo
+  { location: [51.51, -0.13] as [number, number], size: 0.06, group: 2 }, // London
+  { location: [48.86, 2.35] as [number, number], size: 0.05, group: 2 }, // Paris
+  { location: [50.11, 8.68] as [number, number], size: 0.06, group: 3 }, // Frankfurt
+  { location: [59.33, 18.07] as [number, number], size: 0.04, group: 3 }, // Stockholm
+  { location: [60.17, 24.94] as [number, number], size: 0.04, group: 3 }, // Helsinki
+  { location: [-33.93, 18.42] as [number, number], size: 0.04, group: 3 }, // Cape Town
+  { location: [25.2, 55.27] as [number, number], size: 0.05, group: 4 }, // Dubai
+  { location: [19.08, 72.88] as [number, number], size: 0.05, group: 4 }, // Mumbai
+  { location: [1.35, 103.82] as [number, number], size: 0.05, group: 5 }, // Singapore
+  { location: [35.68, 139.69] as [number, number], size: 0.06, group: 5 }, // Tokyo
+  { location: [37.57, 126.98] as [number, number], size: 0.05, group: 5 }, // Seoul
+  { location: [-33.87, 151.21] as [number, number], size: 0.05, group: 6 }, // Sydney
 ];
 
 const TOTAL_GROUPS = 7;
@@ -61,7 +61,7 @@ export function EdgeMap({ active }: { active: boolean }) {
         const elapsed = performance.now() - activationStartRef.current;
         activatedGroupRef.current = Math.min(
           Math.floor(elapsed / RIPPLE_INTERVAL),
-          TOTAL_GROUPS - 1
+          TOTAL_GROUPS - 1,
         );
       }
 
@@ -72,11 +72,8 @@ export function EdgeMap({ active }: { active: boolean }) {
           // Pulse: markers briefly grow when their group just activated
           const justActivated =
             activationStartRef.current !== null &&
-            Math.abs(
-              performance.now() -
-                activationStartRef.current -
-                m.group * RIPPLE_INTERVAL
-            ) < 400;
+            Math.abs(performance.now() - activationStartRef.current - m.group * RIPPLE_INTERVAL) <
+              400;
           const pulse = justActivated ? 1.6 : 1;
           return {
             location: m.location,
@@ -132,11 +129,7 @@ export function EdgeMap({ active }: { active: boolean }) {
 
   return (
     <div className="relative w-full max-w-[400px] aspect-square">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ contain: "layout paint size" }}
-      />
+      <canvas ref={canvasRef} className="w-full h-full" style={{ contain: "layout paint size" }} />
       {/* Ripple glow that expands when deploying */}
       <AnimatePresence>
         {active && (
@@ -158,9 +151,7 @@ export function EdgeMap({ active }: { active: boolean }) {
             className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-accent/30 bg-background/80 backdrop-blur-sm px-3 py-1"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            <span className="text-[11px] font-mono text-accent">
-              300+ edge locations
-            </span>
+            <span className="text-[11px] font-mono text-accent">300+ edge locations</span>
           </motion.div>
         )}
       </AnimatePresence>

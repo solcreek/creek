@@ -8,7 +8,15 @@
  * - list({ prefix, limit, cursor }) → R2Objects
  */
 
-import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { join, dirname, relative } from "node:path";
 
 interface R2ObjectMeta {
@@ -45,7 +53,10 @@ class LocalR2ObjectBody extends LocalR2Object {
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {
-    return this.data.buffer.slice(this.data.byteOffset, this.data.byteOffset + this.data.byteLength);
+    return this.data.buffer.slice(
+      this.data.byteOffset,
+      this.data.byteOffset + this.data.byteLength,
+    );
   }
 
   async text(): Promise<string> {
@@ -90,7 +101,11 @@ export class LocalR2Bucket {
     }
   }
 
-  async put(key: string, value: string | ArrayBuffer | ReadableStream | Blob | Buffer | Uint8Array, options?: { httpMetadata?: Record<string, string>; customMetadata?: Record<string, string> }): Promise<LocalR2Object> {
+  async put(
+    key: string,
+    value: string | ArrayBuffer | ReadableStream | Blob | Buffer | Uint8Array,
+    options?: { httpMetadata?: Record<string, string>; customMetadata?: Record<string, string> },
+  ): Promise<LocalR2Object> {
     const path = this.keyPath(key);
     mkdirSync(dirname(path), { recursive: true });
 
@@ -122,11 +137,20 @@ export class LocalR2Bucket {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try { unlinkSync(this.keyPath(k)); } catch { /* ignore */ }
+      try {
+        unlinkSync(this.keyPath(k));
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  async list(options?: { prefix?: string; limit?: number; cursor?: string; delimiter?: string }): Promise<{
+  async list(options?: {
+    prefix?: string;
+    limit?: number;
+    cursor?: string;
+    delimiter?: string;
+  }): Promise<{
     objects: LocalR2Object[];
     truncated: boolean;
     cursor?: string;
