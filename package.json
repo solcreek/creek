@@ -13,7 +13,7 @@
   "devDependencies": {
     "turbo": "^2.4.4",
     "typescript": "^5.8.2",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@10.6.5",
   "pnpm": {
