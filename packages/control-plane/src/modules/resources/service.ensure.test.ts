@@ -119,7 +119,8 @@ describe("ensureProjectBindings — server attachment merge", () => {
     // it holds the data. A deploy now requires the new primary DATABASE. The
     // primary must adopt the existing DB resource, NOT provision a fresh empty
     // one (which would split the app across two databases). If the fix didn't
-    // fire, the auto-create path would call the CF API and this test would fail.
+    // fire, the auto-create path (CF provisioning is mocked at the top) would
+    // yield a different resource id, so the assertion below would fail.
     const env = envWithBindings([
       { bindingName: "DB", resourceId: "res-db", kind: "database", cfResourceId: "d1-full", cfResourceType: "d1" },
     ]);
