@@ -12,8 +12,8 @@
     "AGENTS.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
     "test": "vitest run"
   },
   "keywords": [
