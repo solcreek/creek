@@ -174,7 +174,14 @@ export async function ensureProjectBindings(
     // its data stays in DB: a split-brain across two D1s.
     const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
     const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
-    if (aliasBinding && aliasBinding.cfResourceId) {
+    const aliasCfType = aliasBinding
+      ? aliasBinding.cfResourceType ?? KIND_TO_CF[aliasBinding.kind]
+      : undefined;
+    // Only adopt when the alias's resource TYPE matches the requirement — a
+    // user could have named an unrelated resource with the alias (e.g.
+    // `creek storage attach --as DB`), and blindly adopting it would silently
+    // bind DATABASE to an R2/KV. On a type mismatch, fall through to auto-create.
+    if (aliasBinding && aliasBinding.cfResourceId && aliasCfType === req.type) {
       await env.DB.prepare(
         `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
          VALUES (?, ?, ?, ?)
@@ -185,7 +192,7 @@ export async function ensureProjectBindings(
       result.set(req.bindingName, {
         bindingName: req.bindingName,
         cfResourceId: aliasBinding.cfResourceId,
-        cfType: aliasBinding.cfResourceType ?? KIND_TO_CF[aliasBinding.kind] ?? req.type,
+        cfType: aliasCfType,
       });
       continue;
     }
