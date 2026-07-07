@@ -14,9 +14,25 @@ import type { BuildLogLine } from "../build-logs/types.js";
 // covers. Fabricated IDs only.
 const NS = "https://api.cloudflare.com/client/v4/accounts/:acc/workers/dispatch/namespaces/:ns/scripts/:name";
 
-const server = setupServer();
+// Captured body of every observability settings PATCH, across all tests. A
+// default handler (below) keeps the call satisfied everywhere; the dedicated
+// observability test asserts on it. Reset per-test.
+let settingsPatches: Array<Record<string, unknown>> = [];
+
+const server = setupServer(
+  // The post-upload observability enablement fires on every successful deploy;
+  // handle it by default so it doesn't trip onUnhandledRequest across tests.
+  http.patch(`${NS}/settings`, async ({ request }) => {
+    const fd = await (request as unknown as { formData(): Promise<FormData> }).formData();
+    settingsPatches.push(JSON.parse(await (fd.get("settings") as File).text()));
+    return HttpResponse.json({ success: true, result: {}, errors: [] });
+  }),
+);
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  settingsPatches = [];
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 let testEnv: LocalTestEnv;
@@ -103,6 +119,31 @@ describe("runDeployJob (integration via MSW)", () => {
 
     expect(scriptPut).toBe(true);
     expect(deploymentRow().status).toBe("active");
+  });
+
+  it("enables observability on the deployed tenant script (settings PATCH)", async () => {
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "session-jwt", buckets: [] }, errors: [] }),
+      ),
+      http.put(NS, () => HttpResponse.json({ success: true, result: { id: "script" }, errors: [] })),
+    );
+
+    await stageBundle();
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    // The production deploy path (control-plane's OWN deployScriptWithAssets)
+    // must enable Workers Logs on the tenant script via the settings endpoint.
+    // This exact call was missing from this copy — the deploy-core fix didn't
+    // apply here — leaving tenant scripts unobservable. Locking it in ensures a
+    // future divergence fails CI instead of silently shipping.
+    // The pipeline deploys the tenant script (prod + alias), each of which must
+    // enable observability — assert every settings PATCH turns it on.
+    expect(settingsPatches.length).toBeGreaterThanOrEqual(1);
+    expect(
+      settingsPatches.every((p) => (p.observability as { enabled?: boolean } | undefined)?.enabled === true),
+    ).toBe(true);
   });
 
   it("records failed + failedStep when the WfP deploy errors", async () => {

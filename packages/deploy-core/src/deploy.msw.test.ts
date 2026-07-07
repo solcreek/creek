@@ -18,9 +18,12 @@ const env: DeployEnv = {
 
 const SCRIPT_URL =
   "https://api.cloudflare.com/client/v4/accounts/:acc/workers/dispatch/namespaces/:ns/scripts/:name";
+const SETTINGS_URL = `${SCRIPT_URL}/settings`;
 
 // Captured metadata of every PUT, in order.
 let puts: Array<Record<string, unknown>> = [];
+// Captured body of every settings PATCH (observability enablement), in order.
+let settingsPatches: Array<Record<string, unknown>> = [];
 // When >0, the first N PUTs fail with a migration-tag precondition error.
 let failFirstWithMigrationError = 0;
 
@@ -46,11 +49,17 @@ const server = setupServer(
     }
     return HttpResponse.json({ success: true, result: { id: "script" }, errors: [] });
   }),
+  http.patch(SETTINGS_URL, async ({ request }) => {
+    const fd = await (request as { formData(): Promise<FormData> }).formData();
+    settingsPatches.push(JSON.parse(await (fd.get("settings") as File).text()));
+    return HttpResponse.json({ success: true, result: {}, errors: [] });
+  }),
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   puts = [];
+  settingsPatches = [];
   failFirstWithMigrationError = 0;
   server.resetHandlers();
 });
@@ -116,6 +125,18 @@ describe("deployScriptWithAssets — Cloudflare WfP metadata (via MSW)", () => {
     await deploy({ framework: "nextjs", date: "2026-09-01", flags: ["nodejs_compat"] });
     expect(puts[0].compatibility_date).toBe("2026-09-01");
     expect(puts[0].compatibility_flags).toEqual(["nodejs_compat"]);
+  });
+
+  it("enables observability on the tenant script via a follow-up settings PATCH", async () => {
+    // WfP ignores `observability` in the upload metadata, so it must be set on
+    // the SETTINGS endpoint after the PUT. This locks that call in — the PATCH
+    // was previously silently swallowed (unmocked + best-effort try/catch), so
+    // a missing/broken enablement produced no test failure.
+    await deploy({ framework: "vite-react" });
+    expect(settingsPatches).toHaveLength(1);
+    expect(settingsPatches[0]).toMatchObject({ observability: { enabled: true } });
+    // And it is NOT (uselessly) set in the upload metadata.
+    expect(puts[0].observability).toBeUndefined();
   });
 
   it("retries with migration_tag when the tag precondition fails", async () => {
