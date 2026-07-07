@@ -171,10 +171,18 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
     // --- Bundle guardrails ---
     const bundleBody = await c.req.text();
 
-    const MAX_BUNDLE_SIZE = 50 * 1024 * 1024; // 50MB
+    // creek's own cap (NOT Cloudflare's limit — CF caps the deployed worker on
+    // its GZIPPED script size, which a large-but-compressible worker stays well
+    // under). Raised 50→100MB so an unminified adapter worker (minify is off by
+    // default since it broke Prisma-D1) can deploy without a fragile manual
+    // esbuild pass. Caveat: the body is held + JSON.parsed in this 128MB Worker
+    // (and again in the deploy job), so a bundle approaching this may OOM before
+    // it hits the cap — the real fix for the largest bundles is streaming the
+    // upload to R2 instead of buffering it here.
+    const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100MB
     if (bundleBody.length > MAX_BUNDLE_SIZE) {
       return c.json(
-        { error: "validation", message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 50MB.` },
+        { error: "validation", message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 100MB.` },
         400,
       );
     }

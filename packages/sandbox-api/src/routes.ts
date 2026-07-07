@@ -128,9 +128,13 @@ routes.post("/deploy", async (c) => {
     renderMode: body.manifest?.renderMode ?? "spa" as const,
   };
 
+  // creek's own cap (not Cloudflare's — CF limits the gzipped worker script).
+  // Raised 50→100MB to match the production path so an unminified worker can
+  // deploy. The body is buffered + JSON.parsed in a 128MB Worker, so very large
+  // bundles may OOM before the cap; streaming to R2 is the long-term fix.
   const bundleSize = JSON.stringify(body).length;
-  if (bundleSize > 50 * 1024 * 1024) {
-    return c.json({ error: "validation", message: "Bundle too large. Max 50MB." }, 400);
+  if (bundleSize > 100 * 1024 * 1024) {
+    return c.json({ error: "validation", message: "Bundle too large. Max 100MB." }, 400);
   }
 
   // Tiered rate limiting
