@@ -103,6 +103,43 @@ describe("ensureProjectBindings — server attachment merge", () => {
     expect(result.get("CACHE")?.cfType).toBe("kv");
   });
 
+  test("adopts a legacy DB alias's resource under the DATABASE primary (no new empty D1)", async () => {
+    // The project was first deployed under the old name: only DB is bound, and
+    // it holds the data. A deploy now requires the new primary DATABASE. The
+    // primary must adopt the existing DB resource, NOT provision a fresh empty
+    // one (which would split the app across two databases). If the fix didn't
+    // fire, the auto-create path would call the CF API and this test would fail.
+    const env = envWithBindings([
+      { bindingName: "DB", resourceId: "res-db", kind: "database", cfResourceId: "d1-full", cfResourceType: "d1" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    expect(result.get("DATABASE")).toEqual({
+      bindingName: "DATABASE",
+      cfResourceId: "d1-full",
+      cfType: "d1",
+    });
+  });
+
+  test("adopts a legacy KV alias's resource under the CACHE primary", async () => {
+    const env = envWithBindings([
+      { bindingName: "KV", resourceId: "res-kv", kind: "cache", cfResourceId: "kv-full", cfResourceType: "kv" },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "kv", bindingName: "CACHE" },
+    ]);
+
+    expect(result.get("CACHE")).toEqual({
+      bindingName: "CACHE",
+      cfResourceId: "kv-full",
+      cfType: "kv",
+    });
+  });
+
   test("a config requirement and a separate attachment both resolve", async () => {
     const env = envWithBindings([
       { bindingName: "SESSIONS", resourceId: "res-a", kind: "cache", cfResourceId: "kv-aaa", cfResourceType: "kv" },

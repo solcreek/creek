@@ -165,6 +165,31 @@ export async function ensureProjectBindings(
       continue;
     }
 
+    // Migration safety: this requirement's exact name isn't bound, but if it's
+    // a PRIMARY name (e.g. DATABASE) whose DEPRECATED ALIAS (e.g. DB) is already
+    // bound to a provisioned resource, adopt that resource under the primary
+    // name too — never provision a fresh (empty) one. Without this, a project
+    // first deployed under the old name (DB) that now deploys under the new
+    // primary (DATABASE) gets a SECOND, empty database bound as DATABASE while
+    // its data stays in DB: a split-brain across two D1s.
+    const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
+    const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
+    if (aliasBinding && aliasBinding.cfResourceId) {
+      await env.DB.prepare(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(projectId, bindingName) DO UPDATE SET resourceId = excluded.resourceId`,
+      )
+        .bind(projectId, req.bindingName, aliasBinding.resourceId, Date.now())
+        .run();
+      result.set(req.bindingName, {
+        bindingName: req.bindingName,
+        cfResourceId: aliasBinding.cfResourceId,
+        cfType: aliasBinding.cfResourceType ?? KIND_TO_CF[aliasBinding.kind] ?? req.type,
+      });
+      continue;
+    }
+
     // No binding exists — auto-create resource + binding
     const resourceId = crypto.randomUUID();
     const cfName = `creek-${resourceId.slice(0, 8)}`;
