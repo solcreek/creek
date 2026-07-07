@@ -91,12 +91,11 @@ export async function deployScriptWithAssets(
       jwt: completionJwt,
       config: assetsConfig ?? {},
     },
-    // Enable Workers Logs on the tenant script so its own invocation +
-    // console output are queryable per-script (dashboard / Logpush / API),
-    // not only via the dispatch worker's tail consumer. Unlike tail_consumers
-    // (ignored for WfP scripts, see below), observability is honored on the
-    // per-script upload metadata. head_sampling_rate: 1 = capture everything.
-    observability: { enabled: true, head_sampling_rate: 1 },
+    // NOTE: observability is NOT set here — like tail_consumers, WfP silently
+    // ignores it in the per-script upload metadata (verified: a freshly
+    // deployed script comes back with observability=null). It IS honored on
+    // the script SETTINGS endpoint, so it's enabled with a follow-up PATCH
+    // after the upload succeeds (see enableObservability below).
     // NOTE: tail_consumers is NOT set here. CF silently ignores
     // tail_consumers in the WfP script upload metadata (verified
     // 2026-04-13: deploys with the field accept it but no events
@@ -143,6 +142,25 @@ export async function deployScriptWithAssets(
     } else {
       throw err;
     }
+  }
+
+  // Enable Workers Logs on the tenant script via the SETTINGS endpoint — the
+  // upload metadata ignores `observability` (see note above), but a settings
+  // PATCH is honored, so the tenant worker's own invocation + console logs
+  // become queryable per-script (dashboard / Logpush / API), not just via the
+  // dispatch worker's tail consumer. Best-effort: observability is optional
+  // infra and must never fail or mask a deploy.
+  try {
+    const settingsForm = new FormData();
+    settingsForm.append(
+      "settings",
+      new Blob([JSON.stringify({ observability: { enabled: true, head_sampling_rate: 1 } })], {
+        type: "application/json",
+      }),
+    );
+    await cfApi(env, "PATCH", `${path}/settings`, settingsForm);
+  } catch {
+    // never block a deploy on observability
   }
 }
 
