@@ -39,7 +39,9 @@ export class CreekClient {
         // upload the whole backing ArrayBuffer — extra, unrelated bytes.
         init.body =
           body instanceof Uint8Array
-            ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+            ? // slice() on ArrayBufferLike widens to ArrayBuffer | SharedArrayBuffer;
+              // a request-body view is never shared, so narrow back to ArrayBuffer.
+              (body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer)
             : body;
       } else {
         headers["Content-Type"] = "application/json";
