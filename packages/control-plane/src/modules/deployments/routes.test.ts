@@ -240,6 +240,28 @@ describe("PUT /serverfile (separate binary server files)", () => {
     expect(new TextDecoder().decode(await stored!.arrayBuffer())).toBe("worker-code");
   });
 
+  test("stores a file streamed without a Content-Length (the cap-while-reading path)", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed-"));
+        controller.enqueue(new TextEncoder().encode("worker"));
+        controller.close();
+      },
+    });
+    const res = await app.request(
+      `${base}?name=chunked.js`,
+      // duplex is required when a fetch body is a stream
+      { method: "PUT", body: stream, duplex: "half" } as RequestInit,
+      testEnv.env,
+      executionCtx as any,
+    );
+    expect(res.status).toBe(200);
+    const stored = await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}-server/chunked.js`);
+    expect(new TextDecoder().decode(await stored!.arrayBuffer())).toBe("streamed-worker");
+  });
+
   test("rejects a missing or path-traversing ?name", async () => {
     seedTestProject();
     seedDeployment("queued");

@@ -375,23 +375,48 @@ deployments.put("/:projectId/deployments/:deploymentId/serverfile", requirePermi
     );
   }
 
-  // Cap the size: this handler buffers the file in the 128MB Worker, so an
-  // unbounded upload would OOM/DoS. A worker.js + wasm is tens of MB; 80MB is
-  // generous while staying well under the cap. Check the declared length first
-  // (cheap reject), then the actual bytes (Content-Length can lie).
-  const MAX_SERVER_FILE_SIZE = 80 * 1024 * 1024;
-  const declared = Number(c.req.header("content-length") ?? "");
+  // Cap the size in this 128MB Worker so an oversized upload can't OOM/DoS it.
+  // A worker.js + wasm is tens of MB; 60MB is generous while leaving headroom
+  // for the buffered copy (~2x) to stay under the cap. Buffering with
+  // c.req.arrayBuffer() first would defeat the check — a missing/lying
+  // Content-Length would already be fully in memory before any byteLength test.
+  // Instead count bytes WHILE reading and abort the moment we exceed the cap, so
+  // an unbounded body never fully materializes. The cheap Content-Length check
+  // rejects an honest-but-oversized upload before we read anything.
+  const MAX_SERVER_FILE_SIZE = 60 * 1024 * 1024;
   const tooLarge = () =>
     c.json(
       { error: "validation", message: `Server file too large. Max ${MAX_SERVER_FILE_SIZE / 1024 / 1024}MB.` },
       400,
     );
+  const declared = Number(c.req.header("content-length") ?? "");
   if (Number.isFinite(declared) && declared > MAX_SERVER_FILE_SIZE) {
     return tooLarge();
   }
-  const body = await c.req.arrayBuffer();
-  if (body.byteLength > MAX_SERVER_FILE_SIZE) {
-    return tooLarge();
+  const rawBody = c.req.raw.body;
+  if (!rawBody) {
+    return c.json({ error: "validation", message: "Empty body" }, 400);
+  }
+  let total = 0;
+  const capMarker = new Error("__server_file_too_large__");
+  const capped = rawBody.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        total += chunk.byteLength;
+        if (total > MAX_SERVER_FILE_SIZE) {
+          controller.error(capMarker);
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  let body: ArrayBuffer;
+  try {
+    body = await new Response(capped).arrayBuffer();
+  } catch (err) {
+    if (err === capMarker) return tooLarge();
+    throw err;
   }
   await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
   return c.json({ ok: true }, 200);
@@ -1107,7 +1132,11 @@ async function deployFromBundleCache(
         )
       : undefined;
 
-    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : ("spa" as const);
+    // Preserve "worker" as well as "ssr" — deployWithAssets treats both as a
+    // server deploy. Coercing "worker" to "spa" here would deploy a worker
+    // bundle as a static SPA (a broken app). Anything else defaults to "spa".
+    const rm = bundle.manifest.renderMode;
+    const renderMode: "spa" | "ssr" | "worker" = rm === "ssr" || rm === "worker" ? rm : "spa";
 
     // Update status
     await env.DB.prepare("UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = ?")
