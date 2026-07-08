@@ -86,6 +86,17 @@ describe("CreekClient", () => {
     expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(new Uint8Array([10, 11, 12, 13]));
   });
 
+  test("uploadServerFile avoids copying when the view already covers the whole buffer", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+    const bytes = new Uint8Array([1, 2, 3, 4]); // byteOffset 0, full length
+
+    await client.uploadServerFile("proj", "dep", "worker.js", bytes);
+
+    // No copy in the common case: the exact backing buffer is sent through.
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.body).toBe(bytes.buffer);
+  });
+
   test("uploadServerFile URL-encodes the file name", async () => {
     mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
     await client.uploadServerFile("proj", "dep", "chunks/ssr a.js", new Uint8Array([1]));

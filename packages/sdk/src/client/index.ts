@@ -37,12 +37,23 @@ export class CreekClient {
         // Slice to the view's exact bytes: a Node Buffer (or any Uint8Array with
         // a byteOffset / larger backing buffer, e.g. from a pool) would otherwise
         // upload the whole backing ArrayBuffer — extra, unrelated bytes.
-        init.body =
-          body instanceof Uint8Array
-            ? // slice() on ArrayBufferLike widens to ArrayBuffer | SharedArrayBuffer;
-              // a request-body view is never shared, so narrow back to ArrayBuffer.
-              (body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer)
-            : body;
+        if (body instanceof Uint8Array) {
+          // Send exactly the view's bytes. When it already covers the whole
+          // backing buffer (the common case — Buffer.from(base64) allocates
+          // exactly), pass the buffer as-is to avoid copying a multi-MB payload;
+          // only a partial/offset view (e.g. a pooled Node Buffer) needs a slice.
+          // slice() widens to ArrayBuffer | SharedArrayBuffer; a request body is
+          // never shared, so narrow back to ArrayBuffer.
+          init.body =
+            body.byteOffset === 0 && body.byteLength === body.buffer.byteLength
+              ? (body.buffer as ArrayBuffer)
+              : (body.buffer.slice(
+                  body.byteOffset,
+                  body.byteOffset + body.byteLength,
+                ) as ArrayBuffer);
+        } else {
+          init.body = body;
+        }
       } else {
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);

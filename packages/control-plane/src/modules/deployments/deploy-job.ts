@@ -121,11 +121,14 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       );
     }
 
+    // Count server files from the decoded result so the log is accurate for
+    // both the binary-R2 (serverFileNames) and legacy-inline paths.
+    const serverFileCount = decodedServerFiles ? Object.keys(decodedServerFiles).length : 0;
     log(
       "upload",
       "info",
       `Bundle read: ${Object.keys(bundle.assets).length} asset(s)` +
-        (bundle.serverFiles ? `, ${Object.keys(bundle.serverFiles).length} server file(s)` : ""),
+        (serverFileCount > 0 ? `, ${serverFileCount} server file(s)` : ""),
     );
 
     const renderMode = bundle.manifest.renderMode ?? "spa";
