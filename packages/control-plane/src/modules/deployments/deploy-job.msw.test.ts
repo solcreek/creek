@@ -198,6 +198,31 @@ describe("runDeployJob (integration via MSW)", () => {
     expect(row.errorMessage).toContain("namespace boom");
   });
 
+  it("reclaims R2 staging (bundle + server files) after a failed deploy", async () => {
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "j", buckets: [] }, errors: [] }),
+      ),
+      http.put(NS, () =>
+        HttpResponse.json({ success: false, errors: [{ code: 10000, message: "boom" }] }),
+      ),
+    );
+    await stageBundle();
+    // A leftover binary server file from the CLI's /serverfile upload — the
+    // cleanup lists the prefix, so it's reclaimed even though this SPA bundle
+    // doesn't reference it.
+    await testEnv.env.ASSETS.put(
+      "bundles/dep-1-server/worker.js",
+      new TextEncoder().encode("stale-worker"),
+    );
+
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("failed");
+    expect(await testEnv.env.ASSETS.get("bundles/dep-1.json")).toBeNull();
+    expect(await testEnv.env.ASSETS.get("bundles/dep-1-server/worker.js")).toBeNull();
+  });
+
   it("fails at the uploading step when the bundle is missing from staging", async () => {
     // No stageBundle() — R2 has no bundle for dep-1.
     await runDeployJob(testEnv.env, input);

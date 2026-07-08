@@ -294,17 +294,6 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       }),
     );
 
-    // Clean up staging bundle + any separately-staged binary server files, so
-    // the (potentially tens-of-MB) worker/wasm objects don't accumulate in R2.
-    // Best-effort for BOTH: the deploy is already active, so a failed R2 delete
-    // (including the bundle's) must never turn a successful deploy into a failed
-    // job — allSettled swallows rejections.
-    const staleKeys = [
-      bundleKey,
-      ...(bundle.serverFileNames ?? []).map((name) => serverFileKey(deploymentId, name)),
-    ];
-    await Promise.allSettled(staleKeys.map((key) => env.ASSETS.delete(key)));
-
     log("activate", "info", isProduction ? "Deployment active (production)" : "Deployment active");
   } catch (err) {
     const step = err instanceof StepError ? err.step : "deploying";
@@ -323,6 +312,10 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       errorStep: outcome.errorStep,
       errorCode: outcome.errorCode,
     });
+    // Reclaim R2 staging on BOTH success and failure — a failed deploy would
+    // otherwise leave its (tens-of-MB) server-file objects behind forever.
+    // Best-effort: this is terminal, so a delete error must not surface.
+    await deleteStagedBundle(env, deploymentId);
   }
 }
 
@@ -444,6 +437,24 @@ export function isValidServerFileName(name: string): boolean {
     !name.split("/").includes("..") &&
     ![...name].some((ch) => ch.charCodeAt(0) < 0x20)
   );
+}
+
+/**
+ * Best-effort removal of a deployment's R2 staging: the bundle JSON plus every
+ * separately-staged binary server file. Lists the server-file prefix rather than
+ * needing the bundle, so it also reclaims staging for a job that was killed
+ * (e.g. OOM) before it could clean up — the reaper calls this for reaped
+ * deployments. Never throws (allSettled), so it can't fail the caller.
+ */
+export async function deleteStagedBundle(env: Env, deploymentId: string): Promise<void> {
+  const keys = [`bundles/${deploymentId}.json`];
+  try {
+    const listed = await env.ASSETS.list({ prefix: `bundles/${deploymentId}-server/` });
+    for (const obj of listed.objects) keys.push(obj.key);
+  } catch {
+    // Listing failed — still attempt the bundle JSON below.
+  }
+  await Promise.allSettled(keys.map((key) => env.ASSETS.delete(key)));
 }
 
 /**

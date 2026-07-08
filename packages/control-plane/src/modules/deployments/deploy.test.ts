@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { resolveDeployCompat, arrayBufferToBase64 } from "./deploy";
-import { base64ToArrayBuffer, decodeBundleAssets, resolveServerFiles } from "./deploy-job";
+import {
+  base64ToArrayBuffer,
+  decodeBundleAssets,
+  resolveServerFiles,
+  deleteStagedBundle,
+} from "./deploy-job";
 import type { StagedBundle } from "./deploy-job";
 import type { Env } from "../../types";
 
@@ -198,5 +203,51 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
       assets: {},
     };
     await expect(resolveServerFiles(env, "dep1", ssr)).rejects.toThrow(/missing/);
+  });
+});
+
+describe("deleteStagedBundle (staging cleanup)", () => {
+  it("deletes the bundle JSON and every listed binary server file", async () => {
+    const deleted: string[] = [];
+    const env = {
+      ASSETS: {
+        list: async ({ prefix }: { prefix: string }) => ({
+          objects: [{ key: `${prefix}worker.js` }, { key: `${prefix}q.wasm` }],
+        }),
+        delete: async (key: string) => void deleted.push(key),
+      },
+    } as unknown as Env;
+    await deleteStagedBundle(env, "dep9");
+    expect(deleted.sort()).toEqual([
+      "bundles/dep9-server/q.wasm",
+      "bundles/dep9-server/worker.js",
+      "bundles/dep9.json",
+    ]);
+  });
+
+  it("still deletes the bundle JSON when the server-file listing throws", async () => {
+    const deleted: string[] = [];
+    const env = {
+      ASSETS: {
+        list: async () => {
+          throw new Error("R2 list down");
+        },
+        delete: async (key: string) => void deleted.push(key),
+      },
+    } as unknown as Env;
+    await expect(deleteStagedBundle(env, "dep9")).resolves.toBeUndefined();
+    expect(deleted).toEqual(["bundles/dep9.json"]);
+  });
+
+  it("never rejects even if a delete fails (best-effort)", async () => {
+    const env = {
+      ASSETS: {
+        list: async () => ({ objects: [{ key: "bundles/x-server/w.js" }] }),
+        delete: async () => {
+          throw new Error("delete failed");
+        },
+      },
+    } as unknown as Env;
+    await expect(deleteStagedBundle(env, "x")).resolves.toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import { auditContextMiddleware } from "./modules/audit/middleware.js";
 import { purgeAuditIpLogs } from "./modules/audit/service.js";
 import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
+import { deleteStagedBundle } from "./modules/deployments/deploy-job.js";
 import { domains } from "./modules/domains/routes.js";
 import { logs } from "./modules/logs/routes.js";
 import { metrics } from "./modules/metrics/routes.js";
@@ -224,14 +225,15 @@ export { app };
 // a live deploy.
 const STALE_DEPLOY_MS = 10 * 60 * 1000;
 
-async function sweepStaleDeployments(db: D1Database): Promise<number> {
+async function sweepStaleDeployments(env: Env): Promise<number> {
   const staleBefore = Date.now() - STALE_DEPLOY_MS;
   // Record a per-stage, actionable reason rather than a bare "Deploy timed
   // out" — the read-side fallback (build-logs) classifies these into stable
   // reason codes, and "deploy window" is the phrase that classifier keys off.
-  const result = await db
-    .prepare(
-      `UPDATE deployment
+  // RETURNING gives us exactly the rows we just failed (no SELECT-then-UPDATE
+  // race) so we can reclaim their R2 staging below.
+  const result = await env.DB.prepare(
+    `UPDATE deployment
      SET status = 'failed',
          failedStep = status,
          errorMessage = CASE status
@@ -242,11 +244,19 @@ async function sweepStaleDeployments(db: D1Database): Promise<number> {
          END,
          updatedAt = ?
      WHERE status IN ('uploading', 'provisioning', 'deploying')
-       AND updatedAt < ?`,
-    )
+       AND updatedAt < ?
+     RETURNING id`,
+  )
     .bind(Date.now(), staleBefore)
-    .run();
-  return result.meta.changes ?? 0;
+    .all<{ id: string }>();
+
+  const ids = result.results ?? [];
+  // A deploy killed mid-flight (e.g. OOM) never runs its own cleanup; the reaper
+  // is the only thing that touches it afterwards, so reclaim its staging here.
+  for (const { id } of ids) {
+    await deleteStagedBundle(env, id);
+  }
+  return ids.length;
 }
 
 async function processResourceCleanupQueue(env: Env): Promise<number> {
@@ -362,7 +372,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
       Promise.all([
-        sweepStaleDeployments(env.DB),
+        sweepStaleDeployments(env),
         processResourceCleanupQueue(env),
         syncPendingDomains(env),
         purgeAuditIpLogs(env.DB),
