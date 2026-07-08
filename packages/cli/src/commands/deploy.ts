@@ -410,6 +410,21 @@ function emitProductionDeprecationWarning(jsonMode: boolean): void {
   }
 }
 
+/**
+ * Parse a --wait duration into milliseconds. Accepts a bare number (ms) or a
+ * suffixed value: `300000`, `900s`, `15m`, `1h`. Returns null for undefined or
+ * an unparseable value, so the caller falls back to the default. Clamped to
+ * [1s, 60m] so a typo can't make the CLI hang forever or bail instantly.
+ * Exported for tests.
+ */
+export function parseWaitDuration(input: string | undefined): number | null {
+  if (input == null) return null;
+  const m = /^(\d+)(ms|s|m|h)?$/.exec(input.trim());
+  if (!m) return null;
+  const factor = m[2] === "h" ? 3_600_000 : m[2] === "m" ? 60_000 : m[2] === "s" ? 1000 : 1;
+  return Math.min(Math.max(Number(m[1]) * factor, 1000), 3_600_000);
+}
+
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
@@ -495,6 +510,12 @@ export const deployCommand = defineCommand({
       description:
         "Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Mutually exclusive with --prod.",
       default: false,
+    },
+    wait: {
+      type: "string",
+      description:
+        "How long to keep polling for the deploy to finish before the CLI gives up (e.g. 15m, 900s, 300000). Default 2m. The server keeps deploying regardless — this only controls how long the CLI waits. Raise it for CI/automation that must observe the terminal status.",
+      required: false,
     },
   },
   async run({ args }) {
@@ -591,6 +612,7 @@ export const deployCommand = defineCommand({
         prod: args.prod === true,
         sandbox: args.sandbox === true,
         yes: args.yes === true,
+        waitMs: parseWaitDuration(args.wait as string | undefined) ?? undefined,
       });
     }
 
@@ -674,6 +696,7 @@ export const deployCommand = defineCommand({
           args["skip-build"],
           jsonMode,
           args["no-cache"],
+          parseWaitDuration(args.wait as string | undefined) ?? undefined,
         );
       }
       return await deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
@@ -1212,6 +1235,8 @@ interface RepoDeployOptions {
   prod: boolean;
   sandbox: boolean;
   yes: boolean;
+  /** Poll budget for a terminal state (from --wait); default 2m. */
+  waitMs?: number;
 }
 
 async function deployRepoUrl(input: string, options: RepoDeployOptions) {
@@ -1277,7 +1302,15 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
       });
       if (env === "abort") return;
       if (env === "production" && token) {
-        return await deployAuthenticated(workDir, resolved, token, skipBuild, jsonMode);
+        return await deployAuthenticated(
+          workDir,
+          resolved,
+          token,
+          skipBuild,
+          jsonMode,
+          false,
+          options.waitMs,
+        );
       }
       return await deploySandbox(workDir, skipBuild, jsonMode, resolved);
     } finally {
@@ -1687,6 +1720,8 @@ async function deployAuthenticated(
   skipBuild: boolean,
   jsonMode = false,
   noCache = false,
+  /** How long to poll for a terminal state (from --wait); default 2m. */
+  waitMs?: number,
 ) {
   const progress = makeProgress(jsonMode);
   try {
@@ -1861,9 +1896,22 @@ async function deployAuthenticated(
 
     await client.uploadDeploymentBundle(project.id, deployment.id, bundle);
 
+    // Kick off migration-drift detection now, in parallel with the deploy, so a
+    // "N migrations pending" warning lands in the build log even if the deploy
+    // later fails or the CLI stops waiting — not only on the success path. The
+    // DB state doesn't change during a deploy, so this one result is reused for
+    // the post-success stdout warning below. Best-effort; never blocks/throws.
+    const driftPromise = detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
+      () => null,
+    );
+
     // Poll for async deploy progress
     const POLL_INTERVAL = 1000;
-    const POLL_TIMEOUT = 120_000;
+    // The server determines the terminal state on its own schedule (a slow
+    // activation can legitimately run several minutes). Default to 2 minutes but
+    // let the caller extend it via --wait so CI/automation can observe the real
+    // outcome instead of a premature "stopped waiting".
+    const POLL_TIMEOUT = waitMs ?? 120_000;
     const TERMINAL = new Set(["active", "failed", "cancelled"]);
     const STEP_LABELS: Record<string, string> = {
       queued: "  Waiting...",
@@ -1876,6 +1924,17 @@ async function deployAuthenticated(
     const start = Date.now();
 
     buildLog.info("upload", `bundle uploaded (${fileList.length} files)`);
+
+    // Surface schema drift into the build log at the detect stage — before the
+    // deploy reaches a terminal state — so it shows in `creek deployments logs`
+    // even for a failed or still-running deploy, not only on the success path
+    // (a background/CI deploy never sees the stdout warning). Deploy ships code,
+    // not schema, so a lagging DB 500s the app on a missing column.
+    const drift = await driftPromise;
+    const driftMsg = drift ? driftWarning(drift) : null;
+    if (driftMsg) {
+      buildLog.warn("detect", driftMsg, "migration_drift");
+    }
 
     while (Date.now() - start < POLL_TIMEOUT) {
       const res = await client.getDeploymentStatus(project.id, deployment.id);
@@ -1899,24 +1958,16 @@ async function deployAuthenticated(
 
       if (status === "active") {
         buildLog.info("activate", `deployed: ${res.url ?? res.previewUrl}`);
-        // Start the build-log upload now so it overlaps the drift check below.
-        // Capture the promise instead of firing and forgetting: the JSON path
-        // calls process.exit() a few lines down, which aborts an in-flight
-        // request — so a successful deploy could otherwise leave no build log.
-        // We await it (capped) before any exit via flushBuildLog.
+        // The build log already carries the drift line emitted before the loop
+        // (drift/driftMsg computed once above); upload it as-is. Capture the
+        // promise instead of firing and forgetting: the JSON path calls
+        // process.exit() a few lines down, which aborts an in-flight request —
+        // so a successful deploy could otherwise leave no build log. We await it
+        // (capped) before any exit via flushBuildLog.
         const logUpload = client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
           status: "success",
           startedAt: buildLog.startedAt,
         });
-
-        // Deploy ships code, not schema. Check whether the bound database is
-        // behind the project's local migrations so a "successful" deploy
-        // doesn't 500 at runtime (D1_ERROR: no such column). Best-effort —
-        // detectMigrationDrift never throws, but guard the call anyway.
-        const drift = await detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
-          () => null,
-        );
-        const driftMsg = drift ? driftWarning(drift) : null;
 
         // Make sure the build log lands before we exit below.
         await flushBuildLog(logUpload);
@@ -2065,6 +2116,7 @@ async function deployAuthenticated(
     // The CLI gave up before the deploy reached a terminal state — the server
     // may still be working. Upload what we have so `creek deployments logs`
     // isn't empty, and point the user there instead of a bare "retry".
+    const waited = `${Math.round(POLL_TIMEOUT / 60_000)}m`;
     buildLog.warn("activate", "CLI stopped waiting before the deploy reached a terminal state");
     await flushBuildLog(
       client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
@@ -2077,7 +2129,7 @@ async function deployAuthenticated(
         {
           ok: false,
           error: "timeout",
-          message: "CLI stopped waiting after 2 minutes; the deploy may still be in progress",
+          message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
         },
         1,
         [
@@ -2088,7 +2140,9 @@ async function deployAuthenticated(
           },
         ],
       );
-    consola.error("CLI stopped waiting after 2 minutes — the deploy may still be in progress.");
+    consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
+    // The server keeps deploying; a longer --wait lets the CLI observe the end.
+    consola.info(`  Wait longer:   creek deploy … --wait 15m`);
     consola.info(`  Check status:  creek status`);
     consola.info(`  View the log:  creek deployments logs ${deployment.id}`);
     process.exit(1);
