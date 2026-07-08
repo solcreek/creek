@@ -87,6 +87,9 @@ export async function cfApi(
       const backoff = Number.isFinite(retryAfter) && retryAfter > 0
         ? retryAfter * 1000
         : backoffBaseMs * 2 ** attempt;
+      // Drain the unread body before retrying: an undrained response can pin the
+      // undici connection and prevent reuse (or leak) across attempts.
+      await res.body?.cancel().catch(() => {});
       await sleep(backoff);
       continue;
     }

@@ -138,6 +138,19 @@ describe("cfApi", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test("drains the response body before retrying (connection-reuse hygiene)", async () => {
+    const first = new Response("unavailable", { status: 503 });
+    const cancelSpy = vi.spyOn(first.body!, "cancel");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+    globalThis.fetch = fetchMock;
+
+    await cfApi(env, "GET", "/x", undefined, undefined, { backoffBaseMs: 1 });
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
   test("gives up after maxRetries on persistent 503 with an HTTP error", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
     globalThis.fetch = fetchMock;

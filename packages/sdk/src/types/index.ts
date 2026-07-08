@@ -1,9 +1,18 @@
 /**
  * API response types.
  *
- * These match the D1 column names (snake_case) because routes return raw rows
- * via SELECT *. A camelCase transform layer may be added in the future; until
- * then these types are the source of truth for what the API actually returns.
+ * Routes return raw D1 rows (`SELECT *`), so each type must match its table's
+ * actual column names. The DB is Drizzle and its columns are **camelCase**
+ * (schema.ts / drizzle migrations: emailVerified, createdAt, organizationId,
+ * failedStep, …) — NOT snake_case. `Deployment` below has been corrected to
+ * match; a reader that assumes snake_case (failed_step, created_at, github_id)
+ * silently gets `undefined`.
+ *
+ * ⚠️ The other interfaces here (User, Project, …) still declare snake_case that
+ * does NOT match those camelCase columns and is stale in places (e.g. User has
+ * no `github_id` column at all). They are wrong for the same reason and should
+ * be audited + corrected the same way `Deployment` was — tracked as follow-up,
+ * out of scope for this change. Do not copy their snake_case shape for new types.
  */
 
 export interface User {
