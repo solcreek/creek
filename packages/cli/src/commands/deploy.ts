@@ -433,10 +433,7 @@ export function parseWaitDuration(input: string | undefined): number | null {
  * Exported for tests.
  */
 export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
+  return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 }
 
 /** Minimal surface of CreekClient that stageDeploymentBundle needs (for tests). */
@@ -2075,8 +2072,7 @@ async function deployAuthenticated(
               ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
               rollbackCommand: `creek rollback --project ${project.slug}`,
               ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
-              ...(drift &&
-              (drift.status === "pending" || drift.laggingDatabases.length > 0)
+              ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
                 ? {
                     migrations: {
                       status: drift.status,
