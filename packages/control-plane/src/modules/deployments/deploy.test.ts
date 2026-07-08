@@ -166,8 +166,26 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
     expect(bundle.serverFiles!["worker.js"]).toBe("");
   });
 
-  it("returns undefined for a pure SPA (no server files)", async () => {
+  it("returns undefined for a pure SPA (no worker, no server files)", async () => {
     const env = {} as unknown as Env;
-    expect(await resolveServerFiles(env, "dep1", bundleBase({}))).toBeUndefined();
+    const spa: StagedBundle = {
+      manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null },
+      assets: {},
+    };
+    expect(await resolveServerFiles(env, "dep1", spa)).toBeUndefined();
+  });
+
+  it("throws when a worker/SSR bundle staged no server files (no silent SPA fallback)", async () => {
+    const env = {} as unknown as Env;
+    // hasWorker true but neither serverFileNames nor serverFiles present.
+    await expect(resolveServerFiles(env, "dep1", bundleBase({}))).rejects.toThrow(
+      /worker\/SSR render but staged no/,
+    );
+    // Also via renderMode, even if hasWorker were unset.
+    const ssr: StagedBundle = {
+      manifest: { assets: [], hasWorker: false, entrypoint: null, renderMode: "ssr" },
+      assets: {},
+    };
+    await expect(resolveServerFiles(env, "dep1", ssr)).rejects.toThrow(/missing/);
   });
 });

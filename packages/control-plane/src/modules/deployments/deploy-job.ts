@@ -26,7 +26,7 @@ export interface StagedBundle {
     assets: string[];
     hasWorker: boolean;
     entrypoint: string | null;
-    renderMode?: "spa" | "ssr";
+    renderMode?: "spa" | "ssr" | "worker";
   };
   assets: Record<string, string>; // path -> base64
   /** Legacy: server files inlined as base64 (older CLI). */
@@ -103,22 +103,29 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     // letting it fall through to the outer catch's default "deploying" step.
     let bundle: StagedBundle;
     let decodedClientAssets: Record<string, ArrayBuffer>;
-    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
     try {
       bundle = JSON.parse(await bundleObj.text());
       decodedClientAssets = decodeBundleAssets(bundle);
-      // Server files (worker.js + the ~3.5MB Prisma/og wasm) are the memory-
-      // heavy part. A new CLI stages them as separate BINARY R2 objects
-      // (serverFileNames) so we read them as ArrayBuffers directly — never
-      // base64-in-JSON — which is what keeps this 128MB Worker from OOMing on a
-      // large real bundle. An older CLI still inlines them (serverFiles);
-      // resolveServerFiles handles both.
-      decodedServerFiles = await resolveServerFiles(env, deploymentId, bundle);
     } catch (err) {
       throw new StepError(
         "uploading",
         `Malformed bundle: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+
+    // Server files (worker.js + the ~3.5MB Prisma/og wasm) are the memory-heavy
+    // part. A new CLI stages them as separate BINARY R2 objects (serverFileNames)
+    // so we read them as ArrayBuffers directly — never base64-in-JSON — which is
+    // what keeps this 128MB Worker from OOMing on a large real bundle. An older
+    // CLI still inlines them (serverFiles); resolveServerFiles handles both. A
+    // failure here (a staged file missing from R2, or an SSR bundle with no
+    // server files) is an "uploading" problem but NOT a malformed bundle — keep
+    // its real message rather than mislabelling it.
+    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
+    try {
+      decodedServerFiles = await resolveServerFiles(env, deploymentId, bundle);
+    } catch (err) {
+      throw new StepError("uploading", err instanceof Error ? err.message : String(err));
     }
 
     // Count server files from the decoded result so the log is accurate for
@@ -289,16 +296,14 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
 
     // Clean up staging bundle + any separately-staged binary server files, so
     // the (potentially tens-of-MB) worker/wasm objects don't accumulate in R2.
-    // Best-effort: the deploy already succeeded, so a failed cleanup must not
-    // fail it.
-    await env.ASSETS.delete(bundleKey);
-    if (bundle.serverFileNames && bundle.serverFileNames.length > 0) {
-      await Promise.allSettled(
-        bundle.serverFileNames.map((name) =>
-          env.ASSETS.delete(serverFileKey(deploymentId, name)),
-        ),
-      );
-    }
+    // Best-effort for BOTH: the deploy is already active, so a failed R2 delete
+    // (including the bundle's) must never turn a successful deploy into a failed
+    // job — allSettled swallows rejections.
+    const staleKeys = [
+      bundleKey,
+      ...(bundle.serverFileNames ?? []).map((name) => serverFileKey(deploymentId, name)),
+    ];
+    await Promise.allSettled(staleKeys.map((key) => env.ASSETS.delete(key)));
 
     log("activate", "info", isProduction ? "Deployment active (production)" : "Deployment active");
   } catch (err) {
@@ -435,7 +440,8 @@ export function serverFileKey(deploymentId: string, name: string): string {
  * `bundle.serverFileNames`; we read those as ArrayBuffers directly (no base64,
  * no JSON parse of the big blob). An older CLI still inlines `bundle.serverFiles`
  * as base64 — decode that in place, freeing each string as we go. Returns
- * undefined for a pure SPA (no server files).
+ * undefined for a pure SPA; throws if the bundle declares a worker/SSR render
+ * but staged no server files (which would otherwise deploy as a broken SPA).
  */
 export async function resolveServerFiles(
   env: Env,
@@ -467,6 +473,15 @@ export async function resolveServerFiles(
     return out;
   }
 
+  // No server files. Correct for a pure SPA — but if the bundle declares a
+  // worker/SSR render, missing server files would silently deploy as a static
+  // SPA (a broken app). Fail loudly instead of falling through to that path.
+  const renderMode = bundle.manifest?.renderMode;
+  if (bundle.manifest?.hasWorker === true || renderMode === "ssr" || renderMode === "worker") {
+    throw new Error(
+      "Server files missing: bundle declares a worker/SSR render but staged no serverFileNames or serverFiles",
+    );
+  }
   return undefined;
 }
 
