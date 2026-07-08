@@ -8,10 +8,52 @@ import {
   sameOriginApiHint,
   ephemeralSandboxDbWarning,
   resolveDeployEnv,
+  parseWaitDuration,
+  withTimeout,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
 } from "./deploy.js";
+
+describe("withTimeout (bounds best-effort drift detection)", () => {
+  test("returns the resolved value when it beats the timeout", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 1000, "fallback")).resolves.toBe("ok");
+  });
+
+  test("returns the fallback and does not hang on a never-resolving promise", async () => {
+    vi.useFakeTimers();
+    try {
+      const never = new Promise<string>(() => {}); // never settles
+      const p = withTimeout(never, 3000, "fallback");
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(p).resolves.toBe("fallback");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("parseWaitDuration (--wait)", () => {
+  test("null for undefined (caller uses default) and unparseable input", () => {
+    expect(parseWaitDuration(undefined)).toBeNull();
+    expect(parseWaitDuration("soon")).toBeNull();
+    expect(parseWaitDuration("15 minutes")).toBeNull();
+  });
+
+  test("parses suffixed durations", () => {
+    expect(parseWaitDuration("900s")).toBe(900_000);
+    expect(parseWaitDuration("15m")).toBe(900_000);
+    expect(parseWaitDuration("1h")).toBe(3_600_000);
+    expect(parseWaitDuration("300000")).toBe(300_000); // bare = ms
+    expect(parseWaitDuration(" 15m ")).toBe(900_000); // trims
+  });
+
+  test("clamps to [1s, 60m] so a typo can't hang forever or bail instantly", () => {
+    expect(parseWaitDuration("0")).toBe(1000);
+    expect(parseWaitDuration("1ms")).toBe(1000);
+    expect(parseWaitDuration("999h")).toBe(3_600_000);
+  });
+});
 
 describe("makeProgress (deploy --json stdout hygiene)", () => {
   afterEach(() => vi.restoreAllMocks());

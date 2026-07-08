@@ -5,7 +5,7 @@ import type { WfPBinding } from "../resources/service.js";
 // own diverged copy — a fix to one (e.g. the observability settings PATCH)
 // silently missed the other. deploy-job.msw.test.ts asserts the observability
 // call so a future divergence fails CI.
-import { deployScriptWithAssets } from "@solcreek/deploy-core";
+import { cfApi, deployScriptWithAssets } from "@solcreek/deploy-core";
 
 /** Map file extension to CF Workers module type */
 function workerModuleType(name: string): string {
@@ -47,38 +47,8 @@ interface AssetUploadResponse {
   jwt: string;
 }
 
-async function cfApi(
-  env: Env,
-  method: string,
-  path: string,
-  body?: unknown,
-  authToken?: string,
-): Promise<any> {
-  const url = `https://api.cloudflare.com/client/v4${path}`;
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${authToken ?? env.CLOUDFLARE_API_TOKEN}`,
-  };
-
-  const init: RequestInit = { method, headers };
-
-  if (body !== undefined) {
-    if (body instanceof FormData) {
-      init.body = body;
-    } else {
-      headers["Content-Type"] = "application/json";
-      init.body = JSON.stringify(body);
-    }
-  }
-
-  const res = await fetch(url, init);
-  const json = (await res.json()) as any;
-
-  if (!json.success && json.errors?.length) {
-    throw new Error(`CF API error: ${JSON.stringify(json.errors)}`);
-  }
-
-  return json.result;
-}
+// cfApi (timeout + 429/503 retry) is imported from @solcreek/deploy-core — the
+// control-plane copy was byte-identical and drifted; the two are now one.
 
 /** Compute a 32-char hex hash for an asset file, salted with team ID for isolation */
 async function hashAsset(content: ArrayBuffer, salt: string): Promise<string> {

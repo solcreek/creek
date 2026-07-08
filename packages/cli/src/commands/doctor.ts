@@ -295,14 +295,14 @@ async function runLastFailureDiagnosis(opts: {
         project: slug,
         failed: {
           id: failed.id,
-          version: (failed as unknown as { version?: number }).version,
+          version: failed.version,
           branch: failed.branch,
-          commitSha: failed.commit_sha,
+          commitSha: failed.commitSha,
           errorCode,
           errorStep,
           suggestedFix: fix,
-          failedStep: failed.failed_step,
-          errorMessage: failed.error_message,
+          failedStep: failed.failedStep,
+          errorMessage: failed.errorMessage,
         },
       },
       0,
@@ -352,9 +352,9 @@ async function runLastFailureDiagnosis(opts: {
     consola.log("");
   }
 
-  if (failed.error_message) {
+  if (failed.errorMessage) {
     consola.log(`  ${c("error message:", "dim")}`);
-    for (const line of failed.error_message.split("\n").slice(0, 8)) {
+    for (const line of failed.errorMessage.split("\n").slice(0, 8)) {
       consola.log(`    ${c(line, "gray")}`);
     }
     consola.log("");

@@ -246,6 +246,44 @@ describe("GET /deployments/:id", () => {
     const json = (await res.json()) as any;
     expect(json.url).toBeNull();
   });
+
+  test("attaches a classified errorCode + hint on a failed deployment", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', '${DEPLOYMENT_ID}', 'main', ${now}, ${now})`,
+    );
+    // An activation-stage timeout — the customer's case. classifyDeployFailure
+    // maps (deploying, "…deploy window…") to activation_timeout.
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, failedStep, errorMessage, createdAt, updatedAt)
+       VALUES ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 1, 'failed', 'cli', 'deploying', 'exceeded the 10-minute deploy window', ${now}, ${now})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.errorCode).toBe("activation_timeout");
+    expect(typeof json.errorHint).toBe("string");
+    expect(json.errorHint.length).toBeGreaterThan(0);
+  });
+
+  test("omits errorCode/hint for a non-failed deployment", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', '${DEPLOYMENT_ID}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
+    const json = (await res.json()) as any;
+    expect(json.errorCode).toBeUndefined();
+    expect(json.errorHint).toBeUndefined();
+  });
 });
 
 // --- GET /projects/:id/deployments ---

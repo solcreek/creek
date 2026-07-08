@@ -95,7 +95,7 @@ const deploymentsList = defineCommand({
     for (const d of deployments) {
       const status = d.status === "active" ? "\x1b[32mactive\x1b[0m" : d.status;
       const branch = d.branch ? ` (${d.branch})` : "";
-      const age = timeAgo(d.created_at);
+      const age = timeAgo(d.createdAt);
       consola.log(`  ${d.id.slice(0, 8)}  ${status}  ${age}${branch}`);
     }
   },
@@ -302,7 +302,7 @@ export const deploymentsCommand = defineCommand({
   },
 });
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string | number): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
   if (mins < 1) return "just now";

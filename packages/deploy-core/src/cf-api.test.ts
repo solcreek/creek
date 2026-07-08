@@ -88,4 +88,108 @@ describe("cfApi", () => {
     const result = await cfApi(env, "GET", "/empty");
     expect(result).toBeNull();
   });
+
+  test("passes an AbortSignal so a request can't hang forever", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+
+    await cfApi(env, "GET", "/path");
+
+    const call = (globalThis.fetch as any).mock.calls[0];
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("surfaces a timeout as a classifiable 'timed out' error, without retrying", async () => {
+    // AbortSignal.timeout fires a TimeoutError; the message must contain
+    // "timed out" so classifyDeployFailure maps it to *_timeout.
+    const timeoutErr = Object.assign(new Error("aborted"), { name: "TimeoutError" });
+    const fetchMock = vi.fn().mockRejectedValue(timeoutErr);
+    globalThis.fetch = fetchMock;
+
+    await expect(cfApi(env, "PUT", "/script", { a: 1 }, undefined, { timeoutMs: 5 })).rejects.toThrow(
+      /timed out/i,
+    );
+    // A timeout is ambiguous — must NOT retry a non-idempotent request.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("retries 503 with backoff, then returns the eventual success", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: { ok: 1 } })));
+    globalThis.fetch = fetchMock;
+
+    const result = await cfApi(env, "POST", "/upload", { x: 1 }, undefined, { backoffBaseMs: 1 });
+
+    expect(result).toEqual({ ok: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("retries 429 (non-positive Retry-After falls back to backoff)", async () => {
+    // retry-after: "0" is non-positive, so the code ignores it and uses the
+    // exponential backoff — this asserts the retry still happens, not the header.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("slow down", { status: 429, headers: { "retry-after": "0" } }))
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+    globalThis.fetch = fetchMock;
+
+    await cfApi(env, "GET", "/rl", undefined, undefined, { backoffBaseMs: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("honors a positive Retry-After for the delay (waits it out, not the default backoff)", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("slow", { status: 429, headers: { "retry-after": "2" } }))
+        .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+      globalThis.fetch = fetchMock;
+
+      // backoffBaseMs 1ms would retry near-instantly; retry-after: 2 must make it
+      // wait ~2s instead, proving the header (not the default backoff) drives it.
+      const p = cfApi(env, "GET", "/rl", undefined, undefined, { backoffBaseMs: 1 });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // still waiting at 1s
+      await vi.advanceTimersByTimeAsync(1000); // 2s total
+      await p;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("drains the response body before retrying (connection-reuse hygiene)", async () => {
+    const first = new Response("unavailable", { status: 503 });
+    const cancelSpy = vi.spyOn(first.body!, "cancel");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+    globalThis.fetch = fetchMock;
+
+    await cfApi(env, "GET", "/x", undefined, undefined, { backoffBaseMs: 1 });
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  test("gives up after maxRetries on persistent 503 with an HTTP error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      cfApi(env, "GET", "/down", undefined, undefined, { maxRetries: 1, backoffBaseMs: 1 }),
+    ).rejects.toThrow(/CF API HTTP 503/);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // first + 1 retry
+  });
+
+  test("does not retry a non-retryable 5xx (500) and surfaces the status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    globalThis.fetch = fetchMock;
+
+    await expect(cfApi(env, "GET", "/err")).rejects.toThrow(/CF API HTTP 500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
