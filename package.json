@@ -18,13 +18,5 @@
     "typescript": "^5.8.2",
     "vitest": "^4.1.10"
   },
-  "packageManager": "pnpm@10.6.5",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "sharp",
-      "esbuild",
-      "lightningcss",
-      "better-sqlite3"
-    ]
-  }
+  "packageManager": "pnpm@10.6.5"
 }
