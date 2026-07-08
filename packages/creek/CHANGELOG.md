@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.41
+
+- Bundles [`@solcreek/cli@0.4.41`](../cli/CHANGELOG.md#0441): `creek deploy
+  --wait <duration>` to extend the poll budget past the old fixed 2 minutes
+  (so CI/automation observes the real terminal state), a classified
+  `errorCode` + hint on a failed deploy (e.g. `[activation_timeout]`, also in
+  `--json`) instead of a bare "Unknown error", and migration-drift warnings in
+  `creek deployments logs` for failed/background deploys — not just on success.
+
 ## 0.4.40
 
 - Bundles [`@solcreek/cli@0.4.40`](../cli/CHANGELOG.md#0440): requires the

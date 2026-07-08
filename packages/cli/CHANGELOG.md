@@ -1,5 +1,28 @@
 # @solcreek/cli
 
+## 0.4.41
+
+### Deploy reliability & diagnosability
+
+- **`--wait <duration>`.** The CLI polled for a terminal deploy state for a
+  fixed 2 minutes, then gave up — so an activation that legitimately ran longer
+  reported "stopped waiting" and exited non-zero even though it succeeded,
+  breaking CI. Pass `--wait 15m` (or `900s`, `2h`, or a bare millisecond count;
+  clamped to [1s, 60m]) to extend the budget so automation observes the real
+  outcome. The give-up message now reflects the actual budget.
+
+- **Classified failure reason on a failed deploy.** A deploy that failed at the
+  activation stage previously surfaced only free-text (often "Unknown error").
+  It now shows a stable code + actionable hint — `Deploy failed at deploying
+  [activation_timeout]: …` — and, in `--json`, `errorCode` + `errorHint` so an
+  agent can branch on it. (Fixes a bug where the CLI read the failure fields
+  under the wrong casing and always showed "Unknown error".)
+
+- **Migration drift lands in the build log.** A pending-migration warning was
+  printed to stdout only on a successful deploy; it now also lands in
+  `creek deployments logs` at the detect stage for failed and background/CI
+  deploys — bounded so a slow drift check can never block the deploy result.
+
 ## 0.4.40
 
 ### Next.js
