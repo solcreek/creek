@@ -430,6 +430,12 @@ export async function resolveServerFiles(
   bundle: StagedBundle,
 ): Promise<Record<string, ArrayBuffer> | undefined> {
   if (bundle.serverFileNames && bundle.serverFileNames.length > 0) {
+    // Defensive: if a bundle also carries inline serverFiles (it shouldn't —
+    // they're mutually exclusive), drop those large base64 strings so they don't
+    // stay referenced and negate the memory savings this whole path exists for.
+    if (bundle.serverFiles) {
+      for (const path of Object.keys(bundle.serverFiles)) bundle.serverFiles[path] = "";
+    }
     const out: Record<string, ArrayBuffer> = {};
     for (const name of bundle.serverFileNames) {
       const obj = await env.ASSETS.get(serverFileKey(deploymentId, name));

@@ -339,8 +339,17 @@ deployments.put("/:projectId/deployments/:deploymentId/serverfile", async (c) =>
   const projectId = c.req.param("projectId");
   const deploymentId = c.req.param("deploymentId");
   const name = c.req.query("name");
-  if (!name) {
-    return c.json({ error: "validation", message: "Missing required ?name query param" }, 400);
+  // The name becomes part of an R2 key — bound it and reject surprising values.
+  // Legit server-file names look like "worker.js" or "chunks/ssr_xxx.js" (slashes
+  // OK), never absolute, `..`-relative, control-char, or absurdly long.
+  if (
+    !name ||
+    name.length > 512 ||
+    name.startsWith("/") ||
+    name.split("/").includes("..") ||
+    [...name].some((ch) => ch.charCodeAt(0) < 0x20)
+  ) {
+    return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
   }
 
   const project = await c.env.DB.prepare(
@@ -368,7 +377,24 @@ deployments.put("/:projectId/deployments/:deploymentId/serverfile", async (c) =>
     );
   }
 
+  // Cap the size: this handler buffers the file in the 128MB Worker, so an
+  // unbounded upload would OOM/DoS. A worker.js + wasm is tens of MB; 80MB is
+  // generous while staying well under the cap. Check the declared length first
+  // (cheap reject), then the actual bytes (Content-Length can lie).
+  const MAX_SERVER_FILE_SIZE = 80 * 1024 * 1024;
+  const declared = Number(c.req.header("content-length") ?? "");
+  const tooLarge = () =>
+    c.json(
+      { error: "validation", message: `Server file too large. Max ${MAX_SERVER_FILE_SIZE / 1024 / 1024}MB.` },
+      400,
+    );
+  if (Number.isFinite(declared) && declared > MAX_SERVER_FILE_SIZE) {
+    return tooLarge();
+  }
   const body = await c.req.arrayBuffer();
+  if (body.byteLength > MAX_SERVER_FILE_SIZE) {
+    return tooLarge();
+  }
   await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
   return c.json({ ok: true }, 200);
 });

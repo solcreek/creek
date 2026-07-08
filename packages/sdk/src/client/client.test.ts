@@ -68,4 +68,28 @@ describe("CreekClient", () => {
     const result = await client.getSession();
     expect(result?.user.name).toBe("Test");
   });
+
+  test("uploadServerFile sends exactly the view's bytes (not the whole backing buffer)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+
+    // A Uint8Array view into the middle of a larger buffer — like a pooled Node
+    // Buffer. The upload must carry only bytes [10,14), not the whole 32 bytes.
+    const backing = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) backing[i] = i;
+    const view = backing.subarray(10, 14); // bytes 10,11,12,13
+
+    await client.uploadServerFile("proj", "dep", "worker.js", view);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(String(url)).toContain("/serverfile?name=worker.js");
+    expect(init.headers["Content-Type"]).toBe("application/octet-stream");
+    expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(new Uint8Array([10, 11, 12, 13]));
+  });
+
+  test("uploadServerFile URL-encodes the file name", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+    await client.uploadServerFile("proj", "dep", "chunks/ssr a.js", new Uint8Array([1]));
+    const [url] = mockFetch.mock.calls[0];
+    expect(String(url)).toContain("name=chunks%2Fssr%20a.js");
+  });
 });

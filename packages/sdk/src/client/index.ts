@@ -34,7 +34,13 @@ export class CreekClient {
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
         headers["Content-Type"] = "application/octet-stream";
-        init.body = body instanceof Uint8Array ? (body.buffer as ArrayBuffer) : body;
+        // Slice to the view's exact bytes: a Node Buffer (or any Uint8Array with
+        // a byteOffset / larger backing buffer, e.g. from a pool) would otherwise
+        // upload the whole backing ArrayBuffer — extra, unrelated bytes.
+        init.body =
+          body instanceof Uint8Array
+            ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+            : body;
       } else {
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);

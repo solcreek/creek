@@ -153,18 +153,17 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
     expect(bundle.serverFiles!["worker.js"]).toBe(""); // freed
   });
 
-  it("prefers serverFileNames over inline serverFiles when both are present", async () => {
+  it("prefers serverFileNames over inline serverFiles, and frees the stray inline base64", async () => {
     const env = {
       ASSETS: {
         get: async () => ({ arrayBuffer: async () => new TextEncoder().encode("from-r2").buffer }),
       },
     } as unknown as Env;
-    const out = await resolveServerFiles(
-      env,
-      "dep1",
-      bundleBase({ serverFileNames: ["worker.js"], serverFiles: { "worker.js": b64("inline") } }),
-    );
+    const bundle = bundleBase({ serverFileNames: ["worker.js"], serverFiles: { "worker.js": b64("inline") } });
+    const out = await resolveServerFiles(env, "dep1", bundle);
     expect(text(out!["worker.js"])).toBe("from-r2");
+    // The stray inline base64 must be cleared so it can't negate the memory win.
+    expect(bundle.serverFiles!["worker.js"]).toBe("");
   });
 
   it("returns undefined for a pure SPA (no server files)", async () => {
