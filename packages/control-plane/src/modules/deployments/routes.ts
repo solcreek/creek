@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
-import { runDeployJob, serverFileKey } from "./deploy-job.js";
+import { runDeployJob, serverFileKey, isValidServerFileName } from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
@@ -344,16 +344,9 @@ deployments.put("/:projectId/deployments/:deploymentId/serverfile", requirePermi
   const projectId = c.req.param("projectId");
   const deploymentId = c.req.param("deploymentId")!;
   const name = c.req.query("name");
-  // The name becomes part of an R2 key — bound it and reject surprising values.
-  // Legit server-file names look like "worker.js" or "chunks/ssr_xxx.js" (slashes
-  // OK), never absolute, `..`-relative, control-char, or absurdly long.
-  if (
-    !name ||
-    name.length > 512 ||
-    name.startsWith("/") ||
-    name.split("/").includes("..") ||
-    [...name].some((ch) => ch.charCodeAt(0) < 0x20)
-  ) {
+  // The name becomes part of an R2 key — validate with the same rule the deploy
+  // job applies to serverFileNames (shared helper).
+  if (!name || !isValidServerFileName(name)) {
     return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
   }
 

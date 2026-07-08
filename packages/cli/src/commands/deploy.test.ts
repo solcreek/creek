@@ -62,9 +62,10 @@ describe("stageDeploymentBundle (separate binary server files)", () => {
     expect(client.bundleUploads[0].serverFileNames).toBeUndefined();
   });
 
-  it("falls back to the inline bundle when the server lacks the /serverfile route (404)", async () => {
+  it("falls back to the inline bundle when the server lacks the /serverfile route (404 unknown)", async () => {
     const client = mockClient();
-    client.serverFileError = new CreekApiError(404, "not_found", "no route");
+    // Hono's default 404 body isn't JSON, so request() tags code:"unknown".
+    client.serverFileError = new CreekApiError(404, "unknown", "404 Not Found");
     const bundle = {
       manifest: { hasWorker: true },
       assets: {},
@@ -76,6 +77,20 @@ describe("stageDeploymentBundle (separate binary server files)", () => {
     expect(client.bundleUploads).toHaveLength(1);
     expect(client.bundleUploads[0].serverFiles).toEqual(bundle.serverFiles);
     expect(client.bundleUploads[0].serverFileNames).toBeUndefined();
+  });
+
+  it("propagates a real 404 (project/deployment not found) instead of falling back", async () => {
+    const client = mockClient();
+    client.serverFileError = new CreekApiError(404, "not_found", "Deployment not found");
+    await expect(
+      stageDeploymentBundle(client, "p1", "d1", {
+        manifest: { hasWorker: true },
+        assets: {},
+        serverFiles: { "worker.js": "dw==" },
+      }),
+    ).rejects.toThrow(/not found/i);
+    // Must NOT have attempted an inline fallback upload.
+    expect(client.bundleUploads).toHaveLength(0);
   });
 
   it("propagates a non-404 server-file upload error (no silent fallback)", async () => {

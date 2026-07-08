@@ -145,6 +145,17 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
     ).rejects.toThrow(/missing from staging/);
   });
 
+  it("rejects an unsafe serverFileNames entry before touching R2 (bundle route can't be trusted)", async () => {
+    let got: string | undefined;
+    const env = {
+      ASSETS: { get: async (k: string) => ((got = k), null) },
+    } as unknown as Env;
+    await expect(
+      resolveServerFiles(env, "dep1", bundleBase({ serverFileNames: ["../../evil"] })),
+    ).rejects.toThrow(/Invalid server file name/);
+    expect(got).toBeUndefined(); // never read from R2
+  });
+
   it("decodes legacy inline base64 serverFiles (older CLI) and frees them", async () => {
     const bundle = bundleBase({ serverFiles: { "worker.js": b64("legacy-worker") } });
     const env = {} as unknown as Env; // R2 not touched on the inline path

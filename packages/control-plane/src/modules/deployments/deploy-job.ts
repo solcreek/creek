@@ -430,6 +430,23 @@ export function serverFileKey(deploymentId: string, name: string): string {
 }
 
 /**
+ * Validate a server-file name before it becomes part of an R2 key. Legit names
+ * look like "worker.js" or "chunks/ssr_xxx.js" (slashes OK), never absolute,
+ * `..`-relative, control-char, or absurdly long. Shared by the /serverfile
+ * upload route AND the deploy job's read path — the /bundle handler doesn't
+ * validate `serverFileNames`, so the job must not trust them blindly.
+ */
+export function isValidServerFileName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 512 &&
+    !name.startsWith("/") &&
+    !name.split("/").includes("..") &&
+    ![...name].some((ch) => ch.charCodeAt(0) < 0x20)
+  );
+}
+
+/**
  * Resolve a bundle's server files (worker.js + wasm) to ArrayBuffers.
  *
  * These are the memory-heavy part of a real Prisma/Next bundle (a large worker
@@ -457,6 +474,8 @@ export async function resolveServerFiles(
     }
     const out: Record<string, ArrayBuffer> = {};
     for (const name of bundle.serverFileNames) {
+      // The /bundle handler doesn't validate serverFileNames, so guard here too.
+      if (!isValidServerFileName(name)) throw new Error(`Invalid server file name: ${name}`);
       const obj = await env.ASSETS.get(serverFileKey(deploymentId, name));
       if (!obj) throw new Error(`Server file missing from staging: ${name}`);
       out[name] = await obj.arrayBuffer();

@@ -484,8 +484,11 @@ export async function stageDeploymentBundle(
   } catch (err) {
     // Older server without the /serverfile route — fall back to the inline
     // bundle so a new CLI keeps working against it. Any already-uploaded server
-    // files are harmless orphans in staging.
-    if (err instanceof CreekApiError && err.status === 404) {
+    // files are harmless orphans in staging. Limit this to a *missing route*:
+    // Hono's default 404 body isn't JSON, so CreekClient.request tags it
+    // code:"unknown" — a real API 404 (project/deployment not found) carries a
+    // proper error code and must surface, not silently retry.
+    if (err instanceof CreekApiError && err.status === 404 && err.code === "unknown") {
       await client.uploadDeploymentBundle(projectId, deploymentId, bundle);
       return;
     }
