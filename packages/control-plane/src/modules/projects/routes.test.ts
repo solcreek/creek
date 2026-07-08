@@ -179,6 +179,45 @@ describe("DELETE /projects/:idOrSlug", () => {
     expect(row).toBeUndefined();
   });
 
+  test("deletes a deployed project with all its child rows (FK constraint safe)", async () => {
+    // A project that was actually deployed has deployment + build_log +
+    // resource-binding rows. D1 enforces the foreign keys, so deleting the
+    // project without first removing these fails with "FOREIGN KEY constraint
+    // failed" (the production 500). foreign_keys is ON in the test env, so this
+    // reproduces it.
+    seedProject(testEnv, "deployed-app", { id: "proj-del" });
+    const db = testEnv.db.db;
+    const now = Date.now();
+    db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('dep-del', 'proj-del', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+    db.exec(
+      `INSERT INTO build_log (deploymentId, status, startedAt, r2Key)
+       VALUES ('dep-del', 'success', ${now}, 'logs/dep-del.ndjson.gz')`,
+    );
+    db.exec(
+      `INSERT INTO resource (id, teamId, kind, name, createdAt, updatedAt)
+       VALUES ('res-del', '${teamId}', 'database', 'db', ${now}, ${now})`,
+    );
+    db.exec(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+       VALUES ('proj-del', 'DATABASE', 'res-del', ${now})`,
+    );
+
+    const res = await req("DELETE", "/projects/deployed-app");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).ok).toBe(true);
+
+    const count = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+    expect(count("SELECT COUNT(*) c FROM project WHERE id = 'proj-del'")).toBe(0);
+    expect(count("SELECT COUNT(*) c FROM deployment WHERE projectId = 'proj-del'")).toBe(0);
+    expect(count("SELECT COUNT(*) c FROM build_log WHERE deploymentId = 'dep-del'")).toBe(0);
+    expect(count("SELECT COUNT(*) c FROM project_resource_binding WHERE projectId = 'proj-del'")).toBe(0);
+    // The team-owned resource itself is intentionally kept (only the binding goes).
+    expect(count("SELECT COUNT(*) c FROM resource WHERE id = 'res-del'")).toBe(1);
+  });
+
   test("returns 404 for non-existent project", async () => {
     const res = await req("DELETE", "/projects/nonexistent");
     expect(res.status).toBe(404);

@@ -168,10 +168,43 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  // Mark resources for async cleanup before deleting the project
+  // Mark resources for async cleanup before deleting the project — this reads
+  // custom_domain, so it must run before those rows are removed below.
   await scheduleResourceCleanup(c.env, project.id);
 
-  await c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id).run();
+  // Delete the project's child rows before the project itself. D1 enforces the
+  // foreign keys (deployment/env/domain/github/binding -> project, build_log ->
+  // deployment) and none is ON DELETE CASCADE, so deleting the project directly
+  // fails with "FOREIGN KEY constraint failed" for any project that was ever
+  // deployed. Order matters (grandchild build_log first); a batch runs them in
+  // one transaction so a mid-way failure can't orphan rows. Team-owned resources
+  // (D1/R2/KV) are intentionally NOT deleted — only the binding rows.
+  try {
+    await c.env.DB.batch([
+      c.env.DB
+        .prepare(
+          "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
+        )
+        .bind(project.id),
+      c.env.DB.prepare("DELETE FROM deployment WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM environment_variable WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM custom_domain WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM github_connection WHERE projectId = ?").bind(project.id),
+      c.env.DB
+        .prepare("DELETE FROM project_resource_binding WHERE projectId = ?")
+        .bind(project.id),
+      c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id),
+    ]);
+  } catch (err) {
+    console.error(`[projects] delete failed for ${project.id}:`, err);
+    return c.json(
+      {
+        error: "delete_failed",
+        message: err instanceof Error ? err.message : "Failed to delete project",
+      },
+      500,
+    );
+  }
 
   await recordAudit(
     c.env.DB,
