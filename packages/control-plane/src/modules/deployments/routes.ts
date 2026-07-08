@@ -5,6 +5,7 @@ import { shortDeployId } from "./deploy.js";
 import { runDeployJob } from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
+import { classifyDeployFailure } from "../build-logs/classify.js";
 
 type DeployEnv = {
   Bindings: Env;
@@ -357,10 +358,23 @@ deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
   const shortId = shortDeployId(deploymentId);
   const isProduction = project.productionDeploymentId === deploymentId;
 
+  // On failure, attach a stable machine-readable reason code + actionable hint
+  // so a polling client (and an AI agent) can decide retry-vs-give-up without
+  // scraping the free-text message. The deploying/activation stages upload no
+  // build log, so for those failures this status response is the only place the
+  // reason surfaces during a poll. Derived from the recorded (failedStep,
+  // errorMessage) — the same classifier the logs route uses.
+  const dep = deployment as { status?: string; failedStep?: string | null; errorMessage?: string | null };
+  const reason =
+    dep.status === "failed"
+      ? classifyDeployFailure(dep.failedStep ?? null, dep.errorMessage ?? null)
+      : null;
+
   return c.json({
     deployment,
     url: isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null,
     previewUrl: `https://${project.slug}-${shortId}-${teamSlug}.${domain}`,
+    ...(reason ? { errorCode: reason.code, errorHint: reason.hint } : {}),
   });
 });
 
