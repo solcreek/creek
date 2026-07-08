@@ -1879,7 +1879,9 @@ async function deployAuthenticated(
 
     while (Date.now() - start < POLL_TIMEOUT) {
       const res = await client.getDeploymentStatus(project.id, deployment.id);
-      const { status, failed_step, error_message } = res.deployment;
+      // errorCode/errorHint are the server's classified reason (present only on
+      // failure); failedStep/errorMessage are the raw recorded fields.
+      const { status, failedStep: failed_step, errorMessage: error_message } = res.deployment;
 
       if (status !== lastStatus) {
         if (lastStatus && STEP_LABELS[lastStatus]) {
@@ -2000,7 +2002,15 @@ async function deployAuthenticated(
       if (status === "failed") {
         const step = failed_step ? ` at ${failed_step}` : "";
         const msg = error_message ?? "Unknown error";
-        buildLog.error((failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate", msg);
+        // Server-classified reason (stable code + actionable hint) — the only
+        // structured signal for activation-stage failures, which upload no log.
+        const errorCode = res.errorCode ?? null;
+        const errorHint = res.errorHint ?? null;
+        buildLog.error(
+          (failed_step as Parameters<typeof buildLog.error>[0]) ?? "activate",
+          msg,
+          errorCode ?? undefined,
+        );
         // Await (capped) so the failure log reaches the server before
         // process.exit() below — otherwise a failed deploy has nothing for
         // `creek deployments logs` to show.
@@ -2013,7 +2023,15 @@ async function deployAuthenticated(
         );
         if (jsonMode)
           jsonOutput(
-            { ok: false, error: "deploy_failed", message: msg, failedStep: failed_step },
+            {
+              ok: false,
+              error: "deploy_failed",
+              message: msg,
+              failedStep: failed_step,
+              // Stable reason code + hint so an agent can branch on the failure.
+              ...(errorCode ? { errorCode } : {}),
+              ...(errorHint ? { hint: errorHint } : {}),
+            },
             1,
             [
               {
@@ -2026,7 +2044,9 @@ async function deployAuthenticated(
               },
             ],
           );
-        consola.error(`Deploy failed${step}: ${msg}`);
+        consola.error(`Deploy failed${step}${errorCode ? ` [${errorCode}]` : ""}: ${msg}`);
+        // The classified hint is the actionable next step — surface it plainly.
+        if (errorHint) consola.info(`  ${errorHint}`);
         process.exit(1);
       }
 
@@ -2324,7 +2344,7 @@ async function tryTurboDeploy(
         // build. This is a terminal failure: exit non-zero (and emit
         // structured JSON) rather than returning "handled", which would let
         // the caller return and exit 0 — a failed deploy reading as success.
-        const errMsg = status.deployment.error_message || "unknown";
+        const errMsg = status.deployment.errorMessage || "unknown";
         if (jsonMode) {
           jsonOutput(
             {

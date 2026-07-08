@@ -25,19 +25,25 @@ export interface Project {
   updated_at: string;
 }
 
+// Field names are camelCase to match what the API actually returns: every
+// deployments endpoint selects the raw D1 row (`SELECT * FROM deployment`) and
+// the table columns are camelCase (see drizzle/0000_curvy_hulk.sql —
+// failedStep, errorMessage, commitSha, …). The earlier snake_case shape was
+// wrong, so readers of failed_step/error_message/commit_sha silently got
+// undefined; keep this aligned with the DB to avoid that class of bug.
 export interface Deployment {
   id: string;
-  project_id: string;
+  projectId: string;
   version: number;
   status: DeploymentStatus;
   branch: string | null;
-  commit_sha: string | null;
-  commit_message: string | null;
-  trigger_type: DeploymentTrigger;
-  failed_step: string | null;
-  error_message: string | null;
-  created_at: string;
-  updated_at: string;
+  commitSha: string | null;
+  commitMessage: string | null;
+  triggerType: DeploymentTrigger;
+  failedStep: string | null;
+  errorMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface EnvironmentVariable {
@@ -162,6 +168,14 @@ export interface DeploymentStatusResponse {
   deployment: Deployment;
   url: string | null;
   previewUrl: string;
+  /**
+   * Present only when `deployment.status === "failed"`. A stable, machine-
+   * readable reason code (branch on it) plus a one-line actionable hint —
+   * classified server-side from the recorded failure, since the activation
+   * stage uploads no build log to read the reason from.
+   */
+  errorCode?: string;
+  errorHint?: string;
 }
 
 // --- Logs (Phase 8 — mirrors control-plane/src/modules/logs/types.ts) ---
