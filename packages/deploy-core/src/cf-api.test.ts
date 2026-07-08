@@ -127,7 +127,9 @@ describe("cfApi", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  test("retries 429 honoring Retry-After, then succeeds", async () => {
+  test("retries 429 (non-positive Retry-After falls back to backoff)", async () => {
+    // retry-after: "0" is non-positive, so the code ignores it and uses the
+    // exponential backoff — this asserts the retry still happens, not the header.
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response("slow down", { status: 429, headers: { "retry-after": "0" } }))
@@ -136,6 +138,28 @@ describe("cfApi", () => {
 
     await cfApi(env, "GET", "/rl", undefined, undefined, { backoffBaseMs: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("honors a positive Retry-After for the delay (waits it out, not the default backoff)", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("slow", { status: 429, headers: { "retry-after": "2" } }))
+        .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
+      globalThis.fetch = fetchMock;
+
+      // backoffBaseMs 1ms would retry near-instantly; retry-after: 2 must make it
+      // wait ~2s instead, proving the header (not the default backoff) drives it.
+      const p = cfApi(env, "GET", "/rl", undefined, undefined, { backoffBaseMs: 1 });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // still waiting at 1s
+      await vi.advanceTimersByTimeAsync(1000); // 2s total
+      await p;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("drains the response body before retrying (connection-reuse hygiene)", async () => {

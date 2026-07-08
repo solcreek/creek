@@ -2090,8 +2090,10 @@ async function deployAuthenticated(
               message: msg,
               failedStep: failed_step,
               // Stable reason code + hint so an agent can branch on the failure.
+              // Named errorCode/errorHint to mirror the API status response —
+              // one schema across both surfaces.
               ...(errorCode ? { errorCode } : {}),
-              ...(errorHint ? { hint: errorHint } : {}),
+              ...(errorHint ? { errorHint } : {}),
             },
             1,
             [
