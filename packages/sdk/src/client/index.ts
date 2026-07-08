@@ -34,7 +34,12 @@ export class CreekClient {
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
         headers["Content-Type"] = "application/octet-stream";
-        init.body = body instanceof Uint8Array ? (body.buffer as ArrayBuffer) : body;
+        // A Uint8Array/ArrayBuffer is a valid BodyInit (BufferSource); fetch
+        // sends exactly the view's bytes, honouring byteOffset/byteLength. Pass
+        // it through as-is — no copy, and correct for a pooled/offset Node Buffer
+        // (unlike reaching into `.buffer`). The cast satisfies TS's stricter
+        // Uint8Array<ArrayBufferLike> vs BodyInit generic; the runtime accepts it.
+        init.body = body as BodyInit;
       } else {
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
@@ -120,6 +125,26 @@ export class CreekClient {
     bundle: Record<string, unknown>,
   ): Promise<{ ok: boolean; url: string; previewUrl: string }> {
     return this.request("PUT", `/projects/${projectId}/deployments/${deploymentId}/bundle`, bundle);
+  }
+
+  /**
+   * Stage a single server file (worker.js / compiler wasm) as a separate binary
+   * object, so the memory-heavy files stay out of the bundle JSON — the server
+   * reads them as ArrayBuffers instead of base64-decoding a large blob in a
+   * 128MB Worker. Call this once per server file BEFORE uploadDeploymentBundle,
+   * then pass their names as the bundle's `serverFileNames`.
+   */
+  async uploadServerFile(
+    projectId: string,
+    deploymentId: string,
+    name: string,
+    bytes: ArrayBuffer | Uint8Array,
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      "PUT",
+      `/projects/${projectId}/deployments/${deploymentId}/serverfile?name=${encodeURIComponent(name)}`,
+      bytes,
+    );
   }
 
   // --- Environment Variables ---

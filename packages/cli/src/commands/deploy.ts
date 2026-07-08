@@ -8,6 +8,7 @@ import {
   parseConfig,
   CreekClient,
   CreekAuthError,
+  CreekApiError,
   isSSRFramework,
   getSSRServerEntry,
   getClientAssetsDir,
@@ -436,6 +437,63 @@ export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<
     p,
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
+}
+
+/** Minimal surface of CreekClient that stageDeploymentBundle needs (for tests). */
+export interface BundleStager {
+  uploadServerFile(
+    projectId: string,
+    deploymentId: string,
+    name: string,
+    bytes: Uint8Array,
+  ): Promise<{ ok: boolean }>;
+  uploadDeploymentBundle(
+    projectId: string,
+    deploymentId: string,
+    bundle: Record<string, unknown>,
+  ): Promise<unknown>;
+}
+
+/**
+ * Stage a deployment bundle. Server files (worker.js + the compiler wasm) are
+ * the memory-heavy part; inlining them as base64 in the bundle JSON makes the
+ * control-plane Worker hold + decode a ~40MB blob and intermittently OOM. Upload
+ * each as a SEPARATE binary object first, then send a slim bundle that lists
+ * them in `serverFileNames`. Falls back to the legacy all-in-one-JSON bundle if
+ * the server predates the /serverfile route (404), so a new CLI still works
+ * against an old server. Exported for tests.
+ */
+export async function stageDeploymentBundle(
+  client: BundleStager,
+  projectId: string,
+  deploymentId: string,
+  bundle: Record<string, unknown> & { serverFiles?: Record<string, string> },
+): Promise<void> {
+  const serverFiles = bundle.serverFiles;
+  if (!serverFiles || Object.keys(serverFiles).length === 0) {
+    await client.uploadDeploymentBundle(projectId, deploymentId, bundle);
+    return;
+  }
+  try {
+    for (const [name, b64] of Object.entries(serverFiles)) {
+      await client.uploadServerFile(projectId, deploymentId, name, Buffer.from(b64, "base64"));
+    }
+    const slim: Record<string, unknown> = { ...bundle, serverFileNames: Object.keys(serverFiles) };
+    delete slim.serverFiles;
+    await client.uploadDeploymentBundle(projectId, deploymentId, slim);
+  } catch (err) {
+    // Older server without the /serverfile route — fall back to the inline
+    // bundle so a new CLI keeps working against it. Any already-uploaded server
+    // files are harmless orphans in staging. Limit this to a *missing route*:
+    // Hono's default 404 body isn't JSON, so CreekClient.request tags it
+    // code:"unknown" — a real API 404 (project/deployment not found) carries a
+    // proper error code and must surface, not silently retry.
+    if (err instanceof CreekApiError && err.status === 404 && err.code === "unknown") {
+      await client.uploadDeploymentBundle(projectId, deploymentId, bundle);
+      return;
+    }
+    throw err;
+  }
 }
 
 export const deployCommand = defineCommand({
@@ -1907,7 +1965,7 @@ async function deployAuthenticated(
       ...(resolved.queue ? { queue: true } : {}),
     };
 
-    await client.uploadDeploymentBundle(project.id, deployment.id, bundle);
+    await stageDeploymentBundle(client, project.id, deployment.id, bundle);
 
     // Kick off migration-drift detection now, in parallel with the deploy, so a
     // "N migrations pending" warning can land in the build log even if the

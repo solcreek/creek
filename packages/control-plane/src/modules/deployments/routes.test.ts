@@ -209,6 +209,87 @@ describe("PUT /bundle", () => {
   });
 });
 
+// --- PUT /projects/:id/deployments/:id/serverfile ---
+
+describe("PUT /serverfile (separate binary server files)", () => {
+  function seedDeployment(status: string, id: string = DEPLOYMENT_ID) {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${id}', '${PROJECT_ID}', 1, '${status}', 'cli', ${now}, ${now})`,
+    );
+  }
+  const putBin = (path: string, body: ArrayBuffer, headers: Record<string, string> = {}) =>
+    app.request(
+      path,
+      { method: "PUT", body, headers: { "Content-Type": "application/octet-stream", ...headers } },
+      testEnv.env,
+      executionCtx as any,
+    );
+  const base = `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/serverfile`;
+
+  test("stores a server file and it round-trips from R2", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const bytes = new TextEncoder().encode("worker-code").buffer as ArrayBuffer;
+
+    const res = await putBin(`${base}?name=worker.js`, bytes);
+    expect(res.status).toBe(200);
+
+    const stored = await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}-server/worker.js`);
+    expect(new TextDecoder().decode(await stored!.arrayBuffer())).toBe("worker-code");
+  });
+
+  test("stores a file streamed without a Content-Length (the cap-while-reading path)", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed-"));
+        controller.enqueue(new TextEncoder().encode("worker"));
+        controller.close();
+      },
+    });
+    const res = await app.request(
+      `${base}?name=chunked.js`,
+      // duplex is required when a fetch body is a stream
+      { method: "PUT", body: stream, duplex: "half" } as RequestInit,
+      testEnv.env,
+      executionCtx as any,
+    );
+    expect(res.status).toBe(200);
+    const stored = await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}-server/chunked.js`);
+    expect(new TextDecoder().decode(await stored!.arrayBuffer())).toBe("streamed-worker");
+  });
+
+  test("rejects a missing or path-traversing ?name", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const bytes = new TextEncoder().encode("x").buffer as ArrayBuffer;
+
+    expect((await putBin(base, bytes)).status).toBe(400); // no name
+    expect((await putBin(`${base}?name=${encodeURIComponent("../evil")}`, bytes)).status).toBe(400);
+    expect((await putBin(`${base}?name=${encodeURIComponent("/abs")}`, bytes)).status).toBe(400);
+  });
+
+  test("rejects an over-cap Content-Length before buffering", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const res = await putBin(`${base}?name=worker.js`, new ArrayBuffer(8), {
+      "content-length": String(81 * 1024 * 1024),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).message).toContain("too large");
+  });
+
+  test("rejects upload once the deploy is active", async () => {
+    seedTestProject();
+    seedDeployment("active");
+    const res = await putBin(`${base}?name=worker.js`, new TextEncoder().encode("x").buffer as ArrayBuffer);
+    expect(res.status).toBe(400);
+  });
+});
+
 // --- GET /projects/:id/deployments/:id ---
 
 describe("GET /deployments/:id", () => {

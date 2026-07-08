@@ -68,4 +68,46 @@ describe("CreekClient", () => {
     const result = await client.getSession();
     expect(result?.user.name).toBe("Test");
   });
+
+  test("uploadServerFile sends exactly the view's bytes (not the whole backing buffer)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+
+    // A Uint8Array view into the middle of a larger buffer — like a pooled Node
+    // Buffer. The upload must carry only bytes [10,14), not the whole 32 bytes.
+    const backing = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) backing[i] = i;
+    const view = backing.subarray(10, 14); // bytes 10,11,12,13
+
+    await client.uploadServerFile("proj", "dep", "worker.js", view);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(String(url)).toContain("/serverfile?name=worker.js");
+    expect(init.headers["Content-Type"]).toBe("application/octet-stream");
+    // The view is passed through as the body; fetch honours byteOffset/byteLength,
+    // so only bytes [10,14) go out even though the backing buffer is 32 bytes.
+    expect(init.body).toBe(view);
+    const b = init.body as Uint8Array;
+    expect([b.byteOffset, b.byteLength]).toEqual([10, 4]);
+    expect(new Uint8Array(b.buffer, b.byteOffset, b.byteLength)).toEqual(
+      new Uint8Array([10, 11, 12, 13]),
+    );
+  });
+
+  test("uploadServerFile passes the view through without copying", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+
+    await client.uploadServerFile("proj", "dep", "worker.js", bytes);
+
+    // No copy: the exact view is handed to fetch.
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.body).toBe(bytes);
+  });
+
+  test("uploadServerFile URL-encodes the file name", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+    await client.uploadServerFile("proj", "dep", "chunks/ssr a.js", new Uint8Array([1]));
+    const [url] = mockFetch.mock.calls[0];
+    expect(String(url)).toContain("name=chunks%2Fssr%20a.js");
+  });
 });

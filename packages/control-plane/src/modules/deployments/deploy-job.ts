@@ -26,10 +26,17 @@ export interface StagedBundle {
     assets: string[];
     hasWorker: boolean;
     entrypoint: string | null;
-    renderMode?: "spa" | "ssr";
+    renderMode?: "spa" | "ssr" | "worker";
   };
   assets: Record<string, string>; // path -> base64
+  /** Legacy: server files inlined as base64 (older CLI). */
   serverFiles?: Record<string, string>;
+  /**
+   * Current: names of server files staged as separate binary R2 objects
+   * (see {@link serverFileKey}). Keeps the big worker+wasm out of this JSON so
+   * the deploy job doesn't OOM. Mutually exclusive with `serverFiles`.
+   */
+  serverFileNames?: string[];
   // Typed binding declarations with user-defined names
   bindings?: BundleBindingRequirement[];
   // Wrangler [vars] passthrough
@@ -96,21 +103,9 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     // letting it fall through to the outer catch's default "deploying" step.
     let bundle: StagedBundle;
     let decodedClientAssets: Record<string, ArrayBuffer>;
-    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
     try {
       bundle = JSON.parse(await bundleObj.text());
-      decodedClientAssets = {};
-      for (const [path, b64] of Object.entries(bundle.assets)) {
-        decodedClientAssets[path] = base64ToArrayBuffer(b64);
-      }
-      decodedServerFiles = bundle.serverFiles
-        ? Object.fromEntries(
-            Object.entries(bundle.serverFiles).map(([path, b64]) => [
-              path,
-              base64ToArrayBuffer(b64),
-            ]),
-          )
-        : undefined;
+      decodedClientAssets = decodeBundleAssets(bundle);
     } catch (err) {
       throw new StepError(
         "uploading",
@@ -118,11 +113,29 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       );
     }
 
+    // Server files (worker.js + the ~3.5MB Prisma/og wasm) are the memory-heavy
+    // part. A new CLI stages them as separate BINARY R2 objects (serverFileNames)
+    // so we read them as ArrayBuffers directly — never base64-in-JSON — which is
+    // what keeps this 128MB Worker from OOMing on a large real bundle. An older
+    // CLI still inlines them (serverFiles); resolveServerFiles handles both. A
+    // failure here (a staged file missing from R2, or an SSR bundle with no
+    // server files) is an "uploading" problem but NOT a malformed bundle — keep
+    // its real message rather than mislabelling it.
+    let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
+    try {
+      decodedServerFiles = await resolveServerFiles(env, deploymentId, bundle);
+    } catch (err) {
+      throw new StepError("uploading", err instanceof Error ? err.message : String(err));
+    }
+
+    // Count server files from the decoded result so the log is accurate for
+    // both the binary-R2 (serverFileNames) and legacy-inline paths.
+    const serverFileCount = decodedServerFiles ? Object.keys(decodedServerFiles).length : 0;
     log(
       "upload",
       "info",
       `Bundle read: ${Object.keys(bundle.assets).length} asset(s)` +
-        (bundle.serverFiles ? `, ${Object.keys(bundle.serverFiles).length} server file(s)` : ""),
+        (serverFileCount > 0 ? `, ${serverFileCount} server file(s)` : ""),
     );
 
     const renderMode = bundle.manifest.renderMode ?? "spa";
@@ -281,9 +294,6 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       }),
     );
 
-    // Clean up staging bundle
-    await env.ASSETS.delete(bundleKey);
-
     log("activate", "info", isProduction ? "Deployment active (production)" : "Deployment active");
   } catch (err) {
     const step = err instanceof StepError ? err.step : "deploying";
@@ -302,6 +312,10 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       errorStep: outcome.errorStep,
       errorCode: outcome.errorCode,
     });
+    // Reclaim R2 staging on BOTH success and failure — a failed deploy would
+    // otherwise leave its (tens-of-MB) server-file objects behind forever.
+    // Best-effort: this is terminal, so a delete error must not surface.
+    await deleteStagedBundle(env, deploymentId);
   }
 }
 
@@ -384,6 +398,121 @@ export function base64ToArrayBuffer(b64: string): ArrayBuffer {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
+}
+
+/**
+ * Decode a staged bundle's base64 `assets` into ArrayBuffers, freeing each
+ * source base64 string from `bundle` as it is decoded so the parsed base64 and
+ * the decoded buffers don't both sit in the 128MB Worker heap. Mutates `bundle`
+ * (its `assets` values become ""); keys are preserved for the asset-count log.
+ * Server files are handled separately by {@link resolveServerFiles}. Exported
+ * for tests.
+ */
+export function decodeBundleAssets(bundle: StagedBundle): Record<string, ArrayBuffer> {
+  const decodedClientAssets: Record<string, ArrayBuffer> = {};
+  for (const path of Object.keys(bundle.assets)) {
+    decodedClientAssets[path] = base64ToArrayBuffer(bundle.assets[path]);
+    bundle.assets[path] = ""; // free the base64 for GC before the next decode
+  }
+  return decodedClientAssets;
+}
+
+/** R2 key prefix for a deployment's separately-staged binary server files. */
+export function serverFileKey(deploymentId: string, name: string): string {
+  return `bundles/${deploymentId}-server/${name}`;
+}
+
+/**
+ * Validate a server-file name before it becomes part of an R2 key. Legit names
+ * look like "worker.js" or "chunks/ssr_xxx.js" (slashes OK), never absolute,
+ * `..`-relative, control-char, or absurdly long. Shared by the /serverfile
+ * upload route AND the deploy job's read path — the /bundle handler doesn't
+ * validate `serverFileNames`, so the job must not trust them blindly.
+ */
+export function isValidServerFileName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 512 &&
+    !name.startsWith("/") &&
+    !name.split("/").includes("..") &&
+    ![...name].some((ch) => ch.charCodeAt(0) < 0x20)
+  );
+}
+
+/**
+ * Best-effort removal of a deployment's R2 staging: the bundle JSON plus every
+ * separately-staged binary server file. Lists the server-file prefix rather than
+ * needing the bundle, so it also reclaims staging for a job that was killed
+ * (e.g. OOM) before it could clean up — the reaper calls this for reaped
+ * deployments. Never throws (allSettled), so it can't fail the caller.
+ */
+export async function deleteStagedBundle(env: Env, deploymentId: string): Promise<void> {
+  const keys = [`bundles/${deploymentId}.json`];
+  try {
+    const listed = await env.ASSETS.list({ prefix: `bundles/${deploymentId}-server/` });
+    for (const obj of listed.objects) keys.push(obj.key);
+  } catch {
+    // Listing failed — still attempt the bundle JSON below.
+  }
+  await Promise.allSettled(keys.map((key) => env.ASSETS.delete(key)));
+}
+
+/**
+ * Resolve a bundle's server files (worker.js + wasm) to ArrayBuffers.
+ *
+ * These are the memory-heavy part of a real Prisma/Next bundle (a large worker
+ * plus a ~3.5MB compiler wasm). Inlining them as base64 in the bundle JSON
+ * forces this 128MB Worker to hold the 2-byte base64 strings AND the decoded
+ * buffers at once — the intermittent-OOM cause. So a current CLI stages each
+ * server file as a separate BINARY R2 object and lists them in
+ * `bundle.serverFileNames`; we read those as ArrayBuffers directly (no base64,
+ * no JSON parse of the big blob). An older CLI still inlines `bundle.serverFiles`
+ * as base64 — decode that in place, freeing each string as we go. Returns
+ * undefined for a pure SPA; throws if the bundle declares a worker/SSR render
+ * but staged no server files (which would otherwise deploy as a broken SPA).
+ */
+export async function resolveServerFiles(
+  env: Env,
+  deploymentId: string,
+  bundle: StagedBundle,
+): Promise<Record<string, ArrayBuffer> | undefined> {
+  if (bundle.serverFileNames && bundle.serverFileNames.length > 0) {
+    // Defensive: if a bundle also carries inline serverFiles (it shouldn't —
+    // they're mutually exclusive), drop those large base64 strings so they don't
+    // stay referenced and negate the memory savings this whole path exists for.
+    if (bundle.serverFiles) {
+      for (const path of Object.keys(bundle.serverFiles)) bundle.serverFiles[path] = "";
+    }
+    const out: Record<string, ArrayBuffer> = {};
+    for (const name of bundle.serverFileNames) {
+      // The /bundle handler doesn't validate serverFileNames, so guard here too.
+      if (!isValidServerFileName(name)) throw new Error(`Invalid server file name: ${name}`);
+      const obj = await env.ASSETS.get(serverFileKey(deploymentId, name));
+      if (!obj) throw new Error(`Server file missing from staging: ${name}`);
+      out[name] = await obj.arrayBuffer();
+    }
+    return out;
+  }
+
+  if (bundle.serverFiles && Object.keys(bundle.serverFiles).length > 0) {
+    const out: Record<string, ArrayBuffer> = {};
+    for (const path of Object.keys(bundle.serverFiles)) {
+      out[path] = base64ToArrayBuffer(bundle.serverFiles[path]);
+      bundle.serverFiles[path] = "";
+    }
+    return out;
+  }
+
+  // No server files. Correct for a pure SPA — but if the bundle declares a
+  // worker/SSR render, missing server files would silently deploy as a static
+  // SPA (a broken app). Fail loudly instead of falling through to that path.
+  const renderMode = bundle.manifest?.renderMode;
+  if (bundle.manifest?.hasWorker === true || renderMode === "ssr" || renderMode === "worker") {
+    throw new Error(
+      "Server files missing: bundle declares a worker/SSR render but staged no serverFileNames or serverFiles",
+    );
+  }
+  return undefined;
 }
 
 /** How often to beat updatedAt during a long edge deploy. */

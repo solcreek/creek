@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
-import { runDeployJob } from "./deploy-job.js";
+import { runDeployJob, serverFileKey, isValidServerFileName } from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
@@ -142,11 +142,14 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
 });
 
 // Upload deployment bundle (async — returns 202, deploy runs via waitUntil)
-deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
-  const teamId = c.get("teamId");
-  const teamSlug = c.get("teamSlug");
+deployments.put("/:projectId/deployments/:deploymentId/bundle", requirePermission("deploy:create"), async (c) => {
+  // Non-null: the auth middleware always sets team{Id,Slug} and these are
+  // required path params. requirePermission()'s generic widens c.get/param to
+  // `| undefined`, so assert what we pass on to strictly-typed callees.
+  const teamId = c.get("teamId")!;
+  const teamSlug = c.get("teamSlug")!;
   const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId");
+  const deploymentId = c.req.param("deploymentId")!;
 
   const project = await c.env.DB.prepare(
     "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
@@ -325,6 +328,98 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
       500,
     );
   }
+});
+
+// Upload a single server file (worker.js + the compiler wasm) as a separate
+// BINARY object, keeping the memory-heavy files out of the bundle JSON. The
+// deploy job then reads them as ArrayBuffers instead of base64-decoding a 40MB
+// blob in a 128MB Worker (the intermittent-OOM cause). The CLI calls this once
+// per server file BEFORE PUT /bundle, then lists the names in the bundle's
+// `serverFileNames`. Each file is at most tens of MB, so buffering one here is
+// safe (unlike the whole bundle).
+deployments.put("/:projectId/deployments/:deploymentId/serverfile", requirePermission("deploy:create"), async (c) => {
+  // requirePermission()'s generic widens c.get/param to `| undefined`; the auth
+  // middleware sets teamId and deploymentId is a required path param.
+  const teamId = c.get("teamId")!;
+  const projectId = c.req.param("projectId");
+  const deploymentId = c.req.param("deploymentId")!;
+  const name = c.req.query("name");
+  // The name becomes part of an R2 key — validate with the same rule the deploy
+  // job applies to serverFileNames (shared helper).
+  if (!name || !isValidServerFileName(name)) {
+    return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
+  }
+
+  const project = await c.env.DB.prepare(
+    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ id: string }>();
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const deployment = await c.env.DB.prepare(
+    "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+  )
+    .bind(deploymentId, project.id)
+    .first<{ id: string; status: string }>();
+  if (!deployment) {
+    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+  }
+  // Only before the deploy runs — same window as the bundle upload.
+  if (deployment.status !== "queued" && deployment.status !== "failed") {
+    return c.json(
+      { error: "invalid_state", message: `Cannot upload a server file in '${deployment.status}' state` },
+      400,
+    );
+  }
+
+  // Cap the size in this 128MB Worker so an oversized upload can't OOM/DoS it.
+  // A worker.js + wasm is tens of MB; 60MB is generous while leaving headroom
+  // for the buffered copy (~2x) to stay under the cap. Buffering with
+  // c.req.arrayBuffer() first would defeat the check — a missing/lying
+  // Content-Length would already be fully in memory before any byteLength test.
+  // Instead count bytes WHILE reading and abort the moment we exceed the cap, so
+  // an unbounded body never fully materializes. The cheap Content-Length check
+  // rejects an honest-but-oversized upload before we read anything.
+  const MAX_SERVER_FILE_SIZE = 60 * 1024 * 1024;
+  const tooLarge = () =>
+    c.json(
+      { error: "validation", message: `Server file too large. Max ${MAX_SERVER_FILE_SIZE / 1024 / 1024}MB.` },
+      400,
+    );
+  const declared = Number(c.req.header("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > MAX_SERVER_FILE_SIZE) {
+    return tooLarge();
+  }
+  const rawBody = c.req.raw.body;
+  if (!rawBody) {
+    return c.json({ error: "validation", message: "Empty body" }, 400);
+  }
+  let total = 0;
+  const capMarker = new Error("__server_file_too_large__");
+  const capped = rawBody.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        total += chunk.byteLength;
+        if (total > MAX_SERVER_FILE_SIZE) {
+          controller.error(capMarker);
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  let body: ArrayBuffer;
+  try {
+    body = await new Response(capped).arrayBuffer();
+  } catch (err) {
+    if (err === capMarker) return tooLarge();
+    throw err;
+  }
+  await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
+  return c.json({ ok: true }, 200);
 });
 
 // Get deployment status
@@ -1037,7 +1132,11 @@ async function deployFromBundleCache(
         )
       : undefined;
 
-    const renderMode = bundle.manifest.renderMode === "ssr" ? "ssr" : ("spa" as const);
+    // Preserve "worker" as well as "ssr" — deployWithAssets treats both as a
+    // server deploy. Coercing "worker" to "spa" here would deploy a worker
+    // bundle as a static SPA (a broken app). Anything else defaults to "spa".
+    const rm = bundle.manifest.renderMode;
+    const renderMode: "spa" | "ssr" | "worker" = rm === "ssr" || rm === "worker" ? rm : "spa";
 
     // Update status
     await env.DB.prepare("UPDATE deployment SET status = 'deploying', updatedAt = ? WHERE id = ?")
