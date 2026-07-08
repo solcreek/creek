@@ -285,7 +285,10 @@ describe("PUT /serverfile (separate binary server files)", () => {
   test("rejects upload once the deploy is active", async () => {
     seedTestProject();
     seedDeployment("active");
-    const res = await putBin(`${base}?name=worker.js`, new TextEncoder().encode("x").buffer as ArrayBuffer);
+    const res = await putBin(
+      `${base}?name=worker.js`,
+      new TextEncoder().encode("x").buffer as ArrayBuffer,
+    );
     expect(res.status).toBe(400);
   });
 });

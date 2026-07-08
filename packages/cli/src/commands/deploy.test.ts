@@ -41,7 +41,10 @@ describe("stageDeploymentBundle (separate binary server files)", () => {
     const bundle = {
       manifest: { hasWorker: true },
       assets: { "/a.js": "YQ==" },
-      serverFiles: { "worker.js": Buffer.from("worker").toString("base64"), "q.wasm": Buffer.from("W").toString("base64") },
+      serverFiles: {
+        "worker.js": Buffer.from("worker").toString("base64"),
+        "q.wasm": Buffer.from("W").toString("base64"),
+      },
     };
     await stageDeploymentBundle(client, "p1", "d1", bundle);
 
@@ -57,7 +60,10 @@ describe("stageDeploymentBundle (separate binary server files)", () => {
 
   it("uploads the bundle directly when there are no server files (SPA)", async () => {
     const client = mockClient();
-    await stageDeploymentBundle(client, "p1", "d1", { manifest: { hasWorker: false }, assets: { "/i.html": "PA==" } });
+    await stageDeploymentBundle(client, "p1", "d1", {
+      manifest: { hasWorker: false },
+      assets: { "/i.html": "PA==" },
+    });
     expect(client.serverFileUploads).toHaveLength(0);
     expect(client.bundleUploads[0].serverFileNames).toBeUndefined();
   });

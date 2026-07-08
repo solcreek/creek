@@ -107,9 +107,9 @@ describe("cfApi", () => {
     const fetchMock = vi.fn().mockRejectedValue(timeoutErr);
     globalThis.fetch = fetchMock;
 
-    await expect(cfApi(env, "PUT", "/script", { a: 1 }, undefined, { timeoutMs: 5 })).rejects.toThrow(
-      /timed out/i,
-    );
+    await expect(
+      cfApi(env, "PUT", "/script", { a: 1 }, undefined, { timeoutMs: 5 }),
+    ).rejects.toThrow(/timed out/i);
     // A timeout is ambiguous — must NOT retry a non-idempotent request.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -132,7 +132,9 @@ describe("cfApi", () => {
     // exponential backoff — this asserts the retry still happens, not the header.
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response("slow down", { status: 429, headers: { "retry-after": "0" } }))
+      .mockResolvedValueOnce(
+        new Response("slow down", { status: 429, headers: { "retry-after": "0" } }),
+      )
       .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
     globalThis.fetch = fetchMock;
 
@@ -145,7 +147,9 @@ describe("cfApi", () => {
     try {
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce(new Response("slow", { status: 429, headers: { "retry-after": "2" } }))
+        .mockResolvedValueOnce(
+          new Response("slow", { status: 429, headers: { "retry-after": "2" } }),
+        )
         .mockResolvedValue(new Response(JSON.stringify({ success: true, result: {} })));
       globalThis.fetch = fetchMock;
 

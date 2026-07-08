@@ -181,18 +181,14 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
   // (D1/R2/KV) are intentionally NOT deleted — only the binding rows.
   try {
     await c.env.DB.batch([
-      c.env.DB
-        .prepare(
-          "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
-        )
-        .bind(project.id),
+      c.env.DB.prepare(
+        "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
+      ).bind(project.id),
       c.env.DB.prepare("DELETE FROM deployment WHERE projectId = ?").bind(project.id),
       c.env.DB.prepare("DELETE FROM environment_variable WHERE projectId = ?").bind(project.id),
       c.env.DB.prepare("DELETE FROM custom_domain WHERE projectId = ?").bind(project.id),
       c.env.DB.prepare("DELETE FROM github_connection WHERE projectId = ?").bind(project.id),
-      c.env.DB
-        .prepare("DELETE FROM project_resource_binding WHERE projectId = ?")
-        .bind(project.id),
+      c.env.DB.prepare("DELETE FROM project_resource_binding WHERE projectId = ?").bind(project.id),
       c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id),
     ]);
   } catch (err) {

@@ -84,9 +84,10 @@ export async function cfApi(
 
     if (RETRYABLE_STATUS.has(res.status) && attempt < maxRetries) {
       const retryAfter = Number(res.headers.get("retry-after"));
-      const backoff = Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : backoffBaseMs * 2 ** attempt;
+      const backoff =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : backoffBaseMs * 2 ** attempt;
       // Drain the unread body before retrying: an undrained response can pin the
       // undici connection and prevent reuse (or leak) across attempts.
       await res.body?.cancel().catch(() => {});

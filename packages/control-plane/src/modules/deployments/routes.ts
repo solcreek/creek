@@ -142,193 +142,197 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
 });
 
 // Upload deployment bundle (async — returns 202, deploy runs via waitUntil)
-deployments.put("/:projectId/deployments/:deploymentId/bundle", requirePermission("deploy:create"), async (c) => {
-  // Non-null: the auth middleware always sets team{Id,Slug} and these are
-  // required path params. requirePermission()'s generic widens c.get/param to
-  // `| undefined`, so assert what we pass on to strictly-typed callees.
-  const teamId = c.get("teamId")!;
-  const teamSlug = c.get("teamSlug")!;
-  const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId")!;
+deployments.put(
+  "/:projectId/deployments/:deploymentId/bundle",
+  requirePermission("deploy:create"),
+  async (c) => {
+    // Non-null: the auth middleware always sets team{Id,Slug} and these are
+    // required path params. requirePermission()'s generic widens c.get/param to
+    // `| undefined`, so assert what we pass on to strictly-typed callees.
+    const teamId = c.get("teamId")!;
+    const teamSlug = c.get("teamSlug")!;
+    const projectId = c.req.param("projectId");
+    const deploymentId = c.req.param("deploymentId")!;
 
-  const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{
-      id: string;
-      slug: string;
-      framework: string | null;
-      productionBranch: string;
-    }>();
+    const project = await c.env.DB.prepare(
+      "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+    )
+      .bind(projectId, projectId, teamId)
+      .first<{
+        id: string;
+        slug: string;
+        framework: string | null;
+        productionBranch: string;
+      }>();
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const deployment = await c.env.DB.prepare(
-    "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
-  )
-    .bind(deploymentId, project.id)
-    .first<{ id: string; status: string; branch: string | null }>();
+    const deployment = await c.env.DB.prepare(
+      "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
+    )
+      .bind(deploymentId, project.id)
+      .first<{ id: string; status: string; branch: string | null }>();
 
-  if (!deployment) {
-    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
-  }
+    if (!deployment) {
+      return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+    }
 
-  // Idempotency guards
-  const IN_PROGRESS = new Set(["uploading", "provisioning", "deploying"]);
-  if (IN_PROGRESS.has(deployment.status)) {
-    return c.json({ error: "conflict", message: "Deployment is already in progress" }, 409);
-  }
-  if (deployment.status === "active") {
-    return c.json(
-      {
-        error: "invalid_state",
-        message: "Deployment already completed. Create a new deployment to redeploy.",
-      },
-      400,
-    );
-  }
-  if (deployment.status !== "queued" && deployment.status !== "failed") {
-    return c.json(
-      { error: "invalid_state", message: `Cannot upload bundle in '${deployment.status}' state` },
-      400,
-    );
-  }
-
-  try {
-    // --- Bundle guardrails ---
-    const bundleBody = await c.req.text();
-
-    // creek's own cap (NOT Cloudflare's limit — CF caps the deployed worker on
-    // its GZIPPED script size, which a large-but-compressible worker stays well
-    // under). Raised 50→100MB so an unminified adapter worker (minify is off by
-    // default since it broke Prisma-D1) can deploy without a fragile manual
-    // esbuild pass. Caveat: the body is held + JSON.parsed in this 128MB Worker
-    // (and again in the deploy job), so a bundle approaching this may OOM before
-    // it hits the cap — the real fix for the largest bundles is streaming the
-    // upload to R2 instead of buffering it here.
-    const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100MB
-    if (bundleBody.length > MAX_BUNDLE_SIZE) {
+    // Idempotency guards
+    const IN_PROGRESS = new Set(["uploading", "provisioning", "deploying"]);
+    if (IN_PROGRESS.has(deployment.status)) {
+      return c.json({ error: "conflict", message: "Deployment is already in progress" }, 409);
+    }
+    if (deployment.status === "active") {
       return c.json(
         {
-          error: "validation",
-          message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 100MB.`,
+          error: "invalid_state",
+          message: "Deployment already completed. Create a new deployment to redeploy.",
         },
         400,
       );
     }
+    if (deployment.status !== "queued" && deployment.status !== "failed") {
+      return c.json(
+        { error: "invalid_state", message: `Cannot upload bundle in '${deployment.status}' state` },
+        400,
+      );
+    }
 
-    let parsedBundle: {
-      manifest?: {
-        assets?: unknown[];
-        hasWorker?: boolean;
-        entrypoint?: unknown;
-        renderMode?: string;
-      };
-      assets?: Record<string, unknown>;
-      serverFiles?: Record<string, unknown>;
-    };
     try {
-      parsedBundle = JSON.parse(bundleBody);
-    } catch {
-      return c.json({ error: "validation", message: "Invalid JSON in bundle body" }, 400);
-    }
+      // --- Bundle guardrails ---
+      const bundleBody = await c.req.text();
 
-    if (!parsedBundle.manifest || !Array.isArray(parsedBundle.manifest.assets)) {
-      return c.json(
-        { error: "validation", message: "Bundle must include manifest with assets array" },
-        400,
-      );
-    }
+      // creek's own cap (NOT Cloudflare's limit — CF caps the deployed worker on
+      // its GZIPPED script size, which a large-but-compressible worker stays well
+      // under). Raised 50→100MB so an unminified adapter worker (minify is off by
+      // default since it broke Prisma-D1) can deploy without a fragile manual
+      // esbuild pass. Caveat: the body is held + JSON.parsed in this 128MB Worker
+      // (and again in the deploy job), so a bundle approaching this may OOM before
+      // it hits the cap — the real fix for the largest bundles is streaming the
+      // upload to R2 instead of buffering it here.
+      const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100MB
+      if (bundleBody.length > MAX_BUNDLE_SIZE) {
+        return c.json(
+          {
+            error: "validation",
+            message: `Bundle too large (${Math.round(bundleBody.length / 1024 / 1024)}MB). Max is 100MB.`,
+          },
+          400,
+        );
+      }
 
-    // SSR/Worker bundles may have zero client assets (all rendering is server-side)
-    const hasWorker = parsedBundle.manifest?.hasWorker === true;
-    const hasServerFiles =
-      parsedBundle.serverFiles && Object.keys(parsedBundle.serverFiles).length > 0;
-    if (!hasWorker && (!parsedBundle.assets || Object.keys(parsedBundle.assets).length === 0)) {
-      return c.json(
-        { error: "validation", message: "Bundle must include at least one asset" },
-        400,
-      );
-    }
+      let parsedBundle: {
+        manifest?: {
+          assets?: unknown[];
+          hasWorker?: boolean;
+          entrypoint?: unknown;
+          renderMode?: string;
+        };
+        assets?: Record<string, unknown>;
+        serverFiles?: Record<string, unknown>;
+      };
+      try {
+        parsedBundle = JSON.parse(bundleBody);
+      } catch {
+        return c.json({ error: "validation", message: "Invalid JSON in bundle body" }, 400);
+      }
 
-    const MAX_ASSET_COUNT = 10_000;
-    const assetCount = Object.keys(parsedBundle.assets ?? {}).length;
-    if (assetCount > MAX_ASSET_COUNT) {
-      return c.json(
+      if (!parsedBundle.manifest || !Array.isArray(parsedBundle.manifest.assets)) {
+        return c.json(
+          { error: "validation", message: "Bundle must include manifest with assets array" },
+          400,
+        );
+      }
+
+      // SSR/Worker bundles may have zero client assets (all rendering is server-side)
+      const hasWorker = parsedBundle.manifest?.hasWorker === true;
+      const hasServerFiles =
+        parsedBundle.serverFiles && Object.keys(parsedBundle.serverFiles).length > 0;
+      if (!hasWorker && (!parsedBundle.assets || Object.keys(parsedBundle.assets).length === 0)) {
+        return c.json(
+          { error: "validation", message: "Bundle must include at least one asset" },
+          400,
+        );
+      }
+
+      const MAX_ASSET_COUNT = 10_000;
+      const assetCount = Object.keys(parsedBundle.assets ?? {}).length;
+      if (assetCount > MAX_ASSET_COUNT) {
+        return c.json(
+          {
+            error: "validation",
+            message: `Too many assets (${assetCount}). Max is ${MAX_ASSET_COUNT}.`,
+          },
+          400,
+        );
+      }
+
+      // Stage bundle to R2
+      const bundleKey = `bundles/${deploymentId}.json`;
+      await c.env.ASSETS.put(bundleKey, bundleBody);
+
+      // Mark as uploading
+      await c.env.DB.prepare(
+        "UPDATE deployment SET status = 'uploading', failedStep = NULL, errorMessage = NULL, updatedAt = ? WHERE id = ?",
+      )
+        .bind(Date.now(), deploymentId)
+        .run();
+
+      // Get team plan
+      const team = await c.env.DB.prepare("SELECT plan FROM organization WHERE id = ?")
+        .bind(teamId)
+        .first<{ plan: string }>();
+
+      await recordAudit(
+        c.env.DB,
+        c.get("user"),
+        c.get("teamId"),
         {
-          error: "validation",
-          message: `Too many assets (${assetCount}). Max is ${MAX_ASSET_COUNT}.`,
+          action: "deployment.deploy",
+          resourceType: "deployment",
+          resourceId: deploymentId,
+          metadata: { projectId: project.id, projectSlug: project.slug },
         },
-        400,
+        c.get("auditCtx"),
+      );
+
+      // Fire async deploy job via waitUntil
+      const jobPromise = runDeployJob(c.env, {
+        deploymentId,
+        projectId: project.id,
+        projectSlug: project.slug,
+        teamId,
+        teamSlug,
+        plan: team?.plan ?? "free",
+        branch: deployment.branch,
+        productionBranch: project.productionBranch,
+        framework: project.framework,
+      });
+
+      c.executionCtx.waitUntil(jobPromise);
+
+      // Return 202 immediately — CLI polls GET /deployments/:id for progress
+      const updatedDeployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")
+        .bind(deploymentId)
+        .first();
+
+      return c.json({ deployment: updatedDeployment }, 202);
+    } catch (err) {
+      await c.env.DB.prepare(
+        `UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ?, updatedAt = ? WHERE id = ?`,
+      )
+        .bind(err instanceof Error ? err.message : "Unknown error", Date.now(), deploymentId)
+        .run();
+
+      return c.json(
+        { error: "deploy_failed", message: err instanceof Error ? err.message : "Unknown error" },
+        500,
       );
     }
-
-    // Stage bundle to R2
-    const bundleKey = `bundles/${deploymentId}.json`;
-    await c.env.ASSETS.put(bundleKey, bundleBody);
-
-    // Mark as uploading
-    await c.env.DB.prepare(
-      "UPDATE deployment SET status = 'uploading', failedStep = NULL, errorMessage = NULL, updatedAt = ? WHERE id = ?",
-    )
-      .bind(Date.now(), deploymentId)
-      .run();
-
-    // Get team plan
-    const team = await c.env.DB.prepare("SELECT plan FROM organization WHERE id = ?")
-      .bind(teamId)
-      .first<{ plan: string }>();
-
-    await recordAudit(
-      c.env.DB,
-      c.get("user"),
-      c.get("teamId"),
-      {
-        action: "deployment.deploy",
-        resourceType: "deployment",
-        resourceId: deploymentId,
-        metadata: { projectId: project.id, projectSlug: project.slug },
-      },
-      c.get("auditCtx"),
-    );
-
-    // Fire async deploy job via waitUntil
-    const jobPromise = runDeployJob(c.env, {
-      deploymentId,
-      projectId: project.id,
-      projectSlug: project.slug,
-      teamId,
-      teamSlug,
-      plan: team?.plan ?? "free",
-      branch: deployment.branch,
-      productionBranch: project.productionBranch,
-      framework: project.framework,
-    });
-
-    c.executionCtx.waitUntil(jobPromise);
-
-    // Return 202 immediately — CLI polls GET /deployments/:id for progress
-    const updatedDeployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")
-      .bind(deploymentId)
-      .first();
-
-    return c.json({ deployment: updatedDeployment }, 202);
-  } catch (err) {
-    await c.env.DB.prepare(
-      `UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ?, updatedAt = ? WHERE id = ?`,
-    )
-      .bind(err instanceof Error ? err.message : "Unknown error", Date.now(), deploymentId)
-      .run();
-
-    return c.json(
-      { error: "deploy_failed", message: err instanceof Error ? err.message : "Unknown error" },
-      500,
-    );
-  }
-});
+  },
+);
 
 // Upload a single server file (worker.js + the compiler wasm) as a separate
 // BINARY object, keeping the memory-heavy files out of the bundle JSON. The
@@ -337,90 +341,100 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", requirePermissio
 // per server file BEFORE PUT /bundle, then lists the names in the bundle's
 // `serverFileNames`. Each file is at most tens of MB, so buffering one here is
 // safe (unlike the whole bundle).
-deployments.put("/:projectId/deployments/:deploymentId/serverfile", requirePermission("deploy:create"), async (c) => {
-  // requirePermission()'s generic widens c.get/param to `| undefined`; the auth
-  // middleware sets teamId and deploymentId is a required path param.
-  const teamId = c.get("teamId")!;
-  const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId")!;
-  const name = c.req.query("name");
-  // The name becomes part of an R2 key — validate with the same rule the deploy
-  // job applies to serverFileNames (shared helper).
-  if (!name || !isValidServerFileName(name)) {
-    return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
-  }
+deployments.put(
+  "/:projectId/deployments/:deploymentId/serverfile",
+  requirePermission("deploy:create"),
+  async (c) => {
+    // requirePermission()'s generic widens c.get/param to `| undefined`; the auth
+    // middleware sets teamId and deploymentId is a required path param.
+    const teamId = c.get("teamId")!;
+    const projectId = c.req.param("projectId");
+    const deploymentId = c.req.param("deploymentId")!;
+    const name = c.req.query("name");
+    // The name becomes part of an R2 key — validate with the same rule the deploy
+    // job applies to serverFileNames (shared helper).
+    if (!name || !isValidServerFileName(name)) {
+      return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
+    }
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    const project = await c.env.DB.prepare(
+      "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+    )
+      .bind(projectId, projectId, teamId)
+      .first<{ id: string }>();
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const deployment = await c.env.DB.prepare(
-    "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
-  )
-    .bind(deploymentId, project.id)
-    .first<{ id: string; status: string }>();
-  if (!deployment) {
-    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
-  }
-  // Only before the deploy runs — same window as the bundle upload.
-  if (deployment.status !== "queued" && deployment.status !== "failed") {
-    return c.json(
-      { error: "invalid_state", message: `Cannot upload a server file in '${deployment.status}' state` },
-      400,
+    const deployment = await c.env.DB.prepare(
+      "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+    )
+      .bind(deploymentId, project.id)
+      .first<{ id: string; status: string }>();
+    if (!deployment) {
+      return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+    }
+    // Only before the deploy runs — same window as the bundle upload.
+    if (deployment.status !== "queued" && deployment.status !== "failed") {
+      return c.json(
+        {
+          error: "invalid_state",
+          message: `Cannot upload a server file in '${deployment.status}' state`,
+        },
+        400,
+      );
+    }
+
+    // Cap the size in this 128MB Worker so an oversized upload can't OOM/DoS it.
+    // A worker.js + wasm is tens of MB; 60MB is generous while leaving headroom
+    // for the buffered copy (~2x) to stay under the cap. Buffering with
+    // c.req.arrayBuffer() first would defeat the check — a missing/lying
+    // Content-Length would already be fully in memory before any byteLength test.
+    // Instead count bytes WHILE reading and abort the moment we exceed the cap, so
+    // an unbounded body never fully materializes. The cheap Content-Length check
+    // rejects an honest-but-oversized upload before we read anything.
+    const MAX_SERVER_FILE_SIZE = 60 * 1024 * 1024;
+    const tooLarge = () =>
+      c.json(
+        {
+          error: "validation",
+          message: `Server file too large. Max ${MAX_SERVER_FILE_SIZE / 1024 / 1024}MB.`,
+        },
+        400,
+      );
+    const declared = Number(c.req.header("content-length") ?? "");
+    if (Number.isFinite(declared) && declared > MAX_SERVER_FILE_SIZE) {
+      return tooLarge();
+    }
+    const rawBody = c.req.raw.body;
+    if (!rawBody) {
+      return c.json({ error: "validation", message: "Empty body" }, 400);
+    }
+    let total = 0;
+    const capMarker = new Error("__server_file_too_large__");
+    const capped = rawBody.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          total += chunk.byteLength;
+          if (total > MAX_SERVER_FILE_SIZE) {
+            controller.error(capMarker);
+            return;
+          }
+          controller.enqueue(chunk);
+        },
+      }),
     );
-  }
-
-  // Cap the size in this 128MB Worker so an oversized upload can't OOM/DoS it.
-  // A worker.js + wasm is tens of MB; 60MB is generous while leaving headroom
-  // for the buffered copy (~2x) to stay under the cap. Buffering with
-  // c.req.arrayBuffer() first would defeat the check — a missing/lying
-  // Content-Length would already be fully in memory before any byteLength test.
-  // Instead count bytes WHILE reading and abort the moment we exceed the cap, so
-  // an unbounded body never fully materializes. The cheap Content-Length check
-  // rejects an honest-but-oversized upload before we read anything.
-  const MAX_SERVER_FILE_SIZE = 60 * 1024 * 1024;
-  const tooLarge = () =>
-    c.json(
-      { error: "validation", message: `Server file too large. Max ${MAX_SERVER_FILE_SIZE / 1024 / 1024}MB.` },
-      400,
-    );
-  const declared = Number(c.req.header("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > MAX_SERVER_FILE_SIZE) {
-    return tooLarge();
-  }
-  const rawBody = c.req.raw.body;
-  if (!rawBody) {
-    return c.json({ error: "validation", message: "Empty body" }, 400);
-  }
-  let total = 0;
-  const capMarker = new Error("__server_file_too_large__");
-  const capped = rawBody.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        total += chunk.byteLength;
-        if (total > MAX_SERVER_FILE_SIZE) {
-          controller.error(capMarker);
-          return;
-        }
-        controller.enqueue(chunk);
-      },
-    }),
-  );
-  let body: ArrayBuffer;
-  try {
-    body = await new Response(capped).arrayBuffer();
-  } catch (err) {
-    if (err === capMarker) return tooLarge();
-    throw err;
-  }
-  await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
-  return c.json({ ok: true }, 200);
-});
+    let body: ArrayBuffer;
+    try {
+      body = await new Response(capped).arrayBuffer();
+    } catch (err) {
+      if (err === capMarker) return tooLarge();
+      throw err;
+    }
+    await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
+    return c.json({ ok: true }, 200);
+  },
+);
 
 // Get deployment status
 deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
@@ -459,7 +473,11 @@ deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
   // build log, so for those failures this status response is the only place the
   // reason surfaces during a poll. Derived from the recorded (failedStep,
   // errorMessage) — the same classifier the logs route uses.
-  const dep = deployment as { status?: string; failedStep?: string | null; errorMessage?: string | null };
+  const dep = deployment as {
+    status?: string;
+    failedStep?: string | null;
+    errorMessage?: string | null;
+  };
   const reason =
     dep.status === "failed"
       ? classifyDeployFailure(dep.failedStep ?? null, dep.errorMessage ?? null)

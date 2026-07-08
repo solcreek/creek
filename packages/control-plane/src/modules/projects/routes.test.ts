@@ -213,7 +213,9 @@ describe("DELETE /projects/:idOrSlug", () => {
     expect(count("SELECT COUNT(*) c FROM project WHERE id = 'proj-del'")).toBe(0);
     expect(count("SELECT COUNT(*) c FROM deployment WHERE projectId = 'proj-del'")).toBe(0);
     expect(count("SELECT COUNT(*) c FROM build_log WHERE deploymentId = 'dep-del'")).toBe(0);
-    expect(count("SELECT COUNT(*) c FROM project_resource_binding WHERE projectId = 'proj-del'")).toBe(0);
+    expect(
+      count("SELECT COUNT(*) c FROM project_resource_binding WHERE projectId = 'proj-del'"),
+    ).toBe(0);
     // The team-owned resource itself is intentionally kept (only the binding goes).
     expect(count("SELECT COUNT(*) c FROM resource WHERE id = 'res-del'")).toBe(1);
   });

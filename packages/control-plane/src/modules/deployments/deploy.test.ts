@@ -91,7 +91,9 @@ describe("decodeBundleAssets (bounded-memory decode)", () => {
   }
 
   it("decodes assets to the original bytes", () => {
-    const decoded = decodeBundleAssets(makeBundle({ "/a.js": b64("alpha"), "/b.css": b64("beta") }));
+    const decoded = decodeBundleAssets(
+      makeBundle({ "/a.js": b64("alpha"), "/b.css": b64("beta") }),
+    );
     expect(text(decoded["/a.js"])).toBe("alpha");
     expect(text(decoded["/b.css"])).toBe("beta");
   });
@@ -128,17 +130,21 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
     // Models the new CLI: server files staged as separate binary R2 objects,
     // listed in serverFileNames — read as ArrayBuffers, never base64/JSON.
     const store: Record<string, ArrayBuffer> = {
-      "bundles/dep1-server/worker.js": new TextEncoder().encode("worker-bytes").buffer as ArrayBuffer,
+      "bundles/dep1-server/worker.js": new TextEncoder().encode("worker-bytes")
+        .buffer as ArrayBuffer,
       "bundles/dep1-server/q.wasm": new TextEncoder().encode("wasm-bytes").buffer as ArrayBuffer,
     };
     const env = {
       ASSETS: {
-        get: async (key: string) =>
-          store[key] ? { arrayBuffer: async () => store[key] } : null,
+        get: async (key: string) => (store[key] ? { arrayBuffer: async () => store[key] } : null),
       },
     } as unknown as Env;
 
-    const out = await resolveServerFiles(env, "dep1", bundleBase({ serverFileNames: ["worker.js", "q.wasm"] }));
+    const out = await resolveServerFiles(
+      env,
+      "dep1",
+      bundleBase({ serverFileNames: ["worker.js", "q.wasm"] }),
+    );
     expect(text(out!["worker.js"])).toBe("worker-bytes");
     expect(text(out!["q.wasm"])).toBe("wasm-bytes");
   });
@@ -175,7 +181,10 @@ describe("resolveServerFiles (binary R2 vs legacy inline)", () => {
         get: async () => ({ arrayBuffer: async () => new TextEncoder().encode("from-r2").buffer }),
       },
     } as unknown as Env;
-    const bundle = bundleBase({ serverFileNames: ["worker.js"], serverFiles: { "worker.js": b64("inline") } });
+    const bundle = bundleBase({
+      serverFileNames: ["worker.js"],
+      serverFiles: { "worker.js": b64("inline") },
+    });
     const out = await resolveServerFiles(env, "dep1", bundle);
     expect(text(out!["worker.js"])).toBe("from-r2");
     // The stray inline base64 must be cleared so it can't negate the memory win.
