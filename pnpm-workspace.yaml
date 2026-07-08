@@ -2,3 +2,12 @@ packages:
   - "packages/*"
   - "apps/*"
   - "examples/*"
+
+# pnpm 10 reads build-script approvals from here, NOT package.json's
+# "pnpm.onlyBuiltDependencies" (which it now ignores). Without this, native deps
+# like better-sqlite3 never rebuild on install and break under a newer Node ABI.
+onlyBuiltDependencies:
+  - sharp
+  - esbuild
+  - lightningcss
+  - better-sqlite3
