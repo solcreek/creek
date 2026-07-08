@@ -287,8 +287,18 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       }),
     );
 
-    // Clean up staging bundle
+    // Clean up staging bundle + any separately-staged binary server files, so
+    // the (potentially tens-of-MB) worker/wasm objects don't accumulate in R2.
+    // Best-effort: the deploy already succeeded, so a failed cleanup must not
+    // fail it.
     await env.ASSETS.delete(bundleKey);
+    if (bundle.serverFileNames && bundle.serverFileNames.length > 0) {
+      await Promise.allSettled(
+        bundle.serverFileNames.map((name) =>
+          env.ASSETS.delete(serverFileKey(deploymentId, name)),
+        ),
+      );
+    }
 
     log("activate", "info", isProduction ? "Deployment active (production)" : "Deployment active");
   } catch (err) {

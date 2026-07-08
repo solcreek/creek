@@ -83,18 +83,25 @@ describe("CreekClient", () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(String(url)).toContain("/serverfile?name=worker.js");
     expect(init.headers["Content-Type"]).toBe("application/octet-stream");
-    expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(new Uint8Array([10, 11, 12, 13]));
+    // The view is passed through as the body; fetch honours byteOffset/byteLength,
+    // so only bytes [10,14) go out even though the backing buffer is 32 bytes.
+    expect(init.body).toBe(view);
+    const b = init.body as Uint8Array;
+    expect([b.byteOffset, b.byteLength]).toEqual([10, 4]);
+    expect(new Uint8Array(b.buffer, b.byteOffset, b.byteLength)).toEqual(
+      new Uint8Array([10, 11, 12, 13]),
+    );
   });
 
-  test("uploadServerFile avoids copying when the view already covers the whole buffer", async () => {
+  test("uploadServerFile passes the view through without copying", async () => {
     mockFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
-    const bytes = new Uint8Array([1, 2, 3, 4]); // byteOffset 0, full length
+    const bytes = new Uint8Array([1, 2, 3, 4]);
 
     await client.uploadServerFile("proj", "dep", "worker.js", bytes);
 
-    // No copy in the common case: the exact backing buffer is sent through.
+    // No copy: the exact view is handed to fetch.
     const [, init] = mockFetch.mock.calls[0];
-    expect(init.body).toBe(bytes.buffer);
+    expect(init.body).toBe(bytes);
   });
 
   test("uploadServerFile URL-encodes the file name", async () => {

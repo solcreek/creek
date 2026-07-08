@@ -142,11 +142,14 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
 });
 
 // Upload deployment bundle (async — returns 202, deploy runs via waitUntil)
-deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
-  const teamId = c.get("teamId");
-  const teamSlug = c.get("teamSlug");
+deployments.put("/:projectId/deployments/:deploymentId/bundle", requirePermission("deploy:create"), async (c) => {
+  // Non-null: the auth middleware always sets team{Id,Slug} and these are
+  // required path params. requirePermission()'s generic widens c.get/param to
+  // `| undefined`, so assert what we pass on to strictly-typed callees.
+  const teamId = c.get("teamId")!;
+  const teamSlug = c.get("teamSlug")!;
   const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId");
+  const deploymentId = c.req.param("deploymentId")!;
 
   const project = await c.env.DB.prepare(
     "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
@@ -334,10 +337,12 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
 // per server file BEFORE PUT /bundle, then lists the names in the bundle's
 // `serverFileNames`. Each file is at most tens of MB, so buffering one here is
 // safe (unlike the whole bundle).
-deployments.put("/:projectId/deployments/:deploymentId/serverfile", async (c) => {
-  const teamId = c.get("teamId");
+deployments.put("/:projectId/deployments/:deploymentId/serverfile", requirePermission("deploy:create"), async (c) => {
+  // requirePermission()'s generic widens c.get/param to `| undefined`; the auth
+  // middleware sets teamId and deploymentId is a required path param.
+  const teamId = c.get("teamId")!;
   const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId");
+  const deploymentId = c.req.param("deploymentId")!;
   const name = c.req.query("name");
   // The name becomes part of an R2 key — bound it and reject surprising values.
   // Legit server-file names look like "worker.js" or "chunks/ssr_xxx.js" (slashes

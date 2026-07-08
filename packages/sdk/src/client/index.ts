@@ -34,26 +34,12 @@ export class CreekClient {
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
         headers["Content-Type"] = "application/octet-stream";
-        // Slice to the view's exact bytes: a Node Buffer (or any Uint8Array with
-        // a byteOffset / larger backing buffer, e.g. from a pool) would otherwise
-        // upload the whole backing ArrayBuffer — extra, unrelated bytes.
-        if (body instanceof Uint8Array) {
-          // Send exactly the view's bytes. When it already covers the whole
-          // backing buffer (the common case — Buffer.from(base64) allocates
-          // exactly), pass the buffer as-is to avoid copying a multi-MB payload;
-          // only a partial/offset view (e.g. a pooled Node Buffer) needs a slice.
-          // slice() widens to ArrayBuffer | SharedArrayBuffer; a request body is
-          // never shared, so narrow back to ArrayBuffer.
-          init.body =
-            body.byteOffset === 0 && body.byteLength === body.buffer.byteLength
-              ? (body.buffer as ArrayBuffer)
-              : (body.buffer.slice(
-                  body.byteOffset,
-                  body.byteOffset + body.byteLength,
-                ) as ArrayBuffer);
-        } else {
-          init.body = body;
-        }
+        // A Uint8Array/ArrayBuffer is a valid BodyInit (BufferSource); fetch
+        // sends exactly the view's bytes, honouring byteOffset/byteLength. Pass
+        // it through as-is — no copy, and correct for a pooled/offset Node Buffer
+        // (unlike reaching into `.buffer`). The cast satisfies TS's stricter
+        // Uint8Array<ArrayBufferLike> vs BodyInit generic; the runtime accepts it.
+        init.body = body as BodyInit;
       } else {
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
