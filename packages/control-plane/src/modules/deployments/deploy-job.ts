@@ -29,7 +29,14 @@ export interface StagedBundle {
     renderMode?: "spa" | "ssr";
   };
   assets: Record<string, string>; // path -> base64
+  /** Legacy: server files inlined as base64 (older CLI). */
   serverFiles?: Record<string, string>;
+  /**
+   * Current: names of server files staged as separate binary R2 objects
+   * (see {@link serverFileKey}). Keeps the big worker+wasm out of this JSON so
+   * the deploy job doesn't OOM. Mutually exclusive with `serverFiles`.
+   */
+  serverFileNames?: string[];
   // Typed binding declarations with user-defined names
   bindings?: BundleBindingRequirement[];
   // Wrangler [vars] passthrough
@@ -99,18 +106,14 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     let decodedServerFiles: Record<string, ArrayBuffer> | undefined;
     try {
       bundle = JSON.parse(await bundleObj.text());
-      decodedClientAssets = {};
-      for (const [path, b64] of Object.entries(bundle.assets)) {
-        decodedClientAssets[path] = base64ToArrayBuffer(b64);
-      }
-      decodedServerFiles = bundle.serverFiles
-        ? Object.fromEntries(
-            Object.entries(bundle.serverFiles).map(([path, b64]) => [
-              path,
-              base64ToArrayBuffer(b64),
-            ]),
-          )
-        : undefined;
+      decodedClientAssets = decodeBundleAssets(bundle);
+      // Server files (worker.js + the ~3.5MB Prisma/og wasm) are the memory-
+      // heavy part. A new CLI stages them as separate BINARY R2 objects
+      // (serverFileNames) so we read them as ArrayBuffers directly — never
+      // base64-in-JSON — which is what keeps this 128MB Worker from OOMing on a
+      // large real bundle. An older CLI still inlines them (serverFiles);
+      // resolveServerFiles handles both.
+      decodedServerFiles = await resolveServerFiles(env, deploymentId, bundle);
     } catch (err) {
       throw new StepError(
         "uploading",
@@ -384,6 +387,68 @@ export function base64ToArrayBuffer(b64: string): ArrayBuffer {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
+}
+
+/**
+ * Decode a staged bundle's base64 `assets` into ArrayBuffers, freeing each
+ * source base64 string from `bundle` as it is decoded so the parsed base64 and
+ * the decoded buffers don't both sit in the 128MB Worker heap. Mutates `bundle`
+ * (its `assets` values become ""); keys are preserved for the asset-count log.
+ * Server files are handled separately by {@link resolveServerFiles}. Exported
+ * for tests.
+ */
+export function decodeBundleAssets(bundle: StagedBundle): Record<string, ArrayBuffer> {
+  const decodedClientAssets: Record<string, ArrayBuffer> = {};
+  for (const path of Object.keys(bundle.assets)) {
+    decodedClientAssets[path] = base64ToArrayBuffer(bundle.assets[path]);
+    bundle.assets[path] = ""; // free the base64 for GC before the next decode
+  }
+  return decodedClientAssets;
+}
+
+/** R2 key prefix for a deployment's separately-staged binary server files. */
+export function serverFileKey(deploymentId: string, name: string): string {
+  return `bundles/${deploymentId}-server/${name}`;
+}
+
+/**
+ * Resolve a bundle's server files (worker.js + wasm) to ArrayBuffers.
+ *
+ * These are the memory-heavy part of a real Prisma/Next bundle (a large worker
+ * plus a ~3.5MB compiler wasm). Inlining them as base64 in the bundle JSON
+ * forces this 128MB Worker to hold the 2-byte base64 strings AND the decoded
+ * buffers at once — the intermittent-OOM cause. So a current CLI stages each
+ * server file as a separate BINARY R2 object and lists them in
+ * `bundle.serverFileNames`; we read those as ArrayBuffers directly (no base64,
+ * no JSON parse of the big blob). An older CLI still inlines `bundle.serverFiles`
+ * as base64 — decode that in place, freeing each string as we go. Returns
+ * undefined for a pure SPA (no server files).
+ */
+export async function resolveServerFiles(
+  env: Env,
+  deploymentId: string,
+  bundle: StagedBundle,
+): Promise<Record<string, ArrayBuffer> | undefined> {
+  if (bundle.serverFileNames && bundle.serverFileNames.length > 0) {
+    const out: Record<string, ArrayBuffer> = {};
+    for (const name of bundle.serverFileNames) {
+      const obj = await env.ASSETS.get(serverFileKey(deploymentId, name));
+      if (!obj) throw new Error(`Server file missing from staging: ${name}`);
+      out[name] = await obj.arrayBuffer();
+    }
+    return out;
+  }
+
+  if (bundle.serverFiles && Object.keys(bundle.serverFiles).length > 0) {
+    const out: Record<string, ArrayBuffer> = {};
+    for (const path of Object.keys(bundle.serverFiles)) {
+      out[path] = base64ToArrayBuffer(bundle.serverFiles[path]);
+      bundle.serverFiles[path] = "";
+    }
+    return out;
+  }
+
+  return undefined;
 }
 
 /** How often to beat updatedAt during a long edge deploy. */

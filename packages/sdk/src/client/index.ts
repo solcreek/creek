@@ -122,6 +122,26 @@ export class CreekClient {
     return this.request("PUT", `/projects/${projectId}/deployments/${deploymentId}/bundle`, bundle);
   }
 
+  /**
+   * Stage a single server file (worker.js / compiler wasm) as a separate binary
+   * object, so the memory-heavy files stay out of the bundle JSON — the server
+   * reads them as ArrayBuffers instead of base64-decoding a large blob in a
+   * 128MB Worker. Call this once per server file BEFORE uploadDeploymentBundle,
+   * then pass their names as the bundle's `serverFileNames`.
+   */
+  async uploadServerFile(
+    projectId: string,
+    deploymentId: string,
+    name: string,
+    bytes: ArrayBuffer | Uint8Array,
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      "PUT",
+      `/projects/${projectId}/deployments/${deploymentId}/serverfile?name=${encodeURIComponent(name)}`,
+      bytes,
+    );
+  }
+
   // --- Environment Variables ---
 
   async listEnvVars(projectId: string): Promise<{ key: string; value: string }[]> {

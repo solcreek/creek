@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
-import { runDeployJob } from "./deploy-job.js";
+import { runDeployJob, serverFileKey } from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
@@ -325,6 +325,52 @@ deployments.put("/:projectId/deployments/:deploymentId/bundle", async (c) => {
       500,
     );
   }
+});
+
+// Upload a single server file (worker.js + the compiler wasm) as a separate
+// BINARY object, keeping the memory-heavy files out of the bundle JSON. The
+// deploy job then reads them as ArrayBuffers instead of base64-decoding a 40MB
+// blob in a 128MB Worker (the intermittent-OOM cause). The CLI calls this once
+// per server file BEFORE PUT /bundle, then lists the names in the bundle's
+// `serverFileNames`. Each file is at most tens of MB, so buffering one here is
+// safe (unlike the whole bundle).
+deployments.put("/:projectId/deployments/:deploymentId/serverfile", async (c) => {
+  const teamId = c.get("teamId");
+  const projectId = c.req.param("projectId");
+  const deploymentId = c.req.param("deploymentId");
+  const name = c.req.query("name");
+  if (!name) {
+    return c.json({ error: "validation", message: "Missing required ?name query param" }, 400);
+  }
+
+  const project = await c.env.DB.prepare(
+    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ id: string }>();
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const deployment = await c.env.DB.prepare(
+    "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+  )
+    .bind(deploymentId, project.id)
+    .first<{ id: string; status: string }>();
+  if (!deployment) {
+    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+  }
+  // Only before the deploy runs — same window as the bundle upload.
+  if (deployment.status !== "queued" && deployment.status !== "failed") {
+    return c.json(
+      { error: "invalid_state", message: `Cannot upload a server file in '${deployment.status}' state` },
+      400,
+    );
+  }
+
+  const body = await c.req.arrayBuffer();
+  await c.env.ASSETS.put(serverFileKey(deploymentId, name), body);
+  return c.json({ ok: true }, 200);
 });
 
 // Get deployment status

@@ -10,10 +10,86 @@ import {
   resolveDeployEnv,
   parseWaitDuration,
   withTimeout,
+  stageDeploymentBundle,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
 } from "./deploy.js";
+
+describe("stageDeploymentBundle (separate binary server files)", () => {
+  function mockClient() {
+    const serverFileUploads: Array<{ name: string; bytes: Uint8Array }> = [];
+    const bundleUploads: Array<Record<string, unknown>> = [];
+    return {
+      serverFileUploads,
+      bundleUploads,
+      serverFileError: null as Error | null,
+      async uploadServerFile(_p: string, _d: string, name: string, bytes: Uint8Array) {
+        if (this.serverFileError) throw this.serverFileError;
+        serverFileUploads.push({ name, bytes });
+        return { ok: true };
+      },
+      async uploadDeploymentBundle(_p: string, _d: string, bundle: Record<string, unknown>) {
+        bundleUploads.push(bundle);
+        return { ok: true };
+      },
+    };
+  }
+
+  it("uploads each server file as binary and sends a slim bundle with serverFileNames", async () => {
+    const client = mockClient();
+    const bundle = {
+      manifest: { hasWorker: true },
+      assets: { "/a.js": "YQ==" },
+      serverFiles: { "worker.js": Buffer.from("worker").toString("base64"), "q.wasm": Buffer.from("W").toString("base64") },
+    };
+    await stageDeploymentBundle(client, "p1", "d1", bundle);
+
+    expect(client.serverFileUploads.map((u) => u.name)).toEqual(["worker.js", "q.wasm"]);
+    expect(Buffer.from(client.serverFileUploads[0].bytes).toString()).toBe("worker");
+    // The bundle sent to the server carries names, NOT the base64 server files.
+    expect(client.bundleUploads).toHaveLength(1);
+    const sent = client.bundleUploads[0];
+    expect(sent.serverFileNames).toEqual(["worker.js", "q.wasm"]);
+    expect(sent.serverFiles).toBeUndefined();
+    expect(sent.assets).toEqual({ "/a.js": "YQ==" });
+  });
+
+  it("uploads the bundle directly when there are no server files (SPA)", async () => {
+    const client = mockClient();
+    await stageDeploymentBundle(client, "p1", "d1", { manifest: { hasWorker: false }, assets: { "/i.html": "PA==" } });
+    expect(client.serverFileUploads).toHaveLength(0);
+    expect(client.bundleUploads[0].serverFileNames).toBeUndefined();
+  });
+
+  it("falls back to the inline bundle when the server lacks the /serverfile route (404)", async () => {
+    const client = mockClient();
+    client.serverFileError = new CreekApiError(404, "not_found", "no route");
+    const bundle = {
+      manifest: { hasWorker: true },
+      assets: {},
+      serverFiles: { "worker.js": Buffer.from("w").toString("base64") },
+    };
+    await stageDeploymentBundle(client, "p1", "d1", bundle);
+
+    // Server files couldn't be staged separately; the bundle keeps them inline.
+    expect(client.bundleUploads).toHaveLength(1);
+    expect(client.bundleUploads[0].serverFiles).toEqual(bundle.serverFiles);
+    expect(client.bundleUploads[0].serverFileNames).toBeUndefined();
+  });
+
+  it("propagates a non-404 server-file upload error (no silent fallback)", async () => {
+    const client = mockClient();
+    client.serverFileError = new CreekApiError(500, "server_error", "boom");
+    await expect(
+      stageDeploymentBundle(client, "p1", "d1", {
+        manifest: { hasWorker: true },
+        assets: {},
+        serverFiles: { "worker.js": "dw==" },
+      }),
+    ).rejects.toThrow(/boom/);
+  });
+});
 
 describe("withTimeout (bounds best-effort drift detection)", () => {
   test("returns the resolved value when it beats the timeout", async () => {
