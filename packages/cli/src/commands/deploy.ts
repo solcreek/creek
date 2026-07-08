@@ -1897,13 +1897,29 @@ async function deployAuthenticated(
     await client.uploadDeploymentBundle(project.id, deployment.id, bundle);
 
     // Kick off migration-drift detection now, in parallel with the deploy, so a
-    // "N migrations pending" warning lands in the build log even if the deploy
-    // later fails or the CLI stops waiting — not only on the success path. The
-    // DB state doesn't change during a deploy, so this one result is reused for
-    // the post-success stdout warning below. Best-effort; never blocks/throws.
+    // "N migrations pending" warning can land in the build log even if the
+    // deploy later fails or the CLI stops waiting — not only on the success
+    // path. Never awaited on the hot path (that would delay progress and count
+    // against POLL_TIMEOUT); `ensureDriftLogged` below awaits it lazily at a
+    // terminal state, by which point this fast query has long since resolved.
+    // Best-effort — detectMigrationDrift is already .catch()'d to null.
     const driftPromise = detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
       () => null,
     );
+    // Await drift once (memoized), emit its build-log line once, and return the
+    // resolved drift object — the caller uses it for the stdout warning and the
+    // JSON `migrations` block. The DB state can't change mid-deploy, so a single
+    // detection serves all terminal paths.
+    let driftObj: Awaited<typeof driftPromise> = null;
+    let driftLogged = false;
+    const ensureDriftLogged = async (): Promise<Awaited<typeof driftPromise>> => {
+      if (driftLogged) return driftObj;
+      driftLogged = true;
+      driftObj = await driftPromise;
+      const msg = driftObj ? driftWarning(driftObj) : null;
+      if (msg) buildLog.warn("detect", msg, "migration_drift");
+      return driftObj;
+    };
 
     // Poll for async deploy progress
     const POLL_INTERVAL = 1000;
@@ -1924,17 +1940,6 @@ async function deployAuthenticated(
     const start = Date.now();
 
     buildLog.info("upload", `bundle uploaded (${fileList.length} files)`);
-
-    // Surface schema drift into the build log at the detect stage — before the
-    // deploy reaches a terminal state — so it shows in `creek deployments logs`
-    // even for a failed or still-running deploy, not only on the success path
-    // (a background/CI deploy never sees the stdout warning). Deploy ships code,
-    // not schema, so a lagging DB 500s the app on a missing column.
-    const drift = await driftPromise;
-    const driftMsg = drift ? driftWarning(drift) : null;
-    if (driftMsg) {
-      buildLog.warn("detect", driftMsg, "migration_drift");
-    }
 
     while (Date.now() - start < POLL_TIMEOUT) {
       const res = await client.getDeploymentStatus(project.id, deployment.id);
@@ -1958,12 +1963,14 @@ async function deployAuthenticated(
 
       if (status === "active") {
         buildLog.info("activate", `deployed: ${res.url ?? res.previewUrl}`);
-        // The build log already carries the drift line emitted before the loop
-        // (drift/driftMsg computed once above); upload it as-is. Capture the
+        // Fold the drift line into the log before uploading (resolved by now —
+        // the deploy took longer than the drift query). Capture the upload
         // promise instead of firing and forgetting: the JSON path calls
         // process.exit() a few lines down, which aborts an in-flight request —
         // so a successful deploy could otherwise leave no build log. We await it
         // (capped) before any exit via flushBuildLog.
+        const drift = await ensureDriftLogged();
+        const driftMsg = drift ? driftWarning(drift) : null;
         const logUpload = client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
           status: "success",
           startedAt: buildLog.startedAt,
@@ -1991,7 +1998,8 @@ async function deployAuthenticated(
               ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
               rollbackCommand: `creek rollback --project ${project.slug}`,
               ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
-              ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
+              ...(drift &&
+              (drift.status === "pending" || drift.laggingDatabases.length > 0)
                 ? {
                     migrations: {
                       status: drift.status,
@@ -2062,9 +2070,11 @@ async function deployAuthenticated(
           msg,
           errorCode ?? undefined,
         );
-        // Await (capped) so the failure log reaches the server before
-        // process.exit() below — otherwise a failed deploy has nothing for
-        // `creek deployments logs` to show.
+        // Fold in the drift line, then await (capped) so the failure log reaches
+        // the server before process.exit() below — otherwise a failed deploy has
+        // nothing for `creek deployments logs` to show (and drift wouldn't
+        // surface on the very path P5 is about).
+        await ensureDriftLogged();
         await flushBuildLog(
           client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
             status: "failed",
@@ -2116,8 +2126,14 @@ async function deployAuthenticated(
     // The CLI gave up before the deploy reached a terminal state — the server
     // may still be working. Upload what we have so `creek deployments logs`
     // isn't empty, and point the user there instead of a bare "retry".
-    const waited = `${Math.round(POLL_TIMEOUT / 60_000)}m`;
+    // Whole minutes read as "Nm"; anything else as seconds so a 90s budget
+    // isn't misreported as "2m".
+    const waited =
+      POLL_TIMEOUT % 60_000 === 0
+        ? `${POLL_TIMEOUT / 60_000}m`
+        : `${Math.round(POLL_TIMEOUT / 1000)}s`;
     buildLog.warn("activate", "CLI stopped waiting before the deploy reached a terminal state");
+    await ensureDriftLogged();
     await flushBuildLog(
       client.uploadBuildLog(deployment.id, buildLog.toNdjson(), {
         status: "running",
