@@ -9,10 +9,29 @@ import {
   ephemeralSandboxDbWarning,
   resolveDeployEnv,
   parseWaitDuration,
+  withTimeout,
   CLI_TERMINAL_STATUSES,
   CLI_IN_FLIGHT_STATUSES,
   type CliDeployment,
 } from "./deploy.js";
+
+describe("withTimeout (bounds best-effort drift detection)", () => {
+  test("returns the resolved value when it beats the timeout", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 1000, "fallback")).resolves.toBe("ok");
+  });
+
+  test("returns the fallback and does not hang on a never-resolving promise", async () => {
+    vi.useFakeTimers();
+    try {
+      const never = new Promise<string>(() => {}); // never settles
+      const p = withTimeout(never, 3000, "fallback");
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(p).resolves.toBe("fallback");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("parseWaitDuration (--wait)", () => {
   test("null for undefined (caller uses default) and unparseable input", () => {

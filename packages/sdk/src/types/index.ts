@@ -1,18 +1,21 @@
 /**
  * API response types.
  *
- * Routes return raw D1 rows (`SELECT *`), so each type must match its table's
- * actual column names. The DB is Drizzle and its columns are **camelCase**
- * (schema.ts / drizzle migrations: emailVerified, createdAt, organizationId,
- * failedStep, …) — NOT snake_case. `Deployment` below has been corrected to
- * match; a reader that assumes snake_case (failed_step, created_at, github_id)
- * silently gets `undefined`.
+ * Routes return raw D1 rows (`SELECT *`), and the DB is Drizzle with
+ * **camelCase** columns (schema.ts / drizzle migrations: emailVerified,
+ * createdAt, organizationId, failedStep, …). So a type here should match its
+ * table's real column names; a reader that assumes snake_case silently gets
+ * `undefined`.
  *
- * ⚠️ The other interfaces here (User, Project, …) still declare snake_case that
- * does NOT match those camelCase columns and is stale in places (e.g. User has
- * no `github_id` column at all). They are wrong for the same reason and should
- * be audited + corrected the same way `Deployment` was — tracked as follow-up,
- * out of scope for this change. Do not copy their snake_case shape for new types.
+ * Status of the shapes below:
+ * - `Deployment` — audited and corrected to the actual camelCase columns. Trust it.
+ * - `User`, `Project`, `EnvironmentVariable`, `AuthToken`, … — LEGACY and known
+ *   inaccurate. They still declare snake_case that does not match the camelCase
+ *   columns, and some fields are stale (e.g. `User.github_id` / `Project.team_id`
+ *   don't exist under those names). They have NOT been audited here — treat them
+ *   as unreliable until each is verified against its endpoint, and do not copy
+ *   their snake_case shape for new types. Fixing them is tracked as follow-up
+ *   (a per-field mapping, not a mechanical rename — e.g. team_id → organizationId).
  */
 
 export interface User {

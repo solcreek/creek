@@ -425,6 +425,19 @@ export function parseWaitDuration(input: string | undefined): number | null {
   return Math.min(Math.max(Number(m[1]) * factor, 1000), 3_600_000);
 }
 
+/**
+ * Resolve `p`, but give up after `ms` and return `fallback` instead. Used to
+ * bound best-effort work (migration-drift detection) whose underlying fetch has
+ * no timeout, so it can never block reporting the deploy outcome + exiting.
+ * Exported for tests.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
@@ -1910,12 +1923,18 @@ async function deployAuthenticated(
     // resolved drift object — the caller uses it for the stdout warning and the
     // JSON `migrations` block. The DB state can't change mid-deploy, so a single
     // detection serves all terminal paths.
+    //
+    // Bound the wait: detectMigrationDrift makes SDK fetch() calls that have no
+    // timeout, and this is awaited on every terminal/timeout path right before
+    // the final log upload + exit. A hung drift query must not block reporting
+    // the deploy outcome — cap it and treat a timeout as "no drift info".
+    const DRIFT_LOG_TIMEOUT_MS = 3000;
     let driftObj: Awaited<typeof driftPromise> = null;
     let driftLogged = false;
     const ensureDriftLogged = async (): Promise<Awaited<typeof driftPromise>> => {
       if (driftLogged) return driftObj;
       driftLogged = true;
-      driftObj = await driftPromise;
+      driftObj = await withTimeout(driftPromise, DRIFT_LOG_TIMEOUT_MS, null);
       const msg = driftObj ? driftWarning(driftObj) : null;
       if (msg) buildLog.warn("detect", msg, "migration_drift");
       return driftObj;
