@@ -66,12 +66,18 @@ npx wrangler kv namespace create BUILD_STATUS
 # Note the id
 ```
 
-### Run the D1 schema
+### Run the D1 migrations
+
+The schema is managed by Drizzle migrations under `packages/control-plane/drizzle`
+(wired up via `migrations_dir` in `wrangler.toml`). Apply them to your remote D1:
 
 ```bash
 cd packages/control-plane
-npx wrangler d1 execute creek-db --remote --file=src/db/schema.sql
+npx wrangler d1 migrations apply creek-db --remote
 ```
+
+This tracks which migrations have run, so it is safe to re-run — only new ones
+are applied.
 
 ## 3. Configure each Worker
 
@@ -213,13 +219,13 @@ Creek Cloud (the managed offering at `creek.dev`) adds these on top. If you'd ra
 
 **Dispatch namespace error** — verify `wrangler dispatch-namespace list` shows `creek-user-workers`. The name in your `wrangler.toml` files must match.
 
-**D1 schema errors on deploy** — re-run `wrangler d1 execute creek-db --remote --file=src/db/schema.sql`. Schema is idempotent.
+**D1 schema errors on deploy** — re-run `wrangler d1 migrations apply creek-db --remote`. It only applies migrations that haven't run yet, so it's safe to repeat.
 
 **Container build fails** — `remote-builder` requires Docker running locally for the first deploy. After that, the image is in Cloudflare's registry.
 
 ## Updates
 
-Pull new commits and re-run the deploy commands. The D1 schema is idempotent — re-running `schema.sql` is safe.
+Pull new commits and re-run the deploy commands. Apply any new DB migrations with `wrangler d1 migrations apply creek-db --remote` — already-applied migrations are skipped, so it's safe to repeat.
 
 ```bash
 git pull

@@ -514,7 +514,7 @@ export const deployCommand = defineCommand({
     wait: {
       type: "string",
       description:
-        "How long to keep polling for the deploy to finish before the CLI gives up (e.g. 15m, 900s, 300000). Default 2m. The server keeps deploying regardless — this only controls how long the CLI waits. Raise it for CI/automation that must observe the terminal status.",
+        "How long to keep polling for the deploy to finish before the CLI gives up. Accepts a suffixed duration (15m, 900s, 2h) or a bare number in milliseconds (300000); clamped to [1s, 60m]. Default 2m. The server keeps deploying regardless — this only controls how long the CLI waits. Raise it for CI/automation that must observe the terminal status.",
       required: false,
     },
   },
