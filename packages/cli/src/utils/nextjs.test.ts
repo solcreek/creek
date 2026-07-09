@@ -83,6 +83,16 @@ describe("semverGte", () => {
     expect(semverGte("1.0.0", "0.2.17")).toBe(true); // major newer
     expect(semverGte("0.2.14", "0.2.17")).toBe(false); // the customer's pinned devDep
   });
+
+  it("compares on the release core, ignoring prerelease/build metadata", () => {
+    // A Next canary of a qualifying release must not fall to the legacy path:
+    // without stripping, Number("4-canary") is NaN and NaN >= 3 is false.
+    expect(semverGte("16.2.4-canary.1", "16.2.3")).toBe(true); // canary of a newer patch
+    expect(semverGte("16.2.3-rc.0", "16.2.3")).toBe(true); // prerelease of the threshold counts
+    expect(semverGte("16.1.0-canary.2", "16.2.3")).toBe(false); // older minor, suffix or not
+    expect(semverGte("0.2.17+build.5", "0.2.17")).toBe(true); // build metadata ignored
+    expect(semverGte("16", "16.2.3")).toBe(false); // missing components default to 0 → 16.0.0
+  });
 });
 
 /**

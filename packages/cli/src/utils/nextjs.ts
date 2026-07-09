@@ -40,9 +40,24 @@ export function getNextVersion(cwd: string): string | null {
   }
 }
 
-/** Simple semver >= comparison (major.minor.patch only). Exported for tests. */
+/**
+ * Simple semver >= comparison on the release core (major.minor.patch).
+ *
+ * Build metadata (`+…`) and prerelease tags (`-canary.1`, `-rc.0`) are stripped
+ * before comparing, and any missing/non-numeric component defaults to 0. Without
+ * this, `getNextVersion()` returning a canary like `16.2.4-canary.1` would parse
+ * its patch as `Number("4-canary")` → NaN, and `NaN >= 3` is false — wrongly
+ * dropping a qualifying release to the legacy build path. A prerelease is treated
+ * as its release for the gate (16.2.4-canary.1 counts as 16.2.4); the gate only
+ * asks "is the core version at least X", so a canary of a qualifying release
+ * should qualify. Exported for tests.
+ */
 export function semverGte(version: string, target: string): boolean {
-  const parse = (v: string) => v.split(".").map(Number);
+  const parse = (v: string) => {
+    const core = v.split("+")[0].split("-")[0];
+    const [maj = 0, min = 0, pat = 0] = core.split(".").map((n) => Number(n) || 0);
+    return [maj, min, pat];
+  };
   const [aMaj, aMin, aPat] = parse(version);
   const [bMaj, bMin, bPat] = parse(target);
   if (aMaj !== bMaj) return aMaj > bMaj;
