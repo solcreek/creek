@@ -13,7 +13,7 @@ import { auditContextMiddleware } from "./modules/audit/middleware.js";
 import { purgeAuditIpLogs } from "./modules/audit/service.js";
 import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
-import { deleteStagedBundle } from "./modules/deployments/deploy-job.js";
+import { deleteStagedBundle, consumeDeployJobBatch } from "./modules/deployments/deploy-job.js";
 import { domains } from "./modules/domains/routes.js";
 import { logs } from "./modules/logs/routes.js";
 import { metrics } from "./modules/metrics/routes.js";
@@ -380,6 +380,12 @@ export default {
         aggregateUsageSafe(env),
       ]),
     );
+  },
+  // Deploy jobs run here (creek-deploy-jobs), not in the bundle-upload
+  // request's waitUntil — workerd cancels waitUntil ~30s after the response,
+  // which killed large-worker activations. See consumeDeployJobBatch.
+  async queue(batch: MessageBatch, env: Env) {
+    await consumeDeployJobBatch(batch, env);
   },
 };
 

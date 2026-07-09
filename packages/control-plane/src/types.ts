@@ -41,6 +41,18 @@ export interface Env {
   SANDBOX_API_URL: string;
   INTERNAL_SECRET: string;
 
+  /**
+   * CLI deploy jobs (creek-deploy-jobs). The deploy job MUST NOT run in the
+   * request's waitUntil: workerd cancels waitUntil work ~30s after the response
+   * is sent, which silently killed activation of large workers mid-flight
+   * (observed live in the tail: "waitUntil() tasks did not complete within the
+   * allowed time ... and have been cancelled"). A queue consumer gets its own
+   * invocation with a wall-clock budget in the minutes, plus redelivery if it
+   * dies. Optional so local/test envs without a queue binding fall back to
+   * waitUntil (fine for small test bundles).
+   */
+  DEPLOY_JOBS?: Queue;
+
   // Encryption
   ENCRYPTION_KEY?: string;
 

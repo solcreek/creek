@@ -38,6 +38,21 @@ service = "creek-remote-builder"
 binding = "WEB_BUILDS"
 queue = "creek-web-builds"
 
+# CLI deploy jobs: PUT /bundle enqueues, this same worker consumes. The job
+# must NOT run in the request's waitUntil — workerd cancels waitUntil ~30s
+# after the response, which silently killed large-worker activations (misread
+# as "activation timeout"). One message per invocation so each deploy gets the
+# full consumer budget; zero batch timeout so delivery is immediate.
+[[queues.producers]]
+binding = "DEPLOY_JOBS"
+queue = "creek-deploy-jobs"
+
+[[queues.consumers]]
+queue = "creek-deploy-jobs"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2
+
 [vars]
 CREEK_DOMAIN = "bycreek.com"
 SANDBOX_API_URL = "https://sandbox-api.creek.dev"

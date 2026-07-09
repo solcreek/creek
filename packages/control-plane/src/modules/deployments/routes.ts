@@ -298,8 +298,7 @@ deployments.put(
         c.get("auditCtx"),
       );
 
-      // Fire async deploy job via waitUntil
-      const jobPromise = runDeployJob(c.env, {
+      const jobInput = {
         deploymentId,
         projectId: project.id,
         projectSlug: project.slug,
@@ -309,9 +308,20 @@ deployments.put(
         branch: deployment.branch,
         productionBranch: project.productionBranch,
         framework: project.framework,
-      });
+      };
 
-      c.executionCtx.waitUntil(jobPromise);
+      if (c.env.DEPLOY_JOBS) {
+        // Run the deploy job on the queue consumer, NOT in waitUntil: workerd
+        // cancels waitUntil work ~30s after the 202 below, which silently
+        // killed activation of large workers (the "activation timeout" class of
+        // failures — see consumeDeployJobBatch). The queue invocation has a
+        // minutes-scale budget and redelivers if it dies.
+        await c.env.DEPLOY_JOBS.send(jobInput);
+      } else {
+        // Local/test fallback (no queue binding): small bundles finish well
+        // inside the waitUntil window.
+        c.executionCtx.waitUntil(runDeployJob(c.env, jobInput));
+      }
 
       // Return 202 immediately — CLI polls GET /deployments/:id for progress
       const updatedDeployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")

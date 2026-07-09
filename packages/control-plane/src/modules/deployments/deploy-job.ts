@@ -50,7 +50,7 @@ export interface StagedBundle {
   queue?: boolean;
 }
 
-interface DeployJobInput {
+export interface DeployJobInput {
   deploymentId: string;
   projectId: string;
   projectSlug: string;
@@ -60,6 +60,39 @@ interface DeployJobInput {
   branch: string | null;
   productionBranch: string;
   framework?: string | null;
+}
+
+/**
+ * Queue consumer for deploy jobs (creek-deploy-jobs).
+ *
+ * Deploy jobs run here — NOT in the bundle-upload request's waitUntil — because
+ * workerd cancels waitUntil work ~30 seconds after the response is sent. A large
+ * worker's activation (2-3 sequential multi-MB script PUTs to the CF API) can
+ * exceed that, and the cancellation is silent: the heartbeat (first beat at 60s,
+ * past the budget) never lands, the deployment sticks in 'deploying', and the
+ * stale-deploy reaper misreports it as an activation timeout ~10 minutes later.
+ * A queue invocation has a wall-clock budget in the minutes — the job is
+ * I/O-bound (sub-second CPU), so it fits comfortably.
+ *
+ * runDeployJob handles its own failures (marks the deployment failed) and does
+ * not normally throw, so a throw here means infra-level death (eviction) — retry
+ * the message: the staged bundle is still in R2 (cleanup runs only on job
+ * completion) and script PUTs are idempotent, so a re-run is safe. Exported for
+ * tests; index.ts's queue() delegates here.
+ */
+export async function consumeDeployJobBatch(
+  batch: { messages: ReadonlyArray<{ readonly body: unknown; ack(): void; retry(): void }> },
+  env: Env,
+): Promise<void> {
+  for (const msg of batch.messages) {
+    try {
+      await runDeployJob(env, msg.body as DeployJobInput);
+      msg.ack();
+    } catch (err) {
+      console.error("[deploy-jobs] job crashed, retrying message:", err);
+      msg.retry();
+    }
+  }
 }
 
 /**
