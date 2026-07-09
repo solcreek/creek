@@ -90,7 +90,10 @@ function isDeployJobInput(body: unknown): body is DeployJobInput {
     typeof b.projectSlug === "string" &&
     typeof b.teamId === "string" &&
     typeof b.teamSlug === "string" &&
-    typeof b.productionBranch === "string"
+    typeof b.productionBranch === "string" &&
+    typeof b.plan === "string" &&
+    (b.branch === null || typeof b.branch === "string") &&
+    (b.framework === undefined || b.framework === null || typeof b.framework === "string")
   );
 }
 

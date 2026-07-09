@@ -277,11 +277,17 @@ describe("runDeployJob (integration via MSW)", () => {
         messages: [
           { body: { garbage: true }, ack: () => acked++, retry: () => retried++ },
           { body: null, ack: () => acked++, retry: () => retried++ },
+          // Partial body: right ids but missing plan/branch — still malformed.
+          {
+            body: { ...input, plan: undefined, branch: undefined },
+            ack: () => acked++,
+            retry: () => retried++,
+          },
         ],
       },
       testEnv.env,
     );
-    expect(acked).toBe(2);
+    expect(acked).toBe(3);
     expect(retried).toBe(0);
     // The seeded deployment was never touched.
     expect(deploymentRow().status).toBe("pending");
