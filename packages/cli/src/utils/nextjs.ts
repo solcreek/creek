@@ -40,9 +40,24 @@ export function getNextVersion(cwd: string): string | null {
   }
 }
 
-/** Simple semver >= comparison (major.minor.patch only). */
-function semverGte(version: string, target: string): boolean {
-  const parse = (v: string) => v.split(".").map(Number);
+/**
+ * Simple semver >= comparison on the release core (major.minor.patch).
+ *
+ * Build metadata (`+…`) and prerelease tags (`-canary.1`, `-rc.0`) are stripped
+ * before comparing, and any missing/non-numeric component defaults to 0. Without
+ * this, `getNextVersion()` returning a canary like `16.2.4-canary.1` would parse
+ * its patch as `Number("4-canary")` → NaN, and `NaN >= 3` is false — wrongly
+ * dropping a qualifying release to the legacy build path. A prerelease is treated
+ * as its release for the gate (16.2.4-canary.1 counts as 16.2.4); the gate only
+ * asks "is the core version at least X", so a canary of a qualifying release
+ * should qualify. Exported for tests.
+ */
+export function semverGte(version: string, target: string): boolean {
+  const parse = (v: string) => {
+    const core = v.split("+")[0].split("-")[0];
+    const [maj = 0, min = 0, pat = 0] = core.split(".").map((n) => Number(n) || 0);
+    return [maj, min, pat];
+  };
   const [aMaj, aMin, aPat] = parse(version);
   const [bMaj, bMin, bPat] = parse(target);
   if (aMaj !== bMaj) return aMaj > bMaj;
@@ -52,9 +67,9 @@ function semverGte(version: string, target: string): boolean {
 
 /**
  * Read the installed adapter version from the package.json above a resolved
- * adapter entry path (.../adapter-creek/dist/index.js).
+ * adapter entry path (.../adapter-creek/dist/index.js). Exported for tests.
  */
-function adapterVersionAt(entryPath: string): string | null {
+export function adapterVersionAt(entryPath: string): string | null {
   let dir = dirname(entryPath);
   for (let i = 0; i < 3; i++) {
     const pkgPath = join(dir, "package.json");
@@ -81,8 +96,10 @@ function adapterVersionAt(entryPath: string): string | null {
  * handler from the .creek lazy install, so a stale cached copy must not
  * shadow a fixed one. Returns the adapter entry path (for
  * NEXT_ADAPTER_PATH), or null if no acceptable copy is installed.
+ *
+ * Exported for tests.
  */
-function resolveAdapterPath(cwd?: string, minVersion?: string): string | null {
+export function resolveAdapterPath(cwd?: string, minVersion?: string): string | null {
   const bases = [import.meta.url];
   if (cwd) {
     // createRequire walks node_modules up from the base file's directory;
@@ -228,8 +245,14 @@ export function patchBundledWorker(bundleDir: string, openNextDir: string): void
 const CREEK_DIR = ".creek";
 const OPENNEXT_PKG = "@opennextjs/cloudflare";
 const OPENNEXT_VERSION = "^1.18.0";
-const ADAPTER_PKG = "@solcreek/adapter-creek";
-const ADAPTER_VERSION = "^0.2.2";
+export const ADAPTER_PKG = "@solcreek/adapter-creek";
+// Install range for a fresh/refreshed .creek copy. Kept in lockstep with
+// ADAPTER_MIN_VERSION: the floor rejects a stale cached copy, but the reinstall
+// only actually upgrades it if the range excludes that copy. With a plain
+// `^0.2.2`, `npm install` would keep an already-locked 0.2.16 (it satisfies the
+// range), so bumping only the floor would loop into the legacy fallback. Pin the
+// floor here too so the refresh fetches the fixed build.
+export const ADAPTER_VERSION = "^0.2.17";
 // Zero-change Prisma-on-D1: the adapter's build-time swap imports
 // @prisma/adapter-d1 (an optional peer it doesn't ship), installed on demand.
 const PRISMA_D1_PKG = "@prisma/adapter-d1";
@@ -246,9 +269,18 @@ const PRISMA_D1_PKG = "@prisma/adapter-d1";
 //   0.2.14 — skip 0.2.13, whose default-on minify broke Prisma driver-adapter
 //            apps at runtime ("PrismaD1 is not a constructor"); reject a cached
 //            0.2.13 so a deploy pulls the fixed build instead of reusing it
+//   0.2.17 — bundle @prisma/adapter-d1 instead of letting Next externalize it
+//            to an empty module. Every Prisma-on-D1 app on 0.2.14–0.2.16 hit
+//            the SAME runtime "PrismaD1 is not a constructor" (minify was a red
+//            herring — 0.2.16 unminified broke identically). A cached 0.2.16
+//            resolves fine against a 0.2.14 floor, so the fix would never reach
+//            an existing project; reject < 0.2.17 to force the refresh. This
+//            also rejects a pinned project-dep copy (the customer devDep'd
+//            0.2.14), which resolves BEFORE .creek in resolveAdapterPath.
 // Kept at the latest because the reinstall cost is trivial and a cached copy
 // in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
-const ADAPTER_MIN_VERSION = "0.2.14";
+// Exported (with ADAPTER_VERSION/ADAPTER_PKG) for the lockstep invariant test.
+export const ADAPTER_MIN_VERSION = "0.2.17";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
