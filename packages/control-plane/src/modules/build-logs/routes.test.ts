@@ -132,12 +132,22 @@ describe("GET deployment logs — server-side failure fallback", () => {
        VALUES ('dep-real-timeout', '${r2Key}', 'failed', 20, 1, ${now}, ${now}, NULL)`,
     );
     const ndjson =
-      JSON.stringify({ ts: now, step: "activate", stream: "creek", level: "error", msg: "Activation exceeded", code: "activation_timeout" }) + "\n";
+      JSON.stringify({
+        ts: now,
+        step: "activate",
+        stream: "creek",
+        level: "error",
+        msg: "Activation exceeded",
+        code: "activation_timeout",
+      }) + "\n";
     await testEnv.env.LOGS_BUCKET!.put(r2Key, gzipSync(Buffer.from(ndjson)));
 
     const res = await getLogs("dep-real-timeout");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { metadata: { errorCode: string | null }; entries: unknown[] };
+    const body = (await res.json()) as {
+      metadata: { errorCode: string | null };
+      entries: unknown[];
+    };
     expect(body.metadata.errorCode).toBe("activation_timeout"); // derived, not null
     expect(body.entries.length).toBeGreaterThan(0); // the persisted entries still show
   });
