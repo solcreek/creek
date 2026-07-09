@@ -215,14 +215,24 @@ export async function deployWithAssets(
 
   if ((input.renderMode === "ssr" || input.renderMode === "worker") && input.serverFiles) {
     // SSR: upload framework's server files as worker modules with correct MIME types
-    workerFiles = Object.entries(input.serverFiles).map(
-      ([name, content]) => new File([content], name, { type: workerModuleType(name) }),
+    const serverFileNames = Object.keys(input.serverFiles);
+    workerFiles = serverFileNames.map(
+      (name) => new File([input.serverFiles![name]], name, { type: workerModuleType(name) }),
     );
+    // The File constructor copies each ArrayBuffer into the File's own storage,
+    // so the originals in input.serverFiles are now redundant. Free them —
+    // otherwise a large unminified worker (tens of MB, e.g. a Prisma/Next SSR
+    // bundle with minify off) is retained TWICE (originals + File copies)
+    // through the multi-script deploy loop below, which tips it over the 128MB
+    // Worker cap at activation and OOM-kills the job → intermittent
+    // activation_timeout. A minified worker stays just under; the unminified
+    // one just over — freeing here reclaims a full worker's worth of memory.
+    for (const name of serverFileNames) input.serverFiles[name] = new ArrayBuffer(0);
     // Find main module (usually worker.js, server.js, or index.js)
     mainModule =
-      Object.keys(input.serverFiles).find(
+      serverFileNames.find(
         (n) => n === "worker.js" || n === "server.js" || n === "index.js" || n === "index.mjs",
-      ) ?? Object.keys(input.serverFiles)[0];
+      ) ?? serverFileNames[0];
   } else {
     // SPA: worker with embedded index.html for client-side routing fallback
     // WfP Static Assets doesn't support not_found_handling, so the worker handles it
