@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { gzipSync } from "node:zlib";
 import {
   createLocalTestEnv,
   seedTestData,
@@ -110,6 +111,35 @@ describe("GET deployment logs — server-side failure fallback", () => {
     expect(body.metadata.errorCode).toBe("activation_timeout");
     // The hint is appended so a human/agent gets a next step, not just a code.
     expect(body.message).toMatch(/reduce assets|split the deploy/i);
+  });
+
+  test("populates metadata.errorCode for a real timeout where a build_log exists but its errorCode is null", async () => {
+    // The reaper fails the deploy out from under a still-running job, so the job
+    // never records a code — the persisted build_log has errorCode = null even
+    // though the deployment row says failedStep='deploying'. metadata.errorCode
+    // must still resolve (was null before this fix; entries had the code but
+    // metadata didn't).
+    seedDeployment({
+      id: "dep-real-timeout",
+      status: "failed",
+      failedStep: "deploying",
+      errorMessage: "Activation exceeded the 10-minute deploy window",
+    });
+    const now = Date.now();
+    const r2Key = "builds/acme/my-app/dep-real-timeout.ndjson.gz";
+    testEnv.db.db.exec(
+      `INSERT INTO build_log (deploymentId, r2Key, status, bytes, lines, startedAt, endedAt, errorCode)
+       VALUES ('dep-real-timeout', '${r2Key}', 'failed', 20, 1, ${now}, ${now}, NULL)`,
+    );
+    const ndjson =
+      JSON.stringify({ ts: now, step: "activate", stream: "creek", level: "error", msg: "Activation exceeded", code: "activation_timeout" }) + "\n";
+    await testEnv.env.LOGS_BUCKET!.put(r2Key, gzipSync(Buffer.from(ndjson)));
+
+    const res = await getLogs("dep-real-timeout");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { metadata: { errorCode: string | null }; entries: unknown[] };
+    expect(body.metadata.errorCode).toBe("activation_timeout"); // derived, not null
+    expect(body.entries.length).toBeGreaterThan(0); // the persisted entries still show
   });
 
   test("falls back to a sensible message even without a failedStep/errorMessage", async () => {

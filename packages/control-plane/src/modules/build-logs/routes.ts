@@ -243,10 +243,30 @@ buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read
     }
   }
 
+  // A persisted build_log can still carry a null errorCode: the stale-deploy
+  // reaper fails the deployment out from under a job that's still running (a
+  // real activation timeout), so the job never reaches its catch to record the
+  // code. Fall back to classifying the deployment's recorded (failedStep,
+  // errorMessage) — the same reconciliation the synthesized path above and the
+  // status endpoint do — so metadata.errorCode is populated for real timeouts,
+  // not just synthesized fast-fails.
+  let errorCode = meta.errorCode;
+  if (!errorCode) {
+    const dep = await c.env.DB.prepare(
+      "SELECT status, failedStep, errorMessage FROM deployment WHERE id = ?",
+    )
+      .bind(deploymentId)
+      .first<{ status: string; failedStep: string | null; errorMessage: string | null }>();
+    if (dep?.status === "failed") {
+      errorCode = classifyDeployFailure(dep.failedStep, dep.errorMessage).code;
+    }
+  }
+
   return c.json({
     entries,
     metadata: {
       ...meta,
+      errorCode,
       truncated: Boolean(meta.truncated),
     },
   });
