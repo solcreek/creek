@@ -229,6 +229,39 @@ describe("PUT /bundle", () => {
     expect(row.status).toBe("uploading");
   });
 
+  test("reclaims R2 staging when the enqueue fails (job will never run)", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const envWithBrokenQueue = {
+      ...testEnv.env,
+      DEPLOY_JOBS: {
+        send: async () => {
+          throw new Error("queue outage");
+        },
+      },
+    } as unknown as typeof testEnv.env;
+
+    const res = await app.request(
+      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle),
+      },
+      envWithBrokenQueue,
+      executionCtx as any,
+    );
+    expect(res.status).toBe(500);
+
+    // Deployment marked failed AND the staged bundle was cleaned up — a failed
+    // enqueue must not leak the (potentially tens-of-MB) staged objects.
+    const row = testEnv.db.db
+      .prepare("SELECT status FROM deployment WHERE id = ?")
+      .get(DEPLOYMENT_ID) as { status: string };
+    expect(row.status).toBe("failed");
+    expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}.json`)).toBeNull();
+  });
+
   test("rejects bundle without assets", async () => {
     seedTestProject();
     seedDeployment("queued");

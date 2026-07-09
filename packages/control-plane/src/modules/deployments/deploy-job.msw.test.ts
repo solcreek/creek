@@ -269,6 +269,24 @@ describe("runDeployJob (integration via MSW)", () => {
     expect(retried).toBe(0);
   });
 
+  it("queue consumer acks (not retries) a malformed message body (poison message)", async () => {
+    let acked = 0;
+    let retried = 0;
+    await consumeDeployJobBatch(
+      {
+        messages: [
+          { body: { garbage: true }, ack: () => acked++, retry: () => retried++ },
+          { body: null, ack: () => acked++, retry: () => retried++ },
+        ],
+      },
+      testEnv.env,
+    );
+    expect(acked).toBe(2);
+    expect(retried).toBe(0);
+    // The seeded deployment was never touched.
+    expect(deploymentRow().status).toBe("pending");
+  });
+
   it("uploads every bucket the session asks for (bounded-concurrency loop)", async () => {
     const UPLOAD = "https://api.cloudflare.com/client/v4/accounts/:acc/workers/assets/upload";
     const BUCKETS = [["h1"], ["h2"], ["h3"], ["h4"], ["h5"], ["h6"], ["h7"]]; // > CONCURRENCY (6)

@@ -80,13 +80,35 @@ export interface DeployJobInput {
  * completion) and script PUTs are idempotent, so a re-run is safe. Exported for
  * tests; index.ts's queue() delegates here.
  */
+/** Runtime shape check for a queue message body — see consumeDeployJobBatch. */
+function isDeployJobInput(body: unknown): body is DeployJobInput {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Record<string, unknown>;
+  return (
+    typeof b.deploymentId === "string" &&
+    typeof b.projectId === "string" &&
+    typeof b.projectSlug === "string" &&
+    typeof b.teamId === "string" &&
+    typeof b.teamSlug === "string" &&
+    typeof b.productionBranch === "string"
+  );
+}
+
 export async function consumeDeployJobBatch(
   batch: { messages: ReadonlyArray<{ readonly body: unknown; ack(): void; retry(): void }> },
   env: Env,
 ): Promise<void> {
   for (const msg of batch.messages) {
+    // A malformed body (schema drift, manual enqueue) would make runDeployJob
+    // throw before it can even mark the deployment failed — retrying such a
+    // poison message is pointless. Ack it with a loud log instead.
+    if (!isDeployJobInput(msg.body)) {
+      console.error("[deploy-jobs] malformed message body, acking:", JSON.stringify(msg.body));
+      msg.ack();
+      continue;
+    }
     try {
-      await runDeployJob(env, msg.body as DeployJobInput);
+      await runDeployJob(env, msg.body);
       msg.ack();
     } catch (err) {
       console.error("[deploy-jobs] job crashed, retrying message:", err);

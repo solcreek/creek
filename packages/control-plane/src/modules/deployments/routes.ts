@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
-import { runDeployJob, serverFileKey, isValidServerFileName } from "./deploy-job.js";
+import {
+  runDeployJob,
+  serverFileKey,
+  isValidServerFileName,
+  deleteStagedBundle,
+} from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
@@ -316,7 +321,17 @@ deployments.put(
         // killed activation of large workers (the "activation timeout" class of
         // failures — see consumeDeployJobBatch). The queue invocation has a
         // minutes-scale budget and redelivers if it dies.
-        await c.env.DEPLOY_JOBS.send(jobInput);
+        try {
+          await c.env.DEPLOY_JOBS.send(jobInput);
+        } catch (err) {
+          // The job will never run, so nothing will clean the staged bundle +
+          // server files — reclaim them here (best-effort), then let the outer
+          // catch mark the deployment failed. Scoped to the send() only: after
+          // a SUCCESSFUL enqueue the staging belongs to the queued job and must
+          // not be deleted from under it.
+          await deleteStagedBundle(c.env, deploymentId);
+          throw err;
+        }
       } else {
         // Local/test fallback (no queue binding): small bundles finish well
         // inside the waitUntil window.
