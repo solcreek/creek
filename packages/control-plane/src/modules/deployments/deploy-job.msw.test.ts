@@ -277,6 +277,9 @@ describe("runDeployJob (integration via MSW)", () => {
         messages: [
           { body: { garbage: true }, ack: () => acked++, retry: () => retried++ },
           { body: null, ack: () => acked++, retry: () => retried++ },
+          // JSON.stringify throws on BigInt — the malformed-body log must not
+          // crash before the ack (that would re-create the poison-retry loop).
+          { body: { deploymentId: 1n }, ack: () => acked++, retry: () => retried++ },
           // Partial body: right ids but missing plan/branch — still malformed.
           {
             body: { ...input, plan: undefined, branch: undefined },
@@ -287,7 +290,7 @@ describe("runDeployJob (integration via MSW)", () => {
       },
       testEnv.env,
     );
-    expect(acked).toBe(3);
+    expect(acked).toBe(4);
     expect(retried).toBe(0);
     // The seeded deployment was never touched.
     expect(deploymentRow().status).toBe("pending");

@@ -104,9 +104,18 @@ export async function consumeDeployJobBatch(
   for (const msg of batch.messages) {
     // A malformed body (schema drift, manual enqueue) would make runDeployJob
     // throw before it can even mark the deployment failed — retrying such a
-    // poison message is pointless. Ack it with a loud log instead.
+    // poison message is pointless. Ack it with a loud log instead. The log
+    // stringify must itself be crash-proof (JSON.stringify throws on BigInt,
+    // which structured-clone bodies can carry) — a throw here would escape the
+    // loop before the ack and re-create the poison-retry problem.
     if (!isDeployJobInput(msg.body)) {
-      console.error("[deploy-jobs] malformed message body, acking:", JSON.stringify(msg.body));
+      let desc: string;
+      try {
+        desc = JSON.stringify(msg.body);
+      } catch {
+        desc = String(msg.body);
+      }
+      console.error("[deploy-jobs] malformed message body, acking:", desc);
       msg.ack();
       continue;
     }
