@@ -8,7 +8,7 @@ import {
   seedProject,
   type LocalTestEnv,
 } from "../../local/test-env.js";
-import { runDeployJob, withDeployHeartbeat } from "./deploy-job.js";
+import { runDeployJob, withDeployHeartbeat, consumeDeployJobBatch } from "./deploy-job.js";
 import { buildR2Key } from "../build-logs/storage.js";
 import type { BuildLogLine } from "../build-logs/types.js";
 
@@ -229,6 +229,71 @@ describe("runDeployJob (integration via MSW)", () => {
     const row = deploymentRow();
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("uploading");
+  });
+
+  it("queue consumer runs the job to active and acks the message", async () => {
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "j", buckets: [] }, errors: [] }),
+      ),
+      http.put(NS, () => HttpResponse.json({ success: true, result: { id: "s" }, errors: [] })),
+    );
+    await stageBundle();
+
+    let acked = 0;
+    let retried = 0;
+    await consumeDeployJobBatch(
+      { messages: [{ body: input, ack: () => acked++, retry: () => retried++ }] },
+      testEnv.env,
+    );
+
+    expect(deploymentRow().status).toBe("active");
+    expect(acked).toBe(1);
+    expect(retried).toBe(0);
+  });
+
+  it("queue consumer acks (not retries) a job that fails deterministically", async () => {
+    // No bundle staged — the job marks the deployment failed itself. The
+    // message must be ACKED: redelivering a deterministic failure would just
+    // re-fail (and could flip a failed row back to in-flight states). retry()
+    // is reserved for infra-level crashes (the job throwing).
+    let acked = 0;
+    let retried = 0;
+    await consumeDeployJobBatch(
+      { messages: [{ body: input, ack: () => acked++, retry: () => retried++ }] },
+      testEnv.env,
+    );
+
+    expect(deploymentRow().status).toBe("failed");
+    expect(acked).toBe(1);
+    expect(retried).toBe(0);
+  });
+
+  it("queue consumer acks (not retries) a malformed message body (poison message)", async () => {
+    let acked = 0;
+    let retried = 0;
+    await consumeDeployJobBatch(
+      {
+        messages: [
+          { body: { garbage: true }, ack: () => acked++, retry: () => retried++ },
+          { body: null, ack: () => acked++, retry: () => retried++ },
+          // JSON.stringify throws on BigInt — the malformed-body log must not
+          // crash before the ack (that would re-create the poison-retry loop).
+          { body: { deploymentId: 1n }, ack: () => acked++, retry: () => retried++ },
+          // Partial body: right ids but missing plan/branch — still malformed.
+          {
+            body: { ...input, plan: undefined, branch: undefined },
+            ack: () => acked++,
+            retry: () => retried++,
+          },
+        ],
+      },
+      testEnv.env,
+    );
+    expect(acked).toBe(4);
+    expect(retried).toBe(0);
+    // The seeded deployment was never touched.
+    expect(deploymentRow().status).toBe("pending");
   });
 
   it("uploads every bucket the session asks for (bounded-concurrency loop)", async () => {

@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
-import { runDeployJob, serverFileKey, isValidServerFileName } from "./deploy-job.js";
+import {
+  runDeployJob,
+  serverFileKey,
+  isValidServerFileName,
+  deleteStagedBundle,
+} from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
@@ -298,8 +303,7 @@ deployments.put(
         c.get("auditCtx"),
       );
 
-      // Fire async deploy job via waitUntil
-      const jobPromise = runDeployJob(c.env, {
+      const jobInput = {
         deploymentId,
         projectId: project.id,
         projectSlug: project.slug,
@@ -309,9 +313,30 @@ deployments.put(
         branch: deployment.branch,
         productionBranch: project.productionBranch,
         framework: project.framework,
-      });
+      };
 
-      c.executionCtx.waitUntil(jobPromise);
+      if (c.env.DEPLOY_JOBS) {
+        // Run the deploy job on the queue consumer, NOT in waitUntil: workerd
+        // cancels waitUntil work ~30s after the 202 below, which silently
+        // killed activation of large workers (the "activation timeout" class of
+        // failures — see consumeDeployJobBatch). The queue invocation has a
+        // minutes-scale budget and redelivers if it dies.
+        try {
+          await c.env.DEPLOY_JOBS.send(jobInput);
+        } catch (err) {
+          // The job will never run, so nothing will clean the staged bundle +
+          // server files — reclaim them here (best-effort), then let the outer
+          // catch mark the deployment failed. Scoped to the send() only: after
+          // a SUCCESSFUL enqueue the staging belongs to the queued job and must
+          // not be deleted from under it.
+          await deleteStagedBundle(c.env, deploymentId);
+          throw err;
+        }
+      } else {
+        // Local/test fallback (no queue binding): small bundles finish well
+        // inside the waitUntil window.
+        c.executionCtx.waitUntil(runDeployJob(c.env, jobInput));
+      }
 
       // Return 202 immediately — CLI polls GET /deployments/:id for progress
       const updatedDeployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")

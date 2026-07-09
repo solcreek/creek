@@ -50,7 +50,7 @@ export interface StagedBundle {
   queue?: boolean;
 }
 
-interface DeployJobInput {
+export interface DeployJobInput {
   deploymentId: string;
   projectId: string;
   projectSlug: string;
@@ -60,6 +60,73 @@ interface DeployJobInput {
   branch: string | null;
   productionBranch: string;
   framework?: string | null;
+}
+
+/**
+ * Queue consumer for deploy jobs (creek-deploy-jobs).
+ *
+ * Deploy jobs run here — NOT in the bundle-upload request's waitUntil — because
+ * workerd cancels waitUntil work ~30 seconds after the response is sent. A large
+ * worker's activation (2-3 sequential multi-MB script PUTs to the CF API) can
+ * exceed that, and the cancellation is silent: the heartbeat (first beat at 60s,
+ * past the budget) never lands, the deployment sticks in 'deploying', and the
+ * stale-deploy reaper misreports it as an activation timeout ~10 minutes later.
+ * A queue invocation has a wall-clock budget in the minutes — the job is
+ * I/O-bound (sub-second CPU), so it fits comfortably.
+ *
+ * runDeployJob handles its own failures (marks the deployment failed) and does
+ * not normally throw, so a throw here means infra-level death (eviction) — retry
+ * the message: the staged bundle is still in R2 (cleanup runs only on job
+ * completion) and script PUTs are idempotent, so a re-run is safe. Exported for
+ * tests; index.ts's queue() delegates here.
+ */
+/** Runtime shape check for a queue message body — see consumeDeployJobBatch. */
+function isDeployJobInput(body: unknown): body is DeployJobInput {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Record<string, unknown>;
+  return (
+    typeof b.deploymentId === "string" &&
+    typeof b.projectId === "string" &&
+    typeof b.projectSlug === "string" &&
+    typeof b.teamId === "string" &&
+    typeof b.teamSlug === "string" &&
+    typeof b.productionBranch === "string" &&
+    typeof b.plan === "string" &&
+    (b.branch === null || typeof b.branch === "string") &&
+    (b.framework === undefined || b.framework === null || typeof b.framework === "string")
+  );
+}
+
+export async function consumeDeployJobBatch(
+  batch: { messages: ReadonlyArray<{ readonly body: unknown; ack(): void; retry(): void }> },
+  env: Env,
+): Promise<void> {
+  for (const msg of batch.messages) {
+    // A malformed body (schema drift, manual enqueue) would make runDeployJob
+    // throw before it can even mark the deployment failed — retrying such a
+    // poison message is pointless. Ack it with a loud log instead. The log
+    // stringify must itself be crash-proof (JSON.stringify throws on BigInt,
+    // which structured-clone bodies can carry) — a throw here would escape the
+    // loop before the ack and re-create the poison-retry problem.
+    if (!isDeployJobInput(msg.body)) {
+      let desc: string;
+      try {
+        desc = JSON.stringify(msg.body);
+      } catch {
+        desc = String(msg.body);
+      }
+      console.error("[deploy-jobs] malformed message body, acking:", desc);
+      msg.ack();
+      continue;
+    }
+    try {
+      await runDeployJob(env, msg.body);
+      msg.ack();
+    } catch (err) {
+      console.error("[deploy-jobs] job crashed, retrying message:", err);
+      msg.retry();
+    }
+  }
 }
 
 /**

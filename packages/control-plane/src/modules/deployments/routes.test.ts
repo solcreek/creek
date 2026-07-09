@@ -195,6 +195,73 @@ describe("PUT /bundle", () => {
     expect(json.message).toContain("manifest");
   });
 
+  test("enqueues the deploy job when the DEPLOY_JOBS queue binding is present", async () => {
+    // The job must not run in waitUntil (workerd cancels it ~30s post-response,
+    // killing large-worker activations) — with a queue bound, PUT /bundle
+    // enqueues instead of running the job inline.
+    seedTestProject();
+    seedDeployment("queued");
+    const sent: unknown[] = [];
+    const envWithQueue = {
+      ...testEnv.env,
+      DEPLOY_JOBS: { send: async (m: unknown) => void sent.push(m) },
+    } as unknown as typeof testEnv.env;
+
+    const res = await app.request(
+      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle),
+      },
+      envWithQueue,
+      executionCtx as any,
+    );
+    expect(res.status).toBe(202);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ deploymentId: DEPLOYMENT_ID, projectId: PROJECT_ID });
+    // The job did NOT run inline: status is still 'uploading' (the queue
+    // consumer will advance it), not a terminal/in-flight job state.
+    const row = testEnv.db.db
+      .prepare("SELECT status FROM deployment WHERE id = ?")
+      .get(DEPLOYMENT_ID) as { status: string };
+    expect(row.status).toBe("uploading");
+  });
+
+  test("reclaims R2 staging when the enqueue fails (job will never run)", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const envWithBrokenQueue = {
+      ...testEnv.env,
+      DEPLOY_JOBS: {
+        send: async () => {
+          throw new Error("queue outage");
+        },
+      },
+    } as unknown as typeof testEnv.env;
+
+    const res = await app.request(
+      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle),
+      },
+      envWithBrokenQueue,
+      executionCtx as any,
+    );
+    expect(res.status).toBe(500);
+
+    // Deployment marked failed AND the staged bundle was cleaned up — a failed
+    // enqueue must not leak the (potentially tens-of-MB) staged objects.
+    const row = testEnv.db.db
+      .prepare("SELECT status FROM deployment WHERE id = ?")
+      .get(DEPLOYMENT_ID) as { status: string };
+    expect(row.status).toBe("failed");
+    expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}.json`)).toBeNull();
+  });
+
   test("rejects bundle without assets", async () => {
     seedTestProject();
     seedDeployment("queued");
