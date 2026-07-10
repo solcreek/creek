@@ -1186,9 +1186,9 @@ async function deployFromBundleCache(
       .bind(Date.now(), deployment.id)
       .run();
 
-    // Deploy via the same deployWithAssets used by PUT /bundle
-    const { deployWithAssets } = await import("./deploy.js");
-    await deployWithAssets(
+    // Deploy via the configured target (same path as PUT /bundle)
+    const { resolveDeployTarget } = await import("./target.js");
+    await resolveDeployTarget(env).deploy(
       env,
       project.slug,
       deployment.teamSlug,

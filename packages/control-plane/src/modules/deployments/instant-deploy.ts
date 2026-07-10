@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
-import { deployWithAssets, shortDeployId } from "./deploy.js";
+import { shortDeployId } from "./deploy.js";
+import { resolveDeployTarget } from "./target.js";
 import { recordAudit } from "../audit/service.js";
 
 type InstantDeployEnv = {
@@ -102,8 +103,8 @@ instantDeploy.post("/", async (c) => {
       .bind(teamId)
       .first<{ plan: string }>();
 
-    // 5. Deploy via WfP Static Assets (instant deploy = static site, no bindings needed)
-    await deployWithAssets(c.env, body.slug, teamSlug, deploymentId, {
+    // 5. Deploy via the configured target (instant deploy = static site, no bindings needed)
+    await resolveDeployTarget(c.env).deploy(c.env, body.slug, teamSlug, deploymentId, {
       clientAssets,
       renderMode: "spa",
       teamId,
@@ -215,7 +216,7 @@ instantDeploy.put("/:slug", async (c) => {
       .bind(teamId)
       .first<{ plan: string }>();
 
-    await deployWithAssets(c.env, slug, teamSlug, deploymentId, {
+    await resolveDeployTarget(c.env).deploy(c.env, slug, teamSlug, deploymentId, {
       clientAssets,
       renderMode: "spa",
       teamId,

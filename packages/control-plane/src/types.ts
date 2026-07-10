@@ -19,6 +19,14 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID: string;
   DISPATCH_NAMESPACE: string;
 
+  /**
+   * Which execution substrate this Creek instance deploys to. Absent /
+   * "cloudflare-wfp" = the default Workers-for-Platforms path (creek.dev). A
+   * self-hosted instance (e.g. june.cloud) sets "creekd-fleet" to deploy onto a
+   * creekd fleet instead. See modules/deployments/target.ts.
+   */
+  DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet";
+
   // Better Auth
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
