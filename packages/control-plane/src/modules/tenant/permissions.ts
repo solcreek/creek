@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
 import type { Env } from "../../types.js";
-import type { AuthUser } from "./types.js";
+import type { TenantContext } from "./types.js";
 
 export type Permission =
   | "project:read"
@@ -40,29 +40,23 @@ const ROLE_PERMISSIONS: Record<string, Set<Permission>> = {
 
 type RbacEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole?: string };
+  Variables: TenantContext;
 };
 
 /**
  * Middleware factory that checks if the current user has the required permissions
- * for the active team. Looks up member role from D1.
+ * for the active team. Reads the member role from context — resolved once by
+ * tenantMiddleware (which already JOINs the member table to verify membership).
  */
 export function requirePermission(...perms: Permission[]) {
   return async (c: Context<RbacEnv>, next: Next) => {
-    const user = c.get("user");
-    const teamId = c.get("teamId");
+    const role = c.get("memberRole");
 
-    const row = await c.env.DB.prepare(
-      "SELECT role FROM member WHERE userId = ? AND organizationId = ?",
-    )
-      .bind(user.id, teamId)
-      .first<{ role: string }>();
-
-    if (!row) {
+    if (!role) {
       return c.json({ error: "forbidden", message: "Not a member of this team" }, 403);
     }
 
-    const allowed = ROLE_PERMISSIONS[row.role];
+    const allowed = ROLE_PERMISSIONS[role];
     if (!allowed || !perms.every((p) => allowed.has(p))) {
       return c.json(
         { error: "forbidden", message: `Insufficient permissions. Required: ${perms.join(", ")}` },
@@ -70,7 +64,6 @@ export function requirePermission(...perms: Permission[]) {
       );
     }
 
-    c.set("memberRole", row.role);
     return next();
   };
 }

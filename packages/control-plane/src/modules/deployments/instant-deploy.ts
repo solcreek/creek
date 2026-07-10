@@ -60,7 +60,7 @@ instantDeploy.post("/", async (c) => {
   try {
     // 1. Ensure project exists (create if not)
     let project = await c.env.DB.prepare(
-      "SELECT * FROM project WHERE slug = ? AND organizationId = ?",
+      "SELECT id, slug, productionDeploymentId FROM project WHERE slug = ? AND organizationId = ?",
     )
       .bind(body.slug, teamId)
       .first<{ id: string; slug: string; productionDeploymentId: string | null }>();
@@ -175,7 +175,7 @@ instantDeploy.put("/:slug", async (c) => {
   const slug = c.req.param("slug");
 
   const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE slug = ? AND organizationId = ?",
+    "SELECT id, slug FROM project WHERE slug = ? AND organizationId = ?",
   )
     .bind(slug, teamId)
     .first<{ id: string; slug: string }>();

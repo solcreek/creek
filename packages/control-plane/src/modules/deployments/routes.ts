@@ -9,6 +9,7 @@ import {
   deleteStagedBundle,
 } from "./deploy-job.js";
 import { requirePermission } from "../tenant/permissions.js";
+import { resolveProject } from "../tenant/resolve-project.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 
@@ -30,11 +31,7 @@ deployments.post("/:projectId/deployments", requirePermission("deploy:create"), 
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -159,23 +156,14 @@ deployments.put(
     const projectId = c.req.param("projectId");
     const deploymentId = c.req.param("deploymentId")!;
 
-    const project = await c.env.DB.prepare(
-      "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-    )
-      .bind(projectId, projectId, teamId)
-      .first<{
-        id: string;
-        slug: string;
-        framework: string | null;
-        productionBranch: string;
-      }>();
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
     if (!project) {
       return c.json({ error: "not_found", message: "Project not found" }, 404);
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status, branch FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
       .first<{ id: string; status: string; branch: string | null }>();
@@ -382,11 +370,7 @@ deployments.put(
       return c.json({ error: "validation", message: "Missing or invalid ?name query param" }, 400);
     }
 
-    const project = await c.env.DB.prepare(
-      "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-    )
-      .bind(projectId, projectId, teamId)
-      .first<{ id: string }>();
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
     if (!project) {
       return c.json({ error: "not_found", message: "Project not found" }, 404);
     }
@@ -468,11 +452,7 @@ deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
   const projectId = c.req.param("projectId");
   const deploymentId = c.req.param("deploymentId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string; productionDeploymentId: string | null }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -522,11 +502,7 @@ deployments.get("/:projectId/deployments", async (c) => {
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id, slug, productionDeploymentId FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string; productionDeploymentId: string | null }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -564,18 +540,14 @@ deployments.post(
     const projectId = c.req.param("projectId");
     const deploymentId = c.req.param("deploymentId");
 
-    const project = await c.env.DB.prepare(
-      "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-    )
-      .bind(projectId, projectId, teamId)
-      .first<{ id: string; slug: string }>();
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
     if (!project) {
       return c.json({ error: "not_found", message: "Project not found" }, 404);
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
       .first<{ id: string; status: string }>();
@@ -626,11 +598,7 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
     .json<{ deploymentId?: string; message?: string }>()
     .catch(() => ({}) as { deploymentId?: string; message?: string });
 
-  const project = await c.env.DB.prepare(
-    "SELECT * FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string; productionDeploymentId: string | null }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -665,7 +633,7 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
 
   // Validate target
   const target = await c.env.DB.prepare(
-    "SELECT * FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
+    "SELECT id, version FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
   )
     .bind(targetId, project.id)
     .first<{ id: string; version: number }>();
@@ -741,11 +709,7 @@ deployments.get("/:projectId/cron-logs", async (c) => {
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT slug FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ slug: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -823,11 +787,7 @@ deployments.get("/:projectId/analytics", async (c) => {
   const projectId = c.req.param("projectId");
   const period = c.req.query("period") ?? "24h";
 
-  const project = await c.env.DB.prepare(
-    "SELECT slug FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ slug: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -959,11 +919,7 @@ deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), as
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id, slug, triggers FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string; triggers: string | null }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -1068,11 +1024,7 @@ deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), a
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
