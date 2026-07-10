@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
 import type { Env } from "../../types.js";
-import type { AuthUser } from "./types.js";
+import type { TenantContext } from "./types.js";
 
 export type Permission =
   | "project:read"
@@ -40,7 +40,7 @@ const ROLE_PERMISSIONS: Record<string, Set<Permission>> = {
 
 type RbacEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole?: string };
+  Variables: TenantContext;
 };
 
 /**
