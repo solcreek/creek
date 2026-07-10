@@ -1,6 +1,7 @@
 import type { DeployTarget } from "./target.js";
 import {
   creekdConfigFromEnv,
+  assertValidCreekdId,
   spawnApp,
   deployApp,
   waitHealthy,
@@ -29,6 +30,7 @@ export const creekdFleetTarget: DeployTarget = {
     // AND the hostname label — same convention as the CF path's script name, so
     // the front-door derives `{appId}.{CREEK_DOMAIN}` → appId without a registry.
     const appId = `${projectSlug}-${teamSlug}`;
+    assertValidCreekdId(appId); // fail early + clearly if slugs make an invalid id
     const port = derivePort(appId);
 
     const spawn: SpawnRequest = {

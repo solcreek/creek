@@ -54,6 +54,23 @@ export function creekdConfigFromEnv(env: Env): CreekdConfig {
   };
 }
 
+/**
+ * creekd app ids must match `^[a-z0-9][a-z0-9-]{0,62}$` (≤ 63 chars). The id is
+ * also used as the hostname label, so the same rule doubles as a DNS-label check.
+ * Validate before calling creekd so an over-long/invalid derived id fails here
+ * with a clear message rather than as an opaque creekd 400 mid-deploy.
+ */
+const CREEKD_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+export function assertValidCreekdId(appId: string): void {
+  if (!CREEKD_ID.test(appId)) {
+    throw new Error(
+      `derived creekd app id "${appId}" (${appId.length} chars) is invalid — must match ` +
+        `${CREEKD_ID} (≤ 63 chars, lowercase alphanumeric/hyphen, no leading hyphen). ` +
+        `Shorten the project and/or team slug.`,
+    );
+  }
+}
+
 function authHeaders(cfg: CreekdConfig): Record<string, string> {
   const h: Record<string, string> = { "content-type": "application/json" };
   if (cfg.token) h["authorization"] = `Bearer ${cfg.token}`;
@@ -109,19 +126,31 @@ export async function deployApp(
 export async function waitHealthy(
   cfg: CreekdConfig,
   id: string,
-  opts: { path?: string; timeoutMs?: number; intervalMs?: number } = {},
+  opts: { path?: string; timeoutMs?: number; intervalMs?: number; requestTimeoutMs?: number } = {},
 ): Promise<void> {
   if (!cfg.dispatchUrl) return;
   const path = opts.path ?? "/health";
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const intervalMs = opts.intervalMs ?? 250;
+  // Per-request timeout: without it a single hung fetch (stalled connection, no
+  // response) would block forever and the loop would never reach the deadline
+  // check below — the whole deploy hangs. Abort each probe so polling always
+  // makes progress toward `timeoutMs`.
+  const requestTimeoutMs = opts.requestTimeoutMs ?? Math.min(5_000, timeoutMs);
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    const ac = new AbortController();
+    const abortTimer = setTimeout(() => ac.abort(), requestTimeoutMs);
     try {
-      const res = await fetch(`${cfg.dispatchUrl}${path}`, { headers: { "x-creek-app": id } });
+      const res = await fetch(`${cfg.dispatchUrl}${path}`, {
+        headers: { "x-creek-app": id },
+        signal: ac.signal,
+      });
       if (res.ok) return;
     } catch {
-      // dispatch not ready / app still booting — keep polling until the deadline
+      // dispatch not ready / app booting / request aborted — keep polling
+    } finally {
+      clearTimeout(abortTimer);
     }
     if (Date.now() >= deadline) {
       throw new Error(`creekd app ${id} did not become healthy within ${timeoutMs}ms`);

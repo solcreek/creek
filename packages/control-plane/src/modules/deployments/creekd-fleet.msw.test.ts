@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { creekdFleetTarget } from "./creekd-fleet.js";
+import { waitHealthy } from "./creekd-client.js";
 import type { DeployAssetsInput } from "./deploy.js";
 import type { Env } from "../../types.js";
 
@@ -129,5 +130,26 @@ describe("CreekdFleetTarget.deploy", () => {
     await creekdFleetTarget.deploy(makeEnv({ CREEKD_DISPATCH_URL: undefined }), "acme", "myteam", "d", input);
     expect(spawnBodies).toHaveLength(1);
     expect(healthHeaders).toHaveLength(0);
+  });
+
+  it("rejects a too-long derived app id before calling creekd", async () => {
+    const longTeam = "t".repeat(70); // {project}-{team} > 63 chars
+    await expect(creekdFleetTarget.deploy(makeEnv(), "acme", longTeam, "d", input)).rejects.toThrow(
+      /invalid.*63 chars/i,
+    );
+    expect(spawnBodies).toHaveLength(0); // never reached creekd
+  });
+});
+
+describe("waitHealthy", () => {
+  it("respects timeoutMs even while dispatch keeps returning unhealthy", async () => {
+    server.use(http.get(`${DISPATCH}/health`, () => new HttpResponse("no", { status: 503 })));
+    await expect(
+      waitHealthy({ adminUrl: ADMIN, dispatchUrl: DISPATCH }, "acme-myteam", {
+        timeoutMs: 200,
+        intervalMs: 20,
+        requestTimeoutMs: 50,
+      }),
+    ).rejects.toThrow(/did not become healthy within 200ms/);
   });
 });

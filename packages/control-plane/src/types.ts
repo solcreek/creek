@@ -23,8 +23,9 @@ export interface Env {
    * Which execution substrate this Creek instance deploys to. Absent /
    * "cloudflare-wfp" = the default Workers-for-Platforms path (creek.dev).
    * "creekd-fleet" = the self-host-on-VM / June Cloud target (spawns the app on
-   * a creekd fleet); requires the CREEKD_* config below. See
-   * modules/deployments/creekd-fleet.ts and docs/june-cloud-on-creek.md.
+   * a creekd fleet); hard-requires only CREEKD_ADMIN_URL — the rest of the
+   * CREEKD_* config below is optional. See modules/deployments/creekd-fleet.ts
+   * and docs/june-cloud-on-creek.md.
    */
   DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet";
 
