@@ -25,7 +25,10 @@ const okSpawn = http.post(`${ADMIN}/v1/apps`, async ({ request }) => {
   return HttpResponse.json({ id: "ok" }, { status: 201 });
 });
 const okDeploy = http.post(`${ADMIN}/v1/apps/:id/deploy`, async ({ request, params }) => {
-  deployCalls.push({ id: String(params.id), body: (await request.json()) as Record<string, unknown> });
+  deployCalls.push({
+    id: String(params.id),
+    body: (await request.json()) as Record<string, unknown>,
+  });
   return HttpResponse.json({ id: "ok" }, { status: 200 });
 });
 const okHealth = http.get(`${DISPATCH}/health`, ({ request }) => {
@@ -95,9 +98,12 @@ describe("CreekdFleetTarget.deploy", () => {
   it("blue-green redeploys when the app already exists (409 already_running)", async () => {
     server.use(
       http.post(`${ADMIN}/v1/apps`, () =>
-        HttpResponse.json({ code: "already_running", error: "app acme-myteam is already running" }, {
-          status: 409,
-        }),
+        HttpResponse.json(
+          { code: "already_running", error: "app acme-myteam is already running" },
+          {
+            status: 409,
+          },
+        ),
       ),
     );
 
@@ -111,7 +117,13 @@ describe("CreekdFleetTarget.deploy", () => {
 
   it("throws a clear error when CREEKD_ADMIN_URL is missing", async () => {
     await expect(
-      creekdFleetTarget.deploy(makeEnv({ CREEKD_ADMIN_URL: undefined }), "acme", "myteam", "d", input),
+      creekdFleetTarget.deploy(
+        makeEnv({ CREEKD_ADMIN_URL: undefined }),
+        "acme",
+        "myteam",
+        "d",
+        input,
+      ),
     ).rejects.toThrow(/CREEKD_ADMIN_URL/);
   });
 
@@ -121,13 +133,19 @@ describe("CreekdFleetTarget.deploy", () => {
         HttpResponse.json({ code: "port_conflict", error: "port 30000 in use" }, { status: 409 }),
       ),
     );
-    await expect(
-      creekdFleetTarget.deploy(makeEnv(), "acme", "myteam", "d", input),
-    ).rejects.toThrow(/creekd spawn failed.*port_conflict/);
+    await expect(creekdFleetTarget.deploy(makeEnv(), "acme", "myteam", "d", input)).rejects.toThrow(
+      /creekd spawn failed.*port_conflict/,
+    );
   });
 
   it("skips health polling when no dispatch URL is configured", async () => {
-    await creekdFleetTarget.deploy(makeEnv({ CREEKD_DISPATCH_URL: undefined }), "acme", "myteam", "d", input);
+    await creekdFleetTarget.deploy(
+      makeEnv({ CREEKD_DISPATCH_URL: undefined }),
+      "acme",
+      "myteam",
+      "d",
+      input,
+    );
     expect(spawnBodies).toHaveLength(1);
     expect(healthHeaders).toHaveLength(0);
   });

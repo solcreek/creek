@@ -90,7 +90,10 @@ async function readError(res: Response): Promise<CreekdError> {
  * id is already running (409 already_running) — the signal for the caller to
  * redeploy instead. Any other non-2xx throws with creekd's code + message.
  */
-export async function spawnApp(cfg: CreekdConfig, req: SpawnRequest): Promise<"created" | "exists"> {
+export async function spawnApp(
+  cfg: CreekdConfig,
+  req: SpawnRequest,
+): Promise<"created" | "exists"> {
   const res = await fetch(`${cfg.adminUrl}/v1/apps`, {
     method: "POST",
     headers: authHeaders(cfg),
@@ -103,11 +106,7 @@ export async function spawnApp(cfg: CreekdConfig, req: SpawnRequest): Promise<"c
 }
 
 /** Blue-green redeploy an existing app (POST /v1/apps/{id}/deploy). */
-export async function deployApp(
-  cfg: CreekdConfig,
-  id: string,
-  req: DeployRequest,
-): Promise<void> {
+export async function deployApp(cfg: CreekdConfig, id: string, req: DeployRequest): Promise<void> {
   const res = await fetch(`${cfg.adminUrl}/v1/apps/${encodeURIComponent(id)}/deploy`, {
     method: "POST",
     headers: authHeaders(cfg),
@@ -115,7 +114,9 @@ export async function deployApp(
   });
   if (res.ok) return;
   const err = await readError(res);
-  throw new Error(`creekd deploy failed (${res.status} ${err.code ?? "error"}): ${err.error ?? ""}`);
+  throw new Error(
+    `creekd deploy failed (${res.status} ${err.code ?? "error"}): ${err.error ?? ""}`,
+  );
 }
 
 /**
