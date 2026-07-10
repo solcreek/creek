@@ -6,6 +6,9 @@ export interface TenantContext {
   user: AuthUser;
   teamId: string;
   teamSlug: string;
+  // Optional in the type even though tenantMiddleware always sets it on its
+  // success path: keeps consumers (e.g. requirePermission) doing an explicit
+  // fail-closed `!memberRole` check instead of trusting the type.
   memberRole?: string;
 }
 
