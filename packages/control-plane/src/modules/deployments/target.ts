@@ -1,5 +1,6 @@
 import type { Env } from "../../types.js";
 import { deployWithAssets, type DeployAssetsInput } from "./deploy.js";
+import { creekdFleetTarget } from "./creekd-fleet.js";
 
 /**
  * A deploy target is the execution substrate a built artifact is pushed to.
@@ -50,12 +51,9 @@ export function resolveDeployTarget(env: Env): DeployTarget {
     case undefined:
       return cloudflareWfpTarget;
     case "creekd-fleet":
-      // Declared as a first-class option (the June Cloud / self-host-on-VM seam
-      // this whole abstraction exists for) but the target isn't built yet. Fail
-      // with a clear, actionable message rather than the generic "unknown" below.
-      throw new Error(
-        "DEPLOY_TARGET=creekd-fleet is not yet implemented — see docs/june-cloud-on-creek.md",
-      );
+      // The June Cloud / self-host-on-VM substrate. Requires CREEKD_ADMIN_URL
+      // (validated at deploy time, per-call, like the CF target's token check).
+      return creekdFleetTarget;
     default:
       throw new Error(`unknown DEPLOY_TARGET: ${env.DEPLOY_TARGET}`);
   }

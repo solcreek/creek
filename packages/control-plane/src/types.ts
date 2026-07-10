@@ -22,12 +22,23 @@ export interface Env {
   /**
    * Which execution substrate this Creek instance deploys to. Absent /
    * "cloudflare-wfp" = the default Workers-for-Platforms path (creek.dev).
-   * "creekd-fleet" is the planned self-host-on-VM / June Cloud target — declared
-   * here as the forward seam, but NOT yet implemented: resolveDeployTarget throws
-   * a clear "not yet implemented" error for it today. See
-   * modules/deployments/target.ts and docs/june-cloud-on-creek.md.
+   * "creekd-fleet" = the self-host-on-VM / June Cloud target (spawns the app on
+   * a creekd fleet); requires the CREEKD_* config below. See
+   * modules/deployments/creekd-fleet.ts and docs/june-cloud-on-creek.md.
    */
   DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet";
+
+  // --- creekd-fleet target config (only read when DEPLOY_TARGET="creekd-fleet") ---
+  /** creekd admin API base, e.g. "https://fleet-1.june.app:9080". */
+  CREEKD_ADMIN_URL?: string;
+  /** creekd dispatch base for health polling, e.g. "https://fleet-1.june.app:9000". */
+  CREEKD_DISPATCH_URL?: string;
+  /** Bearer token for the creekd admin API. */
+  CREEKD_TOKEN?: string;
+  /** Command that launches the June server on the fleet host (default "bun"). */
+  CREEKD_JUNE_COMMAND?: string;
+  /** Entry path the command runs on the fleet host (default "server.js"). */
+  CREEKD_JUNE_ENTRY?: string;
 
   // Better Auth
   BETTER_AUTH_SECRET: string;

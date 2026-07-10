@@ -1,5 +1,6 @@
 import { describe, test, expect } from "vitest";
 import { resolveDeployTarget, cloudflareWfpTarget } from "./target.js";
+import { creekdFleetTarget } from "./creekd-fleet.js";
 import type { Env } from "../../types.js";
 
 const env = (t?: Env["DEPLOY_TARGET"]) => ({ DEPLOY_TARGET: t }) as Env;
@@ -13,8 +14,8 @@ describe("resolveDeployTarget", () => {
     expect(resolveDeployTarget(env("cloudflare-wfp"))).toBe(cloudflareWfpTarget);
   });
 
-  test("throws a clear 'not yet implemented' error for the declared-but-unbuilt 'creekd-fleet'", () => {
-    expect(() => resolveDeployTarget(env("creekd-fleet"))).toThrow(/not yet implemented/i);
+  test("returns the creekd fleet target for 'creekd-fleet'", () => {
+    expect(resolveDeployTarget(env("creekd-fleet"))).toBe(creekdFleetTarget);
   });
 
   test("throws 'unknown DEPLOY_TARGET' for an unrecognized value", () => {
