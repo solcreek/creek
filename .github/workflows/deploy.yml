@@ -17,11 +17,12 @@ on:
           - sandbox-api
           - sandbox-dispatch
           - dispatch-worker
-          - tail-worker
           - realtime-worker
           - deploy-api
           - mcp-server
           - remote-builder
+          - og-api
+          - tail-worker
 
 # Run deploys serially for safety — no concurrent prod pushes.
 concurrency:
@@ -32,15 +33,11 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      control-plane: ${{ steps.filter.outputs.control-plane }}
-      sandbox-api: ${{ steps.filter.outputs.sandbox-api }}
-      sandbox-dispatch: ${{ steps.filter.outputs.sandbox-dispatch }}
-      dispatch-worker: ${{ steps.filter.outputs.dispatch-worker }}
-      tail-worker: ${{ steps.filter.outputs.tail-worker }}
-      realtime-worker: ${{ steps.filter.outputs.realtime-worker }}
-      deploy-api: ${{ steps.filter.outputs.deploy-api }}
-      mcp-server: ${{ steps.filter.outputs.mcp-server }}
-      remote-builder: ${{ steps.filter.outputs.remote-builder }}
+      # Filtered matrix include list — a JSON array of
+      # {id, package, build_filter} — consumed by the deploy job.
+      # The matrix context is not available in job-level `if:`
+      # (actions/runner#1985), so per-target gating happens here.
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -59,8 +56,6 @@ jobs:
               - 'packages/sandbox-dispatch/**'
             dispatch-worker:
               - 'packages/dispatch-worker/**'
-            tail-worker:
-              - 'packages/tail-worker/**'
             realtime-worker:
               - 'packages/realtime-worker/**'
             deploy-api:
@@ -70,178 +65,86 @@ jobs:
             remote-builder:
               - 'packages/remote-builder/**'
               - 'packages/build-container/**'
+            og-api:
+              - 'packages/og-api/**'
+              - 'packages/og/**'
+            # creek-tail was absent from this workflow entirely until
+            # 2026-07-30 (fixed in #36, folded into this matrix here).
+            # Merging a tail-worker change produced a green CI run AND a
+            # green Deploy run while every job skipped, so production ran
+            # a build from 2026-04-13 for three and a half months. It is
+            # the pipeline behind `creek logs` / `creek metrics`, so the
+            # gap also hid our own outages. Don't drop this entry.
+            tail-worker:
+              - 'packages/tail-worker/**'
 
-  deploy-control-plane:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.control-plane == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'control-plane' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/control-plane
-      - name: Deploy
-        run: pnpm --filter @solcreek/control-plane exec wrangler deploy
+      - name: Compute deploy matrix
+        id: matrix
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET: ${{ inputs.target }}
+          # JSON array of filter names that matched (push events).
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          # Full worker catalog. `id` doubles as the paths-filter name
+          # and the workflow_dispatch target value.
+          #
+          # remote-builder uses Cloudflare Containers (Docker image push
+          # to CF registry). API token needs Containers: Edit +
+          # Cloudchamber: Edit in addition to Workers Scripts: Edit.
+          ALL=$(cat <<'JSON'
+          [
+            {"id": "control-plane",    "package": "@solcreek/control-plane",    "build_filter": "--filter=@solcreek/control-plane"},
+            {"id": "sandbox-api",      "package": "@solcreek/sandbox-api",      "build_filter": "--filter=@solcreek/sandbox-api"},
+            {"id": "sandbox-dispatch", "package": "@solcreek/sandbox-dispatch", "build_filter": "--filter=@solcreek/sandbox-dispatch"},
+            {"id": "dispatch-worker",  "package": "@solcreek/dispatch-worker",  "build_filter": "--filter=@solcreek/dispatch-worker"},
+            {"id": "realtime-worker",  "package": "@solcreek/realtime-worker",  "build_filter": "--filter=@solcreek/realtime-worker"},
+            {"id": "deploy-api",       "package": "@solcreek/deploy-api",       "build_filter": "--filter=@solcreek/deploy-api"},
+            {"id": "mcp-server",       "package": "@solcreek/mcp-server",       "build_filter": "--filter=@solcreek/mcp-server"},
+            {"id": "remote-builder",   "package": "@solcreek/remote-builder",   "build_filter": "--filter=@solcreek/build-container --filter=@solcreek/remote-builder"},
+            {"id": "og-api",           "package": "@solcreek/og-api",           "build_filter": "--filter=@solcreek/og-api"},
+            {"id": "tail-worker",      "package": "@solcreek/tail-worker",      "build_filter": "--filter=@solcreek/tail-worker"}
+          ]
+          JSON
+          )
+          if [ "$EVENT_NAME" = "push" ]; then
+            IDS="$CHANGED"
+          elif [ "$TARGET" = "all" ]; then
+            IDS=$(jq -c '[.[].id]' <<<"$ALL")
+          elif [ -n "$TARGET" ]; then
+            IDS=$(jq -cn --arg t "$TARGET" '[$t]')
+          else
+            IDS='[]'
+          fi
+          MATRIX=$(jq -c --argjson ids "$IDS" '[.[] | select(.id as $i | $ids | index($i))]' <<<"$ALL")
+          echo "targets: $IDS"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
-  deploy-sandbox-api:
+  deploy:
     needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.sandbox-api == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'sandbox-api' || inputs.target == 'all')) }}
+    # An empty matrix is a workflow error — skip the job entirely when
+    # nothing is targeted.
+    if: ${{ needs.changes.outputs.matrix != '[]' && needs.changes.outputs.matrix != '' }}
+    strategy:
+      # Deploys are already serialized by the workflow-level concurrency
+      # group, but keep fail-fast off so one worker's failure doesn't
+      # cancel the others' in-flight deploys.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    name: deploy (${{ matrix.id }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
+          node-version: '24'
+          cache: pnpm
       - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/sandbox-api
+      - run: pnpm turbo build ${{ matrix.build_filter }}
       - name: Deploy
-        run: pnpm --filter @solcreek/sandbox-api exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-sandbox-dispatch:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.sandbox-dispatch == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'sandbox-dispatch' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/sandbox-dispatch
-      - name: Deploy
-        run: pnpm --filter @solcreek/sandbox-dispatch exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-dispatch-worker:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.dispatch-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'dispatch-worker' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/dispatch-worker
-      - name: Deploy
-        run: pnpm --filter @solcreek/dispatch-worker exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  # creek-tail is the Tail Worker attached to creek-dispatch's
-  # `tail_consumers`, so it collects trace events for the dispatch worker
-  # AND every user worker dispatched through it — i.e. it is the whole
-  # observability pipeline behind `creek logs` and `creek metrics`.
-  #
-  # It was missing from this workflow entirely until 2026-07-30. Merging a
-  # tail-worker change looked completely healthy — green CI, green Deploy
-  # run — while every job silently skipped, because no filter matched. PR
-  # #35 sat on main for a deploy cycle while production kept running a
-  # build from 2026-04-13.
-  deploy-tail-worker:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.tail-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'tail-worker' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/tail-worker
-      - name: Deploy
-        run: pnpm --filter @solcreek/tail-worker exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-realtime-worker:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.realtime-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'realtime-worker' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/realtime-worker
-      - name: Deploy
-        run: pnpm --filter @solcreek/realtime-worker exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-deploy-api:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.deploy-api == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'deploy-api' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/deploy-api
-      - name: Deploy
-        run: pnpm --filter @solcreek/deploy-api exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-mcp-server:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.mcp-server == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'mcp-server' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/mcp-server
-      - name: Deploy
-        run: pnpm --filter @solcreek/mcp-server exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
-  # remote-builder uses Cloudflare Containers (Docker image push to CF
-  # registry). API token needs Containers: Edit + Cloudchamber: Edit
-  # in addition to Workers Scripts: Edit.
-  deploy-remote-builder:
-    needs: changes
-    if: ${{ (github.event_name == 'push' && needs.changes.outputs.remote-builder == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'remote-builder' || inputs.target == 'all')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - uses: pnpm/action-setup@v5
-      - run: pnpm install
-      - run: pnpm turbo build --filter=@solcreek/build-container --filter=@solcreek/remote-builder
-      - name: Deploy
-        run: pnpm --filter @solcreek/remote-builder exec wrangler deploy
+        run: pnpm --filter ${{ matrix.package }} exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

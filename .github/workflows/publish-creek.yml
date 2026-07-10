@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
 
       # `pnpm install` (not filtered) so workspace deps resolve. The
       # `creek` umbrella depends on @solcreek/cli + @solcreek/runtime via

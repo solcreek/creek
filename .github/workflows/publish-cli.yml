@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
 
       # `pnpm install` (not filtered) so workspace deps like @solcreek/sdk
       # resolve. The CI-deploy workflow found the hard way that filtered
