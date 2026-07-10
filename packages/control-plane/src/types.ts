@@ -21,9 +21,11 @@ export interface Env {
 
   /**
    * Which execution substrate this Creek instance deploys to. Absent /
-   * "cloudflare-wfp" = the default Workers-for-Platforms path (creek.dev). A
-   * self-hosted instance (e.g. june.cloud) sets "creekd-fleet" to deploy onto a
-   * creekd fleet instead. See modules/deployments/target.ts.
+   * "cloudflare-wfp" = the default Workers-for-Platforms path (creek.dev).
+   * "creekd-fleet" is the planned self-host-on-VM / June Cloud target — declared
+   * here as the forward seam, but NOT yet implemented: resolveDeployTarget throws
+   * a clear "not yet implemented" error for it today. See
+   * modules/deployments/target.ts and docs/june-cloud-on-creek.md.
    */
   DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet";
 

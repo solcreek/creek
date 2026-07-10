@@ -46,10 +46,16 @@ export const cloudflareWfpTarget: DeployTarget = {
  */
 export function resolveDeployTarget(env: Env): DeployTarget {
   switch (env.DEPLOY_TARGET) {
-    // case "creekd-fleet": lands with the June Cloud work — see docs/june-cloud-on-creek.md
     case "cloudflare-wfp":
     case undefined:
       return cloudflareWfpTarget;
+    case "creekd-fleet":
+      // Declared as a first-class option (the June Cloud / self-host-on-VM seam
+      // this whole abstraction exists for) but the target isn't built yet. Fail
+      // with a clear, actionable message rather than the generic "unknown" below.
+      throw new Error(
+        "DEPLOY_TARGET=creekd-fleet is not yet implemented — see docs/june-cloud-on-creek.md",
+      );
     default:
       throw new Error(`unknown DEPLOY_TARGET: ${env.DEPLOY_TARGET}`);
   }
