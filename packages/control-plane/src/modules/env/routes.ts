@@ -4,6 +4,7 @@ import type { AuthUser } from "../tenant/types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
 import { requirePermission } from "../tenant/permissions.js";
+import { resolveProject } from "../tenant/resolve-project.js";
 import { encrypt, mask } from "./crypto.js";
 
 type EnvVarEnv = {
@@ -24,11 +25,7 @@ envVars.get("/:projectId/env", async (c) => {
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -54,11 +51,7 @@ envVars.post("/:projectId/env", requirePermission("envvar:manage"), async (c) =>
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -120,11 +113,7 @@ envVars.delete("/:projectId/env/:key", requirePermission("envvar:manage"), async
   const projectId = c.req.param("projectId");
   const key = c.req.param("key");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);

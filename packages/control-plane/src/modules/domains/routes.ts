@@ -3,6 +3,7 @@ import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
 import { requirePermission } from "../tenant/permissions.js";
+import { resolveProject } from "../tenant/resolve-project.js";
 import { validateHostname } from "./validation.js";
 import {
   createCustomHostname,
@@ -37,11 +38,7 @@ domains.get("/:projectId/domains", requirePermission("project:read"), async (c) 
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -62,11 +59,7 @@ domains.get("/:projectId/domains/:domainId", requirePermission("project:read"), 
   const projectId = c.req.param("projectId");
   const domainId = c.req.param("domainId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -128,11 +121,7 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
     return c.json({ error: "validation", message: validation.message }, 400);
   }
 
-  const project = await c.env.DB.prepare(
-    "SELECT id, slug FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -232,11 +221,7 @@ domains.post(
     const projectId = c.req.param("projectId");
     const domainId = c.req.param("domainId");
 
-    const project = await c.env.DB.prepare(
-      "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-    )
-      .bind(projectId, projectId, teamId)
-      .first<{ id: string }>();
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
     if (!project) {
       return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -311,11 +296,7 @@ domains.delete("/:projectId/domains/:domainId", requirePermission("domain:manage
   const projectId = c.req.param("projectId");
   const domainId = c.req.param("domainId");
 
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);

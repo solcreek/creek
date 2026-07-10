@@ -3,6 +3,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 export interface ResolvedTeam {
   id: string;
   slug: string;
+  role: string;
 }
 
 export type ResolveTeamResult =
@@ -29,7 +30,7 @@ export async function resolveTeam(
   if (teamSlugHeader) {
     const org = await db
       .prepare(
-        `SELECT o.id, o.slug FROM organization o
+        `SELECT o.id, o.slug, m.role FROM organization o
          JOIN member m ON m.organizationId = o.id
          WHERE o.slug = ? AND m.userId = ?`,
       )
@@ -46,7 +47,7 @@ export async function resolveTeam(
   if (activeOrganizationId) {
     const org = await db
       .prepare(
-        `SELECT o.id, o.slug FROM organization o
+        `SELECT o.id, o.slug, m.role FROM organization o
          JOIN member m ON m.organizationId = o.id
          WHERE o.id = ? AND m.userId = ?`,
       )
@@ -62,7 +63,7 @@ export async function resolveTeam(
   // 3. Fallback: first org the user belongs to
   const org = await db
     .prepare(
-      `SELECT o.id, o.slug FROM organization o
+      `SELECT o.id, o.slug, m.role FROM organization o
        JOIN member m ON m.organizationId = o.id
        WHERE m.userId = ?
        ORDER BY m.createdAt ASC

@@ -6,7 +6,7 @@ import { resolveTeam } from "./resolve.js";
 
 type TenantEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string };
+  Variables: { user: AuthUser; teamId: string; teamSlug: string; memberRole: string };
 };
 
 /**
@@ -53,5 +53,6 @@ export const tenantMiddleware = createMiddleware<TenantEnv>(async (c, next) => {
 
   c.set("teamId", result.team.id);
   c.set("teamSlug", result.team.slug);
+  c.set("memberRole", result.team.role);
   return next();
 });

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
@@ -179,7 +180,13 @@ export const TEST_AUDIT_CTX: AuditRequestContext = {
 export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) {
   type TestEnv = {
     Bindings: Env;
-    Variables: { user: AuthUser; teamId: string; teamSlug: string; auditCtx: AuditRequestContext };
+    Variables: {
+      user: AuthUser;
+      teamId: string;
+      teamSlug: string;
+      auditCtx: AuditRequestContext;
+      memberRole?: string;
+    };
   };
 
   const app = new Hono<TestEnv>();
@@ -190,28 +197,25 @@ export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) 
   // Health check (no auth)
   app.get("/health", (c) => c.json({ status: "ok" }));
 
-  // Inject auth + team + audit context directly (skip Better Auth + audit middleware)
-  app.use("/projects/*", async (c, next) => {
+  // Inject auth + team + audit context directly (skip Better Auth + audit middleware).
+  // Also looks up the member role, mirroring tenantMiddleware, since requirePermission
+  // now reads the role from context instead of querying D1 itself.
+  const injectTenantContext = async (c: Context<TestEnv>, next: () => Promise<void>) => {
     c.set("user", user);
     c.set("teamId", teamId);
     c.set("teamSlug", teamSlug);
     c.set("auditCtx", TEST_AUDIT_CTX);
+    const row = await c.env.DB.prepare(
+      "SELECT role FROM member WHERE userId = ? AND organizationId = ?",
+    )
+      .bind(user.id, teamId)
+      .first<{ role: string }>();
+    if (row) c.set("memberRole", row.role);
     return next();
-  });
-  app.use("/instant-deploy/*", async (c, next) => {
-    c.set("user", user);
-    c.set("teamId", teamId);
-    c.set("teamSlug", teamSlug);
-    c.set("auditCtx", TEST_AUDIT_CTX);
-    return next();
-  });
-  app.use("/resources/*", async (c, next) => {
-    c.set("user", user);
-    c.set("teamId", teamId);
-    c.set("teamSlug", teamSlug);
-    c.set("auditCtx", TEST_AUDIT_CTX);
-    return next();
-  });
+  };
+  app.use("/projects/*", injectTenantContext);
+  app.use("/instant-deploy/*", injectTenantContext);
+  app.use("/resources/*", injectTenantContext);
 
   app.route("/projects", projects);
   app.route("/projects", deployments);
