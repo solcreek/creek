@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
 
       # `pnpm install` (not filtered) so workspace dev deps like vitest
       # resolve. Filtered installs miss transitive dev deps — mirror the
