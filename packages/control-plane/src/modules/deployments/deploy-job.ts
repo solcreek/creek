@@ -6,7 +6,7 @@ import {
   type BundleBindingRequirement,
 } from "../resources/service.js";
 import { setQueueConsumer } from "../resources/cloudflare.js";
-import { deployWithAssets } from "./deploy.js";
+import { resolveDeployTarget } from "./target.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
 import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
@@ -286,8 +286,9 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       // out"). Beat updatedAt on an interval for the duration of the deploy so
       // the reaper only fires when the job is genuinely stuck (its waitUntil
       // context died and the heartbeat stopped).
+      const target = resolveDeployTarget(env);
       await withDeployHeartbeat(env, deploymentId, () =>
-        deployWithAssets(
+        target.deploy(
           env,
           projectSlug,
           teamSlug,
