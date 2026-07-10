@@ -14,6 +14,7 @@ import {
 } from "./api.js";
 import { handlePush } from "./handlers.js";
 import { scanRepo } from "./scan.js";
+import { resolveProject } from "../tenant/resolve-project.js";
 
 type GitHubEnv = {
   Bindings: Env;
@@ -246,11 +247,7 @@ github.post("/deploy-latest", async (c) => {
   // route (/projects/$projectId) allows both forms in the URL, and the
   // existing GET /projects/:idOrSlug endpoint mirrors this. Resolve to the
   // canonical UUID before looking up the GitHub connection so either works.
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(body.projectId, body.projectId, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, body.projectId, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
@@ -353,11 +350,7 @@ github.get("/connections/by-project/:projectId", async (c) => {
 
   // Accept either the UUID or the slug — the dashboard's project detail
   // route renders under both forms.
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectIdOrSlug, projectIdOrSlug, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, projectIdOrSlug, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
