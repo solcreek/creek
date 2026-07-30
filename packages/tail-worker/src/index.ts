@@ -100,10 +100,14 @@ function toPlatformEntry(event: TailEvent): PlatformLogEntry {
  */
 const SINKS = ["r2", "platform-r2", "realtime"] as const;
 
+/**
+ * The reason is passed as a separate argument rather than interpolated:
+ * the tail event's `logs[].message` is an array, so the original Error
+ * survives into Workers Logs with its stack instead of being flattened to
+ * `.message`. Same shape realtime.ts already uses for its own warnings.
+ */
 function reportSinkFailure(sink: string, reason: unknown): void {
-  console.error(
-    `[creek-tail] ${sink} sink failed: ${reason instanceof Error ? reason.message : String(reason)}`,
-  );
+  console.error(`[creek-tail] ${sink} sink failed:`, reason);
 }
 
 /**

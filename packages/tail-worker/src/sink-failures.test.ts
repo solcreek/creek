@@ -27,14 +27,19 @@ const TEAMS = [{ slug: "acme", plan: "pro" }];
 let r2Puts: string[];
 let aePoints: number;
 let errorLogs: string[];
+/** Raw console.error arguments, to assert the Error survives unflattened. */
+let errorArgs: unknown[][];
 let warnLogs: string[];
 
 interface EnvOptions {
   /** Reject R2 puts whose key starts with this prefix. */
   failR2Prefix?: string;
-  failRealtime?: boolean;
+  /** Make Analytics Engine's synchronous writeDataPoint throw. */
   failAnalytics?: boolean;
 }
+// Realtime failure is driven by the `realtimeShouldFail` flag below
+// rather than an env option — it is injected through the stubbed global
+// fetch, not through a binding.
 
 function makeEnv(opts: EnvOptions = {}) {
   r2Puts = [];
@@ -97,6 +102,7 @@ let realtimeShouldFail = false;
 
 beforeEach(() => {
   errorLogs = [];
+  errorArgs = [];
   warnLogs = [];
   realtimeShouldFail = false;
   vi.stubGlobal("fetch", () =>
@@ -106,6 +112,7 @@ beforeEach(() => {
   );
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
     errorLogs.push(args.map(String).join(" "));
+    errorArgs.push(args);
   });
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
     warnLogs.push(args.map(String).join(" "));
@@ -167,6 +174,20 @@ describe("a failing sink is reported, not swallowed", () => {
 
     expect(errorLogs.some((l) => l.includes("r2 sink failed"))).toBe(true);
     expect(warnLogs.some((l) => l.includes("[tail/realtime] push failed"))).toBe(true);
+  });
+
+  test("the original Error is passed through, not flattened into the message", async () => {
+    // Interpolating `reason.message` into the string would drop the
+    // stack. The tail event's `logs[].message` is an array, so passing
+    // the Error as its own argument preserves it in Workers Logs.
+    const env = makeEnv({ failR2Prefix: "logs/" });
+    await handler.tail([tenantEvent()], env);
+
+    expect(errorArgs).toHaveLength(1);
+    const [prefix, reason] = errorArgs[0];
+    expect(prefix).toBe("[creek-tail] r2 sink failed:");
+    expect(reason).toBeInstanceOf(Error);
+    expect((reason as Error).message).toBe("R2 unavailable");
   });
 
   test("a healthy batch logs nothing", async () => {
