@@ -87,3 +87,33 @@ export interface LogEntry {
   /** Uncaught exceptions thrown by the producer. */
   exceptions: TailException[];
 }
+
+/**
+ * Trace from one of OUR scripts (creek-dispatch, control-plane, …) rather
+ * than a tenant deployment. Deliberately a separate type from LogEntry:
+ * platform traces have no tenant tuple, and LogEntry's shape is the
+ * contract for `creek logs`, which must not grow tenant-less rows.
+ *
+ * Only erroring platform traces are retained (see index.ts) — the healthy
+ * ones are pure volume, and dispatch alone sees every request on the
+ * platform.
+ *
+ * These are written under a reserved R2 prefix that the tenant-facing logs
+ * API cannot address; they are for platform operators, not for tenants.
+ */
+export interface PlatformLogEntry {
+  /** Schema version. Independent of LogEntry's. */
+  v: 1;
+  /** ms epoch — when the producer Worker invocation occurred. */
+  timestamp: number;
+  /** Producing script, e.g. "creek-dispatch". */
+  script: string;
+  outcome: TailOutcome;
+  request?: {
+    url: string;
+    method: string;
+    status?: number;
+  };
+  logs: TailLog[];
+  exceptions: TailException[];
+}
