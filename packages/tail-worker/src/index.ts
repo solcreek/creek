@@ -96,11 +96,6 @@ function toPlatformEntry(event: TailEvent): PlatformLogEntry {
 // --- Sink failure reporting ---
 
 /**
- * Order must match the `Promise.allSettled` array in `tail()`.
- */
-const SINKS = ["r2", "platform-r2", "realtime"] as const;
-
-/**
  * The reason is passed as a separate argument rather than interpolated:
  * the tail event's `logs[].message` is an array, so the original Error
  * survives into Workers Logs with its stack instead of being flattened to
@@ -129,9 +124,17 @@ function reportSinkFailure(sink: string, reason: unknown): void {
  * observable in creek-tail's own trace (see `[observability]` in
  * wrangler.toml, without which these lines would not be retained).
  */
-function reportSinkFailures(results: PromiseSettledResult<unknown>[]): void {
+/**
+ * The name travels WITH its promise rather than living in a parallel
+ * array. A standalone name list would only be correct as long as nobody
+ * inserted or reordered a sink, and a mislabelled failure is worse than
+ * no label — it sends an operator to the wrong subsystem, which defeats
+ * the point of reporting these at all.
+ */
+async function settleSinks(sinks: Array<[name: string, write: Promise<unknown>]>): Promise<void> {
+  const results = await Promise.allSettled(sinks.map(([, write]) => write));
   results.forEach((result, i) => {
-    if (result.status === "rejected") reportSinkFailure(SINKS[i] ?? `sink-${i}`, result.reason);
+    if (result.status === "rejected") reportSinkFailure(sinks[i][0], result.reason);
   });
 }
 
@@ -200,12 +203,10 @@ export default {
       reportSinkFailure("analytics", e);
     }
 
-    reportSinkFailures(
-      await Promise.allSettled([
-        writeBatchToR2(env, entries),
-        writePlatformBatchToR2(env, platformEntries),
-        pushBatchToRealtime(env, entries),
-      ]),
-    );
+    await settleSinks([
+      ["r2", writeBatchToR2(env, entries)],
+      ["platform-r2", writePlatformBatchToR2(env, platformEntries)],
+      ["realtime", pushBatchToRealtime(env, entries)],
+    ]);
   },
 };

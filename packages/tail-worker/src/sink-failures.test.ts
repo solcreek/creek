@@ -52,7 +52,9 @@ function makeEnv(opts: EnvOptions = {}) {
     } as unknown as D1Database,
     LOGS_BUCKET: {
       put(key: string) {
-        if (opts.failR2Prefix && key.startsWith(opts.failR2Prefix)) {
+        // `!== undefined`, not truthiness — "" is a legitimate prefix
+        // meaning "fail every key", used to exercise both R2 sinks at once.
+        if (opts.failR2Prefix !== undefined && key.startsWith(opts.failR2Prefix)) {
           return Promise.reject(new Error("R2 unavailable"));
         }
         r2Puts.push(key);
@@ -188,6 +190,19 @@ describe("a failing sink is reported, not swallowed", () => {
     expect(prefix).toBe("[creek-tail] r2 sink failed:");
     expect(reason).toBeInstanceOf(Error);
     expect((reason as Error).message).toBe("R2 unavailable");
+  });
+
+  test("two sinks failing at once are each labelled with their own name", async () => {
+    // Guards against the sink name drifting away from its promise. A
+    // mislabelled failure is worse than no label — it points an operator
+    // at the wrong subsystem, defeating the purpose of reporting at all.
+    const env = makeEnv({ failR2Prefix: "" }); // "" prefixes every key → both R2 sinks reject
+    await handler.tail([tenantEvent(), erroringPlatformEvent()], env);
+
+    const named = errorArgs.map(([prefix]) => prefix);
+    expect(named).toContain("[creek-tail] r2 sink failed:");
+    expect(named).toContain("[creek-tail] platform-r2 sink failed:");
+    expect(named).toHaveLength(2);
   });
 
   test("a healthy batch logs nothing", async () => {
