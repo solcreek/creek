@@ -187,6 +187,30 @@ function stripCookieDomain(setCookie: string): string {
     .join("; ");
 }
 
+// --- Routing-lookup failure ---
+
+/**
+ * Response for "we could not resolve where this request goes".
+ *
+ * Distinct from 404 (host resolved, no such deployment): this means the
+ * routing tables themselves were unreachable, which is a platform-side,
+ * retryable condition. Explicitly `no-store` so a transient blip never
+ * gets cached against a tenant hostname.
+ *
+ * The body is deliberately generic — the underlying D1 error text is for
+ * our traces, not for a visitor's browser.
+ */
+function routingUnavailable(): Response {
+  return new Response("Service Unavailable", {
+    status: 503,
+    headers: {
+      "Retry-After": "1",
+      "Cache-Control": "no-store",
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
+
 // --- Main handler ---
 
 export default {
@@ -198,15 +222,44 @@ export default {
     // Adding caches.default here would create a stale layer
     // that doesn't invalidate on redeploy.
 
-    const parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
-    const scriptName = await resolveScriptName(parsed, env.DB);
+    // Routing lookups: hostname → team/project → script name → plan limits.
+    // Every one of them awaits D1, and D1 (creek-db) is single-region with
+    // read replication disabled, so EVERY request from EVERY colo pays a
+    // long-haul round trip here before anything else can happen.
+    //
+    // These used to run outside any try/catch. A single transient D1 failure
+    // therefore escaped as an uncaught exception, which Cloudflare renders to
+    // the visitor as a full-page Error 1101 — and because creek-tail drops
+    // platform-script traces, the failing invocation left no entry in
+    // `creek logs` at all. Reported 2026-07-30: a 1101 Ray ID that could not
+    // be found anywhere in the logs, on a tenant seeing ~0.47% of invocations
+    // fail with no deploy correlation.
+    //
+    // A routing lookup failure is retryable infrastructure trouble: answer
+    // 503 + Retry-After, and log it so the trace carries the reason.
+    let parsed: ParsedHostname;
+    let scriptName: string | null;
+    let plan: string;
+    try {
+      parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
+      scriptName = await resolveScriptName(parsed, env.DB);
+      // Only worth a third D1 round trip once we know we have somewhere to
+      // dispatch to — an unknown host must stay a single-lookup 404.
+      plan = scriptName ? await resolveTeamPlan(parsed, env.DB) : "free";
+    } catch (e: unknown) {
+      console.error(
+        `[dispatch] routing lookup failed for ${hostname}: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return routingUnavailable();
+    }
 
     if (!scriptName) {
       return new Response("Not Found", { status: 404 });
     }
 
     // Resolve plan-based limits
-    const plan = await resolveTeamPlan(parsed, env.DB);
     const limits = getLimitsForPlan(plan);
 
     try {
