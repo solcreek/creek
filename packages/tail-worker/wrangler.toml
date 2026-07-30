@@ -3,6 +3,18 @@ main = "src/index.ts"
 compatibility_date = "2025-03-14"
 workers_dev = false
 
+# Send this worker's own invocation + console logs to Workers Logs.
+#
+# Required for the sink-failure reporting in src/index.ts to be worth
+# anything: creek-tail is not a tail consumer of itself, so without this
+# its console.error output exists only in a live `wrangler tail` session
+# and is gone the moment nobody is watching. A dropped R2 batch at 3am
+# has to leave a trace someone can query afterwards.
+#
+# Same setting the dispatch-worker and sandbox-dispatch use.
+[observability]
+enabled = true
+
 # Read tenant slug + plan list (same DB the dispatch-worker uses).
 # Required to map `scriptName` → { project, team, type }.
 [[d1_databases]]

@@ -93,6 +93,51 @@ function toPlatformEntry(event: TailEvent): PlatformLogEntry {
   };
 }
 
+// --- Sink failure reporting ---
+
+/**
+ * The reason is passed as a separate argument rather than interpolated:
+ * the tail event's `logs[].message` is an array, so the original Error
+ * survives into Workers Logs with its stack instead of being flattened to
+ * `.message`. Same shape realtime.ts already uses for its own warnings.
+ */
+function reportSinkFailure(sink: string, reason: unknown): void {
+  console.error(`[creek-tail] ${sink} sink failed:`, reason);
+}
+
+/**
+ * Surface a failed sink instead of swallowing it.
+ *
+ * The tail handler is best-effort on purpose — a dead sink must not fail
+ * the handler or propagate back to the producer Worker. But "best-effort"
+ * was implemented by discarding `Promise.allSettled`'s results entirely,
+ * so an R2 outage was indistinguishable from a healthy batch: outcome
+ * "ok", no logs, nothing anywhere.
+ *
+ * Confirmed live 2026-07-30 while verifying a creek-tail deploy — 106
+ * invocations, every one "ok", with no way to tell from the outside
+ * whether a single object had landed in R2. This is the same class of
+ * silent failure as creek-tail being absent from the deploy workflow: the
+ * green signal meant nothing.
+ *
+ * Logging keeps the handler best-effort while making the failure
+ * observable in creek-tail's own trace (see `[observability]` in
+ * wrangler.toml, without which these lines would not be retained).
+ */
+/**
+ * The name travels WITH its promise rather than living in a parallel
+ * array. A standalone name list would only be correct as long as nobody
+ * inserted or reordered a sink, and a mislabelled failure is worse than
+ * no label — it sends an operator to the wrong subsystem, which defeats
+ * the point of reporting these at all.
+ */
+async function settleSinks(sinks: Array<[name: string, write: Promise<unknown>]>): Promise<void> {
+  const results = await Promise.allSettled(sinks.map(([, write]) => write));
+  results.forEach((result, i) => {
+    if (result.status === "rejected") reportSinkFailure(sinks[i][0], result.reason);
+  });
+}
+
 export default {
   async tail(events: TailEvent[], env: Env): Promise<void> {
     if (events.length === 0) return;
@@ -146,11 +191,22 @@ export default {
     // Platform entries go to R2 only: they have no tenant tuple, so they
     // would blur AE's per-team metrics dimensions and have no `creek logs
     // --follow` subscriber to reach.
-    writeBatchToAnalytics(env, entries);
-    await Promise.allSettled([
-      writeBatchToR2(env, entries),
-      writePlatformBatchToR2(env, platformEntries),
-      pushBatchToRealtime(env, entries),
+    //
+    // AE is fire-and-forget, but `writeDataPoint` is SYNCHRONOUS — an
+    // unguarded throw here aborted the handler before the R2 write ever
+    // started, trading a metrics blip for permanent log loss. Metrics are
+    // by far the cheaper thing to lose, so the durable path must not
+    // depend on AE succeeding.
+    try {
+      writeBatchToAnalytics(env, entries);
+    } catch (e: unknown) {
+      reportSinkFailure("analytics", e);
+    }
+
+    await settleSinks([
+      ["r2", writeBatchToR2(env, entries)],
+      ["platform-r2", writePlatformBatchToR2(env, platformEntries)],
+      ["realtime", pushBatchToRealtime(env, entries)],
     ]);
   },
 };
