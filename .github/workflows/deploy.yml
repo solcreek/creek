@@ -17,6 +17,7 @@ on:
           - sandbox-api
           - sandbox-dispatch
           - dispatch-worker
+          - tail-worker
           - realtime-worker
           - deploy-api
           - mcp-server
@@ -35,6 +36,7 @@ jobs:
       sandbox-api: ${{ steps.filter.outputs.sandbox-api }}
       sandbox-dispatch: ${{ steps.filter.outputs.sandbox-dispatch }}
       dispatch-worker: ${{ steps.filter.outputs.dispatch-worker }}
+      tail-worker: ${{ steps.filter.outputs.tail-worker }}
       realtime-worker: ${{ steps.filter.outputs.realtime-worker }}
       deploy-api: ${{ steps.filter.outputs.deploy-api }}
       mcp-server: ${{ steps.filter.outputs.mcp-server }}
@@ -57,6 +59,8 @@ jobs:
               - 'packages/sandbox-dispatch/**'
             dispatch-worker:
               - 'packages/dispatch-worker/**'
+            tail-worker:
+              - 'packages/tail-worker/**'
             realtime-worker:
               - 'packages/realtime-worker/**'
             deploy-api:
@@ -135,6 +139,34 @@ jobs:
       - run: pnpm turbo build --filter=@solcreek/dispatch-worker
       - name: Deploy
         run: pnpm --filter @solcreek/dispatch-worker exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+  # creek-tail is the Tail Worker attached to creek-dispatch's
+  # `tail_consumers`, so it collects trace events for the dispatch worker
+  # AND every user worker dispatched through it — i.e. it is the whole
+  # observability pipeline behind `creek logs` and `creek metrics`.
+  #
+  # It was missing from this workflow entirely until 2026-07-30. Merging a
+  # tail-worker change looked completely healthy — green CI, green Deploy
+  # run — while every job silently skipped, because no filter matched. PR
+  # #35 sat on main for a deploy cycle while production kept running a
+  # build from 2026-04-13.
+  deploy-tail-worker:
+    needs: changes
+    if: ${{ (github.event_name == 'push' && needs.changes.outputs.tail-worker == 'true') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'tail-worker' || inputs.target == 'all')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v5
+      - run: pnpm install
+      - run: pnpm turbo build --filter=@solcreek/tail-worker
+      - name: Deploy
+        run: pnpm --filter @solcreek/tail-worker exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
