@@ -19,8 +19,19 @@
  * round-trip unchanged.
  */
 
-import { describe, test, expect } from "vitest";
-import worker from "./index.js";
+import { describe, test, expect, beforeEach, vi } from "vitest";
+import type workerModule from "./index.js";
+
+// The worker keeps module-level caches (team list, hostname → route). A
+// single shared instance would let the first test in this file populate
+// the route cache for `site-acme.bycreek.com` and every later test would
+// then skip the real resolution path — quietly no longer exercising the
+// invariants this suite exists to lock. Re-import per test instead.
+let worker: typeof workerModule;
+beforeEach(async () => {
+  vi.resetModules();
+  worker = (await import("./index.js")).default;
+});
 
 interface OrgRow {
   slug: string;

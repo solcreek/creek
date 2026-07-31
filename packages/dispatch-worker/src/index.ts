@@ -23,14 +23,128 @@ let teamsCache: TeamInfo[] = [];
 let teamsCacheTime = 0;
 const TEAM_CACHE_TTL = 5 * 60 * 1000;
 
+/** Rate limit for the stale-team-list warning. See getTeams. */
+let staleTeamsWarnedAt = 0;
+const STALE_TEAMS_WARN_INTERVAL = 60 * 1000;
+
 async function getTeams(db: D1Database): Promise<TeamInfo[]> {
   if (Date.now() - teamsCacheTime < TEAM_CACHE_TTL) return teamsCache;
-  const rows = await db
-    .prepare("SELECT slug, plan FROM organization ORDER BY length(slug) DESC")
-    .all<TeamInfo>();
-  teamsCache = rows.results;
-  teamsCacheTime = Date.now();
-  return teamsCache;
+  try {
+    const rows = await db
+      .prepare("SELECT slug, plan FROM organization ORDER BY length(slug) DESC")
+      .all<TeamInfo>();
+    teamsCache = rows.results;
+    teamsCacheTime = Date.now();
+    return teamsCache;
+  } catch (e: unknown) {
+    // A stale team list is enormously better than a 503: slugs change
+    // rarely, and the alternative is refusing every request in this
+    // isolate for as long as D1 is unreachable. Only propagate when we
+    // have never successfully loaded one.
+    //
+    // `teamsCacheTime` is deliberately NOT advanced — the next request
+    // retries rather than pinning the stale list for a full TTL.
+    if (teamsCacheTime > 0) {
+      // Throttled: because `teamsCacheTime` is not advanced, EVERY request
+      // retries, so an unthrottled warning would emit once per request for
+      // the whole outage — flooding Workers Logs exactly when an operator
+      // is trying to read them, and billing for the privilege. One line a
+      // minute per isolate is enough to establish "this is still
+      // happening"; the retry cadence is deliberately left untouched.
+      const now = Date.now();
+      if (now - staleTeamsWarnedAt >= STALE_TEAMS_WARN_INTERVAL) {
+        staleTeamsWarnedAt = now;
+        console.warn(
+          `[dispatch] team list refresh failed, serving stale: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+      return teamsCache;
+    }
+    throw e;
+  }
+}
+
+// --- Route cache (hostname → script + plan) ---
+//
+// `resolveScriptName` ran on EVERY request with no cache, and creek-db is
+// single-region (WNAM) with read replication disabled. Every request from
+// every colo — static assets and 304s included — therefore paid a
+// long-haul round trip before anything else could happen. Measured from
+// Taipei: ~0.33s to a `cf-cache-status: HIT` asset, against ~0.15s for the
+// same object from a US colo. That gap is the ocean.
+//
+// It was also the platform's largest failure surface: one mandatory
+// cross-Pacific dependency per request, which is how a tenant came to see
+// ~0.47% of invocations fail (see the Error 1101 report of 2026-07-30).
+//
+// What is safe to cache, and why:
+//   - production / branch script names are deterministic
+//     (`{project}-{team}`), and a redeploy updates the WfP script IN
+//     PLACE rather than renaming it — so a cached entry stays correct
+//     across deploys. The D1 query only answers "does this exist".
+//   - deployment previews resolve with no query at all.
+//
+// The sharp edge is custom domains: if one is detached from tenant A and
+// attached to tenant B, cached entries keep routing to A for up to the
+// TTL. Keeping the window at a minute bounds that; a shorter TTL would
+// trade away most of the benefit, since custom domains are the case that
+// costs two round trips.
+//
+// Negative results are NOT cached — a project created seconds ago must
+// not stay 404 for a minute.
+const ROUTE_CACHE_TTL = 60 * 1000;
+/** Bounds isolate memory; hostnames are attacker-suppliable. */
+const ROUTE_CACHE_MAX = 2000;
+
+interface RouteEntry {
+  scriptName: string;
+  plan: string;
+  /**
+   * Whether the hostname resolved as a tenant's own custom domain.
+   *
+   * Security-relevant, so it is cached rather than re-derived: it decides
+   * whether `Set-Cookie` gets its `Domain=` narrowed. Shared
+   * `*.bycreek.com` subdomains MUST be narrowed (otherwise one tenant can
+   * scope a cookie to the parent and have it land on a sibling); a tenant
+   * on its own domain must NOT be. It cannot be recomputed from the
+   * hostname alone — "no team slug matched" is one of the ways a hostname
+   * becomes custom, and that needs the team list.
+   */
+  isCustomDomain: boolean;
+  expires: number;
+}
+
+const routeCache = new Map<string, RouteEntry>();
+
+function getCachedRoute(hostname: string): RouteEntry | null {
+  const hit = routeCache.get(hostname);
+  if (!hit) return null;
+  if (Date.now() >= hit.expires) {
+    routeCache.delete(hostname);
+    return null;
+  }
+  return hit;
+}
+
+function cacheRoute(
+  hostname: string,
+  scriptName: string,
+  plan: string,
+  isCustomDomain: boolean,
+): void {
+  if (routeCache.size >= ROUTE_CACHE_MAX) {
+    // Map iterates in insertion order, so this drops the oldest entry.
+    const oldest = routeCache.keys().next().value;
+    if (oldest !== undefined) routeCache.delete(oldest);
+  }
+  routeCache.set(hostname, {
+    scriptName,
+    plan,
+    isCustomDomain,
+    expires: Date.now() + ROUTE_CACHE_TTL,
+  });
 }
 
 // --- Hostname parsing (delegates to pure function) ---
@@ -237,22 +351,36 @@ export default {
     //
     // A routing lookup failure is retryable infrastructure trouble: answer
     // 503 + Retry-After, and log it so the trace carries the reason.
-    let parsed: ParsedHostname;
+    // Cache lookup precedes parsing so a hit costs no D1 work at all —
+    // not even the team-list read that `parseHostname` needs. During a D1
+    // outage, already-seen hostnames keep serving.
     let scriptName: string | null;
     let plan: string;
-    try {
-      parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
-      scriptName = await resolveScriptName(parsed, env.DB);
-      // Only worth a third D1 round trip once we know we have somewhere to
-      // dispatch to — an unknown host must stay a single-lookup 404.
-      plan = scriptName ? await resolveTeamPlan(parsed, env.DB) : "free";
-    } catch (e: unknown) {
-      console.error(
-        `[dispatch] routing lookup failed for ${hostname}: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
-      return routingUnavailable();
+    let isCustomDomain: boolean;
+
+    const cached = getCachedRoute(hostname);
+    if (cached) {
+      scriptName = cached.scriptName;
+      plan = cached.plan;
+      isCustomDomain = cached.isCustomDomain;
+    } else {
+      try {
+        const parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
+        isCustomDomain = parsed.type === "custom";
+        scriptName = await resolveScriptName(parsed, env.DB);
+        // Only worth a third D1 round trip once we know we have somewhere to
+        // dispatch to — an unknown host must stay a single-lookup 404.
+        plan = scriptName ? await resolveTeamPlan(parsed, env.DB) : "free";
+      } catch (e: unknown) {
+        console.error(
+          `[dispatch] routing lookup failed for ${hostname}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+        return routingUnavailable();
+      }
+
+      if (scriptName) cacheRoute(hostname, scriptName, plan, isCustomDomain);
     }
 
     if (!scriptName) {
@@ -282,7 +410,7 @@ export default {
       const needsContentType = response.ok && !response.headers.get("Content-Type");
 
       const setCookies = response.headers.getSetCookie();
-      const narrowCookies = parsed.type !== "custom" && setCookies.some(cookieHasDomain);
+      const narrowCookies = !isCustomDomain && setCookies.some(cookieHasDomain);
 
       if (needsContentType || narrowCookies) {
         const headers = new Headers(response.headers);
