@@ -1,6 +1,8 @@
 export type { DeployEnv, WfPBinding, AssetManifestEntry, DeployAssetsInput } from "./types.js";
 export { cfApi } from "./cf-api.js";
 export { hashAsset, createAssetUploadSession, uploadAssetFiles } from "./assets.js";
+export { extractAssetMetafiles, ASSET_METAFILES } from "./asset-metafiles.js";
+export type { AssetMetafiles } from "./asset-metafiles.js";
 export {
   shortDeployId,
   sanitizeBranch,
