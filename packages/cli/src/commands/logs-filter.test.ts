@@ -198,3 +198,43 @@ describe("describeFilters", () => {
     );
   });
 });
+
+/**
+ * `--errors` parity between --follow and --since.
+ *
+ * Both sides now call the same `isError` from @solcreek/sdk, so these
+ * rows mirror control-plane/src/modules/logs/query.test.ts > errors
+ * filter. A live tail that disagreed with the historical query would be
+ * worse than no filter — someone debugging an incident would draw the
+ * wrong conclusion.
+ */
+describe("errors filter (live tail)", () => {
+  const TENANT_FAILURE = entry({
+    outcome: "ok",
+    request: { url: "/dashboard", method: "GET" },
+    exceptions: [{ name: "Error", message: "Network connection lost.", timestamp: 0 }],
+  });
+
+  test("an ok-with-exception entry matches", () => {
+    expect(matchesClientSide(TENANT_FAILURE, { errors: true })).toBe(true);
+  });
+
+  test("a healthy entry does not", () => {
+    expect(
+      matchesClientSide(
+        entry({ outcome: "ok", request: { url: "/", method: "GET", status: 200 } }),
+        {
+          errors: true,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  test("it is still invisible to --outcome exception", () => {
+    expect(matchesClientSide(TENANT_FAILURE, { outcomes: ["exception"] })).toBe(false);
+  });
+
+  test("describeFilters names it", () => {
+    expect(describeFilters({ errors: true })).toContain("errors");
+  });
+});

@@ -224,6 +224,12 @@ export interface LogQueryFilters {
   /** "now" or ISO timestamp. */
   until?: string;
   outcomes?: LogEntry["outcome"][];
+  /**
+   * Only entries `isError()` classifies as failures. Broader than
+   * `outcomes` and intentionally orthogonal to it — this is the filter
+   * that lines up with the error count in `creek metrics`.
+   */
+  errors?: boolean;
   scriptTypes?: LogEntry["scriptType"][];
   /** 8-hex deployId — implies scriptType=deployment. */
   deployment?: string;

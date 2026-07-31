@@ -170,6 +170,13 @@ function printHuman(slug: string, r: MetricsResponse): void {
   consola.log(
     `  Errors:        ${c(fmtNumber(totals.errs), errColor)} ${c(`(${errPct} of invocations)`, "dim")}`,
   );
+  // The number alone used to be a dead end: a tenant saw 40 errors here
+  // and `creek logs --outcome exception` returned nothing, because most
+  // of them were `outcome: "ok"` with an exception attached. `--errors`
+  // is the filter that matches this count.
+  if (totals.errs > 0) {
+    consola.log(c(`                 └─ creek logs --errors --since ${r.period}`, "dim"));
+  }
   consola.log("");
 
   printBreakdown("Method", r.breakdowns.method);

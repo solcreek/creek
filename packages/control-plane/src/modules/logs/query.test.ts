@@ -215,3 +215,57 @@ describe("matchesQuery", () => {
     expect(matchesQuery(entry(), q)).toBe(false);
   });
 });
+
+/**
+ * The `--errors` filter, and the gap it exists to close.
+ *
+ * Reported 2026-07-30: `creek metrics` showed 40 errors while
+ * `creek logs --outcome exception` returned nothing, because the failing
+ * entries were `outcome: "ok"` with an exception attached. `--outcome` is
+ * modelled on Cloudflare's TailOutcome enum and cannot express "this
+ * request went wrong"; `errors=1` can.
+ */
+describe("errors filter", () => {
+  const TENANT_FAILURE = entry({
+    outcome: "ok",
+    request: { url: "/dashboard", method: "GET" },
+    exceptions: [{ name: "Error", message: "Network connection lost.", timestamp: 0 }],
+  });
+
+  test("the reported entry is invisible to --outcome exception", () => {
+    const q = parseQuery(new URLSearchParams({ outcome: "exception" }), NOW);
+    expect(matchesQuery(TENANT_FAILURE, q)).toBe(false);
+  });
+
+  test("...and visible to errors=1", () => {
+    const q = parseQuery(new URLSearchParams({ errors: "1" }), NOW);
+    expect(matchesQuery(TENANT_FAILURE, q)).toBe(true);
+  });
+
+  test("errors=1 excludes healthy requests", () => {
+    const q = parseQuery(new URLSearchParams({ errors: "1" }), NOW);
+    expect(
+      matchesQuery(entry({ outcome: "ok", request: { url: "/", method: "GET", status: 200 } }), q),
+    ).toBe(false);
+  });
+
+  test("errors=1 catches a 5xx that reported outcome ok", () => {
+    const q = parseQuery(new URLSearchParams({ errors: "1" }), NOW);
+    expect(
+      matchesQuery(entry({ outcome: "ok", request: { url: "/", method: "GET", status: 500 } }), q),
+    ).toBe(true);
+  });
+
+  test("absent errors param leaves everything matching", () => {
+    const q = parseQuery(new URLSearchParams(), NOW);
+    expect(q.errorsOnly).toBe(false);
+    expect(matchesQuery(entry({ outcome: "ok" }), q)).toBe(true);
+  });
+
+  test("errors combines with outcome as an AND, not a widening", () => {
+    // Both filters apply; `--errors` must not quietly relax `--outcome`.
+    const q = parseQuery(new URLSearchParams({ errors: "1", outcome: "canceled" }), NOW);
+    expect(matchesQuery(TENANT_FAILURE, q)).toBe(false);
+    expect(matchesQuery(entry({ outcome: "canceled" }), q)).toBe(true);
+  });
+});

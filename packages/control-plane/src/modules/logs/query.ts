@@ -13,6 +13,7 @@
  * (caller passes Date.now() so tests can pin time).
  */
 
+import { isError } from "@solcreek/sdk";
 import type { LogEntry, LogQuery } from "./types.js";
 
 const DEFAULT_LIMIT = 100;
@@ -52,6 +53,7 @@ export function parseQuery(params: URLSearchParams, now: number): LogQuery {
     sinceMs,
     untilMs,
     outcomes: pickSet(params.getAll("outcome"), VALID_OUTCOMES),
+    errorsOnly: params.get("errors") === "1",
     scriptTypes: pickSet(params.getAll("scriptType"), VALID_SCRIPT_TYPES),
     deployId: params.get("deployment"),
     branch: params.get("branch"),
@@ -64,6 +66,7 @@ export function parseQuery(params: URLSearchParams, now: number): LogQuery {
 export function matchesQuery(entry: LogEntry, q: LogQuery): boolean {
   if (entry.timestamp < q.sinceMs || entry.timestamp > q.untilMs) return false;
   if (q.outcomes.size > 0 && !q.outcomes.has(entry.outcome)) return false;
+  if (q.errorsOnly && !isError(entry)) return false;
   if (q.scriptTypes.size > 0 && !q.scriptTypes.has(entry.scriptType)) return false;
   if (q.deployId !== null && entry.deployId !== q.deployId) return false;
   if (q.branch !== null && entry.branch !== q.branch) return false;

@@ -141,3 +141,78 @@ describe("writeBatchToAnalytics", () => {
     expect(points.map((p) => p.blobs?.[2])).toEqual(["production", "production", "branch"]);
   });
 });
+
+/**
+ * Mirror check for the write-side `isError`.
+ *
+ * Same cases as @solcreek/sdk's is-error.test.ts. This worker cannot
+ * import the SDK, so the two copies are kept honest by driving both
+ * through the same table — if either side is edited alone, its own suite
+ * fails and the other file is named right here.
+ *
+ * The stakes: this function decides the AE column `creek metrics` sums,
+ * and the SDK copy decides what `creek logs --errors` returns. They
+ * disagreed once already — metrics reported 40 errors that logs could
+ * not find (reported 2026-07-30).
+ */
+describe("isError parity with @solcreek/sdk (via the AE double2 column)", () => {
+  const base = {
+    v: 1 as const,
+    timestamp: 0,
+    team: "acme",
+    project: "site",
+    scriptType: "production" as const,
+    logs: [],
+  };
+  const errFlag = (e: Record<string, unknown>): number => {
+    const points: Array<{ doubles?: number[] }> = [];
+    writeBatchToAnalytics(
+      { ANALYTICS: { writeDataPoint: (dp: { doubles?: number[] }) => points.push(dp) } as never },
+      [{ ...base, ...e } as never],
+    );
+    return points[0].doubles![1];
+  };
+  const EXC = { name: "Error", message: "Network connection lost.", timestamp: 0 };
+
+  test("a clean ok request is not an error", () => {
+    expect(
+      errFlag({ outcome: "ok", exceptions: [], request: { url: "u", method: "GET", status: 200 } }),
+    ).toBe(0);
+  });
+
+  test("any non-ok outcome is an error", () => {
+    for (const outcome of [
+      "exception",
+      "exceededCpu",
+      "exceededMemory",
+      "canceled",
+      "responseStreamDisconnected",
+      "scriptNotFound",
+      "unknown",
+    ]) {
+      expect(errFlag({ outcome, exceptions: [] })).toBe(1);
+    }
+  });
+
+  test('an "ok" invocation that recorded an exception IS an error', () => {
+    expect(errFlag({ outcome: "ok", exceptions: [EXC] })).toBe(1);
+  });
+
+  test('an "ok" invocation that returned 5xx IS an error', () => {
+    expect(
+      errFlag({ outcome: "ok", exceptions: [], request: { url: "u", method: "GET", status: 503 } }),
+    ).toBe(1);
+  });
+
+  test("4xx is not an error", () => {
+    expect(
+      errFlag({ outcome: "ok", exceptions: [], request: { url: "u", method: "GET", status: 404 } }),
+    ).toBe(0);
+  });
+
+  test("a missing status is not treated as 5xx", () => {
+    expect(errFlag({ outcome: "ok", exceptions: [], request: { url: "u", method: "GET" } })).toBe(
+      0,
+    );
+  });
+});
