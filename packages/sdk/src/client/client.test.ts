@@ -111,3 +111,56 @@ describe("CreekClient", () => {
     expect(String(url)).toContain("name=chunks%2Fssr%20a.js");
   });
 });
+
+/**
+ * getLogs query-string serialization.
+ *
+ * Raised in Copilot review of the `--errors` PR, and a genuine hole: the
+ * predicate, the server-side filter and the `--follow` client filter were
+ * all covered, but nothing asserted that the client actually PUTS the
+ * filter on the wire. If it silently dropped `errors`, `--errors --since`
+ * would return unfiltered results while `--errors --follow` filtered
+ * correctly — exactly the metrics-vs-logs inconsistency that PR exists to
+ * remove, reintroduced one layer down.
+ */
+describe("CreekClient.getLogs — filter serialization", () => {
+  const client = new CreekClient("http://localhost:8787", "test-token");
+
+  function urlOf(): URL {
+    return new URL(mockFetch.mock.calls[0][0] as string, "http://localhost:8787");
+  }
+
+  test("errors: true is sent as errors=1", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { entries: [], truncated: false }));
+
+    await client.getLogs("blog", { errors: true });
+
+    expect(urlOf().searchParams.get("errors")).toBe("1");
+  });
+
+  test("the param is absent when errors is unset or false", async () => {
+    // Sending errors=0 would be worse than sending nothing — the server
+    // reads `=== "1"`, so a stray value would be silently ignored rather
+    // than rejected, and the difference would never surface.
+    mockFetch.mockResolvedValue(jsonResponse(200, { entries: [], truncated: false }));
+    await client.getLogs("blog", { since: "1h" });
+    expect(urlOf().searchParams.has("errors")).toBe(false);
+
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue(jsonResponse(200, { entries: [], truncated: false }));
+    await client.getLogs("blog", { errors: false });
+    expect(urlOf().searchParams.has("errors")).toBe(false);
+  });
+
+  test("errors rides alongside outcome rather than replacing it", async () => {
+    // The server ANDs the two; both must reach it for that to hold.
+    mockFetch.mockResolvedValue(jsonResponse(200, { entries: [], truncated: false }));
+
+    await client.getLogs("blog", { errors: true, outcomes: ["canceled"], since: "6h" });
+
+    const p = urlOf().searchParams;
+    expect(p.get("errors")).toBe("1");
+    expect(p.getAll("outcome")).toEqual(["canceled"]);
+    expect(p.get("since")).toBe("6h");
+  });
+});
