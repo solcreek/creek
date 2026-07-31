@@ -230,6 +230,7 @@ export class CreekClient {
     if (filters?.branch) url.searchParams.set("branch", filters.branch);
     if (filters?.search) url.searchParams.set("search", filters.search);
     if (filters?.limit !== undefined) url.searchParams.set("limit", String(filters.limit));
+    if (filters?.errors) url.searchParams.set("errors", "1");
     for (const o of filters?.outcomes ?? []) url.searchParams.append("outcome", o);
     for (const s of filters?.scriptTypes ?? []) url.searchParams.append("scriptType", s);
     for (const l of filters?.levels ?? []) url.searchParams.append("level", l);

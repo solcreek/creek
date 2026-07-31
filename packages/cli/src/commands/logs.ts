@@ -61,6 +61,11 @@ export const logsCommand = defineCommand({
       type: "string",
       description: "Filter by tail outcome. Repeatable via comma (ok,exception).",
     },
+    errors: {
+      type: "boolean",
+      description:
+        "Only failed requests — matches the error count in `creek metrics`. Broader than --outcome exception: also catches an exception thrown after the response started, and 5xx responses.",
+    },
     "script-type": {
       type: "string",
       description: "Filter by production/branch/deployment. Repeatable via comma.",
@@ -133,6 +138,7 @@ export const logsCommand = defineCommand({
       ...(args.outcome
         ? { outcomes: parseList(args.outcome as string) as LogEntry["outcome"][] }
         : {}),
+      ...(args.errors ? { errors: true } : {}),
       ...(args["script-type"]
         ? {
             scriptTypes: parseList(args["script-type"] as string) as LogEntry["scriptType"][],

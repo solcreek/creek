@@ -60,6 +60,20 @@ function statusBucket(status: number | undefined): string {
   return "5xx";
 }
 
+/**
+ * ⚠️ MIRROR of `isError` in @solcreek/sdk (src/logs/is-error.ts).
+ *
+ * This copy is the WRITE side: its result becomes the AE `double2`
+ * column that `creek metrics` sums as the error count. The SDK copy is
+ * the READ side, shared by the control-plane log filter and the CLI's
+ * `--follow` filter, and `creek logs --errors` is meant to return
+ * exactly the requests counted here.
+ *
+ * Duplicated because this worker has no dependencies and cannot import
+ * the SDK — same reason LogEntry is re-declared in types.ts. Change one,
+ * change the other, or the two surfaces disagree again (they already did
+ * once: metrics reported 40 errors that `creek logs` could not find).
+ */
 function isError(entry: LogEntry): boolean {
   if (entry.outcome !== "ok") return true;
   if (entry.exceptions.length > 0) return true;

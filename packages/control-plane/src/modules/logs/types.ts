@@ -38,6 +38,12 @@ export interface LogQuery {
   untilMs: number;
   /** Filter by tail outcome (any of). Empty = all. */
   outcomes: Set<LogEntry["outcome"]>;
+  /**
+   * Only entries the shared `isError` predicate classifies as failures.
+   * Orthogonal to `outcomes` — see @solcreek/sdk's is-error.ts for why
+   * this is a separate filter rather than a widening of that one.
+   */
+  errorsOnly: boolean;
   /** Filter by script variant. Empty = all. */
   scriptTypes: Set<LogEntry["scriptType"]>;
   /** Filter by deployment short id (8 hex). Implies scriptType=deployment. */

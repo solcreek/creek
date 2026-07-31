@@ -9,10 +9,14 @@
  * for the same flags.
  */
 
+import { isError } from "@solcreek/sdk";
 import type { LogEntry, LogQueryFilters } from "@solcreek/sdk";
 
 export function matchesClientSide(entry: LogEntry, filters: LogQueryFilters): boolean {
   if (filters.outcomes?.length && !filters.outcomes.includes(entry.outcome)) return false;
+  // Same function the server filters with, so `--errors --follow` and
+  // `--errors --since` cannot disagree.
+  if (filters.errors && !isError(entry)) return false;
   if (filters.scriptTypes?.length && !filters.scriptTypes.includes(entry.scriptType)) return false;
   if (filters.deployment && entry.deployId !== filters.deployment) return false;
   if (filters.branch && entry.branch !== filters.branch) return false;
@@ -42,6 +46,7 @@ function searchMatches(entry: LogEntry, needle: string): boolean {
 export function describeFilters(filters: LogQueryFilters): string {
   const bits: string[] = [];
   if (filters.outcomes?.length) bits.push(`outcome=${filters.outcomes.join(",")}`);
+  if (filters.errors) bits.push("errors");
   if (filters.scriptTypes?.length) bits.push(`scriptType=${filters.scriptTypes.join(",")}`);
   if (filters.deployment) bits.push(`deployment=${filters.deployment}`);
   if (filters.branch) bits.push(`branch=${filters.branch}`);
