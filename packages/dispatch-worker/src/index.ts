@@ -23,6 +23,10 @@ let teamsCache: TeamInfo[] = [];
 let teamsCacheTime = 0;
 const TEAM_CACHE_TTL = 5 * 60 * 1000;
 
+/** Rate limit for the stale-team-list warning. See getTeams. */
+let staleTeamsWarnedAt = 0;
+const STALE_TEAMS_WARN_INTERVAL = 60 * 1000;
+
 async function getTeams(db: D1Database): Promise<TeamInfo[]> {
   if (Date.now() - teamsCacheTime < TEAM_CACHE_TTL) return teamsCache;
   try {
@@ -41,11 +45,21 @@ async function getTeams(db: D1Database): Promise<TeamInfo[]> {
     // `teamsCacheTime` is deliberately NOT advanced — the next request
     // retries rather than pinning the stale list for a full TTL.
     if (teamsCacheTime > 0) {
-      console.warn(
-        `[dispatch] team list refresh failed, serving stale: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
+      // Throttled: because `teamsCacheTime` is not advanced, EVERY request
+      // retries, so an unthrottled warning would emit once per request for
+      // the whole outage — flooding Workers Logs exactly when an operator
+      // is trying to read them, and billing for the privilege. One line a
+      // minute per isolate is enough to establish "this is still
+      // happening"; the retry cadence is deliberately left untouched.
+      const now = Date.now();
+      if (now - staleTeamsWarnedAt >= STALE_TEAMS_WARN_INTERVAL) {
+        staleTeamsWarnedAt = now;
+        console.warn(
+          `[dispatch] team list refresh failed, serving stale: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
       return teamsCache;
     }
     throw e;

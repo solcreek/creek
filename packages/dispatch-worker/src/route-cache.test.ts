@@ -288,6 +288,69 @@ describe("resilience while D1 is unreachable", () => {
   });
 });
 
+describe("a sustained outage does not flood the logs", () => {
+  /** D1 whose team-list read always fails; project lookups still answer. */
+  function orgDownD1(): D1Database {
+    return {
+      prepare(sql: string) {
+        const exec = {
+          bind: () => exec,
+          async first<T>(): Promise<T | null> {
+            if (!sql.includes("p.productionDeploymentId")) return null;
+            return { productionDeploymentId: "dep" } as T;
+          },
+          async all(): Promise<never> {
+            throw new Error("Network connection lost.");
+          },
+        };
+        return exec;
+      },
+    } as unknown as D1Database;
+  }
+
+  test("the stale-list warning is throttled, but the retry is not", async () => {
+    // `teamsCacheTime` is deliberately not advanced so every request
+    // retries. Warning on each of them would flood Workers Logs for the
+    // whole outage — precisely when an operator needs to read them.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T00:00:00Z"));
+    const warns: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      warns.push(a.map(String).join(" "));
+    });
+
+    await worker.fetch(new Request(PROD), makeEnv(createMockD1())); // warm
+    vi.setSystemTime(new Date("2026-07-31T00:06:00Z")); // team list now stale
+
+    const down = makeEnv(orgDownD1());
+    for (let i = 0; i < 25; i++) {
+      // Distinct hosts so the route cache never short-circuits getTeams.
+      await worker.fetch(new Request(`https://p${i}-acme.bycreek.com/`), down);
+    }
+
+    expect(warns).toHaveLength(1);
+  });
+
+  test("it warns again once the interval has passed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T00:00:00Z"));
+    const warns: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      warns.push(a.map(String).join(" "));
+    });
+
+    await worker.fetch(new Request(PROD), makeEnv(createMockD1()));
+    vi.setSystemTime(new Date("2026-07-31T00:06:00Z"));
+
+    const down = makeEnv(orgDownD1());
+    await worker.fetch(new Request("https://a-acme.bycreek.com/"), down);
+    vi.setSystemTime(new Date("2026-07-31T00:07:30Z")); // past the interval
+    await worker.fetch(new Request("https://b-acme.bycreek.com/"), down);
+
+    expect(warns).toHaveLength(2);
+  });
+});
+
 describe("the cache is bounded", () => {
   test("it does not grow without limit on unique hostnames", async () => {
     // Hostnames are attacker-suppliable; an unbounded Map in a long-lived
