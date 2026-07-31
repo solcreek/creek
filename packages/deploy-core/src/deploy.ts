@@ -1,6 +1,7 @@
 import type { DeployEnv, DeployAssetsInput, WfPBinding } from "./types.js";
 import { cfApi } from "./cf-api.js";
 import { hashAsset, createAssetUploadSession, uploadAssetFiles } from "./assets.js";
+import { extractAssetMetafiles } from "./asset-metafiles.js";
 import { SPA_WORKER_SCRIPT } from "./spa-worker.js";
 
 /**
@@ -218,11 +219,16 @@ export async function deployWithAssets(
 
   const shortId = shortDeployId(deploymentId);
 
+  // `_headers` / `_redirects` are configuration, not assets: their contents
+  // go in the upload metadata and the files stay out of the manifest.
+  const metafiles = extractAssetMetafiles(input.clientAssets);
+
   // Build asset manifest with team-salted hashes
   const manifest: Record<string, { hash: string; size: number }> = {};
   const hashToPath: Record<string, string> = {};
 
   for (const [filePath, content] of Object.entries(input.clientAssets)) {
+    if (metafiles.isMetafile(filePath)) continue;
     const hash = await hashAsset(content, input.teamId);
     const key = filePath.startsWith("/") ? filePath : `/${filePath}`;
     manifest[key] = { hash, size: content.byteLength };
@@ -232,7 +238,10 @@ export async function deployWithAssets(
   // Prepare worker files
   let workerFiles: File[];
   let mainModule: string;
-  let assetsConfig: Record<string, unknown> | undefined;
+  // Applies to every render mode — an SSR project's `_headers` is exactly
+  // as load-bearing as an SPA's. This used to be left undefined for SSR,
+  // which is how `config: {}` reached the API and the rules were dropped.
+  const assetsConfig: Record<string, unknown> = { ...metafiles.config };
 
   if ((input.renderMode === "ssr" || input.renderMode === "worker") && input.serverFiles) {
     workerFiles = Object.entries(input.serverFiles).map(
@@ -256,7 +265,6 @@ export async function deployWithAssets(
     const spa = buildSpaWorker(indexHtml);
     workerFiles = spa.workerFiles;
     mainModule = spa.mainModule;
-    assetsConfig = {};
   }
 
   // Build script deployments with tags
