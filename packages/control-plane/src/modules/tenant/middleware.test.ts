@@ -31,11 +31,11 @@ function seedOrg(orgId: string, slug: string) {
   );
 }
 
-function seedMembership(orgId: string, userId: string = USER_ID) {
+function seedMembership(orgId: string, userId: string = USER_ID, role: string = "owner") {
   const now = Date.now();
   const memId = `mem-${orgId}-${userId}`;
   testEnv.db.db.exec(
-    `INSERT OR IGNORE INTO member (id, userId, organizationId, role, createdAt) VALUES ('${memId}', '${userId}', '${orgId}', 'owner', ${now})`,
+    `INSERT OR IGNORE INTO member (id, userId, organizationId, role, createdAt) VALUES ('${memId}', '${userId}', '${orgId}', '${role}', ${now})`,
   );
 }
 
@@ -151,5 +151,56 @@ describe("resolveTeam: priority", () => {
     if (result.ok) {
       expect(result.team.id).toBe("team-header");
     }
+  });
+});
+
+// --- Member role travels with the resolved team ---
+//
+// tenantMiddleware stores this role in context and requirePermission reads it
+// there instead of querying member itself, so each resolution path must
+// return the role from the membership row that satisfied the JOIN.
+
+describe("resolveTeam: member role", () => {
+  test("header path returns the role of the matching membership", async () => {
+    seedOrg("team-1", "my-team");
+    seedMembership("team-1", USER_ID, "admin");
+
+    const result = await resolveTeam(testEnv.env.DB as any, USER_ID, "my-team", null);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.team.role).toBe("admin");
+  });
+
+  test("session active-org path returns the role of the matching membership", async () => {
+    seedOrg("team-2", "team-two");
+    seedMembership("team-2", USER_ID, "member");
+
+    const result = await resolveTeam(testEnv.env.DB as any, USER_ID, undefined, "team-2");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.team.role).toBe("member");
+  });
+
+  test("fallback path returns the role of the membership it picked", async () => {
+    seedOrg("team-3", "only-team");
+    seedMembership("team-3", USER_ID, "owner");
+
+    const result = await resolveTeam(testEnv.env.DB as any, USER_ID, undefined, null);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.team.role).toBe("owner");
+  });
+
+  test("role is per membership, not per user", async () => {
+    seedOrg("team-a", "team-a");
+    seedOrg("team-b", "team-b");
+    seedMembership("team-a", USER_ID, "owner");
+    seedMembership("team-b", USER_ID, "member");
+
+    const a = await resolveTeam(testEnv.env.DB as any, USER_ID, "team-a", null);
+    const b = await resolveTeam(testEnv.env.DB as any, USER_ID, "team-b", null);
+
+    expect(a.ok && a.team.role).toBe("owner");
+    expect(b.ok && b.team.role).toBe("member");
   });
 });

@@ -5,6 +5,7 @@ import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
 import { scheduleResourceCleanup } from "../resources/service.js";
 import { requirePermission } from "../tenant/permissions.js";
+import { resolveProject } from "../tenant/resolve-project.js";
 
 type ProjectEnv = {
   Bindings: Env;
@@ -158,11 +159,7 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
   const param = c.req.param("idOrSlug");
 
   // Look up project first so we can schedule resource cleanup
-  const project = await c.env.DB.prepare(
-    "SELECT id FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(param, param, teamId)
-    .first<{ id: string }>();
+  const project = await resolveProject(c.env.DB, param!, teamId);
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);

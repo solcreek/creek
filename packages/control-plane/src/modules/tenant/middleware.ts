@@ -1,12 +1,16 @@
 import { createMiddleware } from "hono/factory";
 import type { Env } from "../../types.js";
-import type { AuthUser } from "./types.js";
+import type { AuthUser, TenantContext } from "./types.js";
 import { createAuth } from "./auth.js";
 import { resolveTeam } from "./resolve.js";
 
+// TenantContext's memberRole is optional at the type level (see types.ts) even
+// though this middleware always sets it before calling next() on its success
+// path — this keeps the type consistent with the rest of the module, where
+// downstream consumers like requirePermission must keep failing closed.
 type TenantEnv = {
   Bindings: Env;
-  Variables: { user: AuthUser; teamId: string; teamSlug: string };
+  Variables: TenantContext;
 };
 
 /**
@@ -53,5 +57,6 @@ export const tenantMiddleware = createMiddleware<TenantEnv>(async (c, next) => {
 
   c.set("teamId", result.team.id);
   c.set("teamSlug", result.team.slug);
+  c.set("memberRole", result.team.role);
   return next();
 });

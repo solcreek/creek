@@ -2,5 +2,6 @@ export { createAuth, type Auth } from "./auth.js";
 export { tenantMiddleware } from "./middleware.js";
 export { originGuard, isAllowedOrigin } from "./origin-guard.js";
 export { resolveTeam, type ResolvedTeam, type ResolveTeamResult } from "./resolve.js";
+export { resolveProject, type ResolvedProject } from "./resolve-project.js";
 export { requirePermission, type Permission } from "./permissions.js";
 export type { AuthUser, TenantContext } from "./types.js";
