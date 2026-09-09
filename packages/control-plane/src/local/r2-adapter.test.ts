@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { LocalR2Bucket } from "./r2-adapter";
 import { mkdtempSync, rmSync } from "node:fs";
