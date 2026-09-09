@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { handleWebBuild } from "./web-build.js";
 
 // --- Test Helpers ---

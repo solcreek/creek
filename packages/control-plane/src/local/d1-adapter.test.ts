@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach } from "vitest";
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { LocalD1Database } from "./d1-adapter";
 

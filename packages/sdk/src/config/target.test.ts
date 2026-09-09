@@ -1,3 +1,4 @@
+import { describe, it, expect } from "vitest";
 import { detectTarget, validateTargetDrivers, parseConfig, type CreekConfig } from "./index.js";
 
 describe("detectTarget", () => {
