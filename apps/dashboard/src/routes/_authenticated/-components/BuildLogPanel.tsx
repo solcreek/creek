@@ -90,8 +90,9 @@ export function BuildLogPanel({
     queryFn: () => api<LogResponse>(`/projects/${projectId}/deployments/${deploymentId}/logs`),
   });
 
+  const entries = data?.entries;
   const filteredEntries = useMemo(() => {
-    if (!data?.entries) return [] as LogLine[];
+    if (!entries) return [] as LogLine[];
     const needle = search.trim().toLowerCase();
     const levelMin =
       levelFilter === "error-only"
@@ -99,13 +100,13 @@ export function BuildLogPanel({
         : levelFilter === "warn-up"
           ? LEVEL_RANK.warn
           : 0;
-    return data.entries.filter((e) => {
+    return entries.filter((e) => {
       if (hiddenSteps.has(e.step)) return false;
       if (LEVEL_RANK[e.level] < levelMin) return false;
       if (needle && !e.msg.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [data?.entries, hiddenSteps, levelFilter, search]);
+  }, [entries, hiddenSteps, levelFilter, search]);
 
   if (isLoading) {
     return (

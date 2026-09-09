@@ -151,7 +151,7 @@ function DeploymentsTab() {
   const hasGithub = !!project?.githubRepo;
   const deployError = (deployLatest.error as Error | null)?.message;
 
-  const DeployButton = () => (
+  const deployButton = (
     <Button
       size="sm"
       onClick={() => deployLatest.mutate()}
@@ -181,7 +181,7 @@ function DeploymentsTab() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
-          <DeployButton />
+          {deployButton}
         </div>
         {deployError && <p className="text-sm text-destructive">Deploy failed: {deployError}</p>}
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
@@ -207,7 +207,7 @@ function DeploymentsTab() {
     <div className="space-y-2">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">Deployments</h2>
-        <DeployButton />
+        {deployButton}
       </div>
       {deployError && <p className="text-sm text-destructive">Deploy failed: {deployError}</p>}
       {deployments.map((d) => {

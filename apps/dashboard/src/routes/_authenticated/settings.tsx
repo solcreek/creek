@@ -23,16 +23,14 @@ function SettingsPage() {
 
 function TeamSettings() {
   const { data: activeOrg } = useActiveOrganization();
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [saved, setSaved] = useState(false);
+  // Keyed on the organisation so the form starts from its values and resets on switch.
+  return <TeamForm key={activeOrg?.id ?? "none"} activeOrg={activeOrg ?? null} />;
+}
 
-  useEffect(() => {
-    if (activeOrg) {
-      setName(activeOrg.name);
-      setSlug(activeOrg.slug);
-    }
-  }, [activeOrg?.id]);
+function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: string } | null }) {
+  const [name, setName] = useState(activeOrg?.name ?? "");
+  const [slug, setSlug] = useState(activeOrg?.slug ?? "");
+  const [saved, setSaved] = useState(false);
 
   const updateOrg = useMutation({
     mutationFn: async () => {

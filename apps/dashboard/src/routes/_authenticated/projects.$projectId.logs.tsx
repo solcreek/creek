@@ -335,7 +335,9 @@ function LiveTail({
   // Keep latest filter values in a ref so the WS effect doesn't teardown
   // the connection on every keystroke in the search field.
   const filterRef = useRef({ errorsOnly, search });
-  filterRef.current = { errorsOnly, search };
+  useEffect(() => {
+    filterRef.current = { errorsOnly, search };
+  }, [errorsOnly, search]);
 
   useEffect(() => {
     let stopped = false;
@@ -453,15 +455,16 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
   const outcomeLabel =
     entry.outcome === "ok" ? null : entry.outcome === "exception" ? "exception" : entry.outcome;
 
+  const requestUrl = entry.request?.url;
   const path = useMemo(() => {
-    if (!entry.request?.url) return "—";
+    if (!requestUrl) return "—";
     try {
-      const u = new URL(entry.request.url);
+      const u = new URL(requestUrl);
       return u.pathname + u.search;
     } catch {
-      return entry.request.url;
+      return requestUrl;
     }
-  }, [entry.request?.url]);
+  }, [requestUrl]);
 
   const variant =
     entry.scriptType === "production"

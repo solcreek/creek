@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 
@@ -11,13 +11,21 @@ export const Route = createFileRoute("/cli-auth")({
   component: CliAuthPage,
 });
 
+const MISSING_PARAMS_ERROR = "Missing port or state parameter. Please run `creek login` again.";
+
+type KeyOutcome =
+  | { status: "creating" }
+  | { status: "redirecting" }
+  | { status: "done" }
+  | { status: "error"; error: string };
+
 function CliAuthPage() {
   const { port, state } = Route.useSearch();
   const { data: session, isPending } = authClient.useSession();
-  const [status, setStatus] = useState<"checking" | "creating" | "redirecting" | "done" | "error">(
-    "checking",
-  );
-  const [error, setError] = useState("");
+  const [outcome, setOutcome] = useState<KeyOutcome>({ status: "creating" });
+  // Create the key at most once, even if the session object is refreshed.
+  const startedRef = useRef(false);
+  const paramsMissing = !port || !state;
 
   useEffect(() => {
     if (isPending) return;
@@ -29,43 +37,42 @@ function CliAuthPage() {
       return;
     }
 
-    if (!port || !state) {
-      setStatus("error");
-      setError("Missing port or state parameter. Please run `creek login` again.");
-      return;
-    }
+    if (paramsMissing || startedRef.current) return;
+    startedRef.current = true;
 
     // User is authenticated — create API key and redirect to CLI
-    createKeyAndRedirect();
-  }, [session, isPending]);
+    authClient.apiKey
+      .create({ name: `CLI (${new Date().toLocaleDateString()})` })
+      .then((result) => {
+        const key = (result.data as any)?.key;
+        if (!key) {
+          setOutcome({ status: "error", error: "Failed to create API key. Please try again." });
+          return;
+        }
 
-  async function createKeyAndRedirect() {
-    setStatus("creating");
+        setOutcome({ status: "redirecting" });
 
-    try {
-      const result = await authClient.apiKey.create({
-        name: `CLI (${new Date().toLocaleDateString()})`,
+        // Redirect to CLI's local server with the key
+        window.location.href = `http://localhost:${port}/callback?key=${encodeURIComponent(key)}&state=${encodeURIComponent(state)}`;
+
+        // Show success state in case redirect is blocked
+        setTimeout(() => setOutcome({ status: "done" }), 1000);
+      })
+      .catch((err: unknown) => {
+        setOutcome({
+          status: "error",
+          error: err instanceof Error ? err.message : "Failed to create API key",
+        });
       });
+  }, [session, isPending, port, state, paramsMissing]);
 
-      const key = (result.data as any)?.key;
-      if (!key) {
-        setStatus("error");
-        setError("Failed to create API key. Please try again.");
-        return;
-      }
-
-      setStatus("redirecting");
-
-      // Redirect to CLI's local server with the key
-      window.location.href = `http://localhost:${port}/callback?key=${encodeURIComponent(key)}&state=${encodeURIComponent(state)}`;
-
-      // Show success state in case redirect is blocked
-      setTimeout(() => setStatus("done"), 1000);
-    } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "Failed to create API key");
-    }
-  }
+  const status =
+    isPending || !session?.user ? "checking" : paramsMissing ? "error" : outcome.status;
+  const error = paramsMissing
+    ? MISSING_PARAMS_ERROR
+    : outcome.status === "error"
+      ? outcome.error
+      : "";
 
   return (
     <div className="flex min-h-screen items-center justify-center">
