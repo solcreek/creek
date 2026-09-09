@@ -372,9 +372,6 @@ const EXTRA_TABLES = `
   );
   CREATE INDEX IF NOT EXISTS idx_audit_ip_log_created ON audit_ip_log(createdAt);
 
-  -- Columns used by routes but not yet in checked-in drizzle migrations
-  ALTER TABLE custom_domain ADD COLUMN cfCustomHostnameId TEXT;
-  ALTER TABLE project ADD COLUMN triggers TEXT;
 `;
 
 /**

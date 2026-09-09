@@ -153,6 +153,8 @@ export const project = sqliteTable(
     productionBranch: text("productionBranch").notNull().default("main"),
     framework: text("framework"),
     githubRepo: text("githubRepo"),
+    /** JSON: cron schedules + queue toggle. Managed by PATCH /:projectId/triggers. */
+    triggers: text("triggers"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
@@ -205,6 +207,8 @@ export const customDomain = sqliteTable(
       .references(() => project.id),
     hostname: text("hostname").notNull().unique(),
     status: text("status").notNull().default("pending"),
+    /** Cloudflare for SaaS custom hostname id; null until provisioned. */
+    cfCustomHostnameId: text("cfCustomHostnameId"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
   },
   (table) => [index("idx_custom_domain_project").on(table.projectId)],
