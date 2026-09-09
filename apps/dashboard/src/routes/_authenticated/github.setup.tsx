@@ -27,11 +27,14 @@ function GitHubSetupPage() {
     },
   });
 
+  // `mutate` is referentially stable, so this runs once per installation id
+  // and again only when `claimed` flips (a no-op at that point).
+  const { mutate: claim } = claimMutation;
   useEffect(() => {
     if (installation_id && !claimed) {
-      claimMutation.mutate();
+      claim();
     }
-  }, [installation_id]);
+  }, [installation_id, claimed, claim]);
 
   // Fetch repos once claimed
   const { data: repos, isLoading } = useQuery({

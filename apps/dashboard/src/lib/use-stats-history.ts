@@ -76,7 +76,7 @@ export function useStatsRingBuffer(
       stopped = true;
       clearInterval(id);
     };
-  }, [appId, baseUrl, intervalMs]);
+  }, [appId, baseUrl, intervalMs, token]);
 
   return history;
 }
