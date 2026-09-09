@@ -114,7 +114,9 @@ export function createAuth(env: Env): any {
             const slug = generateUniqueSlug(user.name ?? "", user.email);
             const orgId = crypto.randomUUID();
             const memberId = crypto.randomUUID();
-            const now = Date.now();
+            // organization/member are Better Auth tables: their createdAt is
+            // read through drizzle's `timestamp` mode, i.e. epoch seconds.
+            const now = Math.floor(Date.now() / 1000);
 
             await env.DB.batch([
               env.DB.prepare(
