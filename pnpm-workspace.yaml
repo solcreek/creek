@@ -6,8 +6,12 @@ packages:
 # pnpm 10 reads build-script approvals from here, NOT package.json's
 # "pnpm.onlyBuiltDependencies" (which it now ignores). Without this, native deps
 # like better-sqlite3 never rebuild on install and break under a newer Node ABI.
+#
+# sharp is deliberately absent: it ships prebuilt binaries in @img/* and needs no
+# script, while its install script prefers any system libvips >= 8.17 and then
+# fails to compile against it (no node-addon-api). Both macOS with Homebrew vips
+# and Arch with libvips hit this and the whole install aborted.
 onlyBuiltDependencies:
-  - sharp
   - esbuild
   - lightningcss
   - better-sqlite3
