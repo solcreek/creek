@@ -13,10 +13,10 @@
     "db:migrate:remote": "wrangler d1 migrations apply creek-db --remote"
   },
   "dependencies": {
-    "@better-auth/api-key": "^1.6.2",
+    "@better-auth/api-key": "^1.7.3",
     "@solcreek/deploy-core": "workspace:*",
     "@solcreek/sdk": "workspace:*",
-    "better-auth": "^1.6.2",
+    "better-auth": "^1.7.3",
     "better-sqlite3": "^12.0.0",
     "cloudflare": "^5.2.0",
     "drizzle-orm": "^0.45.1",
