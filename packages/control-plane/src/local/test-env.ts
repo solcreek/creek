@@ -74,6 +74,17 @@ class TestD1Statement {
       meta: { changes: 0, last_row_id: 0, rows_read: rows.length, rows_written: 0 },
     };
   }
+
+  /** Rows as arrays, optionally prefixed with the column names (drizzle-orm/d1 uses this). */
+  async raw<T = unknown[]>(options?: { columnNames?: boolean }): Promise<T[]> {
+    const stmt = this.db.prepare(this.sql);
+    const rows = stmt.raw(true).all(...this.params) as T[];
+    if (options?.columnNames) {
+      const columns = stmt.columns().map((c) => c.name) as unknown as T;
+      return [columns, ...rows];
+    }
+    return rows;
+  }
 }
 
 class TestD1Database {
