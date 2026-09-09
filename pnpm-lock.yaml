@@ -684,10 +684,6 @@ importers:
         specifier: ^4.82.2
         version: 4.82.2(@cloudflare/workers-types@4.20260414.1)
 
-  packages/create-agent-template: {}
-
-  packages/create-agents-template: {}
-
   packages/create-creek-app:
     dependencies:
       ajv:
