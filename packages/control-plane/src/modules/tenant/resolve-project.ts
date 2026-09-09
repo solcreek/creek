@@ -4,6 +4,9 @@ import type { D1Database } from "@cloudflare/workers-types";
  * Column superset needed by every ownership-check call site across
  * deployments/domains/env/github/projects routes. Extend this (and the SELECT
  * below) if a new call site needs another column — don't reach for `SELECT *`.
+ *
+ * Deliberately excludes `triggers`: that column is not in the checked-in
+ * migrations yet, so only the one route that needs it queries it.
  */
 export interface ResolvedProject {
   id: string;
@@ -11,7 +14,6 @@ export interface ResolvedProject {
   productionDeploymentId: string | null;
   productionBranch: string;
   framework: string | null;
-  triggers: string | null;
 }
 
 /**
@@ -29,7 +31,7 @@ export async function resolveProject(
 ): Promise<ResolvedProject | null> {
   return db
     .prepare(
-      `SELECT id, slug, productionDeploymentId, productionBranch, framework, triggers
+      `SELECT id, slug, productionDeploymentId, productionBranch, framework
        FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?`,
     )
     .bind(idOrSlug, idOrSlug, teamId)

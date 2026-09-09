@@ -919,7 +919,13 @@ deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), as
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+  // Not resolveProject(): this is the one route that reads `triggers`, and that
+  // column is not in the checked-in migrations, so keep the dependency local.
+  const project = await c.env.DB.prepare(
+    "SELECT id, slug, triggers FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+  )
+    .bind(projectId, projectId, teamId)
+    .first<{ id: string; slug: string; triggers: string | null }>();
 
   if (!project) {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
