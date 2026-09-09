@@ -17,6 +17,7 @@
     "**/.next/**",
     "**/.creek/**",
     "**/generated/**",
+    "**/routeTree.gen.ts",
     "**/*.d.ts",
     "**/coverage/**",
     "**/build/**"
