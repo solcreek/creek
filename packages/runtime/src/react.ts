@@ -357,15 +357,17 @@ export function useLiveQuery<T = unknown>(
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mutationGenRef = useRef(0); // Tracks in-flight mutations for stale refetch detection
 
-  // Room-aware fetch
+  // Room-aware fetch. Keyed on the room id alone so its identity (and that of
+  // refetch/mutate built on it) does not churn when peers or connection state change.
+  const roomId = roomCtx?.roomId;
   const roomFetch = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) => {
-      if (!roomCtx) return fetch(input, init);
+      if (roomId === undefined) return fetch(input, init);
       const headers = new Headers(init?.headers);
-      headers.set("x-creek-room", roomCtx.roomId);
+      headers.set("x-creek-room", roomId);
       return fetch(input, { ...init, headers });
     },
-    [roomCtx?.roomId],
+    [roomId],
   );
 
   const setDataWithRef = useCallback((value: T | null | ((prev: T | null) => T | null)) => {
