@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
 import { useWebDeploy, type DeployStatus, type BuildLogLine } from "../../lib/deploy";
 
 interface ParsedRepo {
@@ -111,25 +111,33 @@ interface Preflight {
   sizeKB?: number;
 }
 
+// The query string never changes while this page is mounted, so there is
+// nothing to subscribe to; the server snapshot is null until hydration.
+function subscribeToLocation() {
+  return () => {};
+}
+function getLocationSearch() {
+  return window.location.search;
+}
+function getServerLocationSearch(): string | null {
+  return null;
+}
+
 export default function DeployForm() {
-  const [mounted, setMounted] = useState(false);
-  const [repoInfo, setRepoInfo] = useState<ParsedRepo | null>(null);
-  const [templateInfo, setTemplateInfo] = useState<{
-    template: string;
-    data: Record<string, string>;
-  } | null>(null);
+  const search = useSyncExternalStore(
+    subscribeToLocation,
+    getLocationSearch,
+    getServerLocationSearch,
+  );
+  const mounted = search !== null;
+  const repoInfo = useMemo(() => (search === null ? null : parseRepoFromUrl(search)), [search]);
+  const templateInfo = useMemo(
+    () => (search === null || repoInfo ? null : parseTemplateFromUrl(search)),
+    [search, repoInfo],
+  );
   const [copied, setCopied] = useState(false);
   const [preflight, setPreflight] = useState<Preflight | null>(null);
   const deployState = useWebDeploy();
-
-  useEffect(() => {
-    const search = window.location.search;
-    const parsedRepo = parseRepoFromUrl(search);
-    const parsedTemplate = parseTemplateFromUrl(search);
-    setRepoInfo(parsedRepo);
-    if (!parsedRepo) setTemplateInfo(parsedTemplate);
-    setMounted(true);
-  }, []);
 
   // Preflight: check if the repo@commit is already cached so we can
   // show "⚡ Turbo — ready (~7s)" before the user clicks Deploy.

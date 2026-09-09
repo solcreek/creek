@@ -27,7 +27,9 @@ export function TerminalAnimation({ onDeployStart }: { onDeployStart?: () => voi
   const [typedText, setTypedText] = useState("");
   const startedRef = useRef(false);
   const onDeployStartRef = useRef(onDeployStart);
-  onDeployStartRef.current = onDeployStart;
+  useEffect(() => {
+    onDeployStartRef.current = onDeployStart;
+  });
 
   useEffect(() => {
     if (!isInView || startedRef.current) return;

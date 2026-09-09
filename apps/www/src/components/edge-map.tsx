@@ -35,10 +35,9 @@ export function EdgeMap({ active }: { active: boolean }) {
   const activatedGroupRef = useRef(-1);
   const activationStartRef = useRef<number | null>(null);
 
-  activeRef.current = active;
-
-  // Track when active first becomes true
+  // Track the latest `active` for the animation loop and when it first became true
   useEffect(() => {
+    activeRef.current = active;
     if (active && activationStartRef.current === null) {
       activationStartRef.current = performance.now();
     }
