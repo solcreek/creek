@@ -10,7 +10,12 @@
     "unicorn/no-new-array": "warn",
     "unicorn/no-useless-fallback-in-spread": "warn",
     "react-hooks/exhaustive-deps": "warn",
-    "react/no-children-prop": "warn"
+    "react/no-children-prop": "warn",
+    "react/immutability": "warn",
+    "react/preserve-manual-memoization": "warn",
+    "react/refs": "warn",
+    "react/set-state-in-effect": "warn",
+    "react/static-components": "warn"
   },
   "ignorePatterns": [
     "**/dist/**",
