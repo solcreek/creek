@@ -4,7 +4,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "lint": "oxlint && turbo lint",
+    "lint": "oxlint",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
