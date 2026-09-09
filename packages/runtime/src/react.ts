@@ -93,8 +93,8 @@ export function LiveRoom({
   const [isConnected, setIsConnected] = useState(false);
   const [peers, setPeers] = useState(0);
   const [wsUrl, setWsUrl] = useState<string | null>(realtimeUrl ?? null);
-  const subscribersRef = useRef(new Set<(table: string) => void>());
-  const queryCacheRef = useRef(new Map<string, QueryCacheEntry>());
+  const [subscribers] = useState(() => new Set<(table: string) => void>());
+  const [queryCache] = useState(() => new Map<string, QueryCacheEntry>());
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -138,7 +138,7 @@ export function LiveRoom({
       // Debounce: collapse multiple db_changed events within 50ms into one refetch
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        for (const cb of subscribersRef.current) {
+        for (const cb of subscribers) {
           cb(pendingTable);
         }
         pendingTable = "*";
@@ -183,19 +183,22 @@ export function LiveRoom({
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };
-  }, [wsUrl]);
+  }, [wsUrl, subscribers]);
 
-  const subscribe = useCallback((cb: (table: string) => void) => {
-    subscribersRef.current.add(cb);
-    return () => {
-      subscribersRef.current.delete(cb);
-    };
-  }, []);
+  const subscribe = useCallback(
+    (cb: (table: string) => void) => {
+      subscribers.add(cb);
+      return () => {
+        subscribers.delete(cb);
+      };
+    },
+    [subscribers],
+  );
 
   // Memoize context value to prevent unnecessary re-renders of consumers
   const contextValue = useMemo(
-    () => ({ roomId: id, isConnected, peers, subscribe, queryCache: queryCacheRef.current }),
-    [id, isConnected, peers, subscribe],
+    () => ({ roomId: id, isConnected, peers, subscribe, queryCache }),
+    [id, isConnected, peers, subscribe, queryCache],
   );
 
   return createElement(RoomContext.Provider, { value: contextValue }, children);
@@ -226,18 +229,22 @@ export function useQuery<T = unknown>(path: string): QueryResult<T> {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const refetch = useCallback(async () => {
-    try {
-      const res = await fetch(path);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error(String(e)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [path]);
+  const refetch = useCallback(
+    () =>
+      fetch(path)
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          setData(await res.json());
+          setError(null);
+        })
+        .catch((e) => {
+          setError(e instanceof Error ? e : new Error(String(e)));
+        })
+        .finally(() => {
+          setIsLoading(false);
+        }),
+    [path],
+  );
 
   useEffect(() => {
     refetch();
@@ -322,14 +329,18 @@ export function useLiveQuery<T = unknown>(
     }
   }
 
+  // Latest option callbacks, read from async paths (fetch, WS, mutate) so
+  // callers can pass inline functions without re-subscribing.
   const onChangeRef = useRef(options?.onChange);
-  onChangeRef.current = options?.onChange;
   const selectRef = useRef(options?.select);
-  selectRef.current = options?.select;
   const onMutationErrorRef = useRef(options?.onMutationError);
-  onMutationErrorRef.current = options?.onMutationError;
   const tablesRef = useRef(options?.tables);
-  tablesRef.current = options?.tables;
+  useEffect(() => {
+    onChangeRef.current = options?.onChange;
+    selectRef.current = options?.select;
+    onMutationErrorRef.current = options?.onMutationError;
+    tablesRef.current = options?.tables;
+  });
 
   // For suspense mode, seed from cache; otherwise use initialData
   const suspenseSeed = options?.suspense
@@ -339,7 +350,9 @@ export function useLiveQuery<T = unknown>(
   const dataRef = useRef<T | null>(options?.initialData ?? null);
   const [isLoading, setIsLoading] = useState(options?.initialData == null);
   const [error, setError] = useState<Error | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [standaloneConnected, setStandaloneConnected] = useState(false);
+  // Inside a room the connection belongs to <LiveRoom>; mirror its state directly.
+  const isConnected = roomCtx ? roomCtx.isConnected : standaloneConnected;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mutationGenRef = useRef(0); // Tracks in-flight mutations for stale refetch detection
@@ -375,14 +388,14 @@ export function useLiveQuery<T = unknown>(
     }
   }, []);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback((): Promise<void> => {
     // Query deduplication: if another useLiveQuery with the same path is already
     // fetching inside this LiveRoom, skip. They share the WS subscription and
     // the data will arrive via onChange or a subsequent non-deduped fetch.
     const cache = roomCtx?.queryCache;
     if (cache) {
       const entry = cache.get(path);
-      if (entry?.fetching) return; // Already in-flight for this path
+      if (entry?.fetching) return Promise.resolve(); // Already in-flight for this path
       if (!entry) {
         cache.set(path, { data: null, subscribers: new Set(), fetching: true });
       } else {
@@ -394,40 +407,42 @@ export function useLiveQuery<T = unknown>(
     // If a mutation happens while we're fetching, the result is stale — discard it.
     const genAtStart = mutationGenRef.current;
 
-    try {
-      const res = await roomFetch(path);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = (await res.json()) as T;
-      const json = selectRef.current ? (selectRef.current(raw) as T) : raw;
+    return roomFetch(path)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = (await res.json()) as T;
+        const json = selectRef.current ? (selectRef.current(raw) as T) : raw;
 
-      // Only apply if no mutations happened during this fetch
-      if (mutationGenRef.current === genAtStart) {
-        setDataWithRef(json);
-        setError(null);
-      }
+        // Only apply if no mutations happened during this fetch
+        if (mutationGenRef.current === genAtStart) {
+          setDataWithRef(json);
+          setError(null);
+        }
 
-      // Update cache + notify other subscribers of the same path
-      if (cache) {
-        const entry = cache.get(path);
-        if (entry) {
-          entry.data = json;
-          entry.fetching = false;
-          if (mutationGenRef.current === genAtStart) {
-            for (const cb of entry.subscribers) {
-              cb();
+        // Update cache + notify other subscribers of the same path
+        if (cache) {
+          const entry = cache.get(path);
+          if (entry) {
+            entry.data = json;
+            entry.fetching = false;
+            if (mutationGenRef.current === genAtStart) {
+              for (const cb of entry.subscribers) {
+                cb();
+              }
             }
           }
         }
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error(String(e)));
-      if (cache) {
-        const entry = cache.get(path);
-        if (entry) entry.fetching = false;
-      }
-    } finally {
-      setIsLoading(false);
-    }
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e : new Error(String(e)));
+        if (cache) {
+          const entry = cache.get(path);
+          if (entry) entry.fetching = false;
+        }
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, [path, roomFetch, setDataWithRef, roomCtx?.queryCache]);
 
   const mutate = useCallback(
@@ -498,7 +513,6 @@ export function useLiveQuery<T = unknown>(
   useEffect(() => {
     if (roomCtx) {
       // Inside LiveRoom: subscribe to shared WS with optional table filtering
-      setIsConnected(roomCtx.isConnected);
       const unsub = roomCtx.subscribe((table: string) => {
         const filter = tablesRef.current;
         if (!filter || table === "*" || filter.includes(table)) {
@@ -516,7 +530,7 @@ export function useLiveQuery<T = unknown>(
         const ws = new WebSocket(realtimeUrl!);
         wsRef.current = ws;
 
-        ws.onopen = () => setIsConnected(true);
+        ws.onopen = () => setStandaloneConnected(true);
 
         ws.onmessage = (e) => {
           try {
@@ -532,7 +546,7 @@ export function useLiveQuery<T = unknown>(
 
         ws.onclose = () => {
           wsRef.current = null;
-          setIsConnected(false);
+          setStandaloneConnected(false);
           const jitter = 2000 + Math.random() * 2000;
           reconnectTimer.current = setTimeout(connect, jitter);
         };
@@ -582,13 +596,6 @@ export function useLiveQuery<T = unknown>(
     };
   }, [roomCtx?.queryCache, path, setDataWithRef]);
 
-  // Sync connected state from room context
-  useEffect(() => {
-    if (roomCtx) {
-      setIsConnected(roomCtx.isConnected);
-    }
-  }, [roomCtx?.isConnected]);
-
   // Initial fetch when inside room
   useEffect(() => {
     if (roomCtx) {
@@ -633,16 +640,16 @@ export function usePresence(
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Resolve WebSocket URL
-  const [wsUrl, setWsUrl] = useState<string | null>(null);
+  // Resolve WebSocket URL: explicit options win, otherwise discover from the server
+  const explicitWsUrl =
+    options?.realtimeUrl && options?.projectSlug
+      ? `${options.realtimeUrl.startsWith("https") ? "wss:" : "ws:"}//${options.realtimeUrl.replace(/^https?:\/\//, "")}/${options.projectSlug}/rooms/${roomId}/ws`
+      : null;
+  const [discoveredWsUrl, setWsUrl] = useState<string | null>(null);
+  const wsUrl = explicitWsUrl ?? discoveredWsUrl;
 
   useEffect(() => {
-    if (options?.realtimeUrl && options?.projectSlug) {
-      const protocol = options.realtimeUrl.startsWith("https") ? "wss:" : "ws:";
-      const host = options.realtimeUrl.replace(/^https?:\/\//, "");
-      setWsUrl(`${protocol}//${host}/${options.projectSlug}/rooms/${roomId}/ws`);
-      return;
-    }
+    if (explicitWsUrl) return;
 
     // Auto-discover from /__creek/config
     let cancelled = false;
@@ -668,7 +675,7 @@ export function usePresence(
     return () => {
       cancelled = true;
     };
-  }, [roomId, options?.realtimeUrl, options?.projectSlug]);
+  }, [roomId, explicitWsUrl]);
 
   // WebSocket connection
   useEffect(() => {
