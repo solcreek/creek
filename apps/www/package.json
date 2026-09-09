@@ -9,10 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@base-ui/react": "^1.8.0",
     "@solcreek/adapter-creek": "^0.1.0",
     "@solcreek/og": "workspace:*",
-    "class-variance-authority": "^0.7.1",
     "cn": "^0.2.6",
     "cobe": "^2.0.1",
     "framer-motion": "^12.38.0",
