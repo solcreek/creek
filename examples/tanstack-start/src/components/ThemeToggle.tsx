@@ -1,18 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type ThemeMode = "light" | "dark" | "auto";
 
-function getInitialMode(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "auto";
-  }
+const STORAGE_KEY = "theme";
+const listeners = new Set<() => void>();
 
-  const stored = window.localStorage.getItem("theme");
+function readStoredMode(): ThemeMode {
+  const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark" || stored === "auto") {
     return stored;
   }
 
   return "auto";
+}
+
+function getServerMode(): ThemeMode {
+  return "auto";
+}
+
+function subscribe(onChange: () => void) {
+  listeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    listeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+function writeStoredMode(mode: ThemeMode) {
+  window.localStorage.setItem(STORAGE_KEY, mode);
+  for (const listener of listeners) {
+    listener();
+  }
 }
 
 function applyThemeMode(mode: ThemeMode) {
@@ -32,15 +51,13 @@ function applyThemeMode(mode: ThemeMode) {
 }
 
 export default function ThemeToggle() {
-  const [mode, setMode] = useState<ThemeMode>("auto");
+  // localStorage is the source of truth; the server renders "auto" and the
+  // client takes over after hydration without a state update in an effect.
+  const mode = useSyncExternalStore(subscribe, readStoredMode, getServerMode);
 
   useEffect(() => {
-    const initialMode = getInitialMode();
-    setMode(initialMode);
-    applyThemeMode(initialMode);
-  }, []);
+    applyThemeMode(mode);
 
-  useEffect(() => {
     if (mode !== "auto") {
       return;
     }
@@ -56,9 +73,7 @@ export default function ThemeToggle() {
 
   function toggleMode() {
     const nextMode: ThemeMode = mode === "light" ? "dark" : mode === "dark" ? "auto" : "light";
-    setMode(nextMode);
-    applyThemeMode(nextMode);
-    window.localStorage.setItem("theme", nextMode);
+    writeStoredMode(nextMode);
   }
 
   const label =
