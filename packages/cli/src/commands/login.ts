@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { CreekClient } from "@solcreek/sdk";
 import { writeCliConfig, readCliConfig, getApiUrl } from "../utils/config.js";
 import { startAuthServer } from "../utils/auth-server.js";
-import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, isTTY } from "../utils/output.js";
 
 function getDashboardUrl(): string {
   const apiUrl = getApiUrl();
@@ -44,9 +44,25 @@ export const loginCommand = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
 
-    // Mode 1: --token (CI/CD)
+    // Mode 1: --token (CI/CD / agents)
     if (args.token) {
       return await saveAndVerify(args.token, jsonMode);
+    }
+
+    // Browser and --headless both block on a human. Non-TTY (agents, CI)
+    // would hang on the localhost callback or a prompt — fail immediately.
+    if (!isTTY) {
+      const message =
+        "Non-interactive login requires --token <KEY>. Browser and --headless prompts hang in agents/CI.";
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "interactive_login_unsupported", message }, 1, [
+          {
+            command: "creek login --token <KEY> --json",
+            description: "Authenticate with an API key",
+          },
+        ]);
+      consola.error(message);
+      process.exit(1);
     }
 
     // Mode 2: --headless (SSH/remote — prompt for API key)
@@ -116,8 +132,10 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   if (!session?.user) {
     if (jsonMode)
       jsonOutput({ ok: false, error: "invalid_token", message: "Invalid API key" }, 1, [
-        { command: "creek login", description: "Try interactive login" },
-        { command: "creek login --headless", description: "Paste API key manually" },
+        {
+          command: "creek login --token <KEY> --json",
+          description: "Retry with a valid API key",
+        },
       ]);
     consola.error("Invalid API key. Please check and try again.");
     process.exit(1);

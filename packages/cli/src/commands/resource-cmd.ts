@@ -13,6 +13,7 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiCall } from "../utils/command-context.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 interface Resource {
   id: string;
@@ -260,6 +261,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
     },
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
+      ...dryRunArg,
       ...globalArgs,
     },
     async run({ args }) {
@@ -273,6 +275,29 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: msg }, 1);
         consola.error(msg);
         process.exit(1);
+      }
+
+      if (isDryRun(args)) {
+        const detail = await apiCall(jsonMode, "api_error", () => client.getResource(resource.id));
+        const bindings = detail.bindings ?? [];
+        const blocked = bindings.length > 0;
+        emitDryRunPlan(jsonMode, {
+          command: `creek ${cmdName} delete ${args.name}`,
+          wouldExecute: !blocked,
+          resourceId: resource.id,
+          name: args.name,
+          kind,
+          bindings,
+          sideEffects: blocked
+            ? bindings.map(
+                (b) => `Still bound to ${b.projectSlug} as ${b.bindingName} — detach first`,
+              )
+            : [`Delete team ${label} "${args.name}" and its backing Cloudflare resource`],
+          nextStep: blocked
+            ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --json`
+            : `creek ${cmdName} delete ${args.name} --json`,
+        });
+        return;
       }
 
       try {

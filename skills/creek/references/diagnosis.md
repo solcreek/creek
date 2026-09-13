@@ -77,7 +77,8 @@ Quick lookup when the user reports a specific error string verbatim.
 
 | Error | Fix |
 |-------|-----|
-| "Not authenticated" | `creek login --token <KEY>` or set `CREEK_TOKEN` (agents: never `creek login` — it opens a browser) |
+| "Not authenticated" | `creek login --token <KEY> --json` or set `CREEK_TOKEN` (agents: never `creek login` — it returns `interactive_login_unsupported`) |
+| `interactive_login_unsupported` | Pass `--token <KEY>` |
 | `confirmation_required` | Pass `--sandbox` or `--prod` |
 | "Invalid API key" | `creek login --token <KEY>` to re-authenticate |
 | "No creek.toml found" | `creek init` or cd to project root |

@@ -2,18 +2,35 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
 import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const envSet = defineCommand({
   meta: { name: "set", description: "Set an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name (e.g. DATABASE_URL)", required: true },
     value: { type: "positional", description: "Variable value", required: true },
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
     const slug = resolveProjectSlug(undefined, jsonMode);
+    if (isDryRun(args)) {
+      emitDryRunPlan(jsonMode, {
+        command: `creek env set ${args.key} <value>`,
+        wouldExecute: true,
+        project: slug,
+        key: args.key,
+        pendingDeploy: true,
+        sideEffects: [
+          `Store ${args.key} on project ${slug} (value not logged)`,
+          "Running worker is unchanged until the next production deploy",
+        ],
+        nextStep: `creek env set ${args.key} <value> --json`,
+      });
+      return;
+    }
     await apiCall(jsonMode, "set_failed", () => client.setEnvVar(slug, args.key, args.value));
     // Env vars are injected at deploy time — the change is stored but NOT
     // live on the running worker until the next deploy. Signal that
@@ -103,12 +120,33 @@ const envRm = defineCommand({
   meta: { name: "rm", description: "Remove an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name to remove", required: true },
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
     const slug = resolveProjectSlug(undefined, jsonMode);
+    if (isDryRun(args)) {
+      const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
+      const exists = vars.some((v) => v.key === args.key);
+      emitDryRunPlan(jsonMode, {
+        command: `creek env rm ${args.key}`,
+        wouldExecute: exists,
+        project: slug,
+        key: args.key,
+        exists,
+        pendingDeploy: exists,
+        sideEffects: exists
+          ? [
+              `Remove ${args.key} from project ${slug}`,
+              "Running worker keeps the old value until the next production deploy",
+            ]
+          : [`${args.key} is not set on ${slug} — nothing to remove`],
+        nextStep: exists ? `creek env rm ${args.key} --json` : `creek env ls --json`,
+      });
+      return;
+    }
     await apiCall(jsonMode, "rm_failed", () => client.deleteEnvVar(slug, args.key));
     // Same deploy-time injection as `set`: the var is removed from the
     // store but the running worker keeps the old value until redeploy.

@@ -9,7 +9,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 
 | Task | Command |
 |------|---------|
-| Authenticate (CI / agent) | `creek login --token <KEY>` |
+| Authenticate (CI / agent) | `creek login --token <KEY> --json` |
 | Authenticate (human) | `creek login` |
 | Check auth | `creek whoami --json` |
 | Init project | `creek init --json` |
@@ -32,8 +32,11 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | List deployments | `creek deployments --json` |
 | List deployments (other) | `creek deployments --project <SLUG> --json` |
 | Rollback | `creek rollback --json` |
+| Preview rollback | `creek rollback --dry-run --json` |
 | Rollback to specific | `creek rollback <DEPLOYMENT_ID> --json` |
 | Set env var | `creek env set <KEY> <VALUE> --json` |
+| Preview env set | `creek env set <KEY> <VALUE> --dry-run --json` |
+| Preview env rm | `creek env rm <KEY> --dry-run --json` |
 | List env vars | `creek env ls --json` |
 | Show env values | `creek env ls --show --json` |
 | Remove env var | `creek env rm <KEY> --json` |
@@ -41,6 +44,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | List domains | `creek domains ls --json` |
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
+| Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
 | Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
 | Dev server (local) | `creek dev` |
 | Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
@@ -50,6 +54,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Detach database from project | `creek db detach <NAME> --from <PROJECT> --json` |
 | Rename a database | `creek db rename <NAME> --to <NEW-NAME> --json` |
 | Delete a database | `creek db delete <NAME> --json` |
+| Preview database delete | `creek db delete <NAME> --dry-run --json` |
 | Tail runtime logs | `creek logs --json` |
 | Tail runtime logs (live) | `creek logs --follow --json` |
 | Filter runtime logs | `creek logs --outcome exception --since 1h --json` |

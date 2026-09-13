@@ -26,7 +26,7 @@ human user pastes a Creek CLI command into chat.
 
 - Every command accepts `--json` for structured output (no prose parsing needed)
 - Every command accepts `--yes` for non-interactive confirmation bypass
-- `--dry-run` on `creek deploy` returns a plan without side effects. `nextStep` is the command to run next
+- `--dry-run` on `creek deploy`, `rollback`, `env set`/`rm`, `domains rm`, and `db delete` returns a plan without side effects. `nextStep` is the command to run next. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported`.
 - Non-TTY invocations automatically use JSON output (no flag needed inside an agent tool call)
 - `--json` does **not** skip the deploy target gate. Pass `--sandbox` or `--prod`
 - Exit code 0 = success, 1 = error. Error JSON includes `error`, `message`, and `breadcrumbs` (next commands)
@@ -182,7 +182,7 @@ All commands support `--json` and `--yes` global flags.
 | `creek verify <url>` | GET a preview/production URL; reports status, title, ttfb. `--contains` asserts markup. |
 | `creek dev` | Local dev server with D1, R2, KV, realtime emulation |
 | `creek init` | Scaffold a `creek.toml` in the current directory |
-| `creek login` | Authenticate via OAuth (GitHub / Google) |
+| `creek login --token <KEY>` | Authenticate with an API key (required in non-TTY). Browser login is TTY-only. |
 | `creek whoami` | Show current authentication status |
 | `creek status` | Show project status, recent deployments, trigger config |
 | `creek projects` | List your projects |

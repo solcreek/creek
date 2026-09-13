@@ -32,7 +32,8 @@ creek deploy --prod --json
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
 - Do not POST to `sandbox-api.creek.dev` yourself. Some egress IPs get Cloudflare 1010. Use the CLI or MCP.
 - Do not call MCP tools named `deploy_project`, `list_projects`, `set_env_var` — they do not exist.
-- Do not run `creek login` in a headless agent. Use `creek login --token <KEY>` or `CREEK_TOKEN`. Browser login hangs on a localhost callback.
+- Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
+- Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
 
 ## MCP (https://mcp.creek.dev/mcp)
 

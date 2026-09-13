@@ -4,6 +4,15 @@
 
 ### Agent experience
 
+- **`--dry-run` on mutating commands.** `creek rollback`, `creek db delete`
+  (and storage/cache/ai delete), `creek env set` / `env rm`, and
+  `creek domains rm` preview `wouldExecute`, `sideEffects`, and a
+  copy-pasteable `nextStep` without POSTing or DELETEing. Database delete
+  reports remaining bindings and refuses `wouldExecute` until they are
+  detached.
+- **Non-TTY `creek login` without `--token` fails immediately** with
+  `interactive_login_unsupported` instead of opening a browser or hanging
+  on a prompt. Auth breadcrumbs lead with `creek login --token <KEY> --json`.
 - **Non-TTY `creek deploy --dry-run` `nextStep` is copy-pasteable.** It now
   emits `creek deploy --sandbox --json` or `--prod --json` instead of a bare
   `creek deploy` that agents followed into `confirmation_required`.

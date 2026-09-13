@@ -5,6 +5,7 @@ import { getToken, getApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import { resolveProjectSlug } from "../utils/command-context.js";
 import {
   CreekdClient,
@@ -48,6 +49,7 @@ export const rollbackCommand = defineCommand({
       description: "On 412 If-Match mismatch, auto-fetch current rv and retry (self-host only).",
       default: false,
     },
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -64,6 +66,7 @@ export const rollbackCommand = defineCommand({
         args.project as string | undefined,
         args["bypass-rv"] === true,
         jsonMode,
+        isDryRun(args),
       );
     }
     if (args.to) {
@@ -91,6 +94,40 @@ export const rollbackCommand = defineCommand({
 
     const deploymentId = args.deployment as string | undefined;
     const message = args.message as string | undefined;
+
+    if (isDryRun(args)) {
+      const deployments = await client.listDeployments(projectSlug);
+      const sorted = [...deployments].sort((a, b) => b.createdAt - a.createdAt);
+      const current = sorted.find((d) => d.status === "active") ?? sorted[0];
+      const target = deploymentId
+        ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
+        : sorted.find(
+            (d) => d.id !== current?.id && d.status !== "failed" && d.status !== "cancelled",
+          );
+      const wouldExecute = !!target;
+      emitDryRunPlan(jsonMode, {
+        command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
+        wouldExecute,
+        project: projectSlug,
+        currentDeploymentId: current?.id ?? null,
+        targetDeploymentId: target?.id ?? null,
+        targetStatus: target?.status ?? null,
+        sideEffects: wouldExecute
+          ? [
+              `Production for ${projectSlug} moves from ${current?.id.slice(0, 8) ?? "none"} to ${target!.id.slice(0, 8)}`,
+              "A new rollback deployment row is created",
+            ]
+          : [
+              deploymentId
+                ? `No deployment matching "${deploymentId}"`
+                : "No previous non-failed deployment to roll back to",
+            ],
+        nextStep: wouldExecute
+          ? `creek rollback ${target!.id} --json`
+          : `creek deployments --project ${projectSlug} --json`,
+      });
+      return;
+    }
 
     try {
       const result = await client.rollback(projectSlug, {
@@ -152,6 +189,7 @@ async function rollbackSelfHost(
   projectArg: string | undefined,
   bypassRv: boolean,
   jsonMode: boolean,
+  dryRun: boolean,
 ): Promise<void> {
   if (!toRaw) {
     const msg = "self-host rollback requires --to=<releaseSeq>";
@@ -189,6 +227,21 @@ async function rollbackSelfHost(
   }
 
   const client = new CreekdClient(host.addr);
+  if (dryRun) {
+    emitDryRunPlan(jsonMode, {
+      command: `creek rollback --host ${host.name} --to ${toSeq}`,
+      wouldExecute: true,
+      host: host.name,
+      app: appId,
+      to: toSeq,
+      sideEffects: [
+        `POST /v1/apps/${appId}/rollback?to=${toSeq} on ${host.name}`,
+        "If-Match is sent from the local resource-version cache",
+      ],
+      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --json`,
+    });
+    return;
+  }
   const release = await doRollbackWithIfMatch(
     client,
     appId,

@@ -212,6 +212,27 @@ describe("creek domains structured errors (JSON mode)", () => {
     expect(json()).toMatchObject({ ok: false, error: "api_error" });
   });
 
+  it("dry-run does not DELETE the domain", async () => {
+    let deleted = false;
+    server.use(
+      listHandler("active"),
+      http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(rmCmd.run!({ args: { hostname: HOST, "dry-run": true } } as never));
+    expect(code).toBe(0);
+    expect(deleted).toBe(false);
+    expect(json()).toMatchObject({
+      ok: true,
+      mode: "dry-run",
+      wouldExecute: true,
+      hostname: HOST,
+    });
+    expect(json().nextStep).toContain("creek domains rm");
+  });
+
   it("emits a structured not_found when removing a hostname that isn't on the project", async () => {
     server.use(listHandler("pending"));
     const code = await runExit(rmCmd.run!({ args: { hostname: "nope.example.com" } } as never));

@@ -3,6 +3,7 @@ import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const projectArg = {
   project: { type: "string" as const, description: "Project slug (default: from creek.toml)" },
@@ -185,6 +186,7 @@ const domainsRm = defineCommand({
   args: {
     hostname: { type: "positional", description: "Domain to remove", required: true },
     ...projectArg,
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -194,6 +196,23 @@ const domainsRm = defineCommand({
 
     const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
     if (!domain) domainNotFound(args.hostname, slug, jsonMode);
+
+    if (isDryRun(args)) {
+      emitDryRunPlan(jsonMode, {
+        command: `creek domains rm ${domain.hostname}`,
+        wouldExecute: true,
+        project: slug,
+        hostname: domain.hostname,
+        domainId: domain.id,
+        status: domain.status,
+        sideEffects: [
+          `Detach ${domain.hostname} from project ${slug}`,
+          "Custom hostname record on the edge is removed",
+        ],
+        nextStep: `creek domains rm ${domain.hostname} --json`,
+      });
+      return;
+    }
 
     await apiCall(jsonMode, "delete_failed", () => client.deleteDomain(slug, domain.id));
 
