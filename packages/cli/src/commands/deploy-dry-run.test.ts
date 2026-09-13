@@ -138,6 +138,21 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.wouldDeploy).toBe(false);
   });
 
+  it("cwd with creek.toml plus README is not wouldDeploy", async () => {
+    writeFileSync(join(dir, "creek.toml"), '[project]\nname = "x"\n');
+    writeFileSync(join(dir, "README.md"), "# hi");
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(false);
+  });
+
+  it("explicit dir with only README is wouldDeploy: true", async () => {
+    const dist = join(dir, "dist");
+    mkdirSync(dist);
+    writeFileSync(join(dist, "README.md"), "# hi");
+    const plan = await dryRunJson({ dir: dist });
+    expect(plan.wouldDeploy).toBe(true);
+  });
+
   it("empty dir surfaces blocking findings and does not suggest a bare deploy", async () => {
     const plan = await dryRunJson();
     expect(plan.wouldDeploy).toBe(false);
