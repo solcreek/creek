@@ -94,9 +94,11 @@ describe("creek deploy --dry-run (agent path)", () => {
     writeSpy.mockRestore();
   });
 
-  async function dryRunJson(): Promise<Record<string, unknown>> {
+  async function dryRunJson(
+    extra: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
     await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
-      args: { "dry-run": true, json: true },
+      args: { "dry-run": true, json: true, ...extra },
     });
     const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
     return JSON.parse(out.slice(out.indexOf("{")));
@@ -123,11 +125,19 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.target).toMatchObject({ type: "sandbox" });
   });
 
-  it("a collectable asset tree (style.css only) is wouldDeploy: true", async () => {
-    writeFileSync(join(dir, "style.css"), "body{color:red}");
-    const plan = await dryRunJson();
+  it("explicit directory with only style.css is wouldDeploy: true (matches deployDirectory)", async () => {
+    const dist = join(dir, "dist");
+    mkdirSync(dist);
+    writeFileSync(join(dist, "style.css"), "body{color:red}");
+    const plan = await dryRunJson({ dir: dist });
     expect(plan.wouldDeploy).toBe(true);
     expect(plan.nextStep).toBe(AGENT_SANDBOX_DEPLOY);
+  });
+
+  it("cwd with only style.css (no explicit dir) is not wouldDeploy", async () => {
+    writeFileSync(join(dir, "style.css"), "body{color:red}");
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(false);
   });
 
   it("empty dir surfaces blocking findings and does not suggest a bare deploy", async () => {

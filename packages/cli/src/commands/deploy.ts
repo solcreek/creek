@@ -125,10 +125,14 @@ export function makeProgress(jsonMode: boolean) {
 }
 
 /**
- * True when `creek deploy` would find something to upload rather than
- * immediately failing with `no_package_json`. A creek.toml alone is not
- * enough — the real gate requires package.json, index.html, or a prebuilt
- * output directory.
+ * True when `creek deploy` (implicit cwd, no `<dir>` argument) would find
+ * something to upload rather than immediately failing with `no_package_json`.
+ * A creek.toml alone is not enough — the real gate requires package.json,
+ * index.html, or a prebuilt output directory.
+ *
+ * Explicit `creek deploy <dir>` is a different gate: `deployDirectory()`
+ * accepts any non-empty file tree via `collectAssets()`. Dry-run must not
+ * reuse this predicate for that path.
  */
 export function hasDeployablePayload(cwd: string): boolean {
   return (
@@ -270,17 +274,22 @@ async function dryRunPlan(
     }
   }
 
-  // `creek deploy ./dist` uses collectAssets and will upload any non-empty
-  // tree (e.g. only style.css / main.js). Dry-run must agree, otherwise
-  // agents see wouldDeploy: false then a successful deploy of the same dir.
+  // Explicit `creek deploy <dir>` uploads whatever collectAssets() finds
+  // (e.g. a folder of only main.js / style.css). Implicit cwd still requires
+  // package.json / index.html / a known build-output directory — a stray
+  // style.css in cwd is `no_project`, not a directory deploy.
   // creek.toml is in IGNORED_FILES so a toml-only tree stays not-deployable.
-  let hasCollectableAssets = false;
-  try {
-    hasCollectableAssets = collectAssets(cwd).fileList.length > 0;
-  } catch {
-    hasCollectableAssets = false;
+  const explicitDir =
+    typeof args.dir === "string" && args.dir.length > 0 && !isRepoUrl(args.dir);
+  let explicitAssets = false;
+  if (explicitDir && existsSync(cwd)) {
+    try {
+      explicitAssets = collectAssets(cwd).fileList.length > 0;
+    } catch {
+      explicitAssets = false;
+    }
   }
-  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || hasCollectableAssets;
+  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || explicitAssets;
   const explicitSandbox = args.sandbox === true;
   const explicitProd = args.prod === true;
   // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
@@ -309,9 +318,9 @@ async function dryRunPlan(
   const blockingFindings = doctorReport.findings.filter((f) => f.severity === "error");
   // CK-NO-CONFIG means "no creek.toml/wrangler/package.json/index.html".
   // That's true for a raw asset tree, but deployDirectory still uploads it
-  // (`creek deploy ./dist`). Don't let that finding veto wouldDeploy when
-  // there is actually a payload.
-  const blockingForDeploy = hasPayload
+  // (`creek deploy ./dist`). Don't let that finding veto wouldDeploy for
+  // the explicit-dir gate. Implicit cwd keeps the doctor veto.
+  const blockingForDeploy = explicitAssets
     ? blockingFindings.filter((f) => f.code !== "CK-NO-CONFIG")
     : blockingFindings;
   const wouldDeploy = hasPayload && blockingForDeploy.length === 0;
@@ -1544,6 +1553,7 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
       );
     }
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
+    if (!proof.ok) process.exit(1);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Deploy failed";
     // A timeout is usually deterministic (upload volume), so don't lead with a
@@ -1747,6 +1757,7 @@ async function deploySandbox(
       );
     }
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
+    if (!proof.ok) process.exit(1);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sandbox deploy failed";
     if (jsonMode)
