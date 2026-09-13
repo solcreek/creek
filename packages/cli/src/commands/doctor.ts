@@ -311,7 +311,14 @@ async function runLastFailureDiagnosis(opts: {
           command: `creek deployments logs ${failed.id.slice(0, 8)} --json`,
           description: "Read the full build log",
         },
-        { command: `creek deploy --json`, description: "Redeploy after fixing" },
+        {
+          command: "creek deploy --prod --json",
+          description: "Redeploy to production after fixing",
+        },
+        {
+          command: "creek deploy --sandbox --json",
+          description: "Or preview the fix in a sandbox",
+        },
       ],
     );
     return;

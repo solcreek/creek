@@ -71,10 +71,15 @@ export const AUTH_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek login --token <KEY>", description: "Authenticate with API key (CI/CD)" },
 ];
 
+/** Non-TTY / agent deploy to a 60-minute sandbox. Copy-pasteable. */
+export const AGENT_SANDBOX_DEPLOY = "creek deploy --sandbox --json";
+/** Non-TTY / agent deploy to production. Copy-pasteable. Requires sign-in. */
+export const AGENT_PROD_DEPLOY = "creek deploy --prod --json";
+
 export const NO_PROJECT_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek init", description: "Initialize creek.toml in current directory" },
   {
-    command: "creek deploy --template landing",
-    description: "Start from a ready-made Vite + React landing page",
+    command: "creek deploy --sandbox --json",
+    description: "Deploy a 60-minute preview (add index.html or a package.json first)",
   },
 ];

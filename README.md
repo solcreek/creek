@@ -161,7 +161,7 @@ Creek provisions per-tenant resources via the Cloudflare API. Each project gets 
 
 ```bash
 # JSON output auto-enabled in non-TTY / CI
-npx creek deploy --json
+npx creek deploy --sandbox --json
 ```
 
 ```json

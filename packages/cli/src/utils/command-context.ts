@@ -24,7 +24,16 @@ import { jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb }
 export function requireClient(jsonMode: boolean): CreekClient {
   const token = getToken();
   if (!token) {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "not_authenticated",
+          message: "Not authenticated. Run `creek login` first.",
+        },
+        1,
+        AUTH_BREADCRUMBS,
+      );
     consola.error("Not authenticated. Run `creek login` first.");
     process.exit(1);
   }

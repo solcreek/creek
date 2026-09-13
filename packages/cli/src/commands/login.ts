@@ -129,7 +129,7 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   if (jsonMode) {
     jsonOutput({ ok: true, user: session.user.name, email: session.user.email }, 0, [
       { command: "creek projects", description: "List your projects" },
-      { command: "creek deploy", description: "Deploy current directory" },
+      { command: "creek deploy --sandbox --json", description: "Deploy a 60-minute preview" },
       { command: "creek whoami", description: "Verify authenticated user" },
     ]);
   }

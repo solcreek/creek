@@ -21,9 +21,9 @@ npx create-creek-app --list
 Returns JSON array to stdout:
 ```json
 [
-  { "name": "blank", "description": "Minimal Creek project (no UI)", "capabilities": [] },
-  { "name": "landing", "description": "Landing page with hero and CTA", "capabilities": [] },
-  { "name": "blog", "description": "Blog with posts (D1 database)", "capabilities": ["d1"] }
+  { "name": "vite-react", "description": "Vite + React — minimal SPA starter", "capabilities": [] },
+  { "name": "vite-react-drizzle", "description": "Vite + React + Hono + Drizzle — portable full-stack todo (D1)", "capabilities": ["database"] },
+  { "name": "tanstack-start-ssr", "description": "TanStack Start with SSR on Cloudflare Workers", "capabilities": [] }
 ]
 ```
 
@@ -76,7 +76,7 @@ npx create-creek-app <dir> --template github:user/repo --yes
 ### Deploy (after scaffolding)
 
 ```bash
-cd <dir> && npx creek deploy --yes
+cd <dir> && npx creek deploy --sandbox --json
 ```
 
 ## Recommended Workflow
@@ -85,7 +85,7 @@ cd <dir> && npx creek deploy --yes
 2. **`--schema`** → read the JSON Schema to know valid parameters
 3. **`--validate`** → check your generated data (optional, scaffold validates too)
 4. **Scaffold** with `--template`, `--data`, `--yes`
-5. **Deploy** with `npx creek deploy --yes`
+5. **Deploy** with `npx creek deploy --sandbox --json` (preview) or `--prod --json` (signed in)
 
 ## Exit Codes
 
@@ -96,17 +96,13 @@ cd <dir> && npx creek deploy --yes
 
 ## Available Templates
 
+Always run `--list` — do not guess names. Current starters:
+
 | Name | Capabilities | Use when |
 |------|-------------|----------|
-| `blank` | — | Agent generates all code from scratch |
-| `landing` | — | Marketing/product landing page |
-| `blog` | D1 | Content site with database |
-| `link-in-bio` | — | Social links page |
-| `api` | D1 | REST API backend |
-| `todo` | D1, Realtime | Full-stack app with WebSocket |
-| `dashboard` | D1, Realtime | Data visualization with live updates |
-| `form` | D1 | Form submissions with database storage |
-| `chatbot` | D1, AI | AI-powered chat with conversation history |
+| `vite-react` | — | Minimal Vite + React SPA |
+| `vite-react-drizzle` | database | Vite + React + Hono + Drizzle (D1) |
+| `tanstack-start-ssr` | — | TanStack Start with SSR on Workers |
 
 ## Template Parameters
 

@@ -59,9 +59,10 @@ describe("creek init --db (non-interactive)", () => {
     expect(payload.workerDependencies).toEqual(["hono", "creek", "d1-schema"]);
     const commands = payload.breadcrumbs.map((b: { command: string }) => b.command);
     const installIdx = commands.findIndex((c: string) => c.startsWith("npm install"));
-    const deployIdx = commands.indexOf("creek deploy");
+    const deployIdx = commands.findIndex((c: string) => c.startsWith("creek deploy"));
     expect(installIdx).toBeGreaterThanOrEqual(0);
     expect(commands[installIdx]).toContain("hono creek d1-schema");
+    expect(commands[deployIdx]).toBe("creek deploy --sandbox --json");
     expect(installIdx).toBeLessThan(deployIdx);
   });
 

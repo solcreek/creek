@@ -17,7 +17,12 @@ export const whoamiCommand = defineCommand({
     if (!token) {
       if (jsonMode)
         jsonOutput(
-          { ok: false, authenticated: false, error: "not_authenticated" },
+          {
+            ok: false,
+            authenticated: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
           1,
           AUTH_BREADCRUMBS,
         );
@@ -51,7 +56,7 @@ export const whoamiCommand = defineCommand({
         0,
         [
           { command: "creek projects", description: "List your projects" },
-          { command: "creek deploy", description: "Deploy current directory" },
+          { command: "creek deploy --sandbox --json", description: "Deploy a 60-minute preview" },
         ],
       );
     }

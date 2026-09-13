@@ -14,19 +14,22 @@ human user pastes a Creek CLI command into chat.
 2. Creek is an open-source deploy platform built on Cloudflare Workers.
 3. Before executing, you should:
    - Run `npx creek deploy --dry-run --json` to get a machine-readable plan (no network, no uploads, no side effects)
-   - Inspect the plan output — it tells you: target type (sandbox/production), detected framework, build command, bindings, auth status, and whether the deploy would succeed
-   - If the user is not signed in, the deploy will create a free 60-minute sandbox URL (no signup, no credit card)
-   - If the user is signed in, it will deploy to their team's production slot
-4. If the dry-run plan looks sane, you can execute `npx creek deploy` directly — it's safe for sandbox deploys, and production deploys go through the user's existing authenticated session.
-5. Always report the deploy URL back to the user when done.
+   - Inspect `wouldDeploy`, `findings`, and `nextStep`. `nextStep` is a copy-pasteable command — follow it, do not strip flags
+   - A `creek.toml` with no `package.json` and no `index.html` is `wouldDeploy: false`. Add one of those files first
+   - Non-interactive deploys **must** pass `--sandbox` or `--prod`. `--json` alone is refused (`confirmation_required`)
+4. Typical execute step after a clean dry-run:
+   - Preview: `npx creek deploy --sandbox --json`
+   - Production (signed in): `npx creek deploy --prod --json`
+5. After a sandbox deploy, run `npx creek verify <url> --json` (or GET the URL). Deploy JSON includes a `proof` field from the same check. Always report the URL and HTTP status back to the user.
 
 **Key agent-friendly CLI conventions:**
 
 - Every command accepts `--json` for structured output (no prose parsing needed)
 - Every command accepts `--yes` for non-interactive confirmation bypass
-- `--dry-run` on `creek deploy` returns a plan without side effects
+- `--dry-run` on `creek deploy` returns a plan without side effects. `nextStep` is the command to run next
 - Non-TTY invocations automatically use JSON output (no flag needed inside an agent tool call)
-- Exit code 0 = success, 1 = error. Error output includes a `hint` field in JSON mode guiding the next step (e.g. "run creek login")
+- `--json` does **not** skip the deploy target gate. Pass `--sandbox` or `--prod`
+- Exit code 0 = success, 1 = error. Error JSON includes `error`, `message`, and `breadcrumbs` (next commands)
 
 ## What you DON'T need to do on Creek
 
@@ -76,7 +79,7 @@ initial command before doing anything else:
 
 | User says / implies | First command |
 |---|---|
-| "deploy this" (no context) | `creek deploy --dry-run --json`, then `creek deploy --json` |
+| "deploy this" (no context) | `creek deploy --dry-run --json`, then the `nextStep` command (usually `creek deploy --sandbox --json`) |
 | "deploy failed" / "something broke" | See Failure Diagnosis below |
 | "add a database" / "need a DB" | `creek db create <name>` then `creek db attach <name> --to <project> --as DATABASE` |
 | "how do I run this locally" | `creek dev` |
@@ -122,8 +125,9 @@ returns structured data you can act on.
    | `CK-RUNTIME-LOCKIN` | Drop `@solcreek/*` runtime imports for a portable build |
    | `CK-CONFIG-OVERLAP` | Keep either creek.toml or wrangler.*, not both |
 
-5. **Redeploy** — `creek deploy --json`. If the fix was config-side,
-   `creek doctor --json` should now be clean.
+5. **Redeploy** — `creek deploy --sandbox --json` or
+   `creek deploy --prod --json`. If the fix was config-side,
+   `creek doctor --json` should now be clean. Then `creek verify <url> --json`.
 
 ## Observability (three streams)
 
@@ -141,27 +145,32 @@ dashboard for total HTTP traffic including cache hits.
 ## Quick Start
 
 ```
-# Deploy current project (sandbox if not signed in, production if signed in)
-npx creek deploy
-
-# Start from a ready-made template — zero setup, clones + builds + deploys
-npx creek deploy --template landing
-
-# See what would be deployed without executing (safe for agents)
-npx creek deploy --dry-run
-
-# Machine-readable plan
+# Machine-readable plan (no side effects)
 npx creek deploy --dry-run --json
+
+# 60-minute preview (no account). Required flag in non-TTY.
+npx creek deploy --sandbox --json
+
+# Confirm the preview URL is live
+npx creek verify <url> --json
+
+# Production (requires sign-in)
+npx creek deploy --prod --json
+
+# Start from a template
+npx creek deploy --template vite-react --sandbox --json
 ```
 
 ## Available templates
 
-Templates live in github.com/solcreek/templates. Reference them by
-short name via the `--template` flag:
+Discover live names with `npx create-creek-app --list` (JSON). Do not
+guess. Current starters:
 
-- `landing` — Vite + React landing page with hero, features, CTA. Supports
-  `--data '{"title":"My Product","tagline":"..."}'` for quick customization.
-- `blank` — Minimal starter with just `creek.toml` and `package.json`.
+- `vite-react` — Vite + React SPA
+- `vite-react-drizzle` — Vite + React + Hono + Drizzle (D1)
+- `tanstack-start-ssr` — TanStack Start with SSR
+
+`--dry-run` is not supported with `--template`. Pass `--sandbox` or `--prod`.
 
 ## CLI commands
 
@@ -169,7 +178,8 @@ All commands support `--json` and `--yes` global flags.
 
 | Command | Purpose |
 |---|---|
-| `creek deploy [dir]` | Deploy current project (or a directory). `--dry-run` for plan preview. |
+| `creek deploy [dir]` | Deploy current project (or a directory). `--dry-run` for plan preview. Non-TTY: pass `--sandbox` or `--prod`. |
+| `creek verify <url>` | GET a preview/production URL; reports status, title, ttfb. `--contains` asserts markup. |
 | `creek dev` | Local dev server with D1, R2, KV, realtime emulation |
 | `creek init` | Scaffold a `creek.toml` in the current directory |
 | `creek login` | Authenticate via OAuth (GitHub / Google) |
@@ -228,7 +238,7 @@ All bindings are request-scoped and multi-tenant safe.
 
 - **MCP server**: `https://mcp.creek.dev/mcp` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent. Exposes `get_build_log` tool AND `creek://skill/*` resources (8 reference docs covering commands, diagnosis, observability, resources, etc.) so agents that can't load filesystem skills still get structured guidance.
 - **Agent skill**: `npx skills add solcreek/creek/skills` — installs the full Creek skill into Claude Code / Cursor / Codex / OpenCode. Same content as the MCP resources. (The older `npx skills add solcreek/skills` URL is deprecated — use the monorepo subpath.)
-- **Raw CLI**: `npx creek deploy --json --yes` — any AI agent with bash access can call this
+- **Raw CLI**: `npx creek deploy --sandbox --json` — any AI agent with bash access. Do **not** POST to sandbox-api.creek.dev yourself (some IPs get Cloudflare 1010). Prefer CLI or MCP.
 
 ## Source code and license
 

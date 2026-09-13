@@ -22,6 +22,7 @@ import { queueCommand } from "./commands/queue.js";
 import { logsCommand } from "./commands/logs.js";
 import { metricsCommand } from "./commands/metrics.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { verifyCommand } from "./commands/verify.js";
 import { dbCommand } from "./commands/db.js";
 import { storageCommand } from "./commands/storage.js";
 import { cacheCommand } from "./commands/cache.js";
@@ -60,6 +61,7 @@ const main = defineCommand({
     logs: logsCommand,
     metrics: metricsCommand,
     doctor: doctorCommand,
+    verify: verifyCommand,
     login: loginCommand,
     whoami: whoamiCommand,
     init: initCommand,
