@@ -1,7 +1,7 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { isHttpUrl, verifyUrl } from "./verify-url.js";
+import { isHttpUrl, MAX_BODY_BYTES, verifyUrl } from "./verify-url.js";
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -17,6 +17,12 @@ describe("isHttpUrl", () => {
     expect(isHttpUrl("ftp://x")).toBe(false);
     expect(isHttpUrl("not a url")).toBe(false);
     expect(isHttpUrl("")).toBe(false);
+  });
+});
+
+describe("MAX_BODY_BYTES", () => {
+  it("is 2 MiB", () => {
+    expect(MAX_BODY_BYTES).toBe(2 * 1024 * 1024);
   });
 });
 
@@ -74,5 +80,67 @@ describe("verifyUrl", () => {
     const result = await verifyUrl("file:///etc/passwd");
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/http or https/i);
+  });
+
+  it("rejects an oversize Content-Length without reading the body", async () => {
+    const getReader = vi.fn(() => {
+      throw new Error("body should not be read");
+    });
+    const cancel = vi.fn(async () => undefined);
+    const res = new Response(null, {
+      status: 200,
+      headers: {
+        "content-type": "text/html",
+        "content-length": String(3 * 1024 * 1024),
+      },
+    });
+    Object.defineProperty(res, "body", {
+      value: { getReader, cancel },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(res);
+    try {
+      const result = await verifyUrl("https://sb.test/huge-cl");
+      expect(result.ok).toBe(false);
+      expect(result.status).toBe(200);
+      expect(result.error).toMatch(/too large/i);
+      expect(result.title).toBeNull();
+      expect(getReader).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("rejects a streamed body that exceeds maxBodyBytes without Content-Length", async () => {
+    const encoder = new TextEncoder();
+    server.use(
+      http.get("https://sb.test/huge-stream", () => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode("x".repeat(100)));
+            controller.close();
+          },
+        });
+        return new HttpResponse(stream, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }),
+    );
+    const result = await verifyUrl("https://sb.test/huge-stream", { maxBodyBytes: 64 });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.error).toMatch(/too large/i);
+    expect(result.title).toBeNull();
+  });
+
+  it("still extracts title when the body is under the cap", async () => {
+    server.use(
+      http.get("https://sb.test/small", () =>
+        HttpResponse.html("<html><head><title>ok</title></head><body>hi</body></html>"),
+      ),
+    );
+    const result = await verifyUrl("https://sb.test/small", { maxBodyBytes: 64 });
+    expect(result.ok).toBe(true);
+    expect(result.title).toBe("ok");
   });
 });
