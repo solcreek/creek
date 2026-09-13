@@ -139,6 +139,24 @@ export function hasDeployablePayload(cwd: string): boolean {
 }
 
 /**
+ * Directory to upload for a static-site (`source === "index.html"`) sandbox
+ * deploy. Prefer `resolved.buildOutput` when that dir exists and contains
+ * index.html (fromStaticSite sets it to "public" for public/index.html).
+ * Fall back to `public/` when that's the only index, else the project root.
+ */
+function staticSiteUploadDir(cwd: string, resolved: ResolvedConfig): string {
+  const out = resolved.buildOutput;
+  if (out) {
+    const dir = out === "." ? cwd : join(cwd, out);
+    if (existsSync(join(dir, "index.html"))) return dir;
+  }
+  if (!existsSync(join(cwd, "index.html")) && existsSync(join(cwd, "public/index.html"))) {
+    return join(cwd, "public");
+  }
+  return cwd;
+}
+
+/**
  * Copy-pasteable next command after `creek deploy --dry-run`.
  * Non-TTY agents must pass --sandbox or --prod; a bare `creek deploy`
  * is refused with confirmation_required.
@@ -252,7 +270,17 @@ async function dryRunPlan(
     }
   }
 
-  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback;
+  // `creek deploy ./dist` uses collectAssets and will upload any non-empty
+  // tree (e.g. only style.css / main.js). Dry-run must agree, otherwise
+  // agents see wouldDeploy: false then a successful deploy of the same dir.
+  // creek.toml is in IGNORED_FILES so a toml-only tree stays not-deployable.
+  let hasCollectableAssets = false;
+  try {
+    hasCollectableAssets = collectAssets(cwd).fileList.length > 0;
+  } catch {
+    hasCollectableAssets = false;
+  }
+  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || hasCollectableAssets;
   const explicitSandbox = args.sandbox === true;
   const explicitProd = args.prod === true;
   // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
@@ -279,7 +307,14 @@ async function dryRunPlan(
   // these findings here, not after a 500.
   const doctorReport = runDoctor(buildDoctorContext(cwd));
   const blockingFindings = doctorReport.findings.filter((f) => f.severity === "error");
-  const wouldDeploy = hasPayload && blockingFindings.length === 0;
+  // CK-NO-CONFIG means "no creek.toml/wrangler/package.json/index.html".
+  // That's true for a raw asset tree, but deployDirectory still uploads it
+  // (`creek deploy ./dist`). Don't let that finding veto wouldDeploy when
+  // there is actually a payload.
+  const blockingForDeploy = hasPayload
+    ? blockingFindings.filter((f) => f.code !== "CK-NO-CONFIG")
+    : blockingFindings;
+  const wouldDeploy = hasPayload && blockingForDeploy.length === 0;
 
   const plan = {
     mode: "dry-run" as const,
@@ -318,7 +353,7 @@ async function dryRunPlan(
       tosPromptShown: false,
     },
     nextStep: dryRunNextStep({
-      blockingCount: blockingFindings.length,
+      blockingCount: blockingForDeploy.length,
       wouldDeploy,
       targetType,
     }),
@@ -1485,7 +1520,8 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     if (jsonMode) {
       jsonOutput(
         {
-          ok: true,
+          ok: proof.ok,
+          ...(proof.ok ? {} : { error: "verify_failed" }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -1495,7 +1531,7 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
           mode: "sandbox",
           proof,
         },
-        0,
+        proof.ok ? 0 : 1,
         sandboxSuccessBreadcrumbs(status.previewUrl, result.sandboxId),
       );
     }
@@ -1552,7 +1588,7 @@ async function deploySandbox(
   //     echo '<h1>Hi</h1>' > index.html
   //     npx creek deploy
   if (resolved?.source === "index.html") {
-    return deployDirectory(cwd, jsonMode, tos);
+    return deployDirectory(staticSiteUploadDir(cwd, resolved), jsonMode, tos);
   }
 
   // Framework path: package.json should exist because resolveConfig picked a
@@ -1677,7 +1713,8 @@ async function deploySandbox(
     if (jsonMode) {
       jsonOutput(
         {
-          ok: true,
+          ok: proof.ok,
+          ...(proof.ok ? {} : { error: "verify_failed" }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -1696,7 +1733,7 @@ async function deploySandbox(
           ...(ephemeralDbWarning ? { ephemeralDataWarning: ephemeralDbWarning } : {}),
           proof,
         },
-        0,
+        proof.ok ? 0 : 1,
         sandboxSuccessBreadcrumbs(status.previewUrl, result.sandboxId),
       );
     }

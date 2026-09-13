@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "sync-refs": "cp ../../skills/creek/references/*.md references/",
+    "sync-refs": "rm -f references/*.md && cp ../../skills/creek/references/*.md references/",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

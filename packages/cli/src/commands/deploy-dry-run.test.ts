@@ -123,6 +123,13 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.target).toMatchObject({ type: "sandbox" });
   });
 
+  it("a collectable asset tree (style.css only) is wouldDeploy: true", async () => {
+    writeFileSync(join(dir, "style.css"), "body{color:red}");
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(true);
+    expect(plan.nextStep).toBe(AGENT_SANDBOX_DEPLOY);
+  });
+
   it("empty dir surfaces blocking findings and does not suggest a bare deploy", async () => {
     const plan = await dryRunJson();
     expect(plan.wouldDeploy).toBe(false);

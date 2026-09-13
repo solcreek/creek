@@ -68,7 +68,7 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Deploy current project (preview) | `creek deploy --sandbox` | — (use CLI; MCP `deploy` is file-map upload, not a project build) | Project → Deploy | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy current project (production) | `creek deploy --prod` | — | Project → Deploy | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy files to a 60-min sandbox | `creek deploy --sandbox` | `deploy` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
-| Deploy a demo page | `creek deploy --demo` | `deploy_demo` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
+| Deploy a demo page | — | `deploy_demo` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
 | Sandbox status / delete | `creek status <id>` | `deploy_status` / `deploy_delete` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
 | Verify a preview URL is live | `creek verify <url>` | — (GET the URL) | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy directory | `creek deploy ./dist --sandbox` | — | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |

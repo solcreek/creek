@@ -8,7 +8,7 @@ the "one D1 per project, name derived from project id" model.
 ## Workflow
 
 ```bash
-# 1. Create a team-level database (unattached, not yet provisioned in CF)
+# 1. Create a team-level database (backing D1 is provisioned immediately; not yet attached to a project)
 creek db create users --json
 
 # 2. Attach it to one project as env.DATABASE

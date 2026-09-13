@@ -22,7 +22,8 @@ Returns JSON array to stdout:
 ```json
 [
   { "name": "vite-react", "description": "Vite + React — minimal SPA starter", "capabilities": [] },
-  { "name": "vite-react-drizzle", "description": "Vite + React + Hono + Drizzle — portable full-stack todo (D1)", "capabilities": ["database"] }
+  { "name": "vite-react-drizzle", "description": "Vite + React + Hono + Drizzle — portable full-stack todo (D1)", "capabilities": ["database"] },
+  { "name": "tanstack-start-ssr", "description": "TanStack Start with SSR on Cloudflare Workers", "capabilities": [] }
 ]
 ```
 
