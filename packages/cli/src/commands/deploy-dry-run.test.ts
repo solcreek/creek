@@ -94,9 +94,7 @@ describe("creek deploy --dry-run (agent path)", () => {
     writeSpy.mockRestore();
   });
 
-  async function dryRunJson(
-    extra: Record<string, unknown> = {},
-  ): Promise<Record<string, unknown>> {
+  async function dryRunJson(extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
       args: { "dry-run": true, json: true, ...extra },
     });

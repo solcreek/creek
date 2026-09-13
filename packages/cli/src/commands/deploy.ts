@@ -279,8 +279,7 @@ async function dryRunPlan(
   // package.json / index.html / a known build-output directory — a stray
   // style.css in cwd is `no_project`, not a directory deploy.
   // creek.toml is in IGNORED_FILES so a toml-only tree stays not-deployable.
-  const explicitDir =
-    typeof args.dir === "string" && args.dir.length > 0 && !isRepoUrl(args.dir);
+  const explicitDir = typeof args.dir === "string" && args.dir.length > 0 && !isRepoUrl(args.dir);
   let explicitAssets = false;
   if (explicitDir && existsSync(cwd)) {
     try {
