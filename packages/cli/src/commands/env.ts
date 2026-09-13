@@ -27,7 +27,7 @@ const envSet = defineCommand({
             command: `creek env ls --project ${slug}`,
             description: "List all environment variables",
           },
-          { command: `creek deploy`, description: "Deploy to apply changes" },
+          { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
         ],
       );
     consola.success(`Set ${args.key}`);
@@ -68,7 +68,10 @@ const envGet = defineCommand({
           description: `Remove ${vars[0].key}`,
         });
       }
-      crumbs.push({ command: "creek deploy", description: "Deploy to apply changes" });
+      crumbs.push({
+        command: "creek deploy --prod --json",
+        description: "Deploy to apply env changes",
+      });
       jsonOutput(
         {
           ok: true,
@@ -122,7 +125,7 @@ const envRm = defineCommand({
         0,
         [
           { command: `creek env ls --project ${slug}`, description: "List remaining variables" },
-          { command: "creek deploy", description: "Deploy to apply changes" },
+          { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
         ],
       );
     consola.success(`Removed ${args.key}`);

@@ -96,7 +96,7 @@ Creek is designed for programmatic use. No CAPTCHAs, no interactive prompts in C
 ### Structured output
 
 ```bash
-creek deploy ./dist --json
+creek deploy ./dist --sandbox --json
 ```
 
 ```json
@@ -119,9 +119,10 @@ When running in pipes, CI/CD, or agent environments (no TTY), the CLI automatica
 - Uses exit codes for success (0) and failure (1)
 
 ```bash
-# These are equivalent in CI:
-creek deploy ./dist --json --yes
-creek deploy ./dist  # auto-detects non-TTY
+# Non-TTY must pass an explicit target. --json is auto-enabled; it does
+# not skip the gate. --yes skips ToS but --sandbox/--prod is clearer:
+creek deploy ./dist --sandbox --json
+creek deploy ./dist --prod --json
 ```
 
 ### MCP Server

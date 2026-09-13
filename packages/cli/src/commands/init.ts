@@ -253,7 +253,10 @@ export default app;
                 },
               ]
             : []),
-          { command: "creek deploy", description: "Deploy the project" },
+          {
+            command: "creek deploy --sandbox --json",
+            description: "Deploy a 60-minute preview (needs index.html or package.json)",
+          },
           { command: "creek dev", description: "Start local development server" },
         ],
       );
@@ -287,8 +290,9 @@ export default app;
       if (scaffoldedWorker) {
         consola.info(`    ${installCommand}   Install worker deps (required before deploy)`);
       }
-      consola.info("    creek deploy    Deploy to production");
-      consola.info("    creek dev       Start local development");
+      consola.info("    creek deploy --sandbox    Deploy a 60-minute preview");
+      consola.info("    creek deploy --prod       Publish to production (requires sign-in)");
+      consola.info("    creek dev                 Start local development");
     }
   },
 });

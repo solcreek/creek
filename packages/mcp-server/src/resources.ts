@@ -8,12 +8,12 @@
  *   can't load that. Exposing the same content as MCP resources gives
  *   those agents equivalent structured guidance.
  *
- * Content source: references/ in this package — vendored from the
- * canonical skills repo (github.com/solcreek/skills,
- * skills/creek/references/). Wrangler's Text module loader
- * (configured in wrangler.jsonc) bundles the .md as strings at build
- * time. When the skills repo changes, run `pnpm sync-refs` here and
- * commit the result.
+ * Content source: references/ in this package, copied from the
+ * monorepo skills/creek/references/ (source of truth). Wrangler's
+ * Text module loader (configured in wrangler.jsonc) bundles the .md
+ * as strings at build time. After editing a skill reference, run
+ * `pnpm --filter @solcreek/mcp-server sync-refs` and commit both
+ * sides. `refs-sync.test.ts` fails if they drift.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

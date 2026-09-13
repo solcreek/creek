@@ -78,10 +78,13 @@ Agent:
 
 | Tools | Auth required |
 |-------|:------------:|
-| Sandbox tools (deploy, demo, status, delete) | No |
-| Production tools (coming soon) | API key |
+| Sandbox tools (`deploy`, `deploy_demo`, `deploy_status`, `deploy_delete`) | No |
+| Build log (`get_build_log`) | API key argument |
+| Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | API key argument |
 
-Production tools (project management, env vars, rollback) will be available with a Creek API key via `Authorization: Bearer crk_sk_live_...` header.
+There is no `deploy_project`, `list_projects`, or `set_env_var` tool. Project-level deploy, listing, and env vars are CLI-only (`creek deploy --sandbox/--prod`, `creek projects`, `creek env`).
+
+Prefer the CLI when you have a shell — authenticated MCP tools currently take `apiKey` as a parameter, which puts the key in the transcript. The CLI reads `~/.creek/config.json` or `CREEK_TOKEN`.
 
 ## Rate Limits
 

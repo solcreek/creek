@@ -56,9 +56,12 @@ import {
   exitError,
   AUTH_BREADCRUMBS,
   NO_PROJECT_BREADCRUMBS,
+  AGENT_SANDBOX_DEPLOY,
+  AGENT_PROD_DEPLOY,
   type Breadcrumb,
 } from "../utils/output.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
+import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import {
   buildNextjs,
   buildNextjsForWorkers,
@@ -121,6 +124,52 @@ export function makeProgress(jsonMode: boolean) {
   };
 }
 
+/**
+ * True when `creek deploy` would find something to upload rather than
+ * immediately failing with `no_package_json`. A creek.toml alone is not
+ * enough — the real gate requires package.json, index.html, or a prebuilt
+ * output directory.
+ */
+export function hasDeployablePayload(cwd: string): boolean {
+  return (
+    existsSync(join(cwd, "package.json")) ||
+    existsSync(join(cwd, "index.html")) ||
+    existsSync(join(cwd, "public/index.html"))
+  );
+}
+
+/**
+ * Copy-pasteable next command after `creek deploy --dry-run`.
+ * Non-TTY agents must pass --sandbox or --prod; a bare `creek deploy`
+ * is refused with confirmation_required.
+ */
+export function dryRunNextStep(opts: {
+  blockingCount: number;
+  wouldDeploy: boolean;
+  targetType: "production" | "sandbox";
+}): string {
+  if (opts.blockingCount > 0) {
+    const n = opts.blockingCount;
+    return `Fix ${n} blocking issue${n === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`;
+  }
+  if (!opts.wouldDeploy) {
+    return `Nothing deployable yet. Add an index.html (static site) or a package.json, then: ${AGENT_SANDBOX_DEPLOY}`;
+  }
+  return opts.targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
+}
+
+export function sandboxSuccessBreadcrumbs(url: string, sandboxId: string): Breadcrumb[] {
+  return [
+    { command: `creek verify ${url} --json`, description: "Confirm the preview URL is live" },
+    { command: `creek status ${sandboxId}`, description: "Check sandbox status" },
+    { command: `creek claim ${sandboxId}`, description: "Claim as permanent project" },
+  ];
+}
+
+async function attachProof(url: string): Promise<VerifyResult> {
+  return verifyUrl(url, { timeoutMs: 10_000 });
+}
+
 function assetSummary(fileList: string[]): string {
   const byExt: Record<string, number> = {};
   for (const f of fileList) {
@@ -165,7 +214,7 @@ async function dryRunPlan(
           supported: false,
           unsupportedMode,
           message: `Dry-run is not yet supported for --${unsupportedMode} deploys`,
-          hint: `Run without --dry-run to execute, or inspect the command docs with --help`,
+          hint: `Run without --dry-run and pass --sandbox or --prod (required in non-interactive environments). Inspect --help for flags.`,
         },
         0,
         [],
@@ -175,7 +224,9 @@ async function dryRunPlan(
     consola.log(
       `\n  \x1b[2m[dry-run]\x1b[0m Dry-run is not yet supported for --${unsupportedMode} deploys.\n`,
     );
-    consola.log(`  Run without --dry-run to execute, or inspect the command docs with --help.\n`);
+    consola.log(
+      `  Run without --dry-run and pass --sandbox or --prod (required in non-interactive environments).\n`,
+    );
     return;
   }
 
@@ -201,7 +252,7 @@ async function dryRunPlan(
     }
   }
 
-  const wouldDeploy = !!(resolved || buildOutputFallback);
+  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback;
   const explicitSandbox = args.sandbox === true;
   const explicitProd = args.prod === true;
   // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
@@ -228,6 +279,7 @@ async function dryRunPlan(
   // these findings here, not after a 500.
   const doctorReport = runDoctor(buildDoctorContext(cwd));
   const blockingFindings = doctorReport.findings.filter((f) => f.severity === "error");
+  const wouldDeploy = hasPayload && blockingFindings.length === 0;
 
   const plan = {
     mode: "dry-run" as const,
@@ -265,12 +317,11 @@ async function dryRunPlan(
       buildExecuted: false,
       tosPromptShown: false,
     },
-    nextStep:
-      blockingFindings.length > 0
-        ? `Fix ${blockingFindings.length} blocking issue${blockingFindings.length === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`
-        : wouldDeploy
-          ? "Run without --dry-run to execute: npx creek deploy"
-          : "No project config or build output found. Run `creek init` or `npm create vite@latest` first.",
+    nextStep: dryRunNextStep({
+      blockingCount: blockingFindings.length,
+      wouldDeploy,
+      targetType,
+    }),
   };
 
   if (jsonMode) {
@@ -1430,6 +1481,7 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     result = await sandboxDeploy({ assets, source: "cli" }, { tos });
     const status = await pollSandboxStatus(result.statusUrl);
 
+    const proof = await attachProof(status.previewUrl);
     if (jsonMode) {
       jsonOutput(
         {
@@ -1441,15 +1493,20 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
           expiresInMinutes: expiresInMinutes(result.expiresAt),
           assetCount: fileList.length,
           mode: "sandbox",
+          proof,
         },
         0,
-        [
-          { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
-          { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
-        ],
+        sandboxSuccessBreadcrumbs(status.previewUrl, result.sandboxId),
       );
     }
 
+    if (proof.ok) {
+      consola.success(`  Verified HTTP ${proof.status} in ${proof.ttfbMs}ms`);
+    } else {
+      consola.warn(
+        `  Preview did not respond (${proof.error ?? proof.status}) — ${`creek verify ${status.previewUrl} --json`}`,
+      );
+    }
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Deploy failed";
@@ -1465,9 +1522,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
               command: `creek status ${result.sandboxId}`,
               description: "Check what the deploy is stuck on",
             },
-            { command: "creek deploy", description: "Retry only if the cause was transient" },
+            { command: AGENT_SANDBOX_DEPLOY, description: "Retry only if the cause was transient" },
           ]
-        : [{ command: "creek deploy", description: "Retry deploy" }];
+        : [{ command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" }];
     if (jsonMode)
       jsonOutput({ ok: false, error: "deploy_failed", deterministic, message }, 1, crumbs);
     consola.error(message);
@@ -1525,7 +1582,7 @@ async function deploySandbox(
           ok: false,
           error: "no_package_json",
           message,
-          hint: "Add an index.html to deploy as a static site, run `npx creek deploy ./dist` for a prebuilt directory, or `npx creek deploy --template landing` to start from a template.",
+          hint: "Add an index.html to deploy as a static site, run `creek deploy ./dist --sandbox --json` for a prebuilt directory, or `creek deploy --template vite-react --sandbox --json` to start from a template.",
         },
         1,
         NO_PROJECT_BREADCRUMBS,
@@ -1534,8 +1591,8 @@ async function deploySandbox(
     }
     consola.error(message);
     consola.info("  Add an index.html to deploy as a static site,");
-    consola.info("  run `npx creek deploy ./dist` to deploy a prebuilt directory,");
-    consola.info("  or `npx creek deploy --template landing` to start from a template.");
+    consola.info("  run `creek deploy ./dist --sandbox` to deploy a prebuilt directory,");
+    consola.info("  or `creek deploy --template vite-react --sandbox` to start from a template.");
     process.exit(1);
   }
 
@@ -1616,6 +1673,7 @@ async function deploySandbox(
 
     const status = await pollSandboxStatus(result.statusUrl);
 
+    const proof = await attachProof(status.previewUrl);
     if (jsonMode) {
       jsonOutput(
         {
@@ -1636,22 +1694,27 @@ async function deploySandbox(
           ...(sandboxApiHint ? { sameOriginApiHint: sandboxApiHint } : {}),
           ephemeralData: sandboxHasDb,
           ...(ephemeralDbWarning ? { ephemeralDataWarning: ephemeralDbWarning } : {}),
+          proof,
         },
         0,
-        [
-          { command: `creek status ${result.sandboxId}`, description: "Check sandbox status" },
-          { command: `creek claim ${result.sandboxId}`, description: "Claim as permanent project" },
-        ],
+        sandboxSuccessBreadcrumbs(status.previewUrl, result.sandboxId),
       );
     }
 
     if (ephemeralDbWarning) progress.warn(`  ${ephemeralDbWarning}`);
+    if (proof.ok) {
+      consola.success(`  Verified HTTP ${proof.status} in ${proof.ttfbMs}ms`);
+    } else {
+      consola.warn(
+        `  Preview did not respond (${proof.error ?? proof.status}) — creek verify ${status.previewUrl} --json`,
+      );
+    }
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sandbox deploy failed";
     if (jsonMode)
       jsonOutput({ ok: false, error: "deploy_failed", message }, 1, [
-        { command: "creek deploy", description: "Retry deploy" },
+        { command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" },
       ]);
     consola.error(message);
     process.exit(1);

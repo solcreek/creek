@@ -65,26 +65,35 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 
 | Capability | CLI | MCP tool | Dashboard | Docs |
 |---|---|---|---|---|
-| Deploy current project | `creek deploy` | `deploy_project` | Project → Deploy | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
-| Deploy directory | `creek deploy ./dist` | `deploy_project` | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
-| Deploy from GitHub URL | `creek deploy <repo-url>` | `deploy_from_repo` | Dashboard → New Project | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
-| Deploy latest commit via connection | `creek deploy --from-github [--project <slug>]` | — | Project → Deploy latest | [/docs/cli/deploy#from-github](https://creek.dev/docs/cli/deploy) |
+| Deploy current project (preview) | `creek deploy --sandbox` | — (use CLI; MCP `deploy` is file-map upload, not a project build) | Project → Deploy | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Deploy current project (production) | `creek deploy --prod` | — | Project → Deploy | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Deploy files to a 60-min sandbox | `creek deploy --sandbox` | `deploy` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
+| Deploy a demo page | `creek deploy --demo` | `deploy_demo` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
+| Sandbox status / delete | `creek status <id>` | `deploy_status` / `deploy_delete` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
+| Verify a preview URL is live | `creek verify <url>` | — (GET the URL) | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Deploy directory | `creek deploy ./dist --sandbox` | — | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Deploy from GitHub URL | `creek deploy <repo-url> --sandbox` | — | Dashboard → New Project | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Deploy latest commit via connection | `creek deploy --from-github --prod [--project <slug>]` | — | Project → Deploy latest | [/docs/cli/deploy#from-github](https://creek.dev/docs/cli/deploy) |
 | GitHub auto-deploy (push → build) | — | — | Settings → GitHub Connection | [/docs/github](https://creek.dev/docs/github) |
 | Pull request previews | — (automatic) | — | Commit status on PR | [/docs/github](https://creek.dev/docs/github) |
 | Init project | `creek init` | — | — | [/docs/cli/init](https://creek.dev/docs/cli/init) |
 | Login | `creek login [--token <KEY>]` | — | OAuth sign-in | [/docs/cli/login](https://creek.dev/docs/cli/login) |
 | Who am I | `creek whoami` | — | User menu | [/docs/cli/whoami](https://creek.dev/docs/cli/whoami) |
-| List projects | `creek projects` | `list_projects` | /projects | [/docs/cli/projects](https://creek.dev/docs/cli/projects) |
-| List deployments | `creek deployments` | `list_deployments` | Project → Deployments | [/docs/cli/deployments](https://creek.dev/docs/cli/deployments) |
+| List projects | `creek projects` | — | /projects | [/docs/cli/projects](https://creek.dev/docs/cli/projects) |
+| List deployments | `creek deployments` | — | Project → Deployments | [/docs/cli/deployments](https://creek.dev/docs/cli/deployments) |
+| Build log | `creek deployments logs <id>` | `get_build_log` | Project → Deployments | [/docs/cli/deployments](https://creek.dev/docs/cli/deployments) |
 | Rollback | `creek rollback [<id>]` | — | Project → Deployments → ⋯ | [/docs/cli/rollback](https://creek.dev/docs/cli/rollback) |
 | Promote preview → production | — | — | Project → Deployments → Promote | [/docs/cli/rollback](https://creek.dev/docs/cli/rollback) |
 | Status | `creek status` | — | Per-project page | [/docs/cli/status](https://creek.dev/docs/cli/status) |
-| Env vars | `creek env set/ls/rm` | `set_env_var` / `get_env_vars` | Project → Env tab | [/docs/cli/env](https://creek.dev/docs/cli/env) |
+| Env vars | `creek env set/ls/rm` | — | Project → Env tab | [/docs/cli/env](https://creek.dev/docs/cli/env) |
+| Team resources (DB / storage / cache / AI) | `creek db` / `storage` / `cache` | `list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database` | /resources | [/docs/cli/db](https://creek.dev/docs/cli/db) |
 | Custom domains | `creek domains add/ls/activate/rm` | — | — | [/docs/cli/domains](https://creek.dev/docs/cli/domains) |
 | Cron triggers | declared in `creek.toml`, shown in `creek status` | — | Settings → Triggers | [/docs/cron](https://creek.dev/docs/cron) |
 | Queue triggers | `creek queue send` | — | Settings → Triggers | [/docs/queue](https://creek.dev/docs/queue) |
 | Per-tenant analytics | — | — | Project → Analytics tab | [/docs/analytics](https://creek.dev/docs/analytics) |
 | Dev server (local) | `creek dev` | — | — | [/docs/cli/dev](https://creek.dev/docs/cli/dev) |
+
+Non-interactive (agent/CI) deploys must pass `--sandbox` or `--prod`. `--json` is auto-enabled without a TTY; it does not skip that gate. MCP has no `deploy_project`, `list_projects`, `list_deployments`, or `set_env_var` tools — those names are not implemented. Use the CLI for project-level deploy/list/env.
 
 ---
 
@@ -132,13 +141,14 @@ npx skills add solcreek/creek/skills
 
 | Skill | What it teaches |
 |---|---|
-| [`creek`](skills/creek/SKILL.md) | Deploy, configure, troubleshoot Creek projects via the CLI + MCP — command reference, deployment modes, resources v2 (`creek db`), observability (logs + build logs), failure diagnosis workflow with CK-codes, creek.toml schema, cron + queue triggers, GitHub auto-deploy |
+| [`creek`](skills/creek/SKILL.md) | Deploy, configure, troubleshoot Creek projects via the CLI + MCP — `--sandbox`/`--prod` target gate, `creek verify`, command reference, deployment modes, resources v2 (`creek db`), observability, CK-* diagnosis, creek.toml, GitHub auto-deploy |
 
-Skills live at `skills/creek/` in this monorepo. The same `.md` files
-drive both the filesystem skill (installed via `npx skills add`) and
-the MCP resources exposed by `mcp.creek.dev` — wrangler's Text loader
-bundles them at build time, so there's no sync step. Editing a
-reference file and running `wrangler deploy` updates both surfaces.
+Skills live at `skills/creek/` in this monorepo (source of truth).
+MCP resources at `mcp.creek.dev` are copies under
+`packages/mcp-server/references/` — run
+`pnpm --filter @solcreek/mcp-server sync-refs` after editing a
+reference, then deploy the MCP worker. `refs-sync.test.ts` fails CI
+if the copies drift.
 
 The legacy URL `npx skills add solcreek/skills` is deprecated — that
 standalone repo is frozen and slated for archive. Use the monorepo

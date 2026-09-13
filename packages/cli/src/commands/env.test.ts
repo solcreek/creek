@@ -77,7 +77,7 @@ function hasDeployBreadcrumb(): boolean {
   const out = json();
   return (
     Array.isArray(out.breadcrumbs) &&
-    out.breadcrumbs.some((b: { command: string }) => b.command === "creek deploy")
+    out.breadcrumbs.some((b: { command: string }) => b.command.startsWith("creek deploy"))
   );
 }
 

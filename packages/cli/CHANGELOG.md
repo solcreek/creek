@@ -1,5 +1,21 @@
 # @solcreek/cli
 
+## Unreleased
+
+### Agent experience
+
+- **Non-TTY `creek deploy --dry-run` `nextStep` is copy-pasteable.** It now
+  emits `creek deploy --sandbox --json` or `--prod --json` instead of a bare
+  `creek deploy` that agents followed into `confirmation_required`.
+- **`wouldDeploy` matches the real gate.** A `creek.toml` with no
+  `package.json` and no `index.html` is `wouldDeploy: false` (previously true,
+  then failed at `no_package_json`).
+- **`creek verify <url>`.** GET a preview/production URL; `--json` reports
+  status, title, ttfb, optional `--contains`. Sandbox deploy JSON attaches the
+  same check as `proof` and breadcrumbs `creek verify`.
+- **Init / login / env breadcrumbs** point at `--sandbox`/`--prod` instead of
+  a bare `creek deploy`. Auth errors include a `message` field.
+
 ## 0.4.41
 
 ### Deploy reliability & diagnosability
