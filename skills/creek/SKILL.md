@@ -45,14 +45,14 @@ creek deploy --prod --json
 - Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
 - Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`, `storage delete`, `cache delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
 
-## MCP (https://mcp.creek.dev/mcp)
+## MCP (https://mcp.creek.dev)
 
 Sandbox, no auth: `deploy` (file map → preview URL + `proof`), `deploy_demo`, `deploy_status`, `deploy_delete`.
 
 Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `get_build_log`, resource CRUD, `query_database`): send the key on the **HTTP request**, not as a tool argument:
 
 ```json
-{ "mcpServers": { "creek": { "url": "https://mcp.creek.dev/mcp", "headers": { "Authorization": "Bearer <CREEK_TOKEN>" } } } }
+{ "mcpServers": { "creek": { "url": "https://mcp.creek.dev", "headers": { "Authorization": "Bearer <CREEK_TOKEN>" } } } }
 ```
 
 Do not pass `apiKey` to tools. Prefer the CLI (`creek db`, `creek deployments logs`) when you have a shell.
