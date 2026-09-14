@@ -106,6 +106,60 @@ describe("MCP deploy tool", () => {
   });
 });
 
+describe("MCP deploy_demo tool", () => {
+  it("includes the success message when the preview is live", async () => {
+    server.use(
+      http.post(`${SANDBOX}/api/sandbox/deploy`, () =>
+        HttpResponse.json({ statusUrl: `${SANDBOX}/api/sandbox/sb-demo/status` }),
+      ),
+      http.get(`${SANDBOX}/api/sandbox/sb-demo/status`, () =>
+        HttpResponse.json({
+          status: "active",
+          sandboxId: "sb-demo",
+          previewUrl: "https://sb-demo.creeksandbox.test",
+        }),
+      ),
+      http.get("https://sb-demo.creeksandbox.test/", () =>
+        HttpResponse.html(
+          "<html><head><title>Creek MCP Demo</title></head><body><h1>Deployed via MCP</h1></body></html>",
+        ),
+      ),
+    );
+    const deployDemo = registerAndCapture().get("deploy_demo")!;
+    const result = await deployDemo({});
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.message).toBe("Demo deployed successfully.");
+    expect(payload.proof.ok).toBe(true);
+  });
+
+  it("omits the success message when the preview is not live", async () => {
+    server.use(
+      http.post(`${SANDBOX}/api/sandbox/deploy`, () =>
+        HttpResponse.json({ statusUrl: `${SANDBOX}/api/sandbox/sb-demo-fail/status` }),
+      ),
+      http.get(`${SANDBOX}/api/sandbox/sb-demo-fail/status`, () =>
+        HttpResponse.json({
+          status: "active",
+          sandboxId: "sb-demo-fail",
+          previewUrl: "https://sb-demo-fail.creeksandbox.test",
+        }),
+      ),
+      http.get(
+        "https://sb-demo-fail.creeksandbox.test/",
+        () => new HttpResponse("nope", { status: 502 }),
+      ),
+    );
+    const deployDemo = registerAndCapture().get("deploy_demo")!;
+    const result = await deployDemo({});
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toBe("verify_failed");
+    expect(payload.proof.ok).toBe(false);
+    expect(payload.message).toBeUndefined();
+  });
+});
+
 describe("MCP deploy_status tool", () => {
   it("reads a sandbox's status", async () => {
     server.use(

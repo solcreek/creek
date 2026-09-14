@@ -562,8 +562,7 @@ async function sandboxResult(
     expiresAt: status.expiresAt,
     expiresInSeconds: status.expiresInSeconds,
     proof,
-    ...(!proof.ok ? { error: "verify_failed" } : {}),
-    ...extra,
+    ...(!proof.ok ? { error: "verify_failed" } : extra),
   };
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
