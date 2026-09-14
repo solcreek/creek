@@ -96,33 +96,46 @@ export const rollbackCommand = defineCommand({
     const message = args.message as string | undefined;
 
     if (isDryRun(args)) {
-      const [project, deployments] = await apiCall(jsonMode, "api_error", () =>
-        Promise.all([client.getProject(projectSlug), client.listDeployments(projectSlug)]),
-      );
+      const project = await apiCall(jsonMode, "api_error", () => client.getProject(projectSlug));
       // GET /projects returns camelCase columns; the SDK Project type still
       // declares the legacy snake_case name.
       const projectRow = project as {
         productionDeploymentId?: string | null;
         production_deployment_id?: string | null;
       };
-      const productionId =
+      let productionId =
         projectRow.productionDeploymentId ?? projectRow.production_deployment_id ?? null;
-      // List endpoint is ORDER BY version DESC LIMIT 20.
-      const sorted = [...deployments].sort((a, b) => b.version - a.version);
-      let target = deploymentId
-        ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
-        : sorted.find((d) => d.status === "active" && d.id !== productionId);
-      // An explicit id missing from the 20-row page may still exist.
-      if (deploymentId && !target) {
-        target = await apiCall(jsonMode, "api_error", async () => {
-          try {
-            const status = await client.getDeploymentStatus(projectSlug, deploymentId);
-            return status.deployment;
-          } catch (err) {
-            if (err instanceof CreekApiError && err.status === 404) return undefined;
-            throw err;
-          }
-        });
+      let target: { id: string; status: string } | undefined;
+      if (deploymentId) {
+        // List endpoint is ORDER BY version DESC LIMIT 20; prefix-match here,
+        // then fall back to GET /deployments/:id for ids past that page.
+        const deployments = await apiCall(jsonMode, "api_error", () =>
+          client.listDeployments(projectSlug),
+        );
+        const sorted = [...deployments].sort((a, b) => b.version - a.version);
+        target = sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId));
+        if (!target) {
+          target = await apiCall(jsonMode, "api_error", async () => {
+            try {
+              const status = await client.getDeploymentStatus(projectSlug, deploymentId);
+              return status.deployment;
+            } catch (err) {
+              if (err instanceof CreekApiError && err.status === 404) return undefined;
+              throw err;
+            }
+          });
+        }
+      } else {
+        // Implicit previous must use the same unbounded query as POST /rollback.
+        // The 20-row list can hide the real target behind synthetic rollback rows.
+        const plan = await apiCall(jsonMode, "api_error", () => client.planRollback(projectSlug));
+        productionId = plan.currentDeploymentId ?? productionId;
+        if (plan.targetDeploymentId) {
+          target = {
+            id: plan.targetDeploymentId,
+            status: plan.targetStatus ?? "active",
+          };
+        }
       }
       const wouldExecute =
         !!productionId && !!target && target.status === "active" && target.id !== productionId;

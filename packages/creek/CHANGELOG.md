@@ -4,6 +4,17 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.45
+
+- Bundles [`@solcreek/cli@0.4.45`](../cli/CHANGELOG.md#0445) and requires
+  [`@solcreek/sdk@0.4.18`](../sdk/CHANGELOG.md#0418) (`planRollback`). Unknown
+  flags (`--dry-run` / `--yes` on a command that does not declare them) fail
+  closed instead of being dropped, and implicit rollback skips synthetic
+  `triggerType=rollback` rows. Also ships the unpublished agent-experience work
+  that was already on git `main` (help JSON, mutating `--dry-run`, `nextStep`
+  with `--sandbox` / `--prod`, login fail-closed, deploy `proof`). Publish
+  `sdk@0.4.18` before `cli@0.4.45` / `creek@0.4.45`.
+
 ## 0.4.41
 
 - Bundles [`@solcreek/cli@0.4.41`](../cli/CHANGELOG.md#0441): `creek deploy

@@ -132,4 +132,14 @@ describe("runCli (JSON mode error conversion)", () => {
       command: { name: "child" },
     });
   });
+
+  it("refuses --dry-run on a command that does not declare it", async () => {
+    const code = await runExit(runCli(app, ["child", "x", "--dry-run"], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      error: "unknown_flag",
+      flags: ["--dry-run"],
+    });
+  });
 });

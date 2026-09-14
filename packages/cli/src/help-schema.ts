@@ -45,7 +45,15 @@ type CommandLike = {
 };
 
 /** Boolean flags that never take a value — do not consume the next token. */
-const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
+const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "-y", "--version"]);
+
+/**
+ * Runner-level flags only. `--yes` / `-y` are NOT here: they are accepted
+ * only when the leaf command spreads `globalArgs` (via `flagTokensForArg`).
+ * Putting them in this set would let citty/mri drop `--yes` on a command
+ * that never declared it — the silent-flag hole this check exists to close.
+ */
+const GLOBAL_FLAG_TOKENS = new Set(["--help", "-h", "--json", "--version"]);
 
 type WalkedHelp =
   | { path: string[]; command: CommandLike; name: string }
@@ -143,6 +151,64 @@ export function buildHelpSchema(
     path: resolved.path,
     command: walkCommand(resolved.command, resolved.name),
   };
+}
+
+function flagTokensForArg(name: string, def: ArgDef): string[] {
+  const tokens = [`--${name}`];
+  if (def.type === "boolean" || def.type === undefined) {
+    tokens.push(`--no-${name}`);
+  }
+  const aliases = def.alias == null ? [] : Array.isArray(def.alias) ? def.alias : [def.alias];
+  for (const alias of aliases) {
+    if (alias.length === 1) tokens.push(`-${alias}`);
+    else if (alias.startsWith("-")) tokens.push(alias);
+    else tokens.push(`--${alias}`);
+  }
+  return tokens;
+}
+
+function declaredFlagTokens(cmd: CommandLike): Set<string> {
+  const tokens = new Set(GLOBAL_FLAG_TOKENS);
+  for (const [name, def] of Object.entries(cmd.args ?? {})) {
+    if (def.type === "positional") continue;
+    for (const token of flagTokensForArg(name, def)) tokens.add(token);
+  }
+  return tokens;
+}
+
+/**
+ * Flags on argv that the resolved command did not declare.
+ *
+ * citty/mri silently drops unknown flags. Older CLIs therefore treated
+ * `creek rollback --dry-run` as `creek rollback` and mutated production.
+ * Refuse instead — agents must not confuse an ignored preview flag with a plan.
+ */
+export function findUnknownFlags(root: unknown, rawArgs: string[]): string[] {
+  const resolved = walkSubcommands(root as CommandLike, rawArgs);
+  if ("error" in resolved) return [];
+  const declared = declaredFlagTokens(resolved.command);
+  const unknown: string[] = [];
+  for (const token of rawArgs) {
+    if (token === "--") break;
+    if (!token.startsWith("-") || token === "-") continue;
+    const flag = token.split("=")[0]!;
+    if (!declared.has(flag) && !unknown.includes(flag)) unknown.push(flag);
+  }
+  return unknown;
+}
+
+export function unknownFlagMessage(flags: string[], path: string[]): string {
+  const shown = flags.map((f) => `\`${f}\``).join(", ");
+  const cmd = ["creek", ...path].join(" ") || "creek";
+  const dryRun = flags.includes("--dry-run");
+  if (dryRun) {
+    return (
+      `Unknown flag ${shown}. ${cmd} does not support --dry-run ` +
+      `(commands that do report destructive: true in --help --json). ` +
+      `Older CLIs silently dropped --dry-run and could execute the mutation.`
+    );
+  }
+  return `Unknown flag ${shown}. Run \`${cmd} --help --json\` for the accepted args.`;
 }
 
 function stripGlyph(name: string): string {

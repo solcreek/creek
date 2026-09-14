@@ -28,7 +28,7 @@ creek deploy --prod --json
 creek deploy --prod --json             # Deploy new version
 creek deployments --json               # View history
 creek rollback --dry-run --json        # See which deployment would become production
-creek rollback --json                  # Rollback to previous
+creek rollback --json                  # Previous real deploy (skips triggerType=rollback rows)
 creek rollback <ID> --json             # Rollback to specific deployment
 ```
 

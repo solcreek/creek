@@ -110,6 +110,34 @@ describe("CreekClient", () => {
     const [url] = mockFetch.mock.calls[0];
     expect(String(url)).toContain("name=chunks%2Fssr%20a.js");
   });
+
+  test("planRollback GETs /rollback and encodes deploymentId", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        currentDeploymentId: "cur",
+        targetDeploymentId: "tgt",
+        targetStatus: "active",
+      }),
+    );
+
+    const implicit = await client.planRollback("blog");
+    expect(implicit.targetDeploymentId).toBe("tgt");
+    expect(String(mockFetch.mock.calls[0][0])).toBe("http://localhost:8787/projects/blog/rollback");
+    expect(mockFetch.mock.calls[0][1].method).toBe("GET");
+
+    mockFetch.mockClear();
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        currentDeploymentId: "cur",
+        targetDeploymentId: "id with space",
+        targetStatus: "active",
+      }),
+    );
+    await client.planRollback("blog", { deploymentId: "id with space" });
+    expect(String(mockFetch.mock.calls[0][0])).toBe(
+      "http://localhost:8787/projects/blog/rollback?deploymentId=id+with+space",
+    );
+  });
 });
 
 /**

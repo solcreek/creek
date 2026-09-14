@@ -64,7 +64,7 @@ function json() {
   return JSON.parse(stdout);
 }
 
-function deployment(id: string, status: string, createdAt: number) {
+function deployment(id: string, status: string, createdAt: number, triggerType: string = "cli") {
   return {
     id,
     projectId: "p1",
@@ -73,7 +73,7 @@ function deployment(id: string, status: string, createdAt: number) {
     branch: "main",
     commitSha: null,
     commitMessage: null,
-    triggerType: "cli",
+    triggerType,
     failedStep: null,
     errorMessage: null,
     createdAt,
@@ -95,6 +95,19 @@ function listHandler(...rows: ReturnType<typeof deployment>[]) {
   return http.get(`${API}/projects/${SLUG}/deployments`, () => HttpResponse.json(rows));
 }
 
+function planHandler(
+  currentDeploymentId: string | null,
+  target: { id: string; status: string } | null = null,
+) {
+  return http.get(`${API}/projects/${SLUG}/rollback`, () =>
+    HttpResponse.json({
+      currentDeploymentId,
+      targetDeploymentId: target?.id ?? null,
+      targetStatus: target?.status ?? null,
+    }),
+  );
+}
+
 async function dryRun(extra: Record<string, unknown> = {}): Promise<number> {
   return runExit(
     (rollbackCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
@@ -108,7 +121,7 @@ describe("creek rollback --dry-run", () => {
     let posted = false;
     server.use(
       projectHandler("dep-new"),
-      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "active", 100)),
+      planHandler("dep-new", { id: "dep-old", status: "active" }),
       http.post(`${API}/projects/${SLUG}/rollback`, () => {
         posted = true;
         return HttpResponse.json({ ok: true });
@@ -131,7 +144,7 @@ describe("creek rollback --dry-run", () => {
   it("keeps a quoted --message on nextStep", async () => {
     server.use(
       projectHandler("dep-new"),
-      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "active", 100)),
+      planHandler("dep-new", { id: "dep-old", status: "active" }),
     );
     const code = await dryRun({ message: 'roll back the "outage"' });
     expect(code).toBe(0);
@@ -143,11 +156,7 @@ describe("creek rollback --dry-run", () => {
   it("uses production_deployment_id, not the newest active row, as current", async () => {
     server.use(
       projectHandler("dep-old"),
-      listHandler(
-        deployment("dep-rollback", "active", 300),
-        deployment("dep-new", "active", 200),
-        deployment("dep-old", "active", 100),
-      ),
+      planHandler("dep-old", { id: "dep-rollback", status: "active" }),
     );
     const code = await dryRun();
     expect(code).toBe(0);
@@ -156,6 +165,21 @@ describe("creek rollback --dry-run", () => {
       currentDeploymentId: "dep-old",
       targetDeploymentId: "dep-rollback",
     });
+  });
+
+  it("implicit previous skips synthetic triggerType=rollback rows", async () => {
+    server.use(
+      projectHandler("dep-rb-2"),
+      planHandler("dep-rb-2", { id: "dep-real", status: "active" }),
+    );
+    const code = await dryRun();
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: true,
+      currentDeploymentId: "dep-rb-2",
+      targetDeploymentId: "dep-real",
+    });
+    expect(json().nextStep).toBe(`creek rollback dep-real --project ${SLUG} --json`);
   });
 
   it("wouldExecute is false when the explicit target is already production", async () => {
@@ -187,10 +211,7 @@ describe("creek rollback --dry-run", () => {
   });
 
   it("wouldExecute is false when the previous deployment is not active", async () => {
-    server.use(
-      projectHandler("dep-new"),
-      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "cancelled", 100)),
-    );
+    server.use(projectHandler("dep-new"), planHandler("dep-new"));
     const code = await dryRun();
     expect(code).toBe(0);
     expect(json()).toMatchObject({ wouldExecute: false, currentDeploymentId: "dep-new" });
@@ -239,16 +260,36 @@ describe("creek rollback --dry-run", () => {
     });
   });
 
-  it("emits api_error when listing deployments fails", async () => {
+  it("emits api_error when the rollback plan fails", async () => {
     server.use(
       projectHandler("dep-new"),
-      http.get(
-        `${API}/projects/${SLUG}/deployments`,
-        () => new HttpResponse(null, { status: 500 }),
-      ),
+      http.get(`${API}/projects/${SLUG}/rollback`, () => new HttpResponse(null, { status: 500 })),
     );
     const code = await dryRun();
     expect(code).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "api_error" });
+  });
+
+  it("implicit previous uses the server plan, not the 20-row list page", async () => {
+    const rollbackPage = Array.from({ length: 20 }, (_, i) =>
+      deployment(`dep-rb-${i}`, "active", 400 - i, "rollback"),
+    );
+    let listed = false;
+    server.use(
+      projectHandler("dep-rb-0"),
+      http.get(`${API}/projects/${SLUG}/deployments`, () => {
+        listed = true;
+        return HttpResponse.json(rollbackPage);
+      }),
+      planHandler("dep-rb-0", { id: "dep-real", status: "active" }),
+    );
+    const code = await dryRun();
+    expect(code).toBe(0);
+    expect(listed).toBe(false);
+    expect(json()).toMatchObject({
+      wouldExecute: true,
+      currentDeploymentId: "dep-rb-0",
+      targetDeploymentId: "dep-real",
+    });
   });
 });

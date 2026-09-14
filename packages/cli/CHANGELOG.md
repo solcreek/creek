@@ -1,8 +1,16 @@
 # @solcreek/cli
 
-## Unreleased
+## 0.4.45
+
+Requires `@solcreek/sdk@0.4.18` (`CreekClient.planRollback`). Publish the SDK
+tag `sdk@0.4.18` before `cli@0.4.45` / `creek@0.4.45`.
 
 ### Agent experience
+
+- **Unknown flags are rejected.** citty/mri used to drop them. `creek rollback --dry-run` on a CLI that did not declare `--dry-run` therefore executed a real rollback. JSON: `{ ok: false, error: "unknown_flag", flags }`. `--help --json` still works. `--yes` is only valid on commands that spread `globalArgs`, not as a global allow-list.
+- **Implicit rollback skips `triggerType=rollback` rows.** A second `creek rollback` no longer targets the synthetic row created by the first. Dry-run `nextStep` names the real previous deploy id (via `GET /projects/:id/rollback`, not the 20-row list).
+
+### Agent experience (previously unreleased)
 
 - **`creek deploy --prod` JSON includes `proof`.** After a successful
   production deploy (including GitHub / turbo paths), the CLI GETs the
