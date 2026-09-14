@@ -233,7 +233,7 @@ describe("creek domains structured errors (JSON mode)", () => {
     expect(json().nextStep).toBe(`creek domains rm ${HOST} --project ${SLUG} --json`);
     expect(json().sideEffects).toEqual([
       `Remove the project domain record for ${HOST}`,
-      "Cloudflare custom-hostname cleanup is attempted only when a CF hostname id is stored",
+      "Cloudflare custom-hostname cleanup is attempted only when a CF hostname ID and CLOUDFLARE_ZONE_ID are present; the project record is still removed if that cleanup fails",
     ]);
   });
 

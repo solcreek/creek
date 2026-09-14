@@ -207,7 +207,7 @@ const domainsRm = defineCommand({
         status: domain.status,
         sideEffects: [
           `Remove the project domain record for ${domain.hostname}`,
-          "Cloudflare custom-hostname cleanup is attempted only when a CF hostname id is stored",
+          "Cloudflare custom-hostname cleanup is attempted only when a CF hostname ID and CLOUDFLARE_ZONE_ID are present; the project record is still removed if that cleanup fails",
         ],
         nextStep: `creek domains rm ${domain.hostname} --project ${slug} --json`,
       });
