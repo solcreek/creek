@@ -2,7 +2,7 @@
 # Drive one mapped Creek CLI feature (or a raw argv) and store evidence.
 # Usage:
 #   .cursor/skills/verify-creek/scripts/drive.sh <feature-id>
-#   .cursor/skills/verify-creek/scripts/drive.sh --raw [--cwd DIR] -- <creek-args...>
+#   .cursor/skills/verify-creek/scripts/drive.sh --raw [--cwd scratch-subdir] -- <creek-args...>
 # Feature ids: help-schema | init | doctor | deploy-dry-run | whoami
 
 set -euo pipefail
@@ -18,7 +18,7 @@ cd "${REPO_ROOT}"
 FEATURE="${1:-}"
 if [[ -z "${FEATURE}" ]]; then
   echo "usage: drive.sh <help-schema|init|doctor|deploy-dry-run|whoami>" >&2
-  echo "       drive.sh --raw [--cwd DIR] -- <creek-args...>" >&2
+  echo "       drive.sh --raw [--cwd scratch-subdir] -- <creek-args...>" >&2
   exit 2
 fi
 
@@ -132,10 +132,9 @@ PY
 case "${FEATURE}" in
   --raw)
     shift
-    cwd="${SCRATCH}/projects/raw"
-    mkdir -p "${cwd}"
+    cwd="$(resolve_scratch_project_dir raw)"
     if [[ "${1:-}" == "--cwd" ]]; then
-      cwd="$2"
+      cwd="$(resolve_scratch_project_dir "$2")"
       shift 2
     fi
     if [[ "${1:-}" == "--" ]]; then

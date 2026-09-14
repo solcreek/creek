@@ -75,7 +75,7 @@ Report: `.cursor/skills/verify-creek/artifacts/$RUN_ID/doctor/report.json`. Miss
 
 Each drive uses `/tmp/creek-verify-$RUN_ID/...` (created by `ensure_run`). Helpers generate a fresh `RUN_ID` when unset; they do **not** reuse committed `artifacts/LAST_RUN_ID`. Export `RUN_ID` yourself to share one id across launch → doctor → drive → cleanup. A `RUN_ID` whose artifacts already contain `cleanup.json` is refused (protects the committed sample).
 
-Every Creek invocation sets `HOME` to that scratch home and **unsets parent `CREEK_TOKEN`**. Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
+Every Creek invocation sets `HOME` to that scratch home and **unsets parent Creek auth env** (`CREEK_TOKEN`, `CREEKD_TOKEN`, `CREEKCTL_TOKEN`). Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
 
 Prefer `--json`. In `--help --json`, `destructive: true` means the command **declares `--dry-run`** (a preview flag exists). It is **not** “safe to mutate” and it is **not** an exhaustive list of mutators. Commands can mutate without `--dry-run` and still report `destructive: false` — including `creek projects delete`, `creek init`, and `creek login --token`. Use `--dry-run` only when the leaf schema has `dryRun: true`. Otherwise `--dry-run` is `unknown_flag` (exit 1); do not retry by dropping the flag, and do not execute the mutation unless a feature file says so.
 
@@ -86,9 +86,12 @@ Prefer `--json`. In `--help --json`, `destructive: true` means the command **dec
 .cursor/skills/verify-creek/scripts/drive.sh deploy-dry-run
 .cursor/skills/verify-creek/scripts/drive.sh whoami
 .cursor/skills/verify-creek/scripts/drive.sh --raw -- <creek-args...>
+.cursor/skills/verify-creek/scripts/drive.sh --raw --cwd nested/raw-case -- <creek-args...>
 ```
 
-Plain shell with captured stdout/stderr is enough (commands exit). PTY/tmux is optional; if you start a tmux session, record its name in `$SCRATCH/tmux-sessions` and any PID in `$SCRATCH/pids/<name>` so Cleanup can tear down **only** those.
+Raw mode is still scratch-only: `--cwd` may select only a subdirectory under `$SCRATCH/projects`, never the repo or another arbitrary path.
+
+Plain shell with captured stdout/stderr is enough (commands exit). PTY/tmux is optional; if you start a tmux session, record its name in `$SCRATCH/tmux-sessions` and write PID records with `record_pid <name> <pid>` so Cleanup can tear down **only** those exact processes.
 
 Mapped features: `features/`. Drive at least one auth-free feature end-to-end after Doctor (`help-schema` or `doctor`).
 
@@ -110,16 +113,16 @@ Observe dry-run by **both** declared JSON (`sideEffects.networkCalls/fileUploads
 .cursor/skills/verify-creek/scripts/cleanup.sh
 ```
 
-Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory. Kills only tmux sessions listed in that scratch `tmux-sessions` file. Writes `cleanup.json` into the artifacts dir. `LAST_RUN_ID` is used only when the matching scratch dir still exists — never to rewrite a finished sample. Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
+Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory **when the PID file also matches the original `/proc` start time**. Kills only tmux sessions listed in that scratch `tmux-sessions` file. Writes `cleanup.json` into the artifacts dir. `LAST_RUN_ID` is used only when the matching scratch dir still exists — never to rewrite a finished sample. Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
 
 ## Helpers
 
 | Script | Invocation | Role |
 | --- | --- | --- |
-| `scripts/lib.sh` | sourced, not executed | `RUN_ID` validation, scratch, isolated HOME, hash snapshots, `capture_cmd` (`python3` required) |
+| `scripts/lib.sh` | sourced, not executed | `RUN_ID` validation, scratch, isolated HOME, raw `--cwd` guardrails, PID recording, hash snapshots, `capture_cmd` (`python3` required) |
 | `scripts/launch.sh` | `.cursor/skills/verify-creek/scripts/launch.sh` | install (if needed), build CLI, prove `--help --json` |
 | `scripts/doctor.sh` | `.cursor/skills/verify-creek/scripts/doctor.sh` | environment health |
 | `scripts/drive.sh` | `.cursor/skills/verify-creek/scripts/drive.sh <feature>` | one mapped feature + evidence |
 | `scripts/cleanup.sh` | `.cursor/skills/verify-creek/scripts/cleanup.sh` | scratch teardown; keep artifacts |
 
-All Creek child processes: `env -u CREEK_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`. Authenticated whoami only: `VERIFY_CREEK_ALLOW_AUTH=1` plus `VERIFY_CREEK_TOKEN` (scoped non-production). Parent `CREEK_TOKEN` is never inherited.
+All Creek child processes: `env -u CREEK_TOKEN -u CREEKD_TOKEN -u CREEKCTL_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`. Authenticated whoami only: `VERIFY_CREEK_ALLOW_AUTH=1` plus `VERIFY_CREEK_TOKEN` (scoped non-production). Parent Creek auth env is never inherited.

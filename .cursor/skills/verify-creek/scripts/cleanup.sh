@@ -26,9 +26,47 @@ python3 -c "import json,sys; json.dump([], open(sys.argv[1],'w'))" "${SESSIONS_F
 if [[ -d "${PIDS_DIR}" ]]; then
   for f in "${PIDS_DIR}"/*; do
     [[ -f "${f}" ]] || continue
-    pid="$(tr -d '[:space:]' < "${f}")"
+    pid=""
+    start_ticks=""
+    if ! readarray -t pid_record < <(python3 - "${f}" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+raw = path.read_text().strip()
+if not raw:
+    raise SystemExit(0)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    raise SystemExit(0)
+pid = data.get("pid")
+start = data.get("startTicks")
+if isinstance(pid, int) and isinstance(start, int):
+    print(pid)
+    print(start)
+PY
+); then
+      continue
+    fi
+    [[ "${#pid_record[@]}" -eq 2 ]] || continue
+    pid="${pid_record[0]}"
+    start_ticks="${pid_record[1]}"
     [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+    [[ "${start_ticks}" =~ ^[0-9]+$ ]] || continue
     if kill -0 "${pid}" 2>/dev/null; then
+      current_start="$(python3 - "${pid}" <<'PY'
+import pathlib, sys
+stat = pathlib.Path(f"/proc/{sys.argv[1]}/stat")
+if not stat.is_file():
+    raise SystemExit(1)
+parts = stat.read_text().split()
+if len(parts) < 22:
+    raise SystemExit(1)
+print(parts[21])
+PY
+)" || continue
+      if [[ "${current_start}" != "${start_ticks}" ]]; then
+        continue
+      fi
       kill -TERM "${pid}" 2>/dev/null || true
       python3 - "${SIGNALS_FILE}" "${pid}" <<'PY'
 import json, sys

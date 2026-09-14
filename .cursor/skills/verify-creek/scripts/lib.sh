@@ -149,21 +149,72 @@ require_creek_js() {
   fi
 }
 
-# Isolated Creek child: disposable HOME, never inherit parent CREEK_TOKEN.
-# Opt-in auth: CAPTURE_PASS_TOKEN=1 plus VERIFY_CREEK_TOKEN (not CREEK_TOKEN).
+# Isolated Creek child: disposable HOME, never inherit parent Creek auth env.
+# Opt-in auth: CAPTURE_PASS_TOKEN=1 plus VERIFY_CREEK_TOKEN (not parent env).
+clear_creek_auth_env() {
+  env -u CREEK_TOKEN -u CREEKD_TOKEN -u CREEKCTL_TOKEN "$@"
+}
+
 isolated_env() {
   if [[ "${CAPTURE_PASS_TOKEN:-}" == "1" && -n "${VERIFY_CREEK_TOKEN:-}" ]]; then
-    env -u CREEK_TOKEN \
+    clear_creek_auth_env \
       HOME="${ISOLATED_HOME}" \
       CREEK_TOKEN="${VERIFY_CREEK_TOKEN}" \
       CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
       "$@"
   else
-    env -u CREEK_TOKEN \
+    clear_creek_auth_env \
       HOME="${ISOLATED_HOME}" \
       CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
       "$@"
   fi
+}
+
+resolve_scratch_project_dir() {
+  local requested="${1:-raw}"
+  python3 - "${SCRATCH}/projects" "${requested}" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]).resolve()
+requested = sys.argv[2]
+candidate = pathlib.Path(requested)
+if not candidate.is_absolute():
+    candidate = root / candidate
+resolved = candidate.resolve()
+try:
+    resolved.relative_to(root)
+except ValueError:
+    print(f"invalid --cwd: {resolved} is outside {root}", file=sys.stderr)
+    raise SystemExit(2)
+resolved.mkdir(parents=True, exist_ok=True)
+print(resolved)
+PY
+}
+
+record_pid() {
+  local name="$1"
+  local pid="$2"
+  [[ "${pid}" =~ ^[0-9]+$ ]] || {
+    echo "record_pid: pid must be numeric (got ${pid})" >&2
+    return 2
+  }
+  python3 - "${SCRATCH}/pids/${name}" "${pid}" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+pid = sys.argv[2]
+stat = pathlib.Path(f"/proc/{pid}/stat")
+cmdline = pathlib.Path(f"/proc/{pid}/cmdline")
+if not stat.is_file():
+    raise SystemExit(f"record_pid: /proc/{pid}/stat missing")
+parts = stat.read_text().split()
+if len(parts) < 22:
+    raise SystemExit(f"record_pid: short /proc/{pid}/stat")
+payload = {
+    "pid": int(pid),
+    "startTicks": int(parts[21]),
+    "cmdline": cmdline.read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace").strip(),
+}
+path.write_text(json.dumps(payload, indent=2) + "\n")
+PY
 }
 
 # JSON map of relpath -> {type, sha256, bytes} so in-place writes are visible.
