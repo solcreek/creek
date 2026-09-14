@@ -17,6 +17,18 @@ export interface ToolContext {
   requestHeaders: Headers;
 }
 
+function slimDeployment(d: Record<string, unknown>) {
+  return {
+    id: d.id ?? null,
+    version: d.version ?? null,
+    status: d.status ?? null,
+    branch: d.branch ?? null,
+    triggerType: d.triggerType ?? d.trigger_type ?? null,
+    createdAt: d.createdAt ?? d.created_at ?? null,
+    url: typeof d.url === "string" && d.url.length > 0 ? d.url : null,
+  };
+}
+
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { env, clientIp, requestHeaders } = ctx;
 
@@ -353,7 +365,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "get_status",
-    "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "Get a project's remote status. Returns productionUrl and, when the latest deployment is the live production, a GET proof of that URL (same shape as sandbox deploy). Poll after deploy_prod until live is true and proof.ok is true — this tool does not wait. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug (from list_projects)"),
     },
@@ -368,26 +380,68 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         `/projects/${encodeURIComponent(projectSlug)}/deployments`,
       );
       if (!deploys.ok) return deploys.result;
-      const list = Array.isArray(deploys.data) ? deploys.data : [];
-      const latest = list[0] as Record<string, unknown> | undefined;
-      return toolJson({
-        ok: true,
-        type: "project",
-        id: p.id,
-        slug: p.slug,
-        framework: p.framework ?? null,
-        productionDeploymentId: p.productionDeploymentId ?? p.production_deployment_id ?? null,
-        productionBranch: p.productionBranch ?? p.production_branch ?? null,
-        githubRepo: p.githubRepo ?? p.github_repo ?? null,
-        latestDeployment: latest
-          ? {
-              id: latest.id,
-              status: latest.status,
-              version: latest.version,
-              createdAt: latest.createdAt ?? latest.created_at ?? null,
-            }
-          : null,
-      });
+      const list = Array.isArray(deploys.data)
+        ? (deploys.data as Array<Record<string, unknown>>)
+        : [];
+      const latest = list[0];
+      const productionId =
+        (p.productionDeploymentId as string | undefined) ??
+        (p.production_deployment_id as string | undefined) ??
+        null;
+      const production = productionId ? list.find((row) => row.id === productionId) : undefined;
+      const productionUrl =
+        typeof production?.url === "string" && production.url.length > 0 ? production.url : null;
+      const latestSlim = latest ? slimDeployment(latest) : null;
+      const latestFailed = latestSlim?.status === "failed";
+      const live = Boolean(
+        latestSlim &&
+        productionId &&
+        latestSlim.id === productionId &&
+        latestSlim.status === "active" &&
+        productionUrl,
+      );
+      const pending = Boolean(latestSlim && !live && !latestFailed);
+
+      // Proof only when this production URL is serving the latest deploy.
+      // A GET while a newer row is still building would 200 the previous
+      // version and look like the new commit is live.
+      const proof = live && productionUrl ? await provePreview(productionUrl) : null;
+      const proofFailed = Boolean(proof && !proof.ok);
+
+      let nextStep: string;
+      if (!latestSlim) {
+        nextStep = "Call deploy_prod with this projectSlug, or creek deploy --prod --json";
+      } else if (latestFailed) {
+        nextStep = "Call get_build_log with this projectSlug and latestDeployment.id";
+      } else if (pending) {
+        nextStep =
+          "Call get_status with this projectSlug until live is true (or latestDeployment.status is failed)";
+      } else if (proofFailed) {
+        nextStep = "Production URL did not respond — retry get_status, or GET productionUrl";
+      } else {
+        nextStep = "Production is live — report productionUrl and proof.status";
+      }
+
+      return toolJson(
+        {
+          ok: !proofFailed,
+          type: "project",
+          id: p.id,
+          slug: p.slug,
+          framework: p.framework ?? null,
+          productionDeploymentId: productionId,
+          productionBranch: p.productionBranch ?? p.production_branch ?? null,
+          githubRepo: p.githubRepo ?? p.github_repo ?? null,
+          productionUrl,
+          live,
+          pending,
+          latestDeployment: latestSlim,
+          proof,
+          nextStep,
+          ...(proofFailed ? { error: "verify_failed" } : {}),
+        },
+        proofFailed,
+      );
     },
   );
 
@@ -464,7 +518,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "deploy_prod",
-    "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status until live is true and proof.ok is true. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug (from list_projects)"),
     },
@@ -484,7 +538,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         branch: data.branch ?? null,
         commitSha: data.commitSha ?? null,
         pending: true,
-        nextStep: "Call get_status or list_deployments, then get_build_log if it fails",
+        nextStep: "Call get_status with this projectSlug until live is true and proof.ok is true",
         message:
           "Build dispatched. Production will update when the remote build finishes. This tool does not wait for the deploy.",
       });
@@ -493,7 +547,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "list_deployments",
-    "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "List recent deployments for a project (newest first). Each row includes url (null unless status is active) and triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
     },
@@ -503,14 +557,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/deployments`);
       if (!got.ok) return got.result;
       const rows = Array.isArray(got.data) ? (got.data as Array<Record<string, unknown>>) : [];
-      const deployments = rows.map((d) => ({
-        id: d.id,
-        version: d.version,
-        status: d.status,
-        branch: d.branch ?? null,
-        triggerType: d.triggerType ?? d.trigger_type ?? null,
-        createdAt: d.createdAt ?? d.created_at ?? null,
-      }));
+      const deployments = rows.map(slimDeployment);
       return toolJson({ ok: true, project: projectSlug, deployments });
     },
   );
