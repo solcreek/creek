@@ -4,6 +4,10 @@
 
 ### Agent experience
 
+- **`creek deploy --prod` JSON includes `proof`.** After a successful
+  production deploy (including GitHub / turbo paths), the CLI GETs the
+  URL. 2xx and 3xx count as live (a 302 to a login page is still a live
+  site). Failed proof → `ok: false`, `error: "verify_failed"`, URL kept.
 - **`creek --help --json` emits a command schema.** Nested paths work
   (`creek deploy --help --json`, `creek env set --help --json`). Commands
   that define `--dry-run` are marked `destructive: true`. Agents should

@@ -59,6 +59,8 @@ Do not pass `apiKey` to tools. Prefer the CLI (`creek db`, `creek deployments lo
 
 MCP `deploy` JSON includes `proof` (GET of the preview URL). If `proof.ok` is false, treat the deploy as unverified even if `url` is present.
 
+`creek deploy --prod --json` also attaches `proof`. 2xx and 3xx count as live (a 302 to a login page is still a live site).
+
 ## References
 
 Read only what the task needs:

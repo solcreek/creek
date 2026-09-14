@@ -20,7 +20,7 @@ human user pastes a Creek CLI command into chat.
 4. Typical execute step after a clean dry-run:
    - Preview: `npx creek deploy --sandbox --json`
    - Production (signed in): `npx creek deploy --prod --json`
-5. After a sandbox deploy, run `npx creek verify <url> --json` (or GET the URL). Deploy JSON includes a `proof` field from the same check. Always report the URL and HTTP status back to the user.
+5. After a sandbox or production deploy, run `npx creek verify <url> --json` (or GET the URL). Deploy JSON includes a `proof` field from the same check (2xx/3xx = live). Always report the URL and HTTP status back to the user.
 
 **Key agent-friendly CLI conventions:**
 
