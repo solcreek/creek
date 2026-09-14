@@ -44,29 +44,52 @@ type CommandLike = {
   subCommands?: Record<string, CommandLike>;
 };
 
-export function helpPath(rawArgs: string[]): string[] {
-  return rawArgs.filter((a) => !a.startsWith("-"));
-}
+/** Boolean flags that never take a value — do not consume the next token. */
+const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
 
-export function resolveHelpCommand(
-  root: unknown,
-  path: string[],
-): { command: CommandLike; name: string } | { error: "unknown_command"; message: string } {
-  const asCmd = (value: unknown): CommandLike => value as CommandLike;
-  let current = asCmd(root);
+type WalkedHelp =
+  | { path: string[]; command: CommandLike; name: string }
+  | { error: "unknown_command"; message: string };
+
+/**
+ * Walk known `subCommands` from argv. Global flags, option values, and
+ * positionals are not path segments — `creek env set KEY --help --json`
+ * is `['env','set']`. An unknown token at the root is `unknown_command`.
+ */
+function walkSubcommands(root: CommandLike, rawArgs: string[]): WalkedHelp {
+  let current = root;
   let name = current.meta?.name ?? "creek";
-  for (const segment of path) {
-    const child = current.subCommands?.[segment];
-    if (!child) {
-      return {
-        error: "unknown_command",
-        message: `Unknown command \`${path.join(" ")}\`. Run creek --help --json for the schema.`,
-      };
+  const path: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    const token = rawArgs[i]!;
+    if (BOOLEAN_FLAGS.has(token)) continue;
+    if (token.startsWith("-")) {
+      // `--foo bar` (no `=`) — skip the value so it cannot be walked as a command.
+      if (
+        token.startsWith("--") &&
+        !token.includes("=") &&
+        i + 1 < rawArgs.length &&
+        !rawArgs[i + 1]!.startsWith("-")
+      ) {
+        i++;
+      }
+      continue;
     }
-    current = asCmd(child);
-    name = current.meta?.name ?? segment;
+    const child = current.subCommands?.[token];
+    if (!child) {
+      if (path.length === 0) {
+        return {
+          error: "unknown_command",
+          message: `Unknown command \`${token}\`. Run creek --help --json for the schema.`,
+        };
+      }
+      break;
+    }
+    current = child;
+    path.push(token);
+    name = current.meta?.name ?? token;
   }
-  return { command: current, name };
+  return { command: current, name, path };
 }
 
 export function walkCommand(cmd: unknown, fallbackName: string): HelpCommand {
@@ -102,14 +125,13 @@ export function buildHelpSchema(
   root: unknown,
   rawArgs: string[],
 ): HelpSchema | { ok: false; error: string; message: string } {
-  const path = helpPath(rawArgs);
-  const resolved = resolveHelpCommand(root, path);
+  const resolved = walkSubcommands(root as CommandLike, rawArgs);
   if ("error" in resolved) {
     return { ok: false, error: resolved.error, message: resolved.message };
   }
   return {
     ok: true,
-    path,
+    path: resolved.path,
     command: walkCommand(resolved.command, resolved.name),
   };
 }

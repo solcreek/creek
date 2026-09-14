@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { defineCommand } from "citty";
-import { buildHelpSchema, helpPath, walkCommand } from "./help-schema.js";
+import { buildHelpSchema, walkCommand } from "./help-schema.js";
 import { deployCommand } from "./commands/deploy.js";
 import { envCommand } from "./commands/env.js";
-
-describe("helpPath", () => {
-  it("strips flags and keeps the command path", () => {
-    expect(helpPath(["--help", "--json"])).toEqual([]);
-    expect(helpPath(["deploy", "--help", "--json"])).toEqual(["deploy"]);
-    expect(helpPath(["env", "set", "-h"])).toEqual(["env", "set"]);
-  });
-});
 
 describe("walkCommand", () => {
   it("marks commands with --dry-run as destructive", () => {
@@ -40,6 +32,8 @@ describe("buildHelpSchema", () => {
         meta: { name: "child", description: "a child" },
         args: { name: { type: "positional", required: true, description: "who" } },
       }),
+      env: envCommand,
+      deploy: deployCommand,
     },
   });
 
@@ -49,7 +43,7 @@ describe("buildHelpSchema", () => {
     if (!schema.ok) throw new Error("expected ok");
     expect(schema.command.name).toBe("creek");
     expect(schema.command.version).toBe("0.0.0");
-    expect(schema.command.subcommands.map((c) => c.name)).toEqual(["child"]);
+    expect(schema.command.subcommands.map((c) => c.name)).toEqual(["child", "env", "deploy"]);
   });
 
   it("resolves a nested path", () => {
@@ -64,8 +58,27 @@ describe("buildHelpSchema", () => {
     });
   });
 
+  it("stops at positionals of a nested command", () => {
+    const schema = buildHelpSchema(app, ["env", "set", "KEY", "VALUE", "--help", "--json"]);
+    expect(schema).toMatchObject({ ok: true, path: ["env", "set"] });
+    if (!schema.ok) throw new Error("expected ok");
+    expect(schema.command.name).toBe("set");
+  });
+
+  it("skips option values that are not subcommands", () => {
+    const schema = buildHelpSchema(app, ["deploy", "--project", "app", "--help", "--json"]);
+    expect(schema).toMatchObject({ ok: true, path: ["deploy"] });
+    if (!schema.ok) throw new Error("expected ok");
+    expect(schema.command.name).toBe("deploy");
+  });
+
+  it("does not treat a boolean global flag's neighbor as an option value", () => {
+    const schema = buildHelpSchema(app, ["--json", "env", "set", "--help"]);
+    expect(schema).toMatchObject({ ok: true, path: ["env", "set"] });
+  });
+
   it("returns unknown_command for a bogus path", () => {
-    expect(buildHelpSchema(app, ["nope", "--help", "--json"])).toMatchObject({
+    expect(buildHelpSchema(app, ["nope", "--help"])).toMatchObject({
       ok: false,
       error: "unknown_command",
     });
