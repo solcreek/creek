@@ -14,7 +14,7 @@ ensure_pnpm
 if [[ -n "${1:-}" ]]; then
   RUN_ID="$1"
 fi
-ensure_run
+resolve_run_for_cleanup
 
 PIDS_DIR="${SCRATCH}/pids"
 TMUX_FILE="${SCRATCH}/tmux-sessions"

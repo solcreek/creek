@@ -6,33 +6,35 @@ Keep this map current with `/maintain-verification-skill`.
 
 ## Index
 
-| Id | User command | Auth | Destructive | Default proof |
+| Id | User command | Auth | `--dry-run` in schema | Default proof |
 | --- | --- | --- | --- | --- |
 | [help-schema](help-schema.md) | `creek --help --json`, subcommand help, unknown-flag refusal | no | n/a | yes |
-| [init](init.md) | `creek init --json --yes` | no | writes files in cwd only | yes |
+| [init](init.md) | `creek init --json --yes` | no | no (still writes `creek.toml` in cwd) | yes |
 | [doctor](doctor.md) | `creek doctor --json` | no (`--last` needs auth — skip) | no | yes |
-| [deploy-dry-run](deploy-dry-run.md) | `creek deploy --dry-run --json` | no | `destructive: true` but dry-run must not upload | yes |
-| [whoami](whoami.md) | `creek whoami --json` | read-only; default proves unauthenticated | no | yes (isolated HOME) |
+| [deploy-dry-run](deploy-dry-run.md) | `creek deploy --dry-run --json` | no | yes (`destructive: true` = preview exists; still observe hashes) | yes |
+| [whoami](whoami.md) | `creek whoami --json` | default unauthenticated; opt-in `VERIFY_CREEK_ALLOW_AUTH=1` + `VERIFY_CREEK_TOKEN` | no | yes (isolated HOME) |
 
-Do not add `creek deploy --sandbox` / `--prod` as a default mapped drive. Sandbox still publishes a public URL; production mutates a live slot. If a later feature needs auth, document the precondition and emit `unmet-precondition` rather than using `~/.creek` or `CREEK_TOKEN` from the developer machine.
+`destructive: true` means the command **declares `--dry-run`**, not “safe to mutate”. Mutators without that flag include `creek projects delete`, `creek init`, and `creek login --token`. Do not run those from this skill unless a feature file says so.
+
+Do not add `creek deploy --sandbox` / `--prod` as a default mapped drive. Sandbox still publishes a public URL; production mutates a live slot. Authenticated whoami is opt-in only (`VERIFY_CREEK_TOKEN`, never parent `CREEK_TOKEN`).
 
 ## Baseline preconditions
 
 - Launch completed: `packages/cli/dist/index.js` exists; `node packages/cli/dist/index.js --help --json` exits 0.
 - Environment doctor (`scripts/doctor.sh`) exited 0.
-- `RUN_ID` set (or helpers generate one). Scratch is `/tmp/creek-verify-$RUN_ID`, not the monorepo and not `$HOME/.creek`.
-- `HOME` for Creek processes is `$SCRATCH/home`. `CREEK_TOKEN` is unset unless `VERIFY_CREEK_ALLOW_AUTH=1` explicitly opts into an auth proof.
-- Node `^22.18.0 \|\| >=24.11.0`, `pnpm@10.6.5`.
+- `RUN_ID` set (or helpers generate a **new** one — they never load committed `artifacts/LAST_RUN_ID`). Scratch is `/tmp/creek-verify-$RUN_ID`, not the monorepo and not `$HOME/.creek`.
+- `HOME` for Creek processes is `$SCRATCH/home`. Parent `CREEK_TOKEN` is unset. `python3` is on PATH.
+- Node `^22.18.0 || >=24.11.0` (not 23.x, not 24.0–24.10), `pnpm@10.6.5` (or `corepack pnpm`).
 
 ## Driving conventions
 
 - Invoke `scripts/drive.sh <id>` — do not paste vitest files into the harness.
 - Always pass `--json` unless proving human output (not required for the starter set).
-- Consult `creek <cmd> --help --json` before `--dry-run`. `destructive: true` iff `--dry-run` is declared. `creek doctor --dry-run` is `unknown_flag`.
+- Consult `creek <cmd> --help --json` before `--dry-run`. `destructive: true` iff `--dry-run` is declared (preview support). `creek doctor --dry-run` is `unknown_flag`. `creek projects delete` mutates with `destructive: false` — do not drive it here.
 - Non-interactive `creek deploy` without `--dry-run` / `--sandbox` / `--prod` / `--yes` exits with `confirmation_required`. Do not treat that as a successful deploy proof.
 - `--yes` is not implied by `--json`.
 - One disposable project dir per drive. Do not reuse another run's scratch.
-- Capture argv, stdout, stderr, exit code, and cwd/HOME file deltas.
+- Capture argv (redacted), stdout, stderr, exit code, and cwd/HOME **hash** deltas (`filesModified` counts in-place writes).
 
 ## Proof standards
 
@@ -40,7 +42,7 @@ A drive is proven when:
 
 1. Evidence is under `.cursor/skills/verify-creek/artifacts/$RUN_ID/drive/` (not only the terminal).
 2. JSON stdout parses; asserted fields match the feature file.
-3. Side effects were **observed** (file tree and isolated HOME), not assumed from flag names.
+3. Side effects were **observed** via content hashes (added/removed/**modified** paths under the project and isolated HOME), not assumed from flag names.
 4. Cleanup deleted `/tmp/creek-verify-$RUN_ID` and **left artifacts in place**.
 5. No production credentials were used; no shared live deployment was driven.
 

@@ -19,7 +19,7 @@ creek doctor --help --json
 creek deploy --help --json
 ```
 
-No project files, login, or network. Users and agents discover flags here; `destructive: true` means `--dry-run` exists.
+No project files, login, or network. Users and agents discover flags here; `destructive: true` means `--dry-run` exists (preview), **not** that running the command is safe. `creek projects delete` mutates and still has `destructive: false`.
 
 ## Driving it with drive.sh
 

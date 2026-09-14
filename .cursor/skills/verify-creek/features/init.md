@@ -32,5 +32,5 @@ Do not run init inside the monorepo root.
 
 - Non-interactive init without `--db` does not scaffold a worker; JSON breadcrumbs include `creek init --db`.
 - `gitignoreAdded` includes `.cursor` — that is the **fixture** `.gitignore`, not the monorepo’s.
-- Init does not declare `--dry-run` (`destructive: false`). Passing `--dry-run` is `unknown_flag`.
+- Init does not declare `--dry-run` (`destructive: false`) but **does mutate the cwd**. Passing `--dry-run` is `unknown_flag`; that is not a preview of init.
 - Self-host `--adopt` / `--hostkey-fingerprint` writes `~/.creek/hosts.json`. Helpers isolate HOME; still skip adopt unless a feature file is added with an explicit mock host.

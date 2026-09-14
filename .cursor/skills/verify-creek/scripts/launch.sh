@@ -49,7 +49,7 @@ fi
 
 # Verified invoke (this is the command the rest of the skill uses):
 set +e
-node "${JS}" --help --json >"${LAUNCH_DIR}/help.stdout" 2>"${LAUNCH_DIR}/help.stderr"
+isolated_env node "${JS}" --help --json >"${LAUNCH_DIR}/help.stdout" 2>"${LAUNCH_DIR}/help.stderr"
 HELP_EXIT=$?
 set -e
 printf '%s\n' "${HELP_EXIT}" > "${LAUNCH_DIR}/help.exit_code"

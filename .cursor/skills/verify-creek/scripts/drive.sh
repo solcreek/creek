@@ -31,31 +31,13 @@ run_one() {
   shift 2
   local dest="${DRIVE_ROOT}/${label}"
   mkdir -p "${dest}"
-  snapshot_tree "${cwd}" "${dest}/tree-before.txt"
-  snapshot_tree "${ISOLATED_HOME}" "${dest}/home-before.txt"
+  snapshot_tree "${cwd}" "${dest}/tree-before.json"
+  snapshot_tree "${ISOLATED_HOME}" "${dest}/home-before.json"
   local rc=0
   capture_cmd "${dest}" "${cwd}" -- node "${JS}" "$@" || rc=$?
-  snapshot_tree "${cwd}" "${dest}/tree-after.txt"
-  snapshot_tree "${ISOLATED_HOME}" "${dest}/home-after.txt"
-  python3 - <<PY
-import json, pathlib
-dest = pathlib.Path("${dest}")
-before = (dest/"tree-before.txt").read_text().splitlines()
-after = (dest/"tree-after.txt").read_text().splitlines()
-home_b = (dest/"home-before.txt").read_text().splitlines()
-home_a = (dest/"home-after.txt").read_text().splitlines()
-added = sorted(set(after) - set(before))
-removed = sorted(set(before) - set(after))
-home_added = sorted(set(home_a) - set(home_b))
-side = {
-  "cwd": "${cwd}",
-  "filesAdded": added,
-  "filesRemoved": removed,
-  "isolatedHomeFilesAdded": home_added,
-  "mutatedDeveloperCreekConfig": False,
-}
-(dest/"side-effects.json").write_text(json.dumps(side, indent=2) + "\n")
-PY
+  snapshot_tree "${cwd}" "${dest}/tree-after.json"
+  snapshot_tree "${ISOLATED_HOME}" "${dest}/home-after.json"
+  write_side_effects "${dest}" "${cwd}"
   return "${rc}"
 }
 
@@ -159,8 +141,10 @@ case "${FEATURE}" in
     if [[ "${1:-}" == "--" ]]; then
       shift
     fi
-    run_one "raw" "${cwd}" "$@" || true
+    rc=0
+    run_one "raw" "${cwd}" "$@" || rc=$?
     write_feature_summary "raw"
+    exit "${rc}"
     ;;
 
   help-schema)
@@ -239,45 +223,60 @@ import json, pathlib, sys
 dest = pathlib.Path("${DRIVE_ROOT}/01-dry-run")
 plan = json.loads((dest/"stdout").read_text())
 side = json.loads((dest/"side-effects.json").read_text())
-# Dry-run must not create creek.toml, uploads, or ~/.creek under isolated HOME.
+# Dry-run must not add/remove/modify project files or isolated HOME (incl. in-place writes).
 proof = {
   "wouldDeploy": plan.get("wouldDeploy"),
   "targetType": (plan.get("target") or {}).get("type"),
   "authenticated": plan.get("authenticated"),
   "sideEffectsDeclared": plan.get("sideEffects"),
   "filesAddedInProject": side.get("filesAdded"),
+  "filesRemovedInProject": side.get("filesRemoved"),
+  "filesModifiedInProject": side.get("filesModified"),
   "isolatedHomeFilesAdded": side.get("isolatedHomeFilesAdded"),
-  "observedNoProjectMutation": side.get("filesAdded") == [],
-  "observedNoHomeMutation": side.get("isolatedHomeFilesAdded") == [],
+  "isolatedHomeFilesRemoved": side.get("isolatedHomeFilesRemoved"),
+  "isolatedHomeFilesModified": side.get("isolatedHomeFilesModified"),
+  "observedNoProjectMutation": side.get("observedNoProjectMutation") is True,
+  "observedNoHomeMutation": side.get("observedNoHomeMutation") is True,
 }
 (dest/"proof.json").write_text(json.dumps(proof, indent=2) + "\n")
-ok = proof["observedNoProjectMutation"] and proof["observedNoHomeMutation"] and plan.get("sideEffects", {}).get("networkCalls") is False
+ok = (
+    proof["observedNoProjectMutation"]
+    and proof["observedNoHomeMutation"]
+    and plan.get("sideEffects", {}).get("networkCalls") is False
+)
 sys.exit(0 if ok else 1)
 PY
     write_feature_summary "deploy-dry-run"
     ;;
 
   whoami)
-    if [[ -n "${CREEK_TOKEN:-}" && "${VERIFY_CREEK_ALLOW_AUTH:-}" != "1" ]]; then
-      python3 - <<PY
+    proj="${SCRATCH}/projects/whoami"
+    mkdir -p "${proj}"
+    if [[ "${VERIFY_CREEK_ALLOW_AUTH:-}" == "1" ]]; then
+      if [[ -z "${VERIFY_CREEK_TOKEN:-}" ]]; then
+        python3 - <<PY
 import json, pathlib
 p = pathlib.Path("${DRIVE_ROOT}")
 p.mkdir(parents=True, exist_ok=True)
 report = {
   "ok": False,
   "error": "unmet-precondition",
-  "message": "CREEK_TOKEN is set in the agent environment. Default whoami drive unsets it and does not use production credentials. To prove an authenticated session, re-run with VERIFY_CREEK_ALLOW_AUTH=1 and a non-production token; do not double-drive a shared live deployment.",
+  "message": "VERIFY_CREEK_ALLOW_AUTH=1 requires VERIFY_CREEK_TOKEN (a scoped non-production token). Parent CREEK_TOKEN is never inherited. Do not double-drive a shared live deployment.",
 }
 (p/"summary.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report, indent=2))
 PY
-      exit 2
+        exit 2
+      fi
+      CAPTURE_PASS_TOKEN=1 run_one "01-authenticated" "${proj}" whoami --json
+      assert_json "${DRIVE_ROOT}/01-authenticated/stdout" 0 'ok=true' 'authenticated=true'
+      write_feature_summary "whoami"
+    else
+      # Parent CREEK_TOKEN is ignored (capture unsets it). Default proof is unauthenticated.
+      run_one "01-unauthenticated" "${proj}" whoami --json || true
+      assert_json "${DRIVE_ROOT}/01-unauthenticated/stdout" 1 'ok=false' 'authenticated=false' 'error="not_authenticated"'
+      write_feature_summary "whoami"
     fi
-    proj="${SCRATCH}/projects/whoami"
-    mkdir -p "${proj}"
-    run_one "01-unauthenticated" "${proj}" whoami --json || true
-    assert_json "${DRIVE_ROOT}/01-unauthenticated/stdout" 1 'ok=false' 'authenticated=false' 'error="not_authenticated"'
-    write_feature_summary "whoami"
     ;;
 
   *)

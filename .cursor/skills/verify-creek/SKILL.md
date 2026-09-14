@@ -35,7 +35,7 @@ pnpm --filter @solcreek/sdk --filter @solcreek/cli --filter @solcreek/runtime --
 On a cold agent (this workspace):
 
 1. `pnpm install --frozen-lockfile` if `node_modules/` is missing (helpers fall back to `corepack pnpm` when `pnpm` is not already on `PATH`).
-2. Put Node ≥ 22.18 first on `PATH` (nvm `v22.22.2` is installed on some pods; `/exec-daemon/node` may be 22.14.0 and will fail tsdown).
+2. Put a Node that matches `^22.18.0 || >=24.11.0` first on `PATH` (reject 23.x and 24.0–24.10). nvm `v22.22.2` is installed on some pods; `/exec-daemon/node` may be 22.14.0 and will fail tsdown. `python3` is required for evidence JSON and file-hash snapshots.
 3. Build the CLI workspace packages:
 
 ```bash
@@ -73,9 +73,11 @@ Report: `.cursor/skills/verify-creek/artifacts/$RUN_ID/doctor/report.json`. Miss
 
 ## Drive
 
-Each drive uses `/tmp/creek-verify-$RUN_ID/...` (created by `ensure_run`). Every Creek invocation sets `HOME` to that scratch home; by default helpers **unset `CREEK_TOKEN`** so the developer’s `~/.creek` is not read or written. When `VERIFY_CREEK_ALLOW_AUTH=1` is set alongside an explicit token, helpers preserve only that environment token while still isolating `HOME`. Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
+Each drive uses `/tmp/creek-verify-$RUN_ID/...` (created by `ensure_run`). Helpers generate a fresh `RUN_ID` when unset; they do **not** reuse committed `artifacts/LAST_RUN_ID`. Export `RUN_ID` yourself to share one id across launch → doctor → drive → cleanup. A `RUN_ID` whose artifacts already contain `cleanup.json` is refused (protects the committed sample).
 
-Prefer `--json`. Use `--dry-run` only when `creek <cmd> --help --json` reports `destructive: true` (the CLI convention: a command is destructive iff it declares `--dry-run`). Non-destructive commands refuse unknown `--dry-run` with `error: "unknown_flag"` and exit 1 — do not retry by dropping the flag.
+Every Creek invocation sets `HOME` to that scratch home and **unsets parent `CREEK_TOKEN`**. Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
+
+Prefer `--json`. In `--help --json`, `destructive: true` means the command **declares `--dry-run`** (a preview flag exists). It is **not** “safe to mutate” and it is **not** an exhaustive list of mutators. Commands can mutate without `--dry-run` and still report `destructive: false` — including `creek projects delete`, `creek init`, and `creek login --token`. Use `--dry-run` only when the leaf schema has `dryRun: true`. Otherwise `--dry-run` is `unknown_flag` (exit 1); do not retry by dropping the flag, and do not execute the mutation unless a feature file says so.
 
 ```bash
 .cursor/skills/verify-creek/scripts/drive.sh help-schema
@@ -94,29 +96,30 @@ Mapped features: `features/`. Drive at least one auth-free feature end-to-end af
 
 Store under `.cursor/skills/verify-creek/artifacts/$RUN_ID/` — **Cleanup must not delete this tree**.
 
-Per invocation (under `drive/<label>/`): `argv.json`, `stdout`, `stderr`, `exit_code`, `meta.json`, `side-effects.json` (cwd file tree before/after + isolated HOME delta). JSON commands: parse stdout; record `ok` / error code / findings.
+Per invocation (under `drive/<label>/`): `argv.json` (secret flags `--token` / `--creekd-token` / `--*-token` redacted, including `--flag=value`), `stdout`, `stderr`, `exit_code`, `meta.json`, hash snapshots (`tree-before.json` / `tree-after.json` / HOME equivalents) and `side-effects.json` (`filesAdded` / `filesRemoved` / `filesModified`, same for isolated HOME). JSON commands: parse stdout; record `ok` / error code / findings.
 
-Also: `run.json`, `launch/`, `doctor/`, `drive/summary.json`, `cleanup.json`. Pointer: `artifacts/LAST_RUN_ID`.
+Also: `run.json`, `launch/`, `doctor/`, `drive/summary.json`, `cleanup.json`. `artifacts/LAST_RUN_ID` is a pointer written after a live helper run; it is not an input to launch/doctor/drive.
 
-Observe dry-run by **both** declared JSON (`sideEffects.networkCalls/fileUploads/buildExecuted`) **and** file-tree / isolated-HOME snapshots. Do not assume dry-run skipped network.
+Observe dry-run by **both** declared JSON (`sideEffects.networkCalls/fileUploads/buildExecuted`) **and** hash snapshots (in-place writes count as `filesModified`). Do not assume dry-run skipped network.
 
 ## Cleanup
 
 ```bash
-.cursor/skills/verify-creek/scripts/cleanup.sh          # uses $RUN_ID or artifacts/LAST_RUN_ID
 .cursor/skills/verify-creek/scripts/cleanup.sh "$RUN_ID"
+# or, with RUN_ID still exported and scratch still live:
+.cursor/skills/verify-creek/scripts/cleanup.sh
 ```
 
-Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory. Kills only tmux sessions listed in that scratch `tmux-sessions` file. Writes `cleanup.json` into the artifacts dir. Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
+Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory. Kills only tmux sessions listed in that scratch `tmux-sessions` file. Writes `cleanup.json` into the artifacts dir. `LAST_RUN_ID` is used only when the matching scratch dir still exists — never to rewrite a finished sample. Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
 
 ## Helpers
 
 | Script | Invocation | Role |
 | --- | --- | --- |
-| `scripts/lib.sh` | sourced, not executed | `RUN_ID`, scratch, isolated HOME, `capture_cmd` |
+| `scripts/lib.sh` | sourced, not executed | `RUN_ID` validation, scratch, isolated HOME, hash snapshots, `capture_cmd` (`python3` required) |
 | `scripts/launch.sh` | `.cursor/skills/verify-creek/scripts/launch.sh` | install (if needed), build CLI, prove `--help --json` |
 | `scripts/doctor.sh` | `.cursor/skills/verify-creek/scripts/doctor.sh` | environment health |
 | `scripts/drive.sh` | `.cursor/skills/verify-creek/scripts/drive.sh <feature>` | one mapped feature + evidence |
 | `scripts/cleanup.sh` | `.cursor/skills/verify-creek/scripts/cleanup.sh` | scratch teardown; keep artifacts |
 
-Default Creek child processes: `env -u CREEK_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`. Opt-in auth proofs keep only the explicit `CREEK_TOKEN` env var when `VERIFY_CREEK_ALLOW_AUTH=1`.
+All Creek child processes: `env -u CREEK_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`. Authenticated whoami only: `VERIFY_CREEK_ALLOW_AUTH=1` plus `VERIFY_CREEK_TOKEN` (scoped non-production). Parent `CREEK_TOKEN` is never inherited.

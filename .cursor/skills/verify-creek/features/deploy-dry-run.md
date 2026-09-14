@@ -24,7 +24,7 @@ Users inspect the plan, then follow `nextStep` (`--sandbox` or `--prod`). Agents
 .cursor/skills/verify-creek/scripts/drive.sh deploy-dry-run
 ```
 
-Writes `index.html` in a scratch project, runs `deploy --dry-run --json <dir>`, asserts JSON `mode/supported/wouldDeploy/sideEffects.*`, then **observes** `side-effects.json`: no files added under the project and none under isolated HOME (no `~/.creek` writes). That observation is the proof that dry-run did not mutate the tree; JSON `networkCalls: false` is the CLI’s declared contract, not a packet capture.
+Writes `index.html` in a scratch project, runs `deploy --dry-run --json <dir>`, asserts JSON `mode/supported/wouldDeploy/sideEffects.*`, then **observes** `side-effects.json`: `observedNoProjectMutation` and `observedNoHomeMutation` (added/removed/**modified** hashes, so in-place rewrites of `index.html` or `~/.creek/config.json` fail the proof). JSON `networkCalls: false` is the CLI’s declared contract, not a packet capture.
 
 Do not follow `nextStep` in this drive. Do not pass `--sandbox` here.
 
@@ -33,4 +33,4 @@ Do not follow `nextStep` in this drive. Do not pass `--sandbox` here.
 - Dry-run always exits 0 even when `wouldDeploy` is false — assert fields, not “nonzero means failure”.
 - Signed-in HOME would report `authenticated: true` and `target.type: "production"` without `--sandbox`. Helpers unset token and isolate HOME so the default proof stays sandbox/unauthenticated.
 - `--dry-run` plus `--template` / `--from-github` is `supported: false`; that is not a production deploy, but it is also not a full plan.
-- Never assume dry-run skipped network solely because the flag is present; require the JSON `sideEffects` object and the file-tree snapshots.
+- Never assume dry-run skipped network solely because the flag is present; require the JSON `sideEffects` object and the hash snapshots (`filesModified` included).

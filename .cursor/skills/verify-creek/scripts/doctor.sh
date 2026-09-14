@@ -23,14 +23,15 @@ fail() {
 
 command -v node >/dev/null || fail "node_missing" "node not on PATH"
 command -v pnpm >/dev/null || fail "pnpm_missing" "pnpm not on PATH"
+command -v python3 >/dev/null || fail "python3_missing" "python3 not on PATH"
 
 JS="$(creek_js)"
 [[ -f "${JS}" ]] || fail "cli_dist_missing" "Run ${SKILL_DIR}/scripts/launch.sh — missing ${JS}"
 
 set +e
-node "${JS}" --version >"${DOC_DIR}/version.stdout" 2>"${DOC_DIR}/version.stderr"
+isolated_env node "${JS}" --version >"${DOC_DIR}/version.stdout" 2>"${DOC_DIR}/version.stderr"
 VER_EXIT=$?
-node "${JS}" --help --json >"${DOC_DIR}/help.stdout" 2>"${DOC_DIR}/help.stderr"
+isolated_env node "${JS}" --help --json >"${DOC_DIR}/help.stdout" 2>"${DOC_DIR}/help.stderr"
 HELP_EXIT=$?
 set -e
 
