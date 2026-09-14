@@ -15,4 +15,4 @@ artifacts/
     cleanup.json
 ```
 
-The committed sample is regenerated after helper changes so it matches the current evidence format (`tree-before.json` / `tree-after.json`, `filesModified`, `observedNoProjectMutation` / `observedNoHomeMutation`). See `LAST_RUN_ID` for the directory name. Scratch `/tmp/creek-verify-$RUN_ID` was removed; this tree remained. Do not commit secrets, `CREEK_TOKEN`, `VERIFY_CREEK_TOKEN`, or copies of `~/.creek`.
+Committed sample: `20260914T214811Z-help-schema` (Launch → environment doctor → `drive.sh help-schema` → Cleanup), produced by the current helpers. Evidence includes `tree-before.json` / `tree-after.json`, `filesModified`, and `observedNoProjectMutation` / `observedNoHomeMutation`. Scratch `/tmp/creek-verify-20260914T214811Z-help-schema` was removed; this tree remained. Do not commit secrets, `CREEK_TOKEN`, `VERIFY_CREEK_TOKEN`, or copies of `~/.creek`.

@@ -1,0 +1,11 @@
+{
+  "startedAt": "2026-09-14T21:48:24Z",
+  "endedAt": "2026-09-14T21:48:24Z",
+  "cwd": "/tmp/creek-verify-20260914T214811Z-help-schema/projects/help-schema",
+  "exitCode": 1,
+  "isolatedHome": "/tmp/creek-verify-20260914T214811Z-help-schema/home",
+  "creekTokenInherited": false,
+  "tokenSource": "none",
+  "node": "v22.22.2",
+  "creekJs": "/workspace/packages/cli/dist/index.js"
+}

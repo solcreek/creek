@@ -1,0 +1,12 @@
+{
+  "runId": "20260914T214811Z-help-schema",
+  "scratch": "/tmp/creek-verify-20260914T214811Z-help-schema",
+  "scratchExisted": true,
+  "scratchRemoved": true,
+  "artifacts": "/workspace/.cursor/skills/verify-creek/artifacts/20260914T214811Z-help-schema",
+  "artifactsPreserved": true,
+  "pidsSignaled": [],
+  "pidsSkipped": [],
+  "tmuxSessionsKilled": [],
+  "note": "Did not delete artifacts. Did not kill processes by name. Signaled only PIDs whose /proc startTicks (and cmdline when recorded) still matched."
+}
