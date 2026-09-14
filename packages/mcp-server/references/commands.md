@@ -3,6 +3,8 @@
 Complete command table. Pair with `references/workflows.md` for
 common multi-command flows.
 
+Discover the live tree with `creek --help --json` (or `creek <cmd> --help --json`). Do not scrape human usage text.
+
 Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.

@@ -193,7 +193,7 @@ All commands support `--json` and `--yes` global flags.
 | `creek claim <sandboxId>` | Claim a sandbox deploy into your account |
 | `creek queue send <json>` | Send a message to the project queue |
 
-Run `<command> --help` for the full argument list.
+Run `creek --help --json` (or `creek <command> --help --json`) for the live argument schema. Do not scrape human `--help`. Commands with `"destructive": true` define `--dry-run`.
 
 ## Documentation
 

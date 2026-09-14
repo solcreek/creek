@@ -1,5 +1,6 @@
 import { runCommand, runMain } from "citty";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
+import { buildHelpSchema } from "./help-schema.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -37,7 +38,7 @@ export function wantsJson(rawArgs: string[], isTTY: boolean): boolean {
 }
 
 const HELP_BREADCRUMBS: Breadcrumb[] = [
-  { command: "creek --help", description: "List available commands" },
+  { command: "creek --help --json", description: "Machine-readable command schema" },
 ];
 
 /**
@@ -45,19 +46,27 @@ const HELP_BREADCRUMBS: Breadcrumb[] = [
  * citty's runMain so behaviour is unchanged. In JSON mode it runs the
  * command itself and converts citty's CLIErrors into structured JSON on
  * stdout with a non-zero exit. --help / --version always go through
- * runMain so their output is preserved.
+ * runMain so human output is preserved. JSON mode intercepts --help/-h
+ * and emits the command schema instead of citty's usage text.
  */
 export async function runCli(
   main: CittyCommand,
   rawArgs: string[],
   opts: { jsonMode: boolean },
 ): Promise<void> {
-  const isHelpOrVersion =
-    rawArgs.includes("--help") ||
-    rawArgs.includes("-h") ||
-    (rawArgs.length === 1 && rawArgs[0] === "--version");
+  const isHelp = rawArgs.includes("--help") || rawArgs.includes("-h");
+  const isVersionOnly = rawArgs.length === 1 && rawArgs[0] === "--version";
 
-  if (isHelpOrVersion || !opts.jsonMode) {
+  if (isHelp && opts.jsonMode) {
+    const schema = buildHelpSchema(main, rawArgs);
+    jsonOutput(
+      schema as Record<string, unknown>,
+      schema.ok ? 0 : 1,
+      schema.ok ? undefined : HELP_BREADCRUMBS,
+    );
+  }
+
+  if (isHelp || isVersionOnly || !opts.jsonMode) {
     await runMain(main, { rawArgs });
     return;
   }

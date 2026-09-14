@@ -4,6 +4,10 @@
 
 ### Agent experience
 
+- **`creek --help --json` emits a command schema.** Nested paths work
+  (`creek deploy --help --json`, `creek env set --help --json`). Commands
+  that define `--dry-run` are marked `destructive: true`. Agents should
+  read this instead of scraping human usage text.
 - **`--dry-run` on mutating commands.** `creek rollback`, `creek db delete`
   (and storage/cache delete), `creek env set` / `env rm`, and
   `creek domains rm` preview `wouldExecute`, `sideEffects`, and a
