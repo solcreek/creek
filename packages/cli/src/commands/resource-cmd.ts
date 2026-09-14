@@ -296,7 +296,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
                 `Soft-delete team ${label} "${args.name}" (row marked deleted). Backing Cloudflare resource is not torn down here.`,
               ],
           nextStep: blocked
-            ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --json`
+            ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --as ${bindings[0].bindingName} --json`
             : `creek ${cmdName} delete ${args.name} --json`,
         });
         return;

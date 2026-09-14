@@ -81,6 +81,20 @@ function deployment(id: string, status: string, createdAt: number) {
   };
 }
 
+function projectHandler(productionDeploymentId: string | null) {
+  return http.get(`${API}/projects/${SLUG}`, () =>
+    HttpResponse.json({
+      id: "p1",
+      slug: SLUG,
+      production_deployment_id: productionDeploymentId,
+    }),
+  );
+}
+
+function listHandler(...rows: ReturnType<typeof deployment>[]) {
+  return http.get(`${API}/projects/${SLUG}/deployments`, () => HttpResponse.json(rows));
+}
+
 async function dryRun(extra: Record<string, unknown> = {}): Promise<number> {
   return runExit(
     (rollbackCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
@@ -93,12 +107,8 @@ describe("creek rollback --dry-run", () => {
   it("does not POST rollback and names the previous deployment", async () => {
     let posted = false;
     server.use(
-      http.get(`${API}/projects/${SLUG}/deployments`, () =>
-        HttpResponse.json([
-          deployment("dep-new", "active", 200),
-          deployment("dep-old", "active", 100),
-        ]),
-      ),
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "active", 100)),
       http.post(`${API}/projects/${SLUG}/rollback`, () => {
         posted = true;
         return HttpResponse.json({ ok: true });
@@ -118,14 +128,40 @@ describe("creek rollback --dry-run", () => {
     expect(json().nextStep).toBe(`creek rollback dep-old --project ${SLUG} --json`);
   });
 
+  it("keeps a quoted --message on nextStep", async () => {
+    server.use(
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "active", 100)),
+    );
+    const code = await dryRun({ message: 'roll back the "outage"' });
+    expect(code).toBe(0);
+    expect(json().nextStep).toBe(
+      `creek rollback dep-old --project ${SLUG} --message ${JSON.stringify('roll back the "outage"')} --json`,
+    );
+  });
+
+  it("uses production_deployment_id, not the newest active row, as current", async () => {
+    server.use(
+      projectHandler("dep-old"),
+      listHandler(
+        deployment("dep-rollback", "active", 300),
+        deployment("dep-new", "active", 200),
+        deployment("dep-old", "active", 100),
+      ),
+    );
+    const code = await dryRun();
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: true,
+      currentDeploymentId: "dep-old",
+      targetDeploymentId: "dep-rollback",
+    });
+  });
+
   it("wouldExecute is false when the explicit target is already production", async () => {
     server.use(
-      http.get(`${API}/projects/${SLUG}/deployments`, () =>
-        HttpResponse.json([
-          deployment("dep-new", "active", 200),
-          deployment("dep-old", "active", 100),
-        ]),
-      ),
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "active", 100)),
     );
     const code = await dryRun({ deployment: "dep-new" });
     expect(code).toBe(0);
@@ -138,12 +174,8 @@ describe("creek rollback --dry-run", () => {
 
   it("wouldExecute is false when the explicit target is not active", async () => {
     server.use(
-      http.get(`${API}/projects/${SLUG}/deployments`, () =>
-        HttpResponse.json([
-          deployment("dep-new", "active", 200),
-          deployment("dep-failed", "failed", 100),
-        ]),
-      ),
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200), deployment("dep-failed", "failed", 100)),
     );
     const code = await dryRun({ deployment: "dep-failed" });
     expect(code).toBe(0);
@@ -156,20 +188,60 @@ describe("creek rollback --dry-run", () => {
 
   it("wouldExecute is false when the previous deployment is not active", async () => {
     server.use(
-      http.get(`${API}/projects/${SLUG}/deployments`, () =>
-        HttpResponse.json([
-          deployment("dep-new", "active", 200),
-          deployment("dep-old", "cancelled", 100),
-        ]),
-      ),
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200), deployment("dep-old", "cancelled", 100)),
     );
     const code = await dryRun();
     expect(code).toBe(0);
     expect(json()).toMatchObject({ wouldExecute: false, currentDeploymentId: "dep-new" });
   });
 
+  it("resolves an explicit id missing from the truncated list via GET", async () => {
+    let posted = false;
+    server.use(
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200)),
+      http.get(`${API}/projects/${SLUG}/deployments/dep-old`, () =>
+        HttpResponse.json({
+          deployment: deployment("dep-old", "active", 100),
+          url: null,
+          previewUrl: "https://preview.test",
+        }),
+      ),
+      http.post(`${API}/projects/${SLUG}/rollback`, () => {
+        posted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await dryRun({ deployment: "dep-old" });
+    expect(code).toBe(0);
+    expect(posted).toBe(false);
+    expect(json()).toMatchObject({
+      wouldExecute: true,
+      currentDeploymentId: "dep-new",
+      targetDeploymentId: "dep-old",
+    });
+  });
+
+  it("wouldExecute is false when the explicit id is not in the list and GET 404s", async () => {
+    server.use(
+      projectHandler("dep-new"),
+      listHandler(deployment("dep-new", "active", 200)),
+      http.get(`${API}/projects/${SLUG}/deployments/dep-missing`, () =>
+        HttpResponse.json({ error: "not_found" }, { status: 404 }),
+      ),
+    );
+    const code = await dryRun({ deployment: "dep-missing" });
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: false,
+      targetDeploymentId: null,
+    });
+  });
+
   it("emits api_error when listing deployments fails", async () => {
     server.use(
+      projectHandler("dep-new"),
       http.get(
         `${API}/projects/${SLUG}/deployments`,
         () => new HttpResponse(null, { status: 500 }),

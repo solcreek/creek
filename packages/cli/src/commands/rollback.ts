@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import { CreekApiError, CreekClient, parseConfig } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -96,42 +96,57 @@ export const rollbackCommand = defineCommand({
     const message = args.message as string | undefined;
 
     if (isDryRun(args)) {
-      const deployments = await apiCall(jsonMode, "api_error", () =>
-        client.listDeployments(projectSlug),
+      const [project, deployments] = await apiCall(jsonMode, "api_error", () =>
+        Promise.all([client.getProject(projectSlug), client.listDeployments(projectSlug)]),
       );
+      // Production is the project pointer, not "newest active" — historical
+      // rows stay status=active after a rollback.
+      const productionId = project.production_deployment_id ?? null;
       const sorted = [...deployments].sort((a, b) => b.createdAt - a.createdAt);
-      const current = sorted.find((d) => d.status === "active");
-      const target = deploymentId
+      let target = deploymentId
         ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
-        : sorted.find((d) => d.status === "active" && d.id !== current?.id);
-      // Real rollback requires an active target that is not production.
+        : sorted.find((d) => d.status === "active" && d.id !== productionId);
+      // listDeployments is capped at 20; an explicit id missing from the page
+      // may still exist — resolve it by id rather than treating it as invalid.
+      if (deploymentId && !target) {
+        target = await apiCall(jsonMode, "api_error", async () => {
+          try {
+            const status = await client.getDeploymentStatus(projectSlug, deploymentId);
+            return status.deployment;
+          } catch (err) {
+            if (err instanceof CreekApiError && err.status === 404) return undefined;
+            throw err;
+          }
+        });
+      }
       const wouldExecute =
-        !!current && !!target && target.status === "active" && target.id !== current.id;
+        !!productionId && !!target && target.status === "active" && target.id !== productionId;
+      const messageFlag = message ? ` --message ${JSON.stringify(message)}` : "";
       emitDryRunPlan(jsonMode, {
         command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
         wouldExecute,
         project: projectSlug,
-        currentDeploymentId: current?.id ?? null,
+        currentDeploymentId: productionId,
         targetDeploymentId: target?.id ?? null,
         targetStatus: target?.status ?? null,
         sideEffects: wouldExecute
           ? [
-              `Production for ${projectSlug} moves from ${current!.id.slice(0, 8)} to ${target!.id.slice(0, 8)}`,
+              `Production for ${projectSlug} moves from ${productionId!.slice(0, 8)} to ${target!.id.slice(0, 8)}`,
               "A new rollback deployment row is created",
             ]
           : [
-              !current
+              !productionId
                 ? "No production deployment to roll back from"
                 : !target && deploymentId
                   ? `No deployment matching "${deploymentId}"`
-                  : target && target.id === current.id
+                  : target && target.id === productionId
                     ? `Deployment ${target.id.slice(0, 8)} is already production`
                     : target && target.status !== "active"
                       ? `Deployment ${target.id.slice(0, 8)} is ${target.status}, not active`
                       : "No previous active deployment to roll back to",
             ],
         nextStep: wouldExecute
-          ? `creek rollback ${target!.id} --project ${projectSlug} --json`
+          ? `creek rollback ${target!.id} --project ${projectSlug}${messageFlag} --json`
           : `creek deployments --project ${projectSlug} --json`,
       });
       return;
@@ -246,7 +261,7 @@ async function rollbackSelfHost(
         `POST /v1/apps/${appId}/rollback?to=${toSeq} on ${host.name}`,
         "If-Match is sent from the local resource-version cache",
       ],
-      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --project ${appId} --json`,
+      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --project ${appId}${bypassRv ? " --bypass-rv" : ""} --json`,
     });
     return;
   }

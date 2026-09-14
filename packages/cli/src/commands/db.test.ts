@@ -487,7 +487,7 @@ describe("creek db delete --dry-run", () => {
     expect(code).toBe(0);
     expect(deleted).toBe(false);
     expect(json()).toMatchObject({ wouldExecute: false });
-    expect(json().nextStep).toContain("creek db detach");
+    expect(json().nextStep).toBe("creek db detach mydb --from my-api --as DATABASE --json");
   });
 });
 
