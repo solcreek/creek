@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { defineCommand } from "citty";
-import { buildHelpSchema, walkCommand } from "./help-schema.js";
+import {
+  buildHelpSchema,
+  findUnknownFlags,
+  unknownFlagMessage,
+  walkCommand,
+} from "./help-schema.js";
 import { deployCommand } from "./commands/deploy.js";
 import { envCommand } from "./commands/env.js";
+import { rollbackCommand } from "./commands/rollback.js";
+import { statusCommand } from "./commands/status.js";
 
 describe("walkCommand", () => {
   it("marks commands with --dry-run as destructive", () => {
@@ -106,6 +113,45 @@ describe("buildHelpSchema", () => {
   });
 });
 
+describe("findUnknownFlags", () => {
+  const mini = defineCommand({
+    meta: { name: "creek" },
+    subCommands: {
+      status: defineCommand({
+        meta: { name: "status" },
+        args: { json: { type: "boolean" } },
+      }),
+      rollback: defineCommand({
+        meta: { name: "rollback" },
+        args: {
+          "dry-run": { type: "boolean", default: false },
+          json: { type: "boolean" },
+        },
+      }),
+    },
+  });
+
+  it("allows --dry-run on a command that declares it", () => {
+    expect(findUnknownFlags(mini, ["rollback", "--dry-run", "--json"])).toEqual([]);
+  });
+
+  it("rejects --dry-run on a command that does not declare it", () => {
+    expect(findUnknownFlags(mini, ["status", "--dry-run", "--json"])).toEqual(["--dry-run"]);
+  });
+
+  it("rejects --project when the command has no such flag", () => {
+    expect(findUnknownFlags(mini, ["status", "--project", "www"])).toEqual(["--project"]);
+  });
+
+  it("does not flag unknown commands (those are unknown_command)", () => {
+    expect(findUnknownFlags(mini, ["bogus", "--dry-run"])).toEqual([]);
+  });
+
+  it("names --dry-run as a silent-drop hazard", () => {
+    expect(unknownFlagMessage(["--dry-run"], ["status"])).toContain("silently dropped");
+  });
+});
+
 describe("real command tree", () => {
   it("deploy exposes --sandbox/--prod/--dry-run", () => {
     const walked = walkCommand(deployCommand, "deploy");
@@ -119,5 +165,10 @@ describe("real command tree", () => {
     const walked = walkCommand(envCommand, "env");
     const set = walked.subcommands.find((c) => c.name === "set");
     expect(set).toMatchObject({ dryRun: true, destructive: true });
+  });
+
+  it("rollback declares --dry-run; status does not", () => {
+    expect(findUnknownFlags(rollbackCommand, ["--dry-run", "--json"])).toEqual([]);
+    expect(findUnknownFlags(statusCommand, ["--dry-run", "--json"])).toEqual(["--dry-run"]);
   });
 });

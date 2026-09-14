@@ -1,8 +1,13 @@
 # @solcreek/cli
 
-## Unreleased
+## 0.4.45
 
 ### Agent experience
+
+- **Unknown flags are rejected.** citty/mri used to drop them. `creek rollback --dry-run` on a CLI that did not declare `--dry-run` therefore executed a real rollback. JSON: `{ ok: false, error: "unknown_flag", flags }`. `--help --json` still works.
+- **Implicit rollback skips `triggerType=rollback` rows.** A second `creek rollback` no longer targets the synthetic row created by the first. Dry-run `nextStep` names the real previous deploy id.
+
+### Agent experience (previously unreleased)
 
 - **`creek deploy --prod` JSON includes `proof`.** After a successful
   production deploy (including GitHub / turbo paths), the CLI GETs the

@@ -109,9 +109,13 @@ export const rollbackCommand = defineCommand({
         projectRow.productionDeploymentId ?? projectRow.production_deployment_id ?? null;
       // List endpoint is ORDER BY version DESC LIMIT 20.
       const sorted = [...deployments].sort((a, b) => b.version - a.version);
+      // Implicit previous-production must skip synthetic rollback rows —
+      // those are the highest version after a rollback, not a real deploy.
+      const isRollbackRow = (d: { triggerType?: string; trigger_type?: string }) =>
+        (d.triggerType ?? d.trigger_type) === "rollback";
       let target = deploymentId
         ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
-        : sorted.find((d) => d.status === "active" && d.id !== productionId);
+        : sorted.find((d) => d.status === "active" && d.id !== productionId && !isRollbackRow(d));
       // An explicit id missing from the 20-row page may still exist.
       if (deploymentId && !target) {
         target = await apiCall(jsonMode, "api_error", async () => {

@@ -1,6 +1,7 @@
 import { runCommand, runMain } from "citty";
+import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
-import { buildHelpSchema } from "./help-schema.js";
+import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -66,7 +67,29 @@ export async function runCli(
     );
   }
 
-  if (isHelp || isVersionOnly || !opts.jsonMode) {
+  if (isHelp || isVersionOnly) {
+    await runMain(main, { rawArgs });
+    return;
+  }
+
+  const unknownFlags = findUnknownFlags(main, rawArgs);
+  if (unknownFlags.length > 0) {
+    const schema = buildHelpSchema(main, rawArgs);
+    const path = schema.ok ? schema.path : [];
+    const message = unknownFlagMessage(unknownFlags, path);
+    if (opts.jsonMode) {
+      jsonOutput({ ok: false, error: "unknown_flag", message, flags: unknownFlags }, 1, [
+        {
+          command: `${["creek", ...path].join(" ") || "creek"} --help --json`,
+          description: "List flags this command actually accepts",
+        },
+      ]);
+    }
+    consola.error(message);
+    process.exit(1);
+  }
+
+  if (!opts.jsonMode) {
     await runMain(main, { rawArgs });
     return;
   }

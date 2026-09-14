@@ -64,7 +64,7 @@ function json() {
   return JSON.parse(stdout);
 }
 
-function deployment(id: string, status: string, createdAt: number) {
+function deployment(id: string, status: string, createdAt: number, triggerType: string = "cli") {
   return {
     id,
     projectId: "p1",
@@ -73,7 +73,7 @@ function deployment(id: string, status: string, createdAt: number) {
     branch: "main",
     commitSha: null,
     commitMessage: null,
-    triggerType: "cli",
+    triggerType,
     failedStep: null,
     errorMessage: null,
     createdAt,
@@ -156,6 +156,25 @@ describe("creek rollback --dry-run", () => {
       currentDeploymentId: "dep-old",
       targetDeploymentId: "dep-rollback",
     });
+  });
+
+  it("implicit previous skips synthetic triggerType=rollback rows", async () => {
+    server.use(
+      projectHandler("dep-rb-2"),
+      listHandler(
+        deployment("dep-rb-2", "active", 300, "rollback"),
+        deployment("dep-rb-1", "active", 200, "rollback"),
+        deployment("dep-real", "active", 100, "cli"),
+      ),
+    );
+    const code = await dryRun();
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: true,
+      currentDeploymentId: "dep-rb-2",
+      targetDeploymentId: "dep-real",
+    });
+    expect(json().nextStep).toBe(`creek rollback dep-real --project ${SLUG} --json`);
   });
 
   it("wouldExecute is false when the explicit target is already production", async () => {

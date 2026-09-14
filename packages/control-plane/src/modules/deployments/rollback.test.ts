@@ -43,11 +43,11 @@ function setupProject(productionDeploymentId: string | null = CURRENT_DEPLOY) {
   );
 }
 
-function setupDeployment(id: string, status = "active", version = 1) {
+function setupDeployment(id: string, status = "active", version = 1, triggerType = "cli") {
   const now = Date.now();
   testEnv.db.db.exec(
     `INSERT OR IGNORE INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
-     VALUES ('${id}', '${PROJECT_ID}', ${version}, '${status}', 'cli', ${now}, ${now})`,
+     VALUES ('${id}', '${PROJECT_ID}', ${version}, '${status}', '${triggerType}', ${now}, ${now})`,
   );
 }
 
@@ -139,6 +139,31 @@ describe("POST /projects/:id/rollback", () => {
     setupProject();
     setupDeployment(CURRENT_DEPLOY, "active", 1);
     // Only the current deploy exists — no previous
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
+    expect(res.status).toBe(400);
+    const body = await res.json<any>();
+    expect(body.error).toBe("no_previous");
+  });
+
+  test("implicit previous skips synthetic rollback rows", async () => {
+    // production is a rollback row (v3); v2 is also rollback; v1 is the real deploy.
+    setupProject("deploy-rb-2");
+    setupDeployment("deploy-real", "active", 1, "cli");
+    setupDeployment("deploy-rb-1", "active", 2, "rollback");
+    setupDeployment("deploy-rb-2", "active", 3, "rollback");
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
+    expect(res.status).toBe(200);
+    const body = await res.json<any>();
+    expect(body.ok).toBe(true);
+    expect(body.rolledBackTo).toBe("deploy-real");
+  });
+
+  test("implicit previous is no_previous when only rollback rows remain", async () => {
+    setupProject("deploy-rb-2");
+    setupDeployment("deploy-rb-1", "active", 1, "rollback");
+    setupDeployment("deploy-rb-2", "active", 2, "rollback");
 
     const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {});
     expect(res.status).toBe(400);

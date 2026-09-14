@@ -83,7 +83,7 @@ initial command before doing anything else:
 | "deploy failed" / "something broke" | See Failure Diagnosis below |
 | "add a database" / "need a DB" | `creek db create <name>` then `creek db attach <name> --to <project> --as DATABASE` |
 | "how do I run this locally" | `creek dev` |
-| "rollback the last deploy" | `creek rollback --json` |
+| "rollback the last deploy" | `creek rollback --dry-run --json`, then the `nextStep` (explicit id; skips synthetic rollback rows) |
 | "add a domain" | `creek domains add <host>`, DNS CNAME → `cname.creek.dev`, then `creek domains activate` |
 | "why isn't my push deploying" | Check project Settings → GitHub Connection in the dashboard |
 | "what env vars does it see" | `creek env ls --json` (add `--show` for values) |

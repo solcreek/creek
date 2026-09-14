@@ -614,10 +614,14 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
   // Find target deployment
   let targetId = body.deploymentId;
   if (!targetId) {
-    // No ID specified → find previous active production deployment
+    // No ID specified → previous active *real* production deploy.
+    // Rollback inserts a new active row with triggerType=rollback and the
+    // highest version; including those here makes the second implicit
+    // rollback land on the synthetic row instead of the prior CLI/GitHub
+    // deploy (agents following `creek rollback --json` hit this).
     const prev = await c.env.DB.prepare(
       `SELECT id FROM deployment WHERE projectId = ? AND status = 'active'
-       AND id != ? ORDER BY version DESC LIMIT 1`,
+       AND id != ? AND triggerType != 'rollback' ORDER BY version DESC LIMIT 1`,
     )
       .bind(project.id, project.productionDeploymentId)
       .first<{ id: string }>();
