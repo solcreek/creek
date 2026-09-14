@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -28,9 +28,9 @@ app.use(
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", service: "creek-mcp-server" }));
 
-// MCP endpoint — Streamable HTTP transport
-app.all("/mcp", async (c) => {
-  // MCP SDK requires a new server instance per request
+// MCP Streamable HTTP. Canonical URL is https://mcp.creek.dev — /mcp is
+// kept so existing client configs keep working.
+async function handleMcp(c: Context<{ Bindings: Env }>) {
   const server = new McpServer({
     name: "creek",
     version: "1.0.0",
@@ -54,20 +54,19 @@ app.all("/mcp", async (c) => {
       500,
     );
   }
-});
+}
 
-// SSE endpoint for clients that prefer Server-Sent Events
-app.get("/sse", async (c) => {
-  // Redirect to /mcp — StreamableHTTPServerTransport handles both
-  return c.redirect("/mcp", 301);
-});
+app.all("/", (c) => handleMcp(c));
+app.all("/mcp", (c) => handleMcp(c));
+
+app.get("/sse", (c) => c.redirect("/", 301));
 
 // Catch-all
 app.notFound((c) =>
   c.json(
     {
       error: "not_found",
-      message: "Creek MCP Server. Connect to /mcp using an MCP client.",
+      message: "Creek MCP Server. Connect to https://mcp.creek.dev using an MCP client.",
       docs: "https://creek.dev/docs/mcp",
     },
     404,

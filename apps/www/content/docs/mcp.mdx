@@ -17,7 +17,7 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
 {
   "mcpServers": {
     "creek": {
-      "url": "https://mcp.creek.dev/mcp",
+      "url": "https://mcp.creek.dev",
       "headers": {
         "Authorization": "Bearer <CREEK_TOKEN>"
       }
@@ -136,7 +136,7 @@ MCP requests are rate-limited per client IP (not per MCP server):
 - **Transport:** Streamable HTTP (Web Standard)
 - **Runtime:** Cloudflare Workers
 - **Protocol:** MCP 2025-03-26
-- **Endpoint:** `https://mcp.creek.dev/mcp`
+- **Endpoint:** `https://mcp.creek.dev` (`/mcp` still works)
 - **Health check:** `https://mcp.creek.dev/health`
 
 The MCP server is a stateless protocol translator — it forwards tool calls to Creek's Sandbox API. No data is stored in the MCP server itself.
