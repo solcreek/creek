@@ -24,6 +24,37 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return resolveApiKey(requestHeaders);
   }
 
+  function cpHeaders(apiKey: string): Record<string, string> {
+    return { "x-api-key": apiKey, "Content-Type": "application/json" };
+  }
+
+  function toolJson(data: unknown, isError = false) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+      ...(isError ? { isError: true as const } : {}),
+    };
+  }
+
+  async function cpFetch(apiKey: string, path: string, init?: RequestInit) {
+    const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+    const res = await fetch(`${base}${path}`, {
+      ...init,
+      headers: { ...cpHeaders(apiKey), ...(init?.headers as Record<string, string> | undefined) },
+    });
+    const data = await res.json().catch(() => ({ message: res.statusText }));
+    if (!res.ok) {
+      const err = data as { error?: string; message?: string };
+      return {
+        ok: false as const,
+        result: toolJson(
+          { ok: false, error: err.error ?? "api_error", message: err.message ?? res.statusText },
+          true,
+        ),
+      };
+    }
+    return { ok: true as const, data };
+  }
+
   /**
    * Forward client IP + internal secret so sandbox-api rate limits the real
    * client, not the MCP worker. sandbox-api only trusts X-Forwarded-For
@@ -294,12 +325,120 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   );
 
   // ================================================================
-  // Tier 2: Resource management
+  // Tier 1.5: Project read + env (header auth, no apiKey tool arg)
   // ================================================================
 
-  function cpHeaders(apiKey: string): Record<string, string> {
-    return { "x-api-key": apiKey, "Content-Type": "application/json" };
-  }
+  server.tool(
+    "list_projects",
+    "List projects in the authenticated team. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+    {},
+    async () => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, "/projects");
+      if (!got.ok) return got.result;
+      const rows = Array.isArray(got.data) ? got.data : [];
+      const projects = rows.map((p: Record<string, unknown>) => ({
+        id: p.id,
+        slug: p.slug ?? p.name,
+        framework: p.framework ?? null,
+        productionDeploymentId: p.productionDeploymentId ?? p.production_deployment_id ?? null,
+        productionBranch: p.productionBranch ?? p.production_branch ?? null,
+        githubRepo: p.githubRepo ?? p.github_repo ?? null,
+        updatedAt: p.updatedAt ?? p.updated_at ?? null,
+      }));
+      return toolJson({ ok: true, projects });
+    },
+  );
+
+  server.tool(
+    "get_status",
+    "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug (from list_projects)"),
+    },
+    async ({ projectSlug }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const project = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}`);
+      if (!project.ok) return project.result;
+      const p = project.data as Record<string, unknown>;
+      const deploys = await cpFetch(
+        apiKey,
+        `/projects/${encodeURIComponent(projectSlug)}/deployments`,
+      );
+      if (!deploys.ok) return deploys.result;
+      const list = Array.isArray(deploys.data) ? deploys.data : [];
+      const latest = list[0] as Record<string, unknown> | undefined;
+      return toolJson({
+        ok: true,
+        type: "project",
+        id: p.id,
+        slug: p.slug,
+        framework: p.framework ?? null,
+        productionDeploymentId: p.productionDeploymentId ?? p.production_deployment_id ?? null,
+        productionBranch: p.productionBranch ?? p.production_branch ?? null,
+        githubRepo: p.githubRepo ?? p.github_repo ?? null,
+        latestDeployment: latest
+          ? {
+              id: latest.id,
+              status: latest.status,
+              version: latest.version,
+              createdAt: latest.createdAt ?? latest.created_at ?? null,
+            }
+          : null,
+      });
+    },
+  );
+
+  server.tool(
+    "env_ls",
+    "List environment variable keys for a project. Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug"),
+    },
+    async ({ projectSlug }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
+      if (!got.ok) return got.result;
+      // CP `value` is mask(key), a placeholder — not a masked secret. Omit it.
+      const rows = Array.isArray(got.data) ? (got.data as Array<Record<string, unknown>>) : [];
+      const keys = rows.map((row) => row.key).filter((k): k is string => typeof k === "string");
+      return toolJson({ ok: true, project: projectSlug, keys });
+    },
+  );
+
+  server.tool(
+    "env_set",
+    "Set an environment variable on a project. Does not restart the worker — a production deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug"),
+      key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
+      value: z.string().describe("Secret value (not logged in the tool result)"),
+    },
+    async ({ projectSlug, key, value }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`, {
+        method: "POST",
+        body: JSON.stringify({ key, value }),
+      });
+      if (!got.ok) return got.result;
+      return toolJson({
+        ok: true,
+        project: projectSlug,
+        key,
+        pendingDeploy: true,
+        nextStep: "creek deploy --prod --json",
+        message: `${key} stored. Running worker is unchanged until the next production deploy.`,
+      });
+    },
+  );
+
+  // ================================================================
+  // Tier 2: Resource management
+  // ================================================================
 
   server.tool(
     "list_resources",

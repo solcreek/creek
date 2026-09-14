@@ -79,13 +79,13 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Init project | `creek init` | — | — | [/docs/cli/init](https://creek.dev/docs/cli/init) |
 | Login | `creek login [--token <KEY>]` | — | OAuth sign-in | [/docs/cli/login](https://creek.dev/docs/cli/login) |
 | Who am I | `creek whoami` | — | User menu | [/docs/cli/whoami](https://creek.dev/docs/cli/whoami) |
-| List projects | `creek projects` | — | /projects | [/docs/cli/projects](https://creek.dev/docs/cli/projects) |
+| List projects | `creek projects` | `list_projects` | /projects | [/docs/cli/projects](https://creek.dev/docs/cli/projects) |
 | List deployments | `creek deployments` | — | Project → Deployments | [/docs/cli/deployments](https://creek.dev/docs/cli/deployments) |
 | Build log | `creek deployments logs <id>` | `get_build_log` | Project → Deployments | [/docs/cli/deployments](https://creek.dev/docs/cli/deployments) |
 | Rollback | `creek rollback [<id>]` | — | Project → Deployments → ⋯ | [/docs/cli/rollback](https://creek.dev/docs/cli/rollback) |
 | Promote preview → production | — | — | Project → Deployments → Promote | [/docs/cli/rollback](https://creek.dev/docs/cli/rollback) |
-| Status | `creek status` | — | Per-project page | [/docs/cli/status](https://creek.dev/docs/cli/status) |
-| Env vars | `creek env set/ls/rm` | — | Project → Env tab | [/docs/cli/env](https://creek.dev/docs/cli/env) |
+| Status | `creek status` | `get_status` | Per-project page | [/docs/cli/status](https://creek.dev/docs/cli/status) |
+| Env vars | `creek env set/ls/rm` | `env_ls`, `env_set` | Project → Env tab | [/docs/cli/env](https://creek.dev/docs/cli/env) |
 | Team resources (DB / storage / cache / AI) | `creek db` / `storage` / `cache` | `list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database` | /resources | [/docs/cli/db](https://creek.dev/docs/cli/db) |
 | Custom domains | `creek domains add/ls/activate/rm` | — | — | [/docs/cli/domains](https://creek.dev/docs/cli/domains) |
 | Cron triggers | declared in `creek.toml`, shown in `creek status` | — | Settings → Triggers | [/docs/cron](https://creek.dev/docs/cron) |
@@ -93,7 +93,7 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Per-tenant analytics | — | — | Project → Analytics tab | [/docs/analytics](https://creek.dev/docs/analytics) |
 | Dev server (local) | `creek dev` | — | — | [/docs/cli/dev](https://creek.dev/docs/cli/dev) |
 
-Non-interactive (agent/CI) deploys must pass `--sandbox` or `--prod`. `--json` is auto-enabled without a TTY; it does not skip that gate. MCP has no `deploy_project`, `list_projects`, `list_deployments`, or `set_env_var` tools — those names are not implemented. Use the CLI for project-level deploy/list/env.
+Non-interactive (agent/CI) deploys must pass `--sandbox` or `--prod`. `--json` is auto-enabled without a TTY; it does not skip that gate. MCP project read/env tools are `list_projects`, `get_status`, `env_ls`, `env_set` (header auth). There is still no MCP `deploy_project` or `rollback` — use the CLI for production deploy.
 
 ---
 
