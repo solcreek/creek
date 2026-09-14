@@ -202,4 +202,100 @@ describe("MCP authenticated tools", () => {
     expect(saw["x-api-key"]).toBe("ck_live_test");
     expect(JSON.parse(result.content[0].text)[0].name).toBe("db");
   });
+
+  it("list_projects without a header is not_authenticated", async () => {
+    const list = registerAndCapture().get("list_projects")!;
+    const result = await list({});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toBe("not_authenticated");
+  });
+
+  it("list_projects returns a slim project list", async () => {
+    server.use(
+      http.get("https://cp.test/projects", () =>
+        HttpResponse.json([
+          {
+            id: "p1",
+            slug: "hello",
+            framework: "vite-react",
+            productionDeploymentId: "d1",
+            productionBranch: "main",
+            githubRepo: "acme/hello",
+            updatedAt: 1,
+          },
+        ]),
+      ),
+    );
+    const list = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "list_projects",
+    )!;
+    const result = await list({});
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      projects: [{ slug: "hello", framework: "vite-react", productionDeploymentId: "d1" }],
+    });
+  });
+
+  it("get_status includes latest deployment", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello", () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "hello",
+          framework: "vite-react",
+          productionDeploymentId: "dep-new",
+          productionBranch: "main",
+        }),
+      ),
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          { id: "dep-new", status: "active", version: 2, createdAt: 200 },
+          { id: "dep-old", status: "active", version: 1, createdAt: 100 },
+        ]),
+      ),
+    );
+    const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
+    const result = await get({ projectSlug: "hello" });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      slug: "hello",
+      productionDeploymentId: "dep-new",
+      latestDeployment: { id: "dep-new", status: "active", version: 2 },
+    });
+  });
+
+  it("env_ls returns masked vars and env_set does not echo the value", async () => {
+    let posted: unknown;
+    server.use(
+      http.get("https://cp.test/projects/hello/env", () =>
+        HttpResponse.json([{ key: "DATABASE_URL", value: "DAT***URL" }]),
+      ),
+      http.post("https://cp.test/projects/hello/env", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({ ok: true, key: "API_TOKEN" });
+      }),
+    );
+    const headers = new Headers({ authorization: "Bearer ck_live_test" });
+    const tools = registerAndCapture(headers);
+    const ls = await tools.get("env_ls")!({ projectSlug: "hello" });
+    expect(JSON.parse(ls.content[0].text)).toMatchObject({
+      ok: true,
+      vars: [{ key: "DATABASE_URL" }],
+    });
+    const set = await tools.get("env_set")!({
+      projectSlug: "hello",
+      key: "API_TOKEN",
+      value: "super-secret",
+    });
+    const payload = JSON.parse(set.content[0].text);
+    expect(posted).toEqual({ key: "API_TOKEN", value: "super-secret" });
+    expect(payload).toMatchObject({
+      ok: true,
+      key: "API_TOKEN",
+      pendingDeploy: true,
+      nextStep: "creek deploy --prod --json",
+    });
+    expect(JSON.stringify(payload)).not.toContain("super-secret");
+  });
 });

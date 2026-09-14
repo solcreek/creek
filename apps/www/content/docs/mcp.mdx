@@ -64,6 +64,36 @@ Delete a sandbox before it expires.
 **Input:**
 - `sandboxId` — `string`
 
+### `list_projects`
+
+List projects in the authenticated team.
+
+**Auth:** `Authorization: Bearer` or `x-api-key`
+
+**Output:** `{ ok, projects: [{ id, slug, framework, productionDeploymentId, productionBranch, githubRepo, updatedAt }] }`
+
+### `get_status`
+
+Remote status for one project.
+
+**Input:** `projectSlug`
+
+**Output:** `{ ok, type: "project", slug, framework, productionDeploymentId, latestDeployment }`
+
+### `env_ls`
+
+List env var **keys** (values are masked).
+
+**Input:** `projectSlug`
+
+### `env_set`
+
+Create or update an env var. Does not restart the worker.
+
+**Input:** `projectSlug`, `key`, `value`
+
+**Output:** `{ ok, key, pendingDeploy: true, nextStep: "creek deploy --prod --json" }` — the value is never echoed.
+
 ## Example
 
 An AI agent can deploy a website in a single tool call:
@@ -83,9 +113,11 @@ Agent:
 |-------|:------------:|
 | Sandbox tools (`deploy`, `deploy_demo`, `deploy_status`, `deploy_delete`) | No |
 | Build log (`get_build_log`) | `Authorization: Bearer` or `x-api-key` header |
+| Projects (`list_projects`, `get_status`) | same header |
+| Env (`env_ls`, `env_set`) | same header |
 | Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | same header |
 
-There is no `deploy_project`, `list_projects`, or `set_env_var` tool. Project-level deploy, listing, and env vars are CLI-only (`creek deploy --sandbox/--prod`, `creek projects`, `creek env`).
+Production deploy and rollback are still CLI-only (`creek deploy --prod`, `creek rollback`). `env_set` stores the var but does not restart the worker — follow with `creek deploy --prod --json`.
 
 Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`~/.creek/config.json` or `CREEK_TOKEN`).
 
