@@ -73,7 +73,7 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Verify a preview URL is live | `creek verify <url>` | — (GET the URL) | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy directory | `creek deploy ./dist --sandbox` | — | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy from GitHub URL | `creek deploy <repo-url> --sandbox` | — | Dashboard → New Project | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
-| Deploy latest commit via connection | `creek deploy --from-github --prod [--project <slug>]` | — | Project → Deploy latest | [/docs/cli/deploy#from-github](https://creek.dev/docs/cli/deploy) |
+| Deploy latest commit via connection | `creek deploy --from-github --prod [--project <slug>]` | `deploy_prod` | Project → Deploy latest | [/docs/cli/deploy#from-github](https://creek.dev/docs/cli/deploy) |
 | GitHub auto-deploy (push → build) | — | — | Settings → GitHub Connection | [/docs/github](https://creek.dev/docs/github) |
 | Pull request previews | — (automatic) | — | Commit status on PR | [/docs/github](https://creek.dev/docs/github) |
 | Init project | `creek init` | — | — | [/docs/cli/init](https://creek.dev/docs/cli/init) |

@@ -493,7 +493,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "list_deployments",
-    "List recent deployments for a project (newest first). Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
     },
@@ -508,6 +508,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         version: d.version,
         status: d.status,
         branch: d.branch ?? null,
+        triggerType: d.triggerType ?? d.trigger_type ?? null,
         createdAt: d.createdAt ?? d.created_at ?? null,
       }));
       return toolJson({ ok: true, project: projectSlug, deployments });
@@ -516,21 +517,37 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "rollback",
-    "Roll production back to a previous active deployment. Omit deploymentId to use the previous production. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
       deploymentId: z
         .string()
-        .optional()
-        .describe("Target deployment id. Omit to roll back to the previous production."),
+        .trim()
+        .min(1)
+        .describe(
+          "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
+        ),
       message: z.string().optional().describe("Optional rollback reason"),
     },
     async ({ projectSlug, deploymentId, message }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const body: Record<string, string> = {};
-      if (deploymentId) body.deploymentId = deploymentId;
-      if (message) body.message = message;
+      // Never omit deploymentId: an empty target makes the control plane pick
+      // "previous production", which after one rollback can be a synthetic row.
+      const id = deploymentId.trim();
+      if (!id) {
+        return toolJson(
+          {
+            ok: false,
+            error: "deployment_id_required",
+            message:
+              "rollback requires a non-empty deploymentId from list_deployments (active, triggerType !== rollback).",
+          },
+          true,
+        );
+      }
+      const body: Record<string, string> = { deploymentId: id };
+      if (message !== undefined && message.length > 0) body.message = message;
       const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/rollback`, {
         method: "POST",
         body: JSON.stringify(body),

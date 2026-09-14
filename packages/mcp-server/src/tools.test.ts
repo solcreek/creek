@@ -352,8 +352,22 @@ describe("MCP authenticated tools", () => {
     server.use(
       http.get("https://cp.test/projects/hello/deployments", () =>
         HttpResponse.json([
-          { id: "d2", version: 2, status: "active", branch: "main", createdAt: 200 },
-          { id: "d1", version: 1, status: "active", branch: "main", createdAt: 100 },
+          {
+            id: "d2",
+            version: 2,
+            status: "active",
+            branch: "main",
+            triggerType: "cli",
+            createdAt: 200,
+          },
+          {
+            id: "d1",
+            version: 1,
+            status: "active",
+            branch: "main",
+            triggerType: "rollback",
+            createdAt: 100,
+          },
         ]),
       ),
     );
@@ -364,10 +378,16 @@ describe("MCP authenticated tools", () => {
     const payload = JSON.parse(result.content[0].text);
     expect(payload.ok).toBe(true);
     expect(payload.deployments).toHaveLength(2);
-    expect(payload.deployments[0]).toMatchObject({ id: "d2", version: 2, status: "active" });
+    expect(payload.deployments[0]).toMatchObject({
+      id: "d2",
+      version: 2,
+      status: "active",
+      triggerType: "cli",
+    });
+    expect(payload.deployments[1]).toMatchObject({ id: "d1", triggerType: "rollback" });
   });
 
-  it("rollback POSTs the optional deploymentId", async () => {
+  it("rollback POSTs the required deploymentId even if other fields are empty", async () => {
     let posted: unknown;
     server.use(
       http.post("https://cp.test/projects/hello/rollback", async ({ request }) => {
@@ -388,6 +408,26 @@ describe("MCP authenticated tools", () => {
     expect(JSON.parse(result.content[0].text)).toMatchObject({
       ok: true,
       rolledBackTo: "d1",
+    });
+  });
+
+  it("rollback rejects an empty deploymentId without calling the control plane", async () => {
+    let posted = false;
+    server.use(
+      http.post("https://cp.test/projects/hello/rollback", () => {
+        posted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const rb = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "rollback",
+    )!;
+    const result = await rb({ projectSlug: "hello", deploymentId: "   " });
+    expect(posted).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: false,
+      error: "deployment_id_required",
     });
   });
 

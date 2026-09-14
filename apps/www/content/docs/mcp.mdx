@@ -118,11 +118,13 @@ Recent deployments, newest first.
 
 **Input:** `projectSlug`
 
+**Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt }] }` — pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
+
 ### `rollback`
 
 Roll production back to a previous active deployment.
 
-**Input:** `projectSlug`, optional `deploymentId`, optional `message`
+**Input:** `projectSlug`, required `deploymentId` (active non-rollback row from `list_deployments`), optional `message`
 
 ## Example
 
@@ -168,4 +170,4 @@ MCP requests are rate-limited per client IP (not per MCP server):
 - **Endpoint:** `https://mcp.creek.dev` (`/mcp` still works)
 - **Health check:** `https://mcp.creek.dev/health`
 
-The MCP server is a stateless protocol translator — it forwards tool calls to Creek's Sandbox API. No data is stored in the MCP server itself.
+The MCP server is a stateless protocol translator. Sandbox tools (`deploy`, `deploy_demo`, …) call the Sandbox API; authenticated project/env/deploy tools call the Control Plane. No data is stored in the MCP server itself.
