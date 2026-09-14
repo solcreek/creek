@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "path": [
+    "doctor"
+  ],
+  "command": {
+    "name": "doctor",
+    "args": [
+      {
+        "name": "path",
+        "type": "positional",
+        "description": "Project directory to analyze. Defaults to cwd."
+      },
+      {
+        "name": "last",
+        "type": "boolean",
+        "description": "Diagnose the most recent FAILED deployment instead of running pre-deploy checks. Fetches the build log and matches errorCode against the CK-* fix table.",
+        "default": false
+      },
+      {
+        "name": "project",
+        "type": "string",
+        "description": "Project slug for --last (default: read from creek.toml in cwd)"
+      },
+      {
+        "name": "json",
+        "type": "boolean",
+        "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+        "default": false
+      },
+      {
+        "name": "yes",
+        "type": "boolean",
+        "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+        "default": false,
+        "alias": "y"
+      }
+    ],
+    "dryRun": false,
+    "destructive": false,
+    "subcommands": [],
+    "description": "Analyze the project for pre-deploy issues — missing build output, deprecated config keys, Workers-incompatible deps, portability leaks."
+  }
+}

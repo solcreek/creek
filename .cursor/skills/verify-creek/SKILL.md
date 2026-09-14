@@ -42,7 +42,7 @@ On a cold agent (this workspace):
 pnpm --filter @solcreek/sdk --filter @solcreek/cli build
 ```
 
-If that fails with `Failed to import module "unrun"` (tsdown auto config-loader; `unrun` is an optional peer this repo does not declare), the command that **does** produce `packages/cli/dist/index.js`:
+Verified on Node v22.22.2: that filter pair writes `packages/cli/dist/index.js` and `node packages/cli/dist/index.js --help --json` exits 0. If it fails with `Failed to import module "unrun"` (tsdown auto config-loader on older Node; `unrun` is an optional peer this repo does not declare), use:
 
 ```bash
 pnpm --filter @solcreek/sdk exec tsdown --config-loader native

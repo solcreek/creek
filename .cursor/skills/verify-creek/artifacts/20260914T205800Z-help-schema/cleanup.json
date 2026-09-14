@@ -1,0 +1,11 @@
+{
+  "runId": "20260914T205800Z-help-schema",
+  "scratch": "/tmp/creek-verify-20260914T205800Z-help-schema",
+  "scratchExisted": true,
+  "scratchRemoved": true,
+  "artifacts": "/workspace/.cursor/skills/verify-creek/artifacts/20260914T205800Z-help-schema",
+  "artifactsPreserved": true,
+  "pidsSignaled": [],
+  "tmuxSessionsKilled": [],
+  "note": "Did not delete artifacts. Did not kill processes by name."
+}

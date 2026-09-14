@@ -1,0 +1,2037 @@
+{
+  "ok": true,
+  "path": [],
+  "command": {
+    "name": "creek",
+    "args": [],
+    "dryRun": false,
+    "destructive": false,
+    "subcommands": [
+      {
+        "name": "dev",
+        "args": [
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          },
+          {
+            "name": "port",
+            "type": "string",
+            "description": "Port number (default: 3000)",
+            "default": "3000"
+          },
+          {
+            "name": "target",
+            "type": "string",
+            "description": "Deploy target override: cf (Miniflare) or creekd (sandbox VM)"
+          },
+          {
+            "name": "reset",
+            "type": "boolean",
+            "description": "Clear local data before starting"
+          },
+          {
+            "name": "dashboard",
+            "type": "boolean",
+            "description": "Open the web dashboard after server starts"
+          },
+          {
+            "name": "top",
+            "type": "boolean",
+            "description": "Show creek top alongside the dev server"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Start local development server. Auto-detects target from creek.toml (cf = Miniflare, creekd = sandbox VM with real Postgres/Redis)."
+      },
+      {
+        "name": "deploy",
+        "args": [
+          {
+            "name": "dir",
+            "type": "positional",
+            "description": "Directory to deploy (default: current directory). Also accepts a GitHub repo URL to clone-and-deploy."
+          },
+          {
+            "name": "skip-build",
+            "type": "boolean",
+            "description": "Skip the build step \u2014 upload existing build output as-is. Useful when CI already built the artifact.",
+            "default": false
+          },
+          {
+            "name": "dry-run",
+            "type": "boolean",
+            "description": "Show what would be deployed without doing it: resolved config, detected framework, bindings, target URL, auth status. No network calls, no file uploads. Pair with --json for machine-readable plan output. Safe for agents.",
+            "default": false
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          },
+          {
+            "name": "template",
+            "type": "string",
+            "description": "Deploy a named template (e.g., landing, blog, todo). Combine with --data to pass template params."
+          },
+          {
+            "name": "data",
+            "type": "string",
+            "description": "JSON string of template parameters (used with --template). Example: --data '{\"title\":\"Hello\"}'"
+          },
+          {
+            "name": "path",
+            "type": "string",
+            "description": "Subdirectory within the repo to deploy, for monorepos. Example: --path apps/web"
+          },
+          {
+            "name": "no-cache",
+            "type": "boolean",
+            "description": "Skip build cache check \u2014 always build locally. Use when you suspect cached output is stale or you changed build config without changing source files.",
+            "default": false
+          },
+          {
+            "name": "from-github",
+            "type": "boolean",
+            "description": "Skip local build; trigger a remote deploy of the latest commit on the project's production branch via its GitHub connection.",
+            "default": false
+          },
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Target project slug or UUID. Required with --from-github when not run inside a project directory."
+          },
+          {
+            "name": "watch",
+            "type": "boolean",
+            "description": "After deploy lands, poll status.conditions[] until Ready=True or Degraded reason=DeployTimeout (self-host creekd target only). Default poll = 1s, default budget = 5min.",
+            "default": false
+          },
+          {
+            "name": "watch-timeout-ms",
+            "type": "string",
+            "description": "Client-side watch budget in milliseconds (default 300000 = 5min). Independent of the daemon's progressing_timeout."
+          },
+          {
+            "name": "prod",
+            "type": "boolean",
+            "description": "Publish to your team's production slot (permanent URL). Explicit production intent \u2014 skips the confirm prompt and the implicit-production deprecation warning. Only takes effect when signed in; without a session the deploy falls back to a sandbox. Mutually exclusive with --sandbox.",
+            "default": false
+          },
+          {
+            "name": "sandbox",
+            "type": "boolean",
+            "description": "Deploy to an ephemeral 60-minute sandbox even when signed in \u2014 preview without touching production. Mutually exclusive with --prod.",
+            "default": false
+          },
+          {
+            "name": "wait",
+            "type": "string",
+            "description": "How long to keep polling for the deploy to finish before the CLI gives up. Accepts a suffixed duration (15m, 900s, 2h) or a bare number in milliseconds (300000); clamped to [1s, 60m]. Default 2m. The server keeps deploying regardless \u2014 this only controls how long the CLI waits. Raise it for CI/automation that must observe the terminal status."
+          }
+        ],
+        "dryRun": true,
+        "destructive": true,
+        "subcommands": [],
+        "description": "Deploy the current project to Creek. Signed-in: publishes to your team's production slot \u2014 an interactive confirm gates it, while --prod, --yes, or --json proceed without the prompt (--sandbox previews instead). Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent \u2014 use --dry-run first to inspect the plan without executing."
+      },
+      {
+        "name": "status",
+        "args": [
+          {
+            "name": "id",
+            "type": "positional",
+            "description": "Sandbox ID (optional \u2014 defaults to current project)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Check deployment or sandbox status"
+      },
+      {
+        "name": "projects",
+        "args": [
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "list",
+            "args": [
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List all projects"
+          },
+          {
+            "name": "delete",
+            "args": [
+              {
+                "name": "slug",
+                "type": "positional",
+                "description": "Project slug or id to delete",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Delete a project (by slug or id). Does not delete its team-owned databases/buckets."
+          }
+        ],
+        "description": "List and manage projects"
+      },
+      {
+        "name": "deployments",
+        "args": [
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Project slug (default: from creek.toml)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "list",
+            "args": [
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List recent deployments"
+          },
+          {
+            "name": "logs",
+            "args": [
+              {
+                "name": "id",
+                "type": "positional",
+                "description": "Deployment id (8-char short id or full uuid)",
+                "required": true
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "raw",
+                "type": "boolean",
+                "description": "Print raw ndjson lines instead of step-grouped output",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Read the build log for a deployment (production + branch + preview). Use --project to target a different project; --raw to print ndjson for piping. Designed so AI coding agents can diagnose failed deploys without a human relay."
+          }
+        ],
+        "description": "List deployments and read build logs"
+      },
+      {
+        "name": "logs",
+        "args": [
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Project slug. Defaults to creek.toml in cwd."
+          },
+          {
+            "name": "since",
+            "type": "string",
+            "description": "Time window start. Relative (1h, 30m, 2d) or ISO. Default: 1h"
+          },
+          {
+            "name": "until",
+            "type": "string",
+            "description": "Time window end. \"now\" or ISO. Default: now"
+          },
+          {
+            "name": "outcome",
+            "type": "string",
+            "description": "Filter by tail outcome. Repeatable via comma (ok,exception)."
+          },
+          {
+            "name": "errors",
+            "type": "boolean",
+            "description": "Only failed requests \u2014 matches the error count in `creek metrics`. Broader than --outcome exception: also catches an exception thrown after the response started, and 5xx responses."
+          },
+          {
+            "name": "script-type",
+            "type": "string",
+            "description": "Filter by production/branch/deployment. Repeatable via comma."
+          },
+          {
+            "name": "deployment",
+            "type": "string",
+            "description": "8-hex deploy id \u2014 scopes to that single deployment preview."
+          },
+          {
+            "name": "branch",
+            "type": "string",
+            "description": "Branch name \u2014 scopes to that branch preview."
+          },
+          {
+            "name": "level",
+            "type": "string",
+            "description": "Filter by console level (error,warn,...). Entry needs at least one matching log line."
+          },
+          {
+            "name": "search",
+            "type": "string",
+            "description": "Substring match against console messages, exceptions, and request URLs."
+          },
+          {
+            "name": "limit",
+            "type": "string",
+            "description": "Max entries to print. Default 100, max 1000."
+          },
+          {
+            "name": "follow",
+            "type": "boolean",
+            "description": "Live tail via WebSocket. Prints recent context first, then streams new entries until Ctrl+C."
+          },
+          {
+            "name": "server",
+            "type": "string",
+            "description": "creekd admin API URL \u2014 routes to creekd log tail instead of control-plane (or $CREEKD_URL)"
+          },
+          {
+            "name": "creekd-token",
+            "type": "string",
+            "description": "Bearer token for creekd (or $CREEKD_TOKEN)"
+          },
+          {
+            "name": "tail",
+            "type": "string",
+            "description": "Number of lines (creekd mode only, default 100)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Read recent log entries for a project. Only worker invocations appear \u2014 edge-cached requests don't invoke the worker and won't show here. Use `creek metrics` for total traffic including cache hits."
+      },
+      {
+        "name": "metrics",
+        "args": [
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Project slug. Defaults to creek.toml in cwd."
+          },
+          {
+            "name": "period",
+            "type": "string",
+            "description": "Time window. One of: 1h, 6h, 24h, 7d, 30d. Default: 24h"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Read request + error metrics for a project. One-shot query \u2014 pair with --json for agent use or `| jq` piping."
+      },
+      {
+        "name": "doctor",
+        "args": [
+          {
+            "name": "path",
+            "type": "positional",
+            "description": "Project directory to analyze. Defaults to cwd."
+          },
+          {
+            "name": "last",
+            "type": "boolean",
+            "description": "Diagnose the most recent FAILED deployment instead of running pre-deploy checks. Fetches the build log and matches errorCode against the CK-* fix table.",
+            "default": false
+          },
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Project slug for --last (default: read from creek.toml in cwd)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Analyze the project for pre-deploy issues \u2014 missing build output, deprecated config keys, Workers-incompatible deps, portability leaks."
+      },
+      {
+        "name": "verify",
+        "args": [
+          {
+            "name": "url",
+            "type": "positional",
+            "description": "http(s) URL to fetch (the preview URL from `creek deploy --sandbox`)",
+            "required": true
+          },
+          {
+            "name": "contains",
+            "type": "string",
+            "description": "Substring that must appear in the response body. Repeat the flag is not supported; pass one needle. Do not assert the whole document \u2014 sandbox previews inject a banner script."
+          },
+          {
+            "name": "timeout-ms",
+            "type": "string",
+            "description": "Fetch timeout in milliseconds (default 10000)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "GET a preview or production URL and report whether it is live. Pair with --json after `creek deploy --sandbox`. Optional --contains asserts a substring is present (sandbox banner HTML is ignored \u2014 assert your markup, not the whole document)."
+      },
+      {
+        "name": "login",
+        "args": [
+          {
+            "name": "token",
+            "type": "string",
+            "description": "API key (for CI/CD, skips interactive prompt)"
+          },
+          {
+            "name": "headless",
+            "type": "boolean",
+            "description": "Use headless mode (paste API key manually, for SSH/remote)",
+            "default": false
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Authenticate with Creek"
+      },
+      {
+        "name": "whoami",
+        "args": [
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Show the currently authenticated user"
+      },
+      {
+        "name": "init",
+        "args": [
+          {
+            "name": "name",
+            "type": "positional",
+            "description": "Project name (project init) OR host short-name (self-host init)"
+          },
+          {
+            "name": "db",
+            "type": "boolean",
+            "description": "Add a database without prompting \u2014 writes [resources] database = true and scaffolds worker/index.ts. Required to get the database path in non-interactive runs (the prompt is skipped there).",
+            "default": false
+          },
+          {
+            "name": "adopt",
+            "type": "string",
+            "description": "TOFU-pin a creekd host at <addr> (Path B). Fetches GET /v1/hostkey, prompts to verify, writes ~/.creek/hosts.json."
+          },
+          {
+            "name": "hostkey-fingerprint",
+            "type": "string",
+            "description": "Out-of-band fingerprint paste (Path C). \"sha256:<hex>\" \u2014 pasted from provider console or paper bundle. Requires --adopt for the addr."
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Initialize a new Creek project \u2014 writes creek.toml (project name, build command/output, detected framework) and, if you add a database (interactive prompt or --db), a worker/index.ts example. Or register a self-host creekd via --adopt / --hostkey-fingerprint."
+      },
+      {
+        "name": "claim",
+        "args": [
+          {
+            "name": "sandboxId",
+            "type": "positional",
+            "description": "Sandbox ID to claim (shown after sandbox deploy)",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "description": "Project name to reserve (defaults to creek.toml's [project].name, then the sandbox template/id)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Claim a sandbox deployment as a permanent project"
+      },
+      {
+        "name": "env",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "set",
+            "args": [
+              {
+                "name": "key",
+                "type": "positional",
+                "description": "Variable name (e.g. DATABASE_URL)",
+                "required": true
+              },
+              {
+                "name": "value",
+                "type": "positional",
+                "description": "Variable value",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Set an environment variable"
+          },
+          {
+            "name": "ls",
+            "args": [
+              {
+                "name": "show",
+                "type": "boolean",
+                "description": "Show values in plaintext (default: redacted)",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List environment variables"
+          },
+          {
+            "name": "rm",
+            "args": [
+              {
+                "name": "key",
+                "type": "positional",
+                "description": "Variable name to remove",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Remove an environment variable"
+          },
+          {
+            "name": "rm",
+            "args": [
+              {
+                "name": "key",
+                "type": "positional",
+                "description": "Variable name to remove",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Remove an environment variable"
+          }
+        ],
+        "description": "Manage environment variables"
+      },
+      {
+        "name": "queue",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "send",
+            "args": [
+              {
+                "name": "message",
+                "type": "positional",
+                "description": "Message body (string, or use --json for JSON content)",
+                "required": true
+              },
+              {
+                "name": "parseJson",
+                "type": "boolean",
+                "description": "Parse message as JSON",
+                "default": false,
+                "alias": "j"
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (defaults to current creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Send a message to the project's queue"
+          }
+        ],
+        "description": "Send messages to the project's queue"
+      },
+      {
+        "name": "db",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "ls",
+            "args": [
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List databases in the current team"
+          },
+          {
+            "name": "create",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "database name (lowercase, dash/underscore, \u226463 chars)",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Create a new team database. Backing infrastructure is auto-provisioned."
+          },
+          {
+            "name": "attach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "database name (as shown by `creek db ls`)",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "Project slug to attach to",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (uppercase, default: DB)",
+                "default": "DB"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Attach a database to a project under the given ENV var name"
+          },
+          {
+            "name": "detach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "database name",
+                "required": true
+              },
+              {
+                "name": "from",
+                "type": "string",
+                "description": "Project slug to detach from",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (default: DB)",
+                "default": "DB"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Remove a database binding from a project"
+          },
+          {
+            "name": "rename",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "Current database name",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "New name",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Rename a database (stable UUID is preserved; all bindings keep working)"
+          },
+          {
+            "name": "delete",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "database name",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Delete a database. Fails if any project still binds to it \u2014 detach first."
+          },
+          {
+            "name": "shell",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "Database name (as shown by `creek db ls`). Optional when --project is given or run inside a project directory."
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given."
+              },
+              {
+                "name": "sql",
+                "type": "string",
+                "description": "SQL query to execute (non-interactive mode). Omit for interactive REPL."
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Execute SQL against a team database. Interactive REPL or single query with --sql."
+          },
+          {
+            "name": "migrate",
+            "args": [
+              {
+                "name": "name",
+                "type": "string",
+                "description": "Database name (as shown by `creek db ls`). May also be given as the first positional argument. Optional when --project is given or run inside a project directory with a single bound database."
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given."
+              },
+              {
+                "name": "dir",
+                "type": "string",
+                "description": "Migration directory path. Default: auto-detect drizzle/, drizzle/migrations/, prisma/migrations/, migrations/, sql/"
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Show pending migrations without executing them.",
+                "default": false
+              },
+              {
+                "name": "resume",
+                "type": "boolean",
+                "description": "Reconcile a partially-applied migration: if applying fails because objects already exist, mark it applied and continue. Use after an interrupted run.",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order."
+          },
+          {
+            "name": "seed",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "Database name (as shown by `creek db ls`)",
+                "required": true
+              },
+              {
+                "name": "file",
+                "type": "string",
+                "description": "Path to seed SQL file. Default: auto-detect seed.sql in drizzle/, migrations/, sql/, or project root."
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Execute a seed SQL file against a team database. Looks for seed.sql in common locations or use --file to specify."
+          }
+        ],
+        "description": "Manage team-owned databases. Each database is a stable, renameable resource that can be attached to one or more projects."
+      },
+      {
+        "name": "storage",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "ls",
+            "args": [
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List storage buckets in the current team"
+          },
+          {
+            "name": "create",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "storage bucket name (lowercase, dash/underscore, \u226463 chars)",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Create a new team storage bucket. Backing infrastructure is auto-provisioned."
+          },
+          {
+            "name": "attach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "storage bucket name (as shown by `creek storage ls`)",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "Project slug to attach to",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (uppercase, default: STORAGE)",
+                "default": "STORAGE"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Attach a storage bucket to a project under the given ENV var name"
+          },
+          {
+            "name": "detach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "storage bucket name",
+                "required": true
+              },
+              {
+                "name": "from",
+                "type": "string",
+                "description": "Project slug to detach from",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (default: STORAGE)",
+                "default": "STORAGE"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Remove a storage bucket binding from a project"
+          },
+          {
+            "name": "rename",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "Current storage bucket name",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "New name",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Rename a storage bucket (stable UUID is preserved; all bindings keep working)"
+          },
+          {
+            "name": "delete",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "storage bucket name",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Delete a storage bucket. Fails if any project still binds to it \u2014 detach first."
+          }
+        ],
+        "description": "Manage team-owned storage buckets. Each storage bucket is a stable, renameable resource that can be attached to one or more projects."
+      },
+      {
+        "name": "cache",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "ls",
+            "args": [
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List cache namespaces in the current team"
+          },
+          {
+            "name": "create",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "cache namespace name (lowercase, dash/underscore, \u226463 chars)",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Create a new team cache namespace. Backing infrastructure is auto-provisioned."
+          },
+          {
+            "name": "attach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "cache namespace name (as shown by `creek cache ls`)",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "Project slug to attach to",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (uppercase, default: KV)",
+                "default": "KV"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Attach a cache namespace to a project under the given ENV var name"
+          },
+          {
+            "name": "detach",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "cache namespace name",
+                "required": true
+              },
+              {
+                "name": "from",
+                "type": "string",
+                "description": "Project slug to detach from",
+                "required": true
+              },
+              {
+                "name": "as",
+                "type": "string",
+                "description": "ENV var name (default: KV)",
+                "default": "KV"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Remove a cache namespace binding from a project"
+          },
+          {
+            "name": "rename",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "Current cache namespace name",
+                "required": true
+              },
+              {
+                "name": "to",
+                "type": "string",
+                "description": "New name",
+                "required": true
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Rename a cache namespace (stable UUID is preserved; all bindings keep working)"
+          },
+          {
+            "name": "delete",
+            "args": [
+              {
+                "name": "name",
+                "type": "positional",
+                "description": "cache namespace name",
+                "required": true
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Delete a cache namespace. Fails if any project still binds to it \u2014 detach first."
+          }
+        ],
+        "description": "Manage team-owned cache namespaces. Each cache namespace is a stable, renameable resource that can be attached to one or more projects."
+      },
+      {
+        "name": "domains",
+        "args": [],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [
+          {
+            "name": "ls",
+            "args": [
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "List custom domains"
+          },
+          {
+            "name": "show",
+            "args": [
+              {
+                "name": "hostname",
+                "type": "positional",
+                "description": "Domain to show",
+                "required": true
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Show a domain's status and the DNS records to set"
+          },
+          {
+            "name": "add",
+            "args": [
+              {
+                "name": "hostname",
+                "type": "positional",
+                "description": "Domain to add (e.g., app.example.com)",
+                "required": true
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Add a custom domain"
+          },
+          {
+            "name": "rm",
+            "args": [
+              {
+                "name": "hostname",
+                "type": "positional",
+                "description": "Domain to remove",
+                "required": true
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "dry-run",
+                "type": "boolean",
+                "description": "Preview the change without executing it",
+                "default": false
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": true,
+            "destructive": true,
+            "subcommands": [],
+            "description": "Remove a custom domain"
+          },
+          {
+            "name": "activate",
+            "args": [
+              {
+                "name": "hostname",
+                "type": "positional",
+                "description": "Domain to activate",
+                "required": true
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "Project slug (default: from creek.toml)"
+              },
+              {
+                "name": "json",
+                "type": "boolean",
+                "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+                "default": false
+              },
+              {
+                "name": "yes",
+                "type": "boolean",
+                "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+                "default": false,
+                "alias": "y"
+              }
+            ],
+            "dryRun": false,
+            "destructive": false,
+            "subcommands": [],
+            "description": "Activate a pending custom domain"
+          }
+        ],
+        "description": "Manage custom domains"
+      },
+      {
+        "name": "rollback",
+        "args": [
+          {
+            "name": "deployment",
+            "type": "positional",
+            "description": "Deployment ID to rollback to (default: previous, CF Workers target)"
+          },
+          {
+            "name": "message",
+            "type": "string",
+            "description": "Rollback reason (stored in audit log)",
+            "alias": "m"
+          },
+          {
+            "name": "project",
+            "type": "string",
+            "description": "Project slug (default: from creek.toml)"
+          },
+          {
+            "name": "host",
+            "type": "string",
+            "description": "Roll back on the named self-host creekd (from ~/.creek/hosts.json). Requires --to."
+          },
+          {
+            "name": "to",
+            "type": "string",
+            "description": "Target release seq for self-host rollback (--host required)."
+          },
+          {
+            "name": "bypass-rv",
+            "type": "boolean",
+            "description": "On 412 If-Match mismatch, auto-fetch current rv and retry (self-host only).",
+            "default": false
+          },
+          {
+            "name": "dry-run",
+            "type": "boolean",
+            "description": "Preview the change without executing it",
+            "default": false
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": true,
+        "destructive": true,
+        "subcommands": [],
+        "description": "Rollback production to a previous deployment"
+      },
+      {
+        "name": "top",
+        "args": [
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          },
+          {
+            "name": "server",
+            "type": "string",
+            "description": "creekd admin API URL (or $CREEKD_URL)"
+          },
+          {
+            "name": "token",
+            "type": "string",
+            "description": "Bearer token (or $CREEKD_TOKEN)"
+          },
+          {
+            "name": "interval",
+            "type": "string",
+            "description": "Refresh interval in seconds (default 2)",
+            "default": "2"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Live view of apps on a creekd instance"
+      },
+      {
+        "name": "dashboard",
+        "args": [
+          {
+            "name": "server",
+            "type": "string",
+            "description": "creekd admin API URL (or $CREEKD_URL)"
+          },
+          {
+            "name": "token",
+            "type": "string",
+            "description": "Bearer token (or $CREEKD_TOKEN)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Open the creekd web dashboard in your browser"
+      },
+      {
+        "name": "restart",
+        "args": [
+          {
+            "name": "id",
+            "type": "positional",
+            "description": "App ID to restart",
+            "required": true
+          },
+          {
+            "name": "server",
+            "type": "string",
+            "description": "creekd admin API URL (or $CREEKD_URL)"
+          },
+          {
+            "name": "token",
+            "type": "string",
+            "description": "Bearer token (or $CREEKD_TOKEN)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Restart an app on a creekd instance"
+      },
+      {
+        "name": "stop",
+        "args": [
+          {
+            "name": "id",
+            "type": "positional",
+            "description": "App ID to stop",
+            "required": true
+          },
+          {
+            "name": "server",
+            "type": "string",
+            "description": "creekd admin API URL (or $CREEKD_URL)"
+          },
+          {
+            "name": "token",
+            "type": "string",
+            "description": "Bearer token (or $CREEKD_TOKEN)"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Stop an app on a creekd instance"
+      },
+      {
+        "name": "ops",
+        "args": [
+          {
+            "name": "sub",
+            "type": "positional",
+            "description": "Subcommand: deployments | health"
+          },
+          {
+            "name": "env",
+            "type": "string",
+            "description": "Filter by environment: sandbox | production"
+          },
+          {
+            "name": "json",
+            "type": "boolean",
+            "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+            "default": false
+          },
+          {
+            "name": "yes",
+            "type": "boolean",
+            "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+            "default": false,
+            "alias": "y"
+          }
+        ],
+        "dryRun": false,
+        "destructive": false,
+        "subcommands": [],
+        "description": "Platform admin (self-hosted) \u2014 deployments, health"
+      }
+    ],
+    "description": "Deploy full-stack apps to the edge",
+    "version": "0.4.45"
+  }
+}

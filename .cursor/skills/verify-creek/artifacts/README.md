@@ -15,4 +15,4 @@ artifacts/
     cleanup.json
 ```
 
-Commit a successful sample run with the skill so a cold agent can see expected shapes. Do not commit secrets, `CREEK_TOKEN`, or copies of `~/.creek`.
+Committed sample: `20260914T205800Z-help-schema` (Launch → environment doctor → `drive.sh help-schema` → Cleanup). Scratch `/tmp/creek-verify-20260914T205800Z-help-schema` was removed; this tree remained. Do not commit secrets, `CREEK_TOKEN`, or copies of `~/.creek`.

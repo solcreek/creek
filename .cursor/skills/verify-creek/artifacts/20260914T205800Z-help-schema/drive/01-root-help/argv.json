@@ -1,0 +1,8 @@
+{
+  "argv": [
+    "node",
+    "/workspace/packages/cli/dist/index.js",
+    "--help",
+    "--json"
+  ]
+}

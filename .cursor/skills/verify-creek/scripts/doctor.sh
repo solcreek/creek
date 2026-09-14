@@ -61,7 +61,7 @@ cmd = schema.get("command") or {}
 subs = {c.get("name") for c in cmd.get("subcommands") or []}
 needed = {"init", "deploy", "doctor", "whoami"}
 check("help_json_ok", schema.get("ok") is True and ${HELP_EXIT} == 0, exitCode=${HELP_EXIT})
-check("command_name", cmd.get("name") == "creek", name=cmd.get("name"))
+check("command_name", cmd.get("name") == "creek", observed=cmd.get("name"))
 check("required_subcommands", needed <= subs, missing=sorted(needed - subs))
 check("root_not_destructive", cmd.get("destructive") is False)
 

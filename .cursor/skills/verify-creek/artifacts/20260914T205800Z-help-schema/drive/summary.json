@@ -1,0 +1,128 @@
+{
+  "ok": true,
+  "feature": "help-schema",
+  "runId": "20260914T205800Z-help-schema",
+  "steps": [
+    {
+      "label": "01-root-help",
+      "argv": [
+        "node",
+        "/workspace/packages/cli/dist/index.js",
+        "--help",
+        "--json"
+      ],
+      "exitCode": 0,
+      "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+      "stdoutJson": {
+        "ok": true,
+        "path": [],
+        "command": {
+          "name": "creek",
+          "destructive": false,
+          "dryRun": false
+        }
+      },
+      "stdoutParseError": null,
+      "stdoutBytes": 69977,
+      "sideEffects": {
+        "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+        "filesAdded": [],
+        "filesRemoved": [],
+        "isolatedHomeFilesAdded": [],
+        "mutatedDeveloperCreekConfig": false
+      }
+    },
+    {
+      "label": "02-doctor-help",
+      "argv": [
+        "node",
+        "/workspace/packages/cli/dist/index.js",
+        "doctor",
+        "--help",
+        "--json"
+      ],
+      "exitCode": 0,
+      "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+      "stdoutJson": {
+        "ok": true,
+        "path": [
+          "doctor"
+        ],
+        "command": {
+          "name": "doctor",
+          "destructive": false,
+          "dryRun": false
+        }
+      },
+      "stdoutParseError": null,
+      "stdoutBytes": 1277,
+      "sideEffects": {
+        "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+        "filesAdded": [],
+        "filesRemoved": [],
+        "isolatedHomeFilesAdded": [],
+        "mutatedDeveloperCreekConfig": false
+      }
+    },
+    {
+      "label": "03-deploy-help",
+      "argv": [
+        "node",
+        "/workspace/packages/cli/dist/index.js",
+        "deploy",
+        "--help",
+        "--json"
+      ],
+      "exitCode": 0,
+      "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+      "stdoutJson": {
+        "ok": true,
+        "path": [
+          "deploy"
+        ],
+        "command": {
+          "name": "deploy",
+          "destructive": true,
+          "dryRun": true
+        }
+      },
+      "stdoutParseError": null,
+      "stdoutBytes": 4665,
+      "sideEffects": {
+        "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+        "filesAdded": [],
+        "filesRemoved": [],
+        "isolatedHomeFilesAdded": [],
+        "mutatedDeveloperCreekConfig": false
+      }
+    },
+    {
+      "label": "04-doctor-unknown-dry-run",
+      "argv": [
+        "node",
+        "/workspace/packages/cli/dist/index.js",
+        "doctor",
+        "--dry-run",
+        "--json"
+      ],
+      "exitCode": 1,
+      "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+      "stdoutJson": {
+        "ok": false,
+        "error": "unknown_flag",
+        "flags": [
+          "--dry-run"
+        ]
+      },
+      "stdoutParseError": null,
+      "stdoutBytes": 440,
+      "sideEffects": {
+        "cwd": "/tmp/creek-verify-20260914T205800Z-help-schema/projects/help-schema",
+        "filesAdded": [],
+        "filesRemoved": [],
+        "isolatedHomeFilesAdded": [],
+        "mutatedDeveloperCreekConfig": false
+      }
+    }
+  ]
+}

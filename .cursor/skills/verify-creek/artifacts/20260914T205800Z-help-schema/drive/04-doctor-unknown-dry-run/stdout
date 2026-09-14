@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "error": "unknown_flag",
+  "message": "Unknown flag `--dry-run`. creek doctor does not support --dry-run (commands that do report destructive: true in --help --json). Older CLIs silently dropped --dry-run and could execute the mutation.",
+  "flags": [
+    "--dry-run"
+  ],
+  "breadcrumbs": [
+    {
+      "command": "creek doctor --help --json",
+      "description": "List flags this command actually accepts"
+    }
+  ]
+}

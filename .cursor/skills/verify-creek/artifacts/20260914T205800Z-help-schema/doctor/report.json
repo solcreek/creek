@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "node",
+      "ok": true,
+      "version": "v22.22.2",
+      "path": "/home/ubuntu/.nvm/versions/node/v22.22.2/bin/node"
+    },
+    {
+      "name": "pnpm",
+      "ok": true,
+      "version": "10.6.5"
+    },
+    {
+      "name": "creek_js_exists",
+      "ok": true,
+      "path": "/workspace/packages/cli/dist/index.js"
+    },
+    {
+      "name": "creek_version_exit",
+      "ok": true,
+      "exitCode": 0,
+      "stdout": "0.4.45"
+    },
+    {
+      "name": "help_json_ok",
+      "ok": true,
+      "exitCode": 0
+    },
+    {
+      "name": "command_name",
+      "ok": true,
+      "observed": "creek"
+    },
+    {
+      "name": "required_subcommands",
+      "ok": true,
+      "missing": []
+    },
+    {
+      "name": "root_not_destructive",
+      "ok": true
+    }
+  ]
+}

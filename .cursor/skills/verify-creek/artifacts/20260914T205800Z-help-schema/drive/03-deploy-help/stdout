@@ -1,0 +1,105 @@
+{
+  "ok": true,
+  "path": [
+    "deploy"
+  ],
+  "command": {
+    "name": "deploy",
+    "args": [
+      {
+        "name": "dir",
+        "type": "positional",
+        "description": "Directory to deploy (default: current directory). Also accepts a GitHub repo URL to clone-and-deploy."
+      },
+      {
+        "name": "skip-build",
+        "type": "boolean",
+        "description": "Skip the build step — upload existing build output as-is. Useful when CI already built the artifact.",
+        "default": false
+      },
+      {
+        "name": "dry-run",
+        "type": "boolean",
+        "description": "Show what would be deployed without doing it: resolved config, detected framework, bindings, target URL, auth status. No network calls, no file uploads. Pair with --json for machine-readable plan output. Safe for agents.",
+        "default": false
+      },
+      {
+        "name": "json",
+        "type": "boolean",
+        "description": "Output results as JSON (auto-enabled in CI/CD and pipes)",
+        "default": false
+      },
+      {
+        "name": "yes",
+        "type": "boolean",
+        "description": "Skip confirmation prompts (auto-enabled in non-TTY)",
+        "default": false,
+        "alias": "y"
+      },
+      {
+        "name": "template",
+        "type": "string",
+        "description": "Deploy a named template (e.g., landing, blog, todo). Combine with --data to pass template params."
+      },
+      {
+        "name": "data",
+        "type": "string",
+        "description": "JSON string of template parameters (used with --template). Example: --data '{\"title\":\"Hello\"}'"
+      },
+      {
+        "name": "path",
+        "type": "string",
+        "description": "Subdirectory within the repo to deploy, for monorepos. Example: --path apps/web"
+      },
+      {
+        "name": "no-cache",
+        "type": "boolean",
+        "description": "Skip build cache check — always build locally. Use when you suspect cached output is stale or you changed build config without changing source files.",
+        "default": false
+      },
+      {
+        "name": "from-github",
+        "type": "boolean",
+        "description": "Skip local build; trigger a remote deploy of the latest commit on the project's production branch via its GitHub connection.",
+        "default": false
+      },
+      {
+        "name": "project",
+        "type": "string",
+        "description": "Target project slug or UUID. Required with --from-github when not run inside a project directory."
+      },
+      {
+        "name": "watch",
+        "type": "boolean",
+        "description": "After deploy lands, poll status.conditions[] until Ready=True or Degraded reason=DeployTimeout (self-host creekd target only). Default poll = 1s, default budget = 5min.",
+        "default": false
+      },
+      {
+        "name": "watch-timeout-ms",
+        "type": "string",
+        "description": "Client-side watch budget in milliseconds (default 300000 = 5min). Independent of the daemon's progressing_timeout."
+      },
+      {
+        "name": "prod",
+        "type": "boolean",
+        "description": "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Only takes effect when signed in; without a session the deploy falls back to a sandbox. Mutually exclusive with --sandbox.",
+        "default": false
+      },
+      {
+        "name": "sandbox",
+        "type": "boolean",
+        "description": "Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Mutually exclusive with --prod.",
+        "default": false
+      },
+      {
+        "name": "wait",
+        "type": "string",
+        "description": "How long to keep polling for the deploy to finish before the CLI gives up. Accepts a suffixed duration (15m, 900s, 2h) or a bare number in milliseconds (300000); clamped to [1s, 60m]. Default 2m. The server keeps deploying regardless — this only controls how long the CLI waits. Raise it for CI/automation that must observe the terminal status."
+      }
+    ],
+    "dryRun": true,
+    "destructive": true,
+    "subcommands": [],
+    "description": "Deploy the current project to Creek. Signed-in: publishes to your team's production slot — an interactive confirm gates it, while --prod, --yes, or --json proceed without the prompt (--sandbox previews instead). Not signed in: creates a free 60-minute sandbox URL (no signup). Auto-detects framework from creek.toml, wrangler files, package.json, or index.html. Safe to run from an AI coding agent — use --dry-run first to inspect the plan without executing."
+  }
+}

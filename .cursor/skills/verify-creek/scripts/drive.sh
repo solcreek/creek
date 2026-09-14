@@ -81,13 +81,24 @@ for child in sorted(p for p in root.iterdir() if p.is_dir()):
     if (child/"side-effects.json").exists():
         side = json.loads((child/"side-effects.json").read_text())
     argv = json.loads((child/"argv.json").read_text()) if (child/"argv.json").exists() else {}
+    slim = None
+    if isinstance(parsed, dict):
+        slim = {k: parsed[k] for k in ("ok", "error", "flags", "path", "mode", "authenticated") if k in parsed}
+        cmd = parsed.get("command")
+        if isinstance(cmd, dict):
+            slim["command"] = {
+                "name": cmd.get("name"),
+                "destructive": cmd.get("destructive"),
+                "dryRun": cmd.get("dryRun"),
+            }
     steps.append({
         "label": child.name,
         "argv": argv.get("argv"),
         "exitCode": meta.get("exitCode"),
         "cwd": meta.get("cwd"),
-        "stdoutJson": parsed,
+        "stdoutJson": slim,
         "stdoutParseError": parse_error,
+        "stdoutBytes": len(stdout),
         "sideEffects": side,
     })
 summary = {"ok": True, "feature": feature, "runId": "${RUN_ID}", "steps": steps}
