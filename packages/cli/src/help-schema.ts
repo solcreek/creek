@@ -51,10 +51,26 @@ type WalkedHelp =
   | { path: string[]; command: CommandLike; name: string }
   | { error: "unknown_command"; message: string };
 
+function hasPositionalArgs(cmd: CommandLike): boolean {
+  return Object.values(cmd.args ?? {}).some((def) => def.type === "positional");
+}
+
+function hasNamedSubCommands(cmd: CommandLike): boolean {
+  return Object.keys(cmd.subCommands ?? {}).length > 0;
+}
+
+function unknownCommand(path: string[]): WalkedHelp {
+  return {
+    error: "unknown_command",
+    message: `Unknown command \`${path.join(" ")}\`. Run creek --help --json for the schema.`,
+  };
+}
+
 /**
  * Walk known `subCommands` from argv. Global flags, option values, and
  * positionals are not path segments — `creek env set KEY --help --json`
- * is `['env','set']`. An unknown token at the root is `unknown_command`.
+ * is `['env','set']`. An unmatched token is a positional only when the
+ * current command declares one; otherwise it is `unknown_command`.
  */
 function walkSubcommands(root: CommandLike, rawArgs: string[]): WalkedHelp {
   let current = root;
@@ -76,18 +92,16 @@ function walkSubcommands(root: CommandLike, rawArgs: string[]): WalkedHelp {
       continue;
     }
     const child = current.subCommands?.[token];
-    if (!child) {
-      if (path.length === 0) {
-        return {
-          error: "unknown_command",
-          message: `Unknown command \`${token}\`. Run creek --help --json for the schema.`,
-        };
-      }
-      break;
+    if (child) {
+      current = child;
+      path.push(token);
+      name = current.meta?.name ?? token;
+      continue;
     }
-    current = child;
-    path.push(token);
-    name = current.meta?.name ?? token;
+    // Leftover: positional of the current command, or a bad subcommand name.
+    if (hasPositionalArgs(current)) break;
+    if (hasNamedSubCommands(current)) return unknownCommand([...path, token]);
+    break;
   }
   return { command: current, name, path };
 }

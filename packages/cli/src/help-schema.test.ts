@@ -65,6 +65,20 @@ describe("buildHelpSchema", () => {
     expect(schema.command.name).toBe("set");
   });
 
+  it("returns unknown_command for a bad child of a parent with subcommands", () => {
+    expect(buildHelpSchema(app, ["env", "nope", "--help", "--json"])).toMatchObject({
+      ok: false,
+      error: "unknown_command",
+    });
+  });
+
+  it("treats a leftover as a positional when the command declares one", () => {
+    const schema = buildHelpSchema(app, ["deploy", "./dist", "--help", "--json"]);
+    expect(schema).toMatchObject({ ok: true, path: ["deploy"] });
+    if (!schema.ok) throw new Error("expected ok");
+    expect(schema.command.name).toBe("deploy");
+  });
+
   it("skips option values that are not subcommands", () => {
     const schema = buildHelpSchema(app, ["deploy", "--project", "app", "--help", "--json"]);
     expect(schema).toMatchObject({ ok: true, path: ["deploy"] });
