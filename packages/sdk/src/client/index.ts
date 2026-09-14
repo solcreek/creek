@@ -201,6 +201,24 @@ export class CreekClient {
     return this.request("POST", `/projects/${projectId}/deployments/${deploymentId}/promote`);
   }
 
+  /**
+   * Preview the rollback target without mutating. Implicit selection uses
+   * the same unbounded query as POST /rollback (not the 20-row list page).
+   */
+  async planRollback(
+    projectId: string,
+    options?: { deploymentId?: string },
+  ): Promise<{
+    currentDeploymentId: string | null;
+    targetDeploymentId: string | null;
+    targetStatus: string | null;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.deploymentId) params.set("deploymentId", options.deploymentId);
+    const q = params.toString();
+    return this.request("GET", `/projects/${projectId}/rollback${q ? `?${q}` : ""}`);
+  }
+
   async rollback(
     projectId: string,
     options?: { deploymentId?: string; message?: string },

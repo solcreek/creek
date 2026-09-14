@@ -209,3 +209,83 @@ describe("POST /projects/:id/rollback", () => {
     expect(body.error).toBe("invalid_target");
   });
 });
+
+describe("GET /projects/:id/rollback", () => {
+  test("previews implicit previous without mutating", async () => {
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 2);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 1);
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/rollback`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      currentDeploymentId: CURRENT_DEPLOY,
+      targetDeploymentId: PREVIOUS_DEPLOY,
+      targetStatus: "active",
+    });
+
+    const prod = testEnv.db.db
+      .prepare("SELECT productionDeploymentId FROM project WHERE id = ?")
+      .get(PROJECT_ID) as { productionDeploymentId: string };
+    expect(prod.productionDeploymentId).toBe(CURRENT_DEPLOY);
+  });
+
+  test("skips synthetic rollback rows past the 20-row list page", async () => {
+    setupProject("deploy-prod");
+    setupDeployment("deploy-real", "active", 1, "cli");
+    for (let i = 0; i < 25; i++) {
+      setupDeployment(`deploy-rb-${i}`, "active", i + 2, "rollback");
+    }
+    setupDeployment("deploy-prod", "active", 27, "cli");
+
+    const list = await req("GET", `/projects/${PROJECT_ID}/deployments`);
+    expect(list.status).toBe(200);
+    const rows = (await list.json()) as Array<{ id: string }>;
+    expect(rows).toHaveLength(20);
+    expect(rows.some((r) => r.id === "deploy-real")).toBe(false);
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/rollback`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      currentDeploymentId: "deploy-prod",
+      targetDeploymentId: "deploy-real",
+      targetStatus: "active",
+    });
+  });
+
+  test("returns a null target when only rollback rows remain", async () => {
+    setupProject("deploy-rb-2");
+    setupDeployment("deploy-rb-1", "active", 1, "rollback");
+    setupDeployment("deploy-rb-2", "active", 2, "rollback");
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/rollback`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      currentDeploymentId: "deploy-rb-2",
+      targetDeploymentId: null,
+      targetStatus: null,
+    });
+  });
+
+  test("resolves an explicit deploymentId", async () => {
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 2);
+    setupDeployment(PREVIOUS_DEPLOY, "failed", 1);
+
+    const res = await req(
+      "GET",
+      `/projects/${PROJECT_ID}/rollback?deploymentId=${PREVIOUS_DEPLOY}`,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      currentDeploymentId: CURRENT_DEPLOY,
+      targetDeploymentId: PREVIOUS_DEPLOY,
+      targetStatus: "failed",
+    });
+  });
+
+  test("404s when the project is missing", async () => {
+    const res = await req("GET", `/projects/nonexistent/rollback`);
+    expect(res.status).toBe(404);
+  });
+});

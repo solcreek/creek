@@ -589,6 +589,56 @@ deployments.post(
   },
 );
 
+// Implicit previous-production: skip synthetic triggerType=rollback rows.
+// POST /rollback and GET /rollback must use this same unbounded query —
+// the deployments list is LIMIT 20 and cannot stand in for it.
+const IMPLICIT_PREVIOUS_SQL = `SELECT id, status FROM deployment WHERE projectId = ? AND status = 'active'
+       AND id != ? AND triggerType != 'rollback' ORDER BY version DESC LIMIT 1`;
+
+// Preview the rollback target without mutating. Same implicit contract as POST.
+deployments.get("/:projectId/rollback", async (c) => {
+  const teamId = c.get("teamId");
+  const projectId = c.req.param("projectId");
+  const requestedId = c.req.query("deploymentId") || undefined;
+
+  const project = await resolveProject(c.env.DB, projectId!, teamId);
+  if (!project) {
+    return c.json({ error: "not_found", message: "Project not found" }, 404);
+  }
+
+  const currentDeploymentId = project.productionDeploymentId ?? null;
+  if (requestedId) {
+    const target = await c.env.DB.prepare(
+      "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+    )
+      .bind(requestedId, project.id)
+      .first<{ id: string; status: string }>();
+    return c.json({
+      currentDeploymentId,
+      targetDeploymentId: target?.id ?? null,
+      targetStatus: target?.status ?? null,
+    });
+  }
+
+  if (!currentDeploymentId) {
+    return c.json({
+      currentDeploymentId: null,
+      targetDeploymentId: null,
+      targetStatus: null,
+    });
+  }
+
+  const prev = await c.env.DB.prepare(IMPLICIT_PREVIOUS_SQL)
+    .bind(project.id, currentDeploymentId)
+    .first<{ id: string; status: string }>();
+
+  return c.json({
+    currentDeploymentId,
+    targetDeploymentId: prev?.id ?? null,
+    targetStatus: prev?.status ?? null,
+  });
+});
+
 // Rollback production to a previous deployment
 deployments.post("/:projectId/rollback", requirePermission("deploy:create"), async (c) => {
   const teamId = c.get("teamId");
@@ -619,10 +669,7 @@ deployments.post("/:projectId/rollback", requirePermission("deploy:create"), asy
     // highest version; including those here makes the second implicit
     // rollback land on the synthetic row instead of the prior CLI/GitHub
     // deploy (agents following `creek rollback --json` hit this).
-    const prev = await c.env.DB.prepare(
-      `SELECT id FROM deployment WHERE projectId = ? AND status = 'active'
-       AND id != ? AND triggerType != 'rollback' ORDER BY version DESC LIMIT 1`,
-    )
+    const prev = await c.env.DB.prepare(IMPLICIT_PREVIOUS_SQL)
       .bind(project.id, project.productionDeploymentId)
       .first<{ id: string }>();
 
