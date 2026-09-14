@@ -8,7 +8,22 @@ import { registerResources } from "./resources.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", cors({ origin: "*" }));
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowHeaders: [
+      "Authorization",
+      "x-api-key",
+      "Content-Type",
+      "Accept",
+      "MCP-Protocol-Version",
+      "Mcp-Session-Id",
+      "Last-Event-ID",
+    ],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  }),
+);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", service: "creek-mcp-server" }));
