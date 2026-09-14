@@ -45,10 +45,15 @@ type CommandLike = {
 };
 
 /** Boolean flags that never take a value — do not consume the next token. */
-const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
+const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "-y", "--version"]);
 
-/** Always accepted, even if the leaf command did not spread `globalArgs`. */
-const GLOBAL_FLAG_TOKENS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
+/**
+ * Runner-level flags only. `--yes` / `-y` are NOT here: they are accepted
+ * only when the leaf command spreads `globalArgs` (via `flagTokensForArg`).
+ * Putting them in this set would let citty/mri drop `--yes` on a command
+ * that never declared it — the silent-flag hole this check exists to close.
+ */
+const GLOBAL_FLAG_TOKENS = new Set(["--help", "-h", "--json", "--version"]);
 
 type WalkedHelp =
   | { path: string[]; command: CommandLike; name: string }

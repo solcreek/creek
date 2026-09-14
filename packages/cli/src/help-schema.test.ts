@@ -154,6 +154,10 @@ describe("findUnknownFlags", () => {
   it("rejects -y when the command did not declare yes", () => {
     expect(findUnknownFlags(mini, ["status", "-y"])).toEqual(["-y"]);
   });
+
+  it("rejects --yes when the command did not spread globalArgs", () => {
+    expect(findUnknownFlags(mini, ["status", "--yes"])).toEqual(["--yes"]);
+  });
 });
 
 describe("real command tree", () => {
@@ -176,10 +180,12 @@ describe("real command tree", () => {
     expect(findUnknownFlags(statusCommand, ["--dry-run", "--json"])).toEqual(["--dry-run"]);
   });
 
-  it("accepts -y because globalArgs.yes declares alias y", () => {
+  it("accepts -y / --yes only when globalArgs.yes is declared", () => {
     const yes = walkCommand(rollbackCommand, "rollback").args.find((a) => a.name === "yes");
     expect(yes?.alias).toBe("y");
     expect(findUnknownFlags(rollbackCommand, ["-y", "--json"])).toEqual([]);
+    expect(findUnknownFlags(rollbackCommand, ["--yes", "--json"])).toEqual([]);
     expect(findUnknownFlags(statusCommand, ["-y", "--json"])).toEqual([]);
+    expect(findUnknownFlags(statusCommand, ["--yes", "--json"])).toEqual([]);
   });
 });
