@@ -7,6 +7,16 @@ description: Deploy, configure, and troubleshoot Creek projects via the CLI and 
 
 Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTTP. Non-interactive (agent/CI) deploys **must** pass `--sandbox` or `--prod`; a bare `creek deploy --json` is refused.
 
+## Discover commands
+
+```bash
+creek --help --json                    # full command tree (args, dryRun, destructive)
+creek deploy --help --json             # one command
+creek env set --help --json            # nested subcommand
+```
+
+Do not scrape human `--help`. `destructive: true` means the command has `--dry-run`.
+
 ## Default loop
 
 ```bash

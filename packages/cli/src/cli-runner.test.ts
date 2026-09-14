@@ -112,4 +112,24 @@ describe("runCli (JSON mode error conversion)", () => {
     await runExit(runCli(app, ["bogus"], { jsonMode: true }));
     expect(() => JSON.parse(stdout)).not.toThrow();
   });
+
+  it("emits a command schema for --help --json instead of citty usage text", async () => {
+    const code = await runExit(runCli(app, ["--help", "--json"], { jsonMode: true }));
+    expect(code).toBe(0);
+    const payload = JSON.parse(stdout);
+    expect(payload.ok).toBe(true);
+    expect(payload.path).toEqual([]);
+    expect(payload.command.name).toBe("app");
+    expect(payload.command.subcommands.map((c: { name: string }) => c.name)).toEqual(["child"]);
+  });
+
+  it("emits nested schema for child --help --json", async () => {
+    const code = await runExit(runCli(app, ["child", "--help", "--json"], { jsonMode: true }));
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      path: ["child"],
+      command: { name: "child" },
+    });
+  });
 });
