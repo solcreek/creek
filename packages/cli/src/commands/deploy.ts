@@ -188,8 +188,91 @@ export function sandboxSuccessBreadcrumbs(url: string, sandboxId: string): Bread
   ];
 }
 
+export function productionSuccessBreadcrumbs(url: string, slug: string): Breadcrumb[] {
+  return [
+    { command: `creek verify ${url} --json`, description: "Confirm the production URL is live" },
+    { command: "creek status", description: "Check deployment status" },
+    {
+      command: `creek deployments --project ${slug}`,
+      description: "View deployment history",
+    },
+  ];
+}
+
 async function attachProof(url: string): Promise<VerifyResult> {
   return verifyUrl(url, { timeoutMs: 10_000 });
+}
+
+/** JSON fields for production deploy proof. Missing URL is an explicit failure. */
+export function productionProofPayload(
+  url: string | null | undefined,
+  proof: VerifyResult | null,
+): {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  proof?: VerifyResult;
+  url?: string;
+} {
+  if (!url) {
+    return {
+      ok: false,
+      error: "no_url",
+      message: "Production deploy succeeded but no URL was returned",
+    };
+  }
+  if (proof?.ok) {
+    return { ok: true, url, proof };
+  }
+  return {
+    ok: false,
+    error: "verify_failed",
+    url,
+    ...(proof ? { proof } : {}),
+  };
+}
+
+/**
+ * Attach `proof` (GET of the production URL) and emit JSON / human output.
+ * 2xx and 3xx count as live (a 302 to a login page is still a live site).
+ * Missing URL → ok:false / no_url (exit 1). Failed proof → ok:false /
+ * verify_failed, URL kept.
+ */
+export async function finishProductionSuccess(opts: {
+  jsonMode: boolean;
+  url: string | null | undefined;
+  slug: string;
+  payload: Record<string, unknown>;
+  extraBreadcrumbs?: Breadcrumb[];
+  human: () => void;
+}): Promise<void> {
+  const url = opts.url ?? null;
+  const proof = url ? await attachProof(url) : null;
+  const proofFields = productionProofPayload(url, proof);
+  const breadcrumbs: Breadcrumb[] = url
+    ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
+    : (opts.extraBreadcrumbs ?? []);
+  if (opts.jsonMode) {
+    jsonOutput(
+      {
+        ...opts.payload,
+        ...proofFields,
+      },
+      proofFields.ok ? 0 : 1,
+      breadcrumbs,
+    );
+  }
+  if (proof?.ok) {
+    consola.success(`  Verified HTTP ${proof.status} in ${proof.ttfbMs}ms`);
+  } else if (proof && url) {
+    consola.warn(
+      `  Production URL did not respond (${proof.error ?? proof.status}) — creek verify ${url} --json`,
+    );
+  } else if (!url) {
+    consola.warn("  Production deploy succeeded but no URL was returned");
+  }
+  opts.human();
+  if (!proofFields.ok) process.exit(1);
 }
 
 function assetSummary(fileList: string[]): string {
@@ -1335,28 +1418,26 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
 
   // Report the outcome
   if (targetDeployment.status === "active") {
-    if (jsonMode) {
-      const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
-      jsonOutput(
-        {
-          ok: true,
-          deploymentId: targetDeployment.id,
-          version: targetDeployment.version,
-          status: "active",
-          url: targetDeployment.url,
-          branch: targetDeployment.branch,
-          buildTimeS: parseFloat(elapsedS),
-          mode: "production",
-          source: "github",
-          rollbackCommand: `creek rollback --project ${projectSlug}`,
-        },
-        0,
-        NO_PROJECT_BREADCRUMBS,
-      );
-    } else {
-      consola.success(`  Deployed v${targetDeployment.version}`);
-      if (targetDeployment.url) consola.log(`  ${targetDeployment.url}`);
-    }
+    const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
+    await finishProductionSuccess({
+      jsonMode,
+      url: targetDeployment.url,
+      slug: projectSlug,
+      payload: {
+        deploymentId: targetDeployment.id,
+        version: targetDeployment.version,
+        status: "active",
+        branch: targetDeployment.branch,
+        buildTimeS: parseFloat(elapsedS),
+        mode: "production",
+        source: "github",
+        rollbackCommand: `creek rollback --project ${projectSlug}`,
+      },
+      human: () => {
+        consola.success(`  Deployed v${targetDeployment.version}`);
+        if (targetDeployment.url) consola.log(`  ${targetDeployment.url}`);
+      },
+    });
     return;
   }
 
@@ -2163,81 +2244,66 @@ async function deployAuthenticated(
         // Make sure the build log lands before we exit below.
         await flushBuildLog(logUpload);
 
-        if (jsonMode) {
-          const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
-          jsonOutput(
+        const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
+        const prodUrl = res.url ?? res.previewUrl;
+        await finishProductionSuccess({
+          jsonMode,
+          url: prodUrl,
+          slug: project.slug,
+          payload: {
+            previewUrl: res.previewUrl,
+            deploymentId: deployment.id,
+            version: res.deployment?.version ?? null,
+            project: project.slug,
+            framework: framework ?? null,
+            renderMode: effectiveRenderMode,
+            assetCount: fileList.length,
+            buildTimeS: parseFloat(elapsedS),
+            mode: "production",
+            sameOriginApi: prodApiHint !== null,
+            ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
+            rollbackCommand: `creek rollback --project ${project.slug}`,
+            ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
+            ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
+              ? {
+                  migrations: {
+                    status: drift.status,
+                    pending: drift.pending,
+                    database: drift.databaseName,
+                    databaseCount: drift.databaseCount,
+                    databasesEvaluated: drift.databasesEvaluated,
+                    ...(drift.laggingDatabases.length > 0
+                      ? { lagging: drift.laggingDatabases }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+          extraBreadcrumbs: [
             {
-              ok: true,
-              url: res.url ?? res.previewUrl,
-              previewUrl: res.previewUrl,
-              deploymentId: deployment.id,
-              version: res.deployment?.version ?? null,
-              project: project.slug,
-              framework: framework ?? null,
-              renderMode: effectiveRenderMode,
-              assetCount: fileList.length,
-              buildTimeS: parseFloat(elapsedS),
-              mode: "production",
-              sameOriginApi: prodApiHint !== null,
-              ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
-              rollbackCommand: `creek rollback --project ${project.slug}`,
-              ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
-              ...(drift && (drift.status === "pending" || drift.laggingDatabases.length > 0)
-                ? {
-                    migrations: {
-                      status: drift.status,
-                      pending: drift.pending,
-                      // Name the evaluated DB (and how many are bound / were
-                      // readable) so a multi-D1 project can tell which database
-                      // the status is for rather than guessing.
-                      database: drift.databaseName,
-                      databaseCount: drift.databaseCount,
-                      databasesEvaluated: drift.databasesEvaluated,
-                      // Bound DBs behind the evaluated one — a lagging peer 500s
-                      // the app even when the reported DB is in sync.
-                      ...(drift.laggingDatabases.length > 0
-                        ? { lagging: drift.laggingDatabases }
-                        : {}),
-                    },
-                  }
-                : {}),
+              command: `creek domains add <HOSTNAME> --project ${project.slug}`,
+              description: "Add custom domain",
             },
-            0,
-            [
-              { command: `creek status`, description: "Check deployment status" },
-              {
-                command: `creek deployments --project ${project.slug}`,
-                description: "View deployment history",
-              },
-              {
-                command: `creek domains add <HOSTNAME> --project ${project.slug}`,
-                description: "Add custom domain",
-              },
-            ],
-          );
-        }
-        consola.success(`  ⬡ Deployed! ${res.url ?? res.previewUrl}`);
-        if (res.url && res.previewUrl) {
-          consola.info(`  Preview: ${res.previewUrl}`);
-        }
-        if (resolved.cron.length > 0) {
-          consola.info(`  Cron: ${resolved.cron.join(", ")}`);
-        }
-        if (resolved.queue) {
-          consola.info("  Queue: enabled");
-        }
-
-        // Surface a lagging database schema right after the success line, so
-        // it isn't buried — this is the gap where a deploy "succeeds" but the
-        // app 500s on a missing column until migrations are applied.
-        if (driftMsg) {
-          consola.warn(`  ${driftMsg}`);
-        }
-
-        // Contextual next-step hints (non-JSON only)
-        if (!jsonMode) {
-          printNextStepHint(effectiveRenderMode, resolved);
-        }
+          ],
+          human: () => {
+            consola.success(`  ⬡ Deployed! ${prodUrl}`);
+            if (res.url && res.previewUrl) {
+              consola.info(`  Preview: ${res.previewUrl}`);
+            }
+            if (resolved.cron.length > 0) {
+              consola.info(`  Cron: ${resolved.cron.join(", ")}`);
+            }
+            if (resolved.queue) {
+              consola.info("  Queue: enabled");
+            }
+            if (driftMsg) {
+              consola.warn(`  ${driftMsg}`);
+            }
+            if (!jsonMode) {
+              printNextStepHint(effectiveRenderMode, resolved);
+            }
+          },
+        });
         return;
       }
 
@@ -2575,24 +2641,24 @@ async function tryTurboDeploy(
       if (TERMINAL.has(s)) {
         if (s === "active") {
           const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-          if (jsonMode) {
-            jsonOutput(
-              {
-                ok: true,
-                url: status.url ?? status.previewUrl,
-                previewUrl: status.previewUrl,
-                deploymentId: res.deployment.id,
-                project: project.slug,
-                mode: "production",
-                turbo: true,
-                elapsed: `${elapsed}s`,
-              },
-              0,
-              [],
-            );
-          }
-          consola.success(`  ⬡ Deployed! ${status.url ?? status.previewUrl}`);
-          consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
+          const prodUrl = status.url ?? status.previewUrl;
+          await finishProductionSuccess({
+            jsonMode,
+            url: prodUrl,
+            slug: project.slug,
+            payload: {
+              previewUrl: status.previewUrl,
+              deploymentId: res.deployment.id,
+              project: project.slug,
+              mode: "production",
+              turbo: true,
+              elapsed: `${elapsed}s`,
+            },
+            human: () => {
+              consola.success(`  ⬡ Deployed! ${prodUrl}`);
+              consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
+            },
+          });
           return true;
         }
         // Failed — the server already tried, so don't fall back to a local

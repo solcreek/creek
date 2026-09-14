@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dryRunNextStep, hasDeployablePayload, deployCommand } from "./deploy.js";
+import {
+  dryRunNextStep,
+  hasDeployablePayload,
+  deployCommand,
+  productionSuccessBreadcrumbs,
+} from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
 
 vi.mock("../utils/config.js", async (importOriginal) => {
@@ -70,6 +75,14 @@ describe("dryRunNextStep", () => {
     expect(dryRunNextStep({ blockingCount: 0, wouldDeploy: true, targetType: "production" })).toBe(
       AGENT_PROD_DEPLOY,
     );
+  });
+});
+
+describe("productionSuccessBreadcrumbs", () => {
+  it("leads with creek verify of the production URL", () => {
+    const crumbs = productionSuccessBreadcrumbs("https://app.example.com", "my-app");
+    expect(crumbs[0].command).toBe("creek verify https://app.example.com --json");
+    expect(crumbs.some((c) => c.command.includes("creek deployments --project my-app"))).toBe(true);
   });
 });
 

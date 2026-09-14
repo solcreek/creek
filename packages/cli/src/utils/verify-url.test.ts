@@ -61,6 +61,19 @@ describe("verifyUrl", () => {
     expect(result.contains[0]).toEqual({ needle: "agent-deployed", found: false });
   });
 
+  it("ok is true when a 302 lands on a 200 login page (production behind auth)", async () => {
+    server.use(
+      http.get("https://app.test/", () => HttpResponse.redirect("https://app.test/login", 302)),
+      http.get("https://app.test/login", () =>
+        HttpResponse.html("<html><head><title>Sign in</title></head><body>login</body></html>"),
+      ),
+    );
+    const result = await verifyUrl("https://app.test/");
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+    expect(result.title).toBe("Sign in");
+  });
+
   it("ok is false on HTTP 404", async () => {
     server.use(http.get("https://sb.test/gone", () => new HttpResponse("nope", { status: 404 })));
     const result = await verifyUrl("https://sb.test/gone");
