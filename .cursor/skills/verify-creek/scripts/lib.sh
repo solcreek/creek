@@ -28,6 +28,22 @@ ensure_node_path() {
   fi
 }
 
+ensure_pnpm() {
+  if command -v pnpm >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! command -v corepack >/dev/null 2>&1; then
+    echo "unmet-precondition: pnpm not on PATH and corepack is unavailable" >&2
+    return 2
+  fi
+  pnpm() {
+    (
+      cd "${REPO_ROOT}"
+      exec corepack pnpm "$@"
+    )
+  }
+}
+
 ensure_run() {
   if [[ -z "${RUN_ID:-}" && -f "${ARTIFACTS_ROOT}/LAST_RUN_ID" ]]; then
     RUN_ID="$(tr -d '[:space:]' < "${ARTIFACTS_ROOT}/LAST_RUN_ID")"
@@ -91,23 +107,33 @@ capture_cmd() {
   python3 -c "import json,sys; json.dump({'argv': sys.argv[2:]}, open(sys.argv[1],'w'), indent=2)" \
     "${dest}/argv.json" "$@"
 
-  local started ended exit_code node_ver js
+  local started ended exit_code node_ver js inherit_token=false
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   node_ver="$(node -v 2>/dev/null || echo unknown)"
   js="$(creek_js)"
+  if [[ "${VERIFY_CREEK_ALLOW_AUTH:-}" == "1" && -n "${CREEK_TOKEN:-}" ]]; then
+    inherit_token=true
+  fi
   set +e
   (
     cd "${cwd}"
-    env -u CREEK_TOKEN \
-      HOME="${ISOLATED_HOME}" \
-      CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
-      "$@"
+    if [[ "${inherit_token}" == true ]]; then
+      env \
+        HOME="${ISOLATED_HOME}" \
+        CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
+        "$@"
+    else
+      env -u CREEK_TOKEN \
+        HOME="${ISOLATED_HOME}" \
+        CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
+        "$@"
+    fi
   ) >"${dest}/stdout" 2>"${dest}/stderr"
   exit_code=$?
   set -e
   ended="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '%s\n' "${exit_code}" > "${dest}/exit_code"
-  python3 - "${dest}/meta.json" "${started}" "${ended}" "${cwd}" "${exit_code}" "${ISOLATED_HOME}" "${node_ver}" "${js}" <<'PY'
+  python3 - "${dest}/meta.json" "${started}" "${ended}" "${cwd}" "${exit_code}" "${ISOLATED_HOME}" "${inherit_token}" "${node_ver}" "${js}" <<'PY'
 import json, sys
 meta = {
   "startedAt": sys.argv[2],
@@ -115,9 +141,9 @@ meta = {
   "cwd": sys.argv[4],
   "exitCode": int(sys.argv[5]),
   "isolatedHome": sys.argv[6],
-  "creekTokenInherited": False,
-  "node": sys.argv[7],
-  "creekJs": sys.argv[8],
+  "creekTokenInherited": sys.argv[7] == "true",
+  "node": sys.argv[8],
+  "creekJs": sys.argv[9],
 }
 open(sys.argv[1], "w").write(json.dumps(meta, indent=2) + "\n")
 PY

@@ -21,7 +21,7 @@ Do not add `creek deploy --sandbox` / `--prod` as a default mapped drive. Sandbo
 - Launch completed: `packages/cli/dist/index.js` exists; `node packages/cli/dist/index.js --help --json` exits 0.
 - Environment doctor (`scripts/doctor.sh`) exited 0.
 - `RUN_ID` set (or helpers generate one). Scratch is `/tmp/creek-verify-$RUN_ID`, not the monorepo and not `$HOME/.creek`.
-- `HOME` for Creek processes is `$SCRATCH/home`. `CREEK_TOKEN` is unset.
+- `HOME` for Creek processes is `$SCRATCH/home`. `CREEK_TOKEN` is unset unless `VERIFY_CREEK_ALLOW_AUTH=1` explicitly opts into an auth proof.
 - Node `^22.18.0 \|\| >=24.11.0`, `pnpm@10.6.5`.
 
 ## Driving conventions

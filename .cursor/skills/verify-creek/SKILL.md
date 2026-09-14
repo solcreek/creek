@@ -34,7 +34,7 @@ pnpm --filter @solcreek/sdk --filter @solcreek/cli --filter @solcreek/runtime --
 
 On a cold agent (this workspace):
 
-1. `pnpm install --frozen-lockfile` if `node_modules/` is missing.
+1. `pnpm install --frozen-lockfile` if `node_modules/` is missing (helpers fall back to `corepack pnpm` when `pnpm` is not already on `PATH`).
 2. Put Node ≥ 22.18 first on `PATH` (nvm `v22.22.2` is installed on some pods; `/exec-daemon/node` may be 22.14.0 and will fail tsdown).
 3. Build the CLI workspace packages:
 
@@ -67,13 +67,13 @@ Environment health — not `creek doctor`. Fail closed.
 .cursor/skills/verify-creek/scripts/doctor.sh
 ```
 
-Checks: `node` + `pnpm` on PATH, `packages/cli/dist/index.js` exists, `node packages/cli/dist/index.js --version` exits 0, `--help --json` parses, `command.name === "creek"`, subcommands include `init`, `deploy`, `doctor`, `whoami`, root `destructive === false`.
+Checks: `node` + `pnpm` available (directly or via `corepack`), `packages/cli/dist/index.js` exists, `node packages/cli/dist/index.js --version` exits 0, `--help --json` parses, `command.name === "creek"`, subcommands include `init`, `deploy`, `doctor`, `whoami`, root `destructive === false`.
 
 Report: `.cursor/skills/verify-creek/artifacts/$RUN_ID/doctor/report.json`. Missing dist → `unmet-precondition` (run Launch). Do not start Drive until this exits 0.
 
 ## Drive
 
-Each drive uses `/tmp/creek-verify-$RUN_ID/...` (created by `ensure_run`). Every Creek invocation sets `HOME` to that scratch home and **unsets `CREEK_TOKEN`** so the developer’s `~/.creek` is not read or written. Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
+Each drive uses `/tmp/creek-verify-$RUN_ID/...` (created by `ensure_run`). Every Creek invocation sets `HOME` to that scratch home; by default helpers **unset `CREEK_TOKEN`** so the developer’s `~/.creek` is not read or written. When `VERIFY_CREEK_ALLOW_AUTH=1` is set alongside an explicit token, helpers preserve only that environment token while still isolating `HOME`. Do not pass production credentials. Do not double-drive a shared live deployment. Do not run `creek deploy --sandbox` / `--prod` as a default proof.
 
 Prefer `--json`. Use `--dry-run` only when `creek <cmd> --help --json` reports `destructive: true` (the CLI convention: a command is destructive iff it declares `--dry-run`). Non-destructive commands refuse unknown `--dry-run` with `error: "unknown_flag"` and exit 1 — do not retry by dropping the flag.
 
@@ -119,4 +119,4 @@ Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scrat
 | `scripts/drive.sh` | `.cursor/skills/verify-creek/scripts/drive.sh <feature>` | one mapped feature + evidence |
 | `scripts/cleanup.sh` | `.cursor/skills/verify-creek/scripts/cleanup.sh` | scratch teardown; keep artifacts |
 
-All Creek child processes: `env -u CREEK_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`.
+Default Creek child processes: `env -u CREEK_TOKEN HOME=$SCRATCH/home node packages/cli/dist/index.js ...`. Opt-in auth proofs keep only the explicit `CREEK_TOKEN` env var when `VERIFY_CREEK_ALLOW_AUTH=1`.

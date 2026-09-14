@@ -8,6 +8,9 @@ set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
+ensure_node_path
+ensure_pnpm
+
 if [[ -n "${1:-}" ]]; then
   RUN_ID="$1"
 fi

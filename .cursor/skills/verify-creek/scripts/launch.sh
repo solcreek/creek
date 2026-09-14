@@ -8,6 +8,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 ensure_node_path
+ensure_pnpm
 ensure_run
 cd "${REPO_ROOT}"
 
