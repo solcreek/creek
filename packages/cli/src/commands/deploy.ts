@@ -203,12 +203,42 @@ async function attachProof(url: string): Promise<VerifyResult> {
   return verifyUrl(url, { timeoutMs: 10_000 });
 }
 
+/** JSON fields for production deploy proof. Missing URL is an explicit failure. */
+export function productionProofPayload(
+  url: string | null | undefined,
+  proof: VerifyResult | null,
+): {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  proof?: VerifyResult;
+  url?: string;
+} {
+  if (!url) {
+    return {
+      ok: false,
+      error: "no_url",
+      message: "Production deploy succeeded but no URL was returned",
+    };
+  }
+  if (proof?.ok) {
+    return { ok: true, url, proof };
+  }
+  return {
+    ok: false,
+    error: "verify_failed",
+    url,
+    ...(proof ? { proof } : {}),
+  };
+}
+
 /**
  * Attach `proof` (GET of the production URL) and emit JSON / human output.
  * 2xx and 3xx count as live (a 302 to a login page is still a live site).
- * Missing URL skips proof. Failed proof → ok:false / verify_failed, URL kept.
+ * Missing URL → ok:false / no_url (exit 1). Failed proof → ok:false /
+ * verify_failed, URL kept.
  */
-async function finishProductionSuccess(opts: {
+export async function finishProductionSuccess(opts: {
   jsonMode: boolean;
   url: string | null | undefined;
   slug: string;
@@ -218,6 +248,7 @@ async function finishProductionSuccess(opts: {
 }): Promise<void> {
   const url = opts.url ?? null;
   const proof = url ? await attachProof(url) : null;
+  const proofFields = productionProofPayload(url, proof);
   const breadcrumbs: Breadcrumb[] = url
     ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
     : (opts.extraBreadcrumbs ?? []);
@@ -225,12 +256,9 @@ async function finishProductionSuccess(opts: {
     jsonOutput(
       {
         ...opts.payload,
-        ...(url ? { url } : {}),
-        ...(proof
-          ? { proof, ok: proof.ok, ...(proof.ok ? {} : { error: "verify_failed" }) }
-          : { ok: true }),
+        ...proofFields,
       },
-      proof && !proof.ok ? 1 : 0,
+      proofFields.ok ? 0 : 1,
       breadcrumbs,
     );
   }
@@ -240,9 +268,11 @@ async function finishProductionSuccess(opts: {
     consola.warn(
       `  Production URL did not respond (${proof.error ?? proof.status}) — creek verify ${url} --json`,
     );
+  } else if (!url) {
+    consola.warn("  Production deploy succeeded but no URL was returned");
   }
   opts.human();
-  if (proof && !proof.ok) process.exit(1);
+  if (!proofFields.ok) process.exit(1);
 }
 
 function assetSummary(fileList: string[]): string {
