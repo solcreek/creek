@@ -430,8 +430,133 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         project: projectSlug,
         key,
         pendingDeploy: true,
-        nextStep: "creek deploy --prod --json",
+        nextStep: "Call deploy_prod with this projectSlug, or creek deploy --prod --json",
         message: `${key} stored. Running worker is unchanged until the next production deploy.`,
+      });
+    },
+  );
+
+  server.tool(
+    "env_rm",
+    "Remove an environment variable from a project. Does not restart the worker — a production deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug"),
+      key: z.string().describe("Env key to remove"),
+    },
+    async ({ projectSlug, key }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(
+        apiKey,
+        `/projects/${encodeURIComponent(projectSlug)}/env/${encodeURIComponent(key)}`,
+        { method: "DELETE" },
+      );
+      if (!got.ok) return got.result;
+      return toolJson({
+        ok: true,
+        project: projectSlug,
+        key,
+        pendingDeploy: true,
+        nextStep: "Call deploy_prod with this projectSlug, or creek deploy --prod --json",
+      });
+    },
+  );
+
+  server.tool(
+    "deploy_prod",
+    "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug (from list_projects)"),
+    },
+    async ({ projectSlug }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, "/github/deploy-latest", {
+        method: "POST",
+        body: JSON.stringify({ projectId: projectSlug }),
+      });
+      if (!got.ok) return got.result;
+      const data = got.data as { commitSha?: string; branch?: string };
+      return toolJson({
+        ok: true,
+        project: projectSlug,
+        triggered: true,
+        branch: data.branch ?? null,
+        commitSha: data.commitSha ?? null,
+        pending: true,
+        nextStep: "Call get_status or list_deployments, then get_build_log if it fails",
+        message:
+          "Build dispatched. Production will update when the remote build finishes. This tool does not wait for the deploy.",
+      });
+    },
+  );
+
+  server.tool(
+    "list_deployments",
+    "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug"),
+    },
+    async ({ projectSlug }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/deployments`);
+      if (!got.ok) return got.result;
+      const rows = Array.isArray(got.data) ? (got.data as Array<Record<string, unknown>>) : [];
+      const deployments = rows.map((d) => ({
+        id: d.id,
+        version: d.version,
+        status: d.status,
+        branch: d.branch ?? null,
+        triggerType: d.triggerType ?? d.trigger_type ?? null,
+        createdAt: d.createdAt ?? d.created_at ?? null,
+      }));
+      return toolJson({ ok: true, project: projectSlug, deployments });
+    },
+  );
+
+  server.tool(
+    "rollback",
+    "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
+    {
+      projectSlug: z.string().describe("Project slug"),
+      deploymentId: z
+        .string()
+        .trim()
+        .min(1)
+        .describe(
+          "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
+        ),
+      message: z.string().optional().describe("Optional rollback reason"),
+    },
+    async ({ projectSlug, deploymentId, message }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      // Never omit deploymentId: an empty target makes the control plane pick
+      // "previous production", which after one rollback can be a synthetic row.
+      const id = deploymentId.trim();
+      if (!id) {
+        return toolJson(
+          {
+            ok: false,
+            error: "deployment_id_required",
+            message:
+              "rollback requires a non-empty deploymentId from list_deployments (active, triggerType !== rollback).",
+          },
+          true,
+        );
+      }
+      const body: Record<string, string> = { deploymentId: id };
+      if (message !== undefined && message.length > 0) body.message = message;
+      const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/rollback`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (!got.ok) return got.result;
+      return toolJson({
+        ok: true,
+        project: projectSlug,
+        ...(got.data as Record<string, unknown>),
       });
     },
   );

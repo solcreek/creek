@@ -94,7 +94,37 @@ Create or update an env var. Does not restart the worker.
 
 **Input:** `projectSlug`, `key`, `value`
 
-**Output:** `{ ok, key, pendingDeploy: true, nextStep: "creek deploy --prod --json" }` — the value is never echoed.
+**Output:** `{ ok, key, pendingDeploy: true, nextStep: "Call deploy_prod …" }` — the value is never echoed.
+
+### `env_rm`
+
+Remove an env var. Same pending-deploy caveat as `env_set`.
+
+**Input:** `projectSlug`, `key`
+
+### `deploy_prod`
+
+Trigger a production deploy of the latest commit on the project's GitHub production branch (`POST /github/deploy-latest`). Does **not** wait for the build.
+
+**Input:** `projectSlug`
+
+**Output:** `{ ok, triggered, branch, commitSha, pending: true }` — then poll `get_status` / `list_deployments` / `get_build_log`.
+
+Requires a GitHub connection. Projects without one get `not_found` / "Project has no GitHub connection".
+
+### `list_deployments`
+
+Recent deployments, newest first.
+
+**Input:** `projectSlug`
+
+**Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt }] }` — pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
+
+### `rollback`
+
+Roll production back to a previous active deployment.
+
+**Input:** `projectSlug`, required `deploymentId` (active non-rollback row from `list_deployments`), optional `message`
 
 ## Example
 
@@ -116,10 +146,11 @@ Agent:
 | Sandbox tools (`deploy`, `deploy_demo`, `deploy_status`, `deploy_delete`) | No |
 | Build log (`get_build_log`) | `Authorization: Bearer` or `x-api-key` header |
 | Projects (`list_projects`, `get_status`) | same header |
-| Env (`env_ls`, `env_set`) | same header |
+| Env (`env_ls`, `env_set`, `env_rm`) | same header |
+| Production (`deploy_prod`, `list_deployments`, `rollback`) | same header |
 | Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | same header |
 
-Production deploy and rollback are still CLI-only (`creek deploy --prod`, `creek rollback`). `env_set` stores the var but does not restart the worker — follow with `creek deploy --prod --json`.
+`deploy_prod` requires a GitHub connection on the project (same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. `env_set` / `env_rm` do not restart the worker — follow with `deploy_prod`.
 
 Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`~/.creek/config.json` or `CREEK_TOKEN`).
 
@@ -139,4 +170,4 @@ MCP requests are rate-limited per client IP (not per MCP server):
 - **Endpoint:** `https://mcp.creek.dev` (`/mcp` still works)
 - **Health check:** `https://mcp.creek.dev/health`
 
-The MCP server is a stateless protocol translator — it forwards tool calls to Creek's Sandbox API. No data is stored in the MCP server itself.
+The MCP server is a stateless protocol translator. Sandbox tools (`deploy`, `deploy_demo`, …) call the Sandbox API; authenticated project/env/deploy tools call the Control Plane. No data is stored in the MCP server itself.

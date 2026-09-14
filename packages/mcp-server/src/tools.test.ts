@@ -321,8 +321,133 @@ describe("MCP authenticated tools", () => {
       ok: true,
       key: "API_TOKEN",
       pendingDeploy: true,
-      nextStep: "creek deploy --prod --json",
     });
+    expect(payload.nextStep).toContain("deploy_prod");
     expect(JSON.stringify(payload)).not.toContain("super-secret");
+  });
+
+  it("deploy_prod POSTs /github/deploy-latest and does not wait", async () => {
+    let posted: unknown;
+    server.use(
+      http.post("https://cp.test/github/deploy-latest", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({ ok: true, commitSha: "abc1234deadbeef", branch: "main" });
+      }),
+    );
+    const deploy = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "deploy_prod",
+    )!;
+    const result = await deploy({ projectSlug: "hello" });
+    expect(posted).toEqual({ projectId: "hello" });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      triggered: true,
+      pending: true,
+      branch: "main",
+      commitSha: "abc1234deadbeef",
+    });
+  });
+
+  it("list_deployments returns a slim list", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          {
+            id: "d2",
+            version: 2,
+            status: "active",
+            branch: "main",
+            triggerType: "cli",
+            createdAt: 200,
+          },
+          {
+            id: "d1",
+            version: 1,
+            status: "active",
+            branch: "main",
+            triggerType: "rollback",
+            createdAt: 100,
+          },
+        ]),
+      ),
+    );
+    const list = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "list_deployments",
+    )!;
+    const result = await list({ projectSlug: "hello" });
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.ok).toBe(true);
+    expect(payload.deployments).toHaveLength(2);
+    expect(payload.deployments[0]).toMatchObject({
+      id: "d2",
+      version: 2,
+      status: "active",
+      triggerType: "cli",
+    });
+    expect(payload.deployments[1]).toMatchObject({ id: "d1", triggerType: "rollback" });
+  });
+
+  it("rollback POSTs the required deploymentId even if other fields are empty", async () => {
+    let posted: unknown;
+    server.use(
+      http.post("https://cp.test/projects/hello/rollback", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({
+          ok: true,
+          deploymentId: "rb-1",
+          rolledBackTo: "d1",
+          url: "https://hello.bycreek.com",
+        });
+      }),
+    );
+    const rb = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "rollback",
+    )!;
+    const result = await rb({ projectSlug: "hello", deploymentId: "d1" });
+    expect(posted).toEqual({ deploymentId: "d1" });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      rolledBackTo: "d1",
+    });
+  });
+
+  it("rollback rejects an empty deploymentId without calling the control plane", async () => {
+    let posted = false;
+    server.use(
+      http.post("https://cp.test/projects/hello/rollback", () => {
+        posted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const rb = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "rollback",
+    )!;
+    const result = await rb({ projectSlug: "hello", deploymentId: "   " });
+    expect(posted).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: false,
+      error: "deployment_id_required",
+    });
+  });
+
+  it("env_rm DELETEs the key", async () => {
+    let deleted = false;
+    server.use(
+      http.delete("https://cp.test/projects/hello/env/API_TOKEN", () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const rm = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "env_rm",
+    )!;
+    const result = await rm({ projectSlug: "hello", key: "API_TOKEN" });
+    expect(deleted).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      key: "API_TOKEN",
+      pendingDeploy: true,
+    });
   });
 });
