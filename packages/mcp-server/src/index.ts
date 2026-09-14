@@ -22,7 +22,7 @@ app.all("/mcp", async (c) => {
   });
 
   const clientIp = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
-  registerTools(server, { env: c.env, clientIp });
+  registerTools(server, { env: c.env, clientIp, requestHeaders: c.req.raw.headers });
   registerResources(server);
 
   const transport = new WebStandardStreamableHTTPServerTransport({
