@@ -18,7 +18,7 @@ const envSet = defineCommand({
     const slug = resolveProjectSlug(undefined, jsonMode);
     if (isDryRun(args)) {
       emitDryRunPlan(jsonMode, {
-        command: `creek env set ${args.key} <value>`,
+        command: `creek env set ${args.key} '$VALUE'`,
         wouldExecute: true,
         project: slug,
         key: args.key,
@@ -26,8 +26,9 @@ const envSet = defineCommand({
         sideEffects: [
           `Store ${args.key} on project ${slug} (value not logged)`,
           "Running worker is unchanged until the next production deploy",
+          "Replace $VALUE with the real secret; keep the single quotes",
         ],
-        nextStep: `creek env set ${args.key} <value> --json`,
+        nextStep: `creek env set ${args.key} '$VALUE' --json`,
       });
       return;
     }

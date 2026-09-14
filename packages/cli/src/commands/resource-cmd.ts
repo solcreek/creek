@@ -292,7 +292,9 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             ? bindings.map(
                 (b) => `Still bound to ${b.projectSlug} as ${b.bindingName} — detach first`,
               )
-            : [`Delete team ${label} "${args.name}" and its backing Cloudflare resource`],
+            : [
+                `Soft-delete team ${label} "${args.name}" (row marked deleted). Backing Cloudflare resource is not torn down here.`,
+              ],
           nextStep: blocked
             ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --json`
             : `creek ${cmdName} delete ${args.name} --json`,

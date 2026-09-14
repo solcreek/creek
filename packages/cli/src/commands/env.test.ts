@@ -104,7 +104,10 @@ describe("creek env set", () => {
       key: "DATABASE_URL",
       pendingDeploy: true,
     });
-    expect(json().nextStep).toContain("creek env set DATABASE_URL");
+    expect(json().nextStep).toBe("creek env set DATABASE_URL '$VALUE' --json");
+    expect(json().sideEffects).toContain(
+      "Replace $VALUE with the real secret; keep the single quotes",
+    );
   });
 
   it("sets the variable and tells the user a deploy is needed to apply it", async () => {

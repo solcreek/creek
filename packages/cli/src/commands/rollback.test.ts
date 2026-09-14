@@ -64,40 +64,39 @@ function json() {
   return JSON.parse(stdout);
 }
 
+function deployment(id: string, status: string, createdAt: number) {
+  return {
+    id,
+    projectId: "p1",
+    version: createdAt,
+    status,
+    branch: "main",
+    commitSha: null,
+    commitMessage: null,
+    triggerType: "cli",
+    failedStep: null,
+    errorMessage: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+async function dryRun(extra: Record<string, unknown> = {}): Promise<number> {
+  return runExit(
+    (rollbackCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: { "dry-run": true, json: true, ...extra },
+    }),
+  );
+}
+
 describe("creek rollback --dry-run", () => {
   it("does not POST rollback and names the previous deployment", async () => {
     let posted = false;
     server.use(
       http.get(`${API}/projects/${SLUG}/deployments`, () =>
         HttpResponse.json([
-          {
-            id: "dep-new",
-            projectId: "p1",
-            version: 2,
-            status: "active",
-            branch: "main",
-            commitSha: null,
-            commitMessage: null,
-            triggerType: "cli",
-            failedStep: null,
-            errorMessage: null,
-            createdAt: 200,
-            updatedAt: 200,
-          },
-          {
-            id: "dep-old",
-            projectId: "p1",
-            version: 1,
-            status: "active",
-            branch: "main",
-            commitSha: null,
-            commitMessage: null,
-            triggerType: "cli",
-            failedStep: null,
-            errorMessage: null,
-            createdAt: 100,
-            updatedAt: 100,
-          },
+          deployment("dep-new", "active", 200),
+          deployment("dep-old", "active", 100),
         ]),
       ),
       http.post(`${API}/projects/${SLUG}/rollback`, () => {
@@ -106,11 +105,7 @@ describe("creek rollback --dry-run", () => {
       }),
     );
 
-    const code = await runExit(
-      (rollbackCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
-        args: { "dry-run": true, json: true },
-      }),
-    );
+    const code = await dryRun();
     expect(code).toBe(0);
     expect(posted).toBe(false);
     expect(json()).toMatchObject({
@@ -120,6 +115,68 @@ describe("creek rollback --dry-run", () => {
       currentDeploymentId: "dep-new",
       targetDeploymentId: "dep-old",
     });
-    expect(json().nextStep).toBe("creek rollback dep-old --json");
+    expect(json().nextStep).toBe(`creek rollback dep-old --project ${SLUG} --json`);
+  });
+
+  it("wouldExecute is false when the explicit target is already production", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/deployments`, () =>
+        HttpResponse.json([
+          deployment("dep-new", "active", 200),
+          deployment("dep-old", "active", 100),
+        ]),
+      ),
+    );
+    const code = await dryRun({ deployment: "dep-new" });
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: false,
+      currentDeploymentId: "dep-new",
+      targetDeploymentId: "dep-new",
+    });
+  });
+
+  it("wouldExecute is false when the explicit target is not active", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/deployments`, () =>
+        HttpResponse.json([
+          deployment("dep-new", "active", 200),
+          deployment("dep-failed", "failed", 100),
+        ]),
+      ),
+    );
+    const code = await dryRun({ deployment: "dep-failed" });
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      wouldExecute: false,
+      targetDeploymentId: "dep-failed",
+      targetStatus: "failed",
+    });
+  });
+
+  it("wouldExecute is false when the previous deployment is not active", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/deployments`, () =>
+        HttpResponse.json([
+          deployment("dep-new", "active", 200),
+          deployment("dep-old", "cancelled", 100),
+        ]),
+      ),
+    );
+    const code = await dryRun();
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ wouldExecute: false, currentDeploymentId: "dep-new" });
+  });
+
+  it("emits api_error when listing deployments fails", async () => {
+    server.use(
+      http.get(
+        `${API}/projects/${SLUG}/deployments`,
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    );
+    const code = await dryRun();
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "api_error" });
   });
 });

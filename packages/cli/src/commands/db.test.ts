@@ -438,6 +438,9 @@ describe("creek db delete --dry-run", () => {
       wouldExecute: true,
       name: "mydb",
     });
+    expect(json().sideEffects).toContain(
+      'Soft-delete team database "mydb" (row marked deleted). Backing Cloudflare resource is not torn down here.',
+    );
   });
 
   it("wouldExecute is false when bindings remain", async () => {

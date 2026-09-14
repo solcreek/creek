@@ -5,7 +5,7 @@
 ### Agent experience
 
 - **`--dry-run` on mutating commands.** `creek rollback`, `creek db delete`
-  (and storage/cache/ai delete), `creek env set` / `env rm`, and
+  (and storage/cache delete), `creek env set` / `env rm`, and
   `creek domains rm` preview `wouldExecute`, `sideEffects`, and a
   copy-pasteable `nextStep` without POSTing or DELETEing. Database delete
   reports remaining bindings and refuses `wouldExecute` until they are

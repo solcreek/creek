@@ -230,7 +230,7 @@ describe("creek domains structured errors (JSON mode)", () => {
       wouldExecute: true,
       hostname: HOST,
     });
-    expect(json().nextStep).toContain("creek domains rm");
+    expect(json().nextStep).toBe(`creek domains rm ${HOST} --project ${SLUG} --json`);
   });
 
   it("emits a structured not_found when removing a hostname that isn't on the project", async () => {

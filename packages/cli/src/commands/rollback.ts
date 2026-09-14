@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import { resolveProjectSlug } from "../utils/command-context.js";
+import { resolveProjectSlug, apiCall } from "../utils/command-context.js";
 import {
   CreekdClient,
   CreekdResourceVersionMismatchError,
@@ -96,15 +96,17 @@ export const rollbackCommand = defineCommand({
     const message = args.message as string | undefined;
 
     if (isDryRun(args)) {
-      const deployments = await client.listDeployments(projectSlug);
+      const deployments = await apiCall(jsonMode, "api_error", () =>
+        client.listDeployments(projectSlug),
+      );
       const sorted = [...deployments].sort((a, b) => b.createdAt - a.createdAt);
-      const current = sorted.find((d) => d.status === "active") ?? sorted[0];
+      const current = sorted.find((d) => d.status === "active");
       const target = deploymentId
         ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
-        : sorted.find(
-            (d) => d.id !== current?.id && d.status !== "failed" && d.status !== "cancelled",
-          );
-      const wouldExecute = !!target;
+        : sorted.find((d) => d.status === "active" && d.id !== current?.id);
+      // Real rollback requires an active target that is not production.
+      const wouldExecute =
+        !!current && !!target && target.status === "active" && target.id !== current.id;
       emitDryRunPlan(jsonMode, {
         command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
         wouldExecute,
@@ -114,16 +116,22 @@ export const rollbackCommand = defineCommand({
         targetStatus: target?.status ?? null,
         sideEffects: wouldExecute
           ? [
-              `Production for ${projectSlug} moves from ${current?.id.slice(0, 8) ?? "none"} to ${target!.id.slice(0, 8)}`,
+              `Production for ${projectSlug} moves from ${current!.id.slice(0, 8)} to ${target!.id.slice(0, 8)}`,
               "A new rollback deployment row is created",
             ]
           : [
-              deploymentId
-                ? `No deployment matching "${deploymentId}"`
-                : "No previous non-failed deployment to roll back to",
+              !current
+                ? "No production deployment to roll back from"
+                : !target && deploymentId
+                  ? `No deployment matching "${deploymentId}"`
+                  : target && target.id === current.id
+                    ? `Deployment ${target.id.slice(0, 8)} is already production`
+                    : target && target.status !== "active"
+                      ? `Deployment ${target.id.slice(0, 8)} is ${target.status}, not active`
+                      : "No previous active deployment to roll back to",
             ],
         nextStep: wouldExecute
-          ? `creek rollback ${target!.id} --json`
+          ? `creek rollback ${target!.id} --project ${projectSlug} --json`
           : `creek deployments --project ${projectSlug} --json`,
       });
       return;
@@ -238,7 +246,7 @@ async function rollbackSelfHost(
         `POST /v1/apps/${appId}/rollback?to=${toSeq} on ${host.name}`,
         "If-Match is sent from the local resource-version cache",
       ],
-      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --json`,
+      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --project ${appId} --json`,
     });
     return;
   }

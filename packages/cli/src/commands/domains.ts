@@ -209,7 +209,7 @@ const domainsRm = defineCommand({
           `Detach ${domain.hostname} from project ${slug}`,
           "Custom hostname record on the edge is removed",
         ],
-        nextStep: `creek domains rm ${domain.hostname} --json`,
+        nextStep: `creek domains rm ${domain.hostname} --project ${slug} --json`,
       });
       return;
     }
