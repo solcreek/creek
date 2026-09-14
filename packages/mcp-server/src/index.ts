@@ -8,7 +8,22 @@ import { registerResources } from "./resources.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", cors({ origin: "*" }));
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowHeaders: [
+      "Authorization",
+      "x-api-key",
+      "Content-Type",
+      "Accept",
+      "MCP-Protocol-Version",
+      "Mcp-Session-Id",
+      "Last-Event-ID",
+    ],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  }),
+);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", service: "creek-mcp-server" }));
@@ -22,7 +37,7 @@ app.all("/mcp", async (c) => {
   });
 
   const clientIp = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
-  registerTools(server, { env: c.env, clientIp });
+  registerTools(server, { env: c.env, clientIp, requestHeaders: c.req.raw.headers });
   registerResources(server);
 
   const transport = new WebStandardStreamableHTTPServerTransport({

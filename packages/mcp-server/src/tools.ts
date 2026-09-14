@@ -8,14 +8,21 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Env } from "./types.js";
+import { missingKeyResult, resolveApiKey } from "./auth.js";
+import { provePreview } from "./proof.js";
 
 export interface ToolContext {
   env: Env;
   clientIp: string;
+  requestHeaders: Headers;
 }
 
 export function registerTools(server: McpServer, ctx: ToolContext) {
-  const { env, clientIp } = ctx;
+  const { env, clientIp, requestHeaders } = ctx;
+
+  function requireKey(): string | null {
+    return resolveApiKey(requestHeaders);
+  }
 
   /**
    * Forward client IP + internal secret so sandbox-api rate limits the real
@@ -70,25 +77,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
       // Poll for active status
       const status = await pollStatus(deploy.statusUrl);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              {
-                url: status.previewUrl,
-                sandboxId: status.sandboxId,
-                deployDurationMs: status.deployDurationMs,
-                expiresAt: status.expiresAt,
-                expiresInSeconds: status.expiresInSeconds,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-      };
+      return sandboxResult(status);
     },
   );
 
@@ -118,24 +107,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
       const deploy = (await res.json()) as any;
       const status = await pollStatus(deploy.statusUrl);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              {
-                url: status.previewUrl,
-                sandboxId: status.sandboxId,
-                deployDurationMs: status.deployDurationMs,
-                message: "Demo deployed successfully. Visit the URL to see it live.",
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-      };
+      return sandboxResult(status, { message: "Demo deployed successfully." });
     },
   );
 
@@ -189,19 +161,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "get_build_log",
-    "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Requires a Creek API key (obtain via `creek login`).",
+    "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z
-        .string()
-        .describe(
-          "Creek API key. Users should run `creek login` then copy the stored token; CLI-first agents can read ~/.creek/config.json.",
-        ),
       projectSlug: z
         .string()
         .describe("Project slug (shown by `creek projects` or `creek status`)"),
       deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
     },
-    async ({ apiKey, projectSlug, deploymentId }) => {
+    async ({ projectSlug, deploymentId }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       // Resolve short id → full id if needed. GET /logs requires full uuid.
       let fullId = deploymentId;
@@ -334,15 +303,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "list_resources",
-    "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Requires a Creek API key.",
+    "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       kind: z
         .enum(["database", "storage", "cache", "ai"])
         .optional()
         .describe("Filter by resource kind"),
     },
-    async ({ apiKey, kind }) => {
+    async ({ kind }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources`, { headers: cpHeaders(apiKey) });
       if (!res.ok) {
@@ -360,13 +330,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "create_resource",
-    "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Requires a Creek API key.",
+    "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
       name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
     },
-    async ({ apiKey, kind, name }) => {
+    async ({ kind, name }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources`, {
         method: "POST",
@@ -386,14 +357,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "attach_resource",
-    "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Requires a Creek API key.",
+    "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       projectSlug: z.string().describe("Project slug"),
       resourceId: z.string().describe("Resource ID (from list_resources)"),
       bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
     },
-    async ({ apiKey, projectSlug, resourceId, bindingName }) => {
+    async ({ projectSlug, resourceId, bindingName }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/projects/${projectSlug}/bindings`, {
         method: "POST",
@@ -420,13 +392,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "detach_resource",
-    "Remove a resource binding from a project. The resource itself is not deleted. Requires a Creek API key.",
+    "Remove a resource binding from a project. The resource itself is not deleted. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       projectSlug: z.string().describe("Project slug"),
       bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
     },
-    async ({ apiKey, projectSlug, bindingName }) => {
+    async ({ projectSlug, bindingName }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/projects/${projectSlug}/bindings/${bindingName}`, {
         method: "DELETE",
@@ -449,12 +422,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "delete_resource",
-    "Delete a team-owned resource. Fails if any project still has a binding to it — detach first. Requires a Creek API key.",
+    "Delete a team-owned resource. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       resourceId: z.string().describe("Resource ID"),
     },
-    async ({ apiKey, resourceId }) => {
+    async ({ resourceId }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources/${resourceId}`, {
         method: "DELETE",
@@ -473,13 +447,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "rename_resource",
-    "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Requires a Creek API key.",
+    "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       resourceId: z.string().describe("Resource ID"),
       name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
     },
-    async ({ apiKey, resourceId, name }) => {
+    async ({ resourceId, name }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources/${resourceId}`, {
         method: "PATCH",
@@ -501,14 +476,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "query_database",
-    "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Requires a Creek API key.",
+    "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      apiKey: z.string().describe("Creek API key"),
       resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
       sql: z.string().describe("SQL query to execute"),
       params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
     },
-    async ({ apiKey, resourceId, sql, params }) => {
+    async ({ resourceId, sql, params }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
       const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       const res = await fetch(`${base}/resources/${resourceId}/query`, {
         method: "POST",
@@ -567,6 +543,32 @@ function suggestFixForCkCode(code: string | null): string | null {
 // ================================================================
 // Helpers
 // ================================================================
+
+async function sandboxResult(
+  status: {
+    previewUrl: string;
+    sandboxId: string;
+    deployDurationMs?: number;
+    expiresAt?: string;
+    expiresInSeconds?: number;
+  },
+  extra: Record<string, unknown> = {},
+) {
+  const proof = await provePreview(status.previewUrl);
+  const payload = {
+    url: status.previewUrl,
+    sandboxId: status.sandboxId,
+    deployDurationMs: status.deployDurationMs,
+    expiresAt: status.expiresAt,
+    expiresInSeconds: status.expiresInSeconds,
+    proof,
+    ...(!proof.ok ? { error: "verify_failed" } : extra),
+  };
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+    ...(!proof.ok ? { isError: true as const } : {}),
+  };
+}
 
 async function pollStatus(statusUrl: string, maxWait = 30_000): Promise<any> {
   const start = Date.now();

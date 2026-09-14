@@ -46,9 +46,11 @@ on failure.
 ## MCP tool — `get_build_log`
 
 `mcp.creek.dev` exposes `get_build_log` for agents that want to
-diagnose a deploy without going through the CLI. Input: Creek API key
-+ project slug + deployment id (short or full). Output: summary +
-important lines (errors + failing-step lines) + full log.
+diagnose a deploy without going through the CLI. Input: project slug
++ deployment id (short or full). Auth is HTTP
+`Authorization: Bearer <key>` or `x-api-key` on the MCP request —
+not a tool argument. Output: summary + important lines (errors +
+failing-step lines) + full log.
 
 Pattern: user says "my deploy to Creek failed, can you fix it?" → agent
 calls `get_build_log` → reads the `errorCode` + `errorStep` → applies

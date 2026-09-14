@@ -17,13 +17,16 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
 {
   "mcpServers": {
     "creek": {
-      "url": "https://mcp.creek.dev/mcp"
+      "url": "https://mcp.creek.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer <CREEK_TOKEN>"
+      }
     }
   }
 }
 ```
 
-No API key needed for sandbox tools.
+No API key needed for sandbox tools. Authenticated tools (build log, resources) read `Authorization: Bearer <key>` or `x-api-key` from this HTTP request — never as a tool argument.
 
 ## Available Tools
 
@@ -35,7 +38,7 @@ Deploy files to a sandbox preview (60 min).
 - `files` — `Record<string, string>` — file path to content (UTF-8 strings, not base64)
 - `source` — `string` (optional) — source identifier for tracking
 
-**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `expiresAt`
+**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `expiresAt`, `proof` (`ok`, `status`, `title`, `ttfbMs`). If the preview URL is not live, `error` is `verify_failed` and the tool result is an error — the `url` is still included.
 
 ### `deploy_demo`
 
@@ -43,7 +46,7 @@ Deploy a sample page instantly. Great for testing connectivity.
 
 **Input:** none
 
-**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`
+**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `proof` (same shape as `deploy`)
 
 ### `deploy_status`
 
@@ -79,12 +82,12 @@ Agent:
 | Tools | Auth required |
 |-------|:------------:|
 | Sandbox tools (`deploy`, `deploy_demo`, `deploy_status`, `deploy_delete`) | No |
-| Build log (`get_build_log`) | API key argument |
-| Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | API key argument |
+| Build log (`get_build_log`) | `Authorization: Bearer` or `x-api-key` header |
+| Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | same header |
 
 There is no `deploy_project`, `list_projects`, or `set_env_var` tool. Project-level deploy, listing, and env vars are CLI-only (`creek deploy --sandbox/--prod`, `creek projects`, `creek env`).
 
-Prefer the CLI when you have a shell — authenticated MCP tools currently take `apiKey` as a parameter, which puts the key in the transcript. The CLI reads `~/.creek/config.json` or `CREEK_TOKEN`.
+Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`~/.creek/config.json` or `CREEK_TOKEN`).
 
 ## Rate Limits
 

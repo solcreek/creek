@@ -37,11 +37,17 @@ creek deploy --prod --json
 
 ## MCP (https://mcp.creek.dev/mcp)
 
-Sandbox, no auth: `deploy` (file map → preview URL), `deploy_demo`, `deploy_status`, `deploy_delete`.
+Sandbox, no auth: `deploy` (file map → preview URL + `proof`), `deploy_demo`, `deploy_status`, `deploy_delete`.
 
-Authenticated (API key **argument** today): `get_build_log`, `list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`. Prefer the CLI (`creek db`, `creek deployments logs`) when you have a shell — the key stays out of the transcript.
+Authenticated tools (`get_build_log`, resource CRUD, `query_database`): send the key on the **HTTP request**, not as a tool argument:
 
-After MCP `deploy`, GET the returned `url` (or `creek verify <url> --json`) before telling the user it worked.
+```json
+{ "mcpServers": { "creek": { "url": "https://mcp.creek.dev/mcp", "headers": { "Authorization": "Bearer <CREEK_TOKEN>" } } } }
+```
+
+Do not pass `apiKey` to tools. Prefer the CLI (`creek db`, `creek deployments logs`) when you have a shell.
+
+MCP `deploy` JSON includes `proof` (GET of the preview URL). If `proof.ok` is false, treat the deploy as unverified even if `url` is present.
 
 ## References
 
