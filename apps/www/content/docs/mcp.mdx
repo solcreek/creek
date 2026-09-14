@@ -82,9 +82,11 @@ Remote status for one project.
 
 ### `env_ls`
 
-List env var **keys** (values are masked).
+List env var **keys** only (values are never returned).
 
 **Input:** `projectSlug`
+
+**Output:** `{ ok, project, keys: string[] }`
 
 ### `env_set`
 

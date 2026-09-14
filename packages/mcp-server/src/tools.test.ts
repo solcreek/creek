@@ -287,11 +287,11 @@ describe("MCP authenticated tools", () => {
     expect(payload.latestDeployment).toBeUndefined();
   });
 
-  it("env_ls returns masked vars and env_set does not echo the value", async () => {
+  it("env_ls returns keys only and env_set does not echo the value", async () => {
     let posted: unknown;
     server.use(
       http.get("https://cp.test/projects/hello/env", () =>
-        HttpResponse.json([{ key: "DATABASE_URL", value: "DAT***URL" }]),
+        HttpResponse.json([{ key: "DATABASE_URL", value: "DATA****" }]),
       ),
       http.post("https://cp.test/projects/hello/env", async ({ request }) => {
         posted = await request.json();
@@ -301,10 +301,15 @@ describe("MCP authenticated tools", () => {
     const headers = new Headers({ authorization: "Bearer ck_live_test" });
     const tools = registerAndCapture(headers);
     const ls = await tools.get("env_ls")!({ projectSlug: "hello" });
-    expect(JSON.parse(ls.content[0].text)).toMatchObject({
+    const lsPayload = JSON.parse(ls.content[0].text);
+    expect(lsPayload).toMatchObject({
       ok: true,
-      vars: [{ key: "DATABASE_URL" }],
+      project: "hello",
+      keys: ["DATABASE_URL"],
     });
+    expect(lsPayload).not.toHaveProperty("vars");
+    expect(JSON.stringify(lsPayload)).not.toContain("DATA****");
+    expect(JSON.stringify(lsPayload)).not.toContain("value");
     const set = await tools.get("env_set")!({
       projectSlug: "hello",
       key: "API_TOKEN",

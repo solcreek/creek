@@ -393,7 +393,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "env_ls",
-    "List environment variable keys for a project. Values are masked. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "List environment variable keys for a project. Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
     },
@@ -402,7 +402,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!apiKey) return missingKeyResult();
       const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
       if (!got.ok) return got.result;
-      return toolJson({ ok: true, project: projectSlug, vars: got.data });
+      // CP `value` is mask(key), a placeholder — not a masked secret. Omit it.
+      const rows = Array.isArray(got.data) ? (got.data as Array<Record<string, unknown>>) : [];
+      const keys = rows.map((row) => row.key).filter((k): k is string => typeof k === "string");
+      return toolJson({ ok: true, project: projectSlug, keys });
     },
   );
 
