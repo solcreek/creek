@@ -36,7 +36,7 @@ Do not add `creek deploy --sandbox` / `--prod` as a default mapped drive. Sandbo
 - `--yes` is not implied by `--json`.
 - One disposable project dir per drive. Do not reuse another run's scratch.
 - Capture argv (redacted), stdout, stderr, exit code, and cwd/HOME **hash** deltas (`filesModified` counts in-place writes).
-- If you need Cleanup to terminate a helper process, write its PID record with `record_pid <name> <pid>` so PID reuse cannot target another process.
+- If you need Cleanup to terminate a helper process, write its PID record with `record_pid <safe-basename> <pid>` so PID reuse cannot target another process. PID record names are a single `[A-Za-z0-9._-]+` segment. Tmux session names must include `$RUN_ID`.
 
 ## Proof standards
 

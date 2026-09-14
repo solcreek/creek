@@ -76,7 +76,7 @@ for child in sorted(p for p in root.iterdir() if p.is_dir()):
     argv = json.loads((child/"argv.json").read_text()) if (child/"argv.json").exists() else {}
     slim = None
     if isinstance(parsed, dict):
-        slim = {k: parsed[k] for k in ("ok", "error", "flags", "path", "mode", "authenticated") if k in parsed}
+        slim = {k: parsed[k] for k in ("ok", "error", "flags", "path", "mode", "authenticated", "findings", "database", "databasePromptSkipped", "target", "nextStep") if k in parsed}
         cmd = parsed.get("command")
         if isinstance(cmd, dict):
             slim["command"] = {
@@ -182,7 +182,7 @@ case "${FEATURE}" in
     mkdir -p "${proj}"
     # init writes creek.toml in cwd; positional is the project name.
     run_one "01-init-json" "${proj}" init --json --yes verify-init
-    assert_json "${DRIVE_ROOT}/01-init-json/stdout" 0 'ok=true' 'name="verify-init"'
+    assert_json "${DRIVE_ROOT}/01-init-json/stdout" 0 'ok=true' 'name="verify-init"' 'database=false' 'databasePromptSkipped=true'
     python3 - <<PY
 import json, pathlib, sys
 proj = pathlib.Path("${proj}")
@@ -232,7 +232,7 @@ PY
     mkdir -p "${fixture}"
     printf '<h1>creek-verify-deploy</h1>\n' > "${fixture}/index.html"
     run_one "01-dry-run" "${fixture}" deploy --dry-run --json "${fixture}"
-    assert_json "${DRIVE_ROOT}/01-dry-run/stdout" 0 'mode="dry-run"' 'supported=true' 'wouldDeploy=true' 'sideEffects.networkCalls=false' 'sideEffects.fileUploads=false' 'sideEffects.buildExecuted=false'
+    assert_json "${DRIVE_ROOT}/01-dry-run/stdout" 0 'mode="dry-run"' 'supported=true' 'wouldDeploy=true' 'authenticated=false' 'target.type="sandbox"' 'nextStep="creek deploy --sandbox --json"' 'sideEffects.networkCalls=false' 'sideEffects.fileUploads=false' 'sideEffects.buildExecuted=false'
     python3 - <<PY
 import json, pathlib, sys
 dest = pathlib.Path("${DRIVE_ROOT}/01-dry-run")
@@ -258,6 +258,8 @@ ok = (
     proof["observedNoProjectMutation"]
     and proof["observedNoHomeMutation"]
     and plan.get("sideEffects", {}).get("networkCalls") is False
+    and plan.get("authenticated") is False
+    and (plan.get("target") or {}).get("type") == "sandbox"
 )
 sys.exit(0 if ok else 1)
 PY
@@ -276,9 +278,13 @@ p.mkdir(parents=True, exist_ok=True)
 report = {
   "ok": False,
   "error": "unmet-precondition",
+  "feature": "whoami",
+  "runId": "${RUN_ID}",
   "message": "VERIFY_CREEK_ALLOW_AUTH=1 requires VERIFY_CREEK_TOKEN (a scoped non-production token). Parent CREEK_TOKEN is never inherited. Do not double-drive a shared live deployment.",
 }
-(p/"summary.json").write_text(json.dumps(report, indent=2) + "\n")
+payload = json.dumps(report, indent=2) + "\n"
+(p/"summary.json").write_text(payload)
+(p/"whoami.summary.json").write_text(payload)
 print(json.dumps(report, indent=2))
 PY
         exit 2

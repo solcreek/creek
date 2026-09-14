@@ -24,7 +24,7 @@ Init has no directory flag — it always uses `process.cwd()`. The positional ar
 .cursor/skills/verify-creek/scripts/drive.sh init
 ```
 
-Creates `/tmp/creek-verify-$RUN_ID/projects/init`, runs `init --json --yes verify-init` there, asserts JSON `ok`/`name`, and checks `creek.toml` contains `name = "verify-init"`. Proof also records `side-effects.json` `filesAdded`.
+Creates `/tmp/creek-verify-$RUN_ID/projects/init`, runs `init --json --yes verify-init` there, asserts JSON `ok`/`name`/`database: false`/`databasePromptSkipped: true`, and checks `creek.toml` contains `name = "verify-init"`. Proof also records `side-effects.json` `filesAdded`.
 
 Do not run init inside the monorepo root.
 

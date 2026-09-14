@@ -24,7 +24,7 @@ Users inspect the plan, then follow `nextStep` (`--sandbox` or `--prod`). Agents
 .cursor/skills/verify-creek/scripts/drive.sh deploy-dry-run
 ```
 
-Writes `index.html` in a scratch project, runs `deploy --dry-run --json <dir>`, asserts JSON `mode/supported/wouldDeploy/sideEffects.*`, then **observes** `side-effects.json`: `observedNoProjectMutation` and `observedNoHomeMutation` (added/removed/**modified** hashes, so in-place rewrites of `index.html` or `~/.creek/config.json` fail the proof). JSON `networkCalls: false` is the CLI’s declared contract, not a packet capture.
+Writes `index.html` in a scratch project, runs `deploy --dry-run --json <dir>`, asserts JSON `mode/supported/wouldDeploy/authenticated: false/target.type: "sandbox"/nextStep/sideEffects.*`, then **observes** `side-effects.json`: `observedNoProjectMutation` and `observedNoHomeMutation` (added/removed/**modified** hashes, so in-place rewrites of `index.html` or `~/.creek/config.json` fail the proof). JSON `networkCalls: false` is the CLI’s declared contract, not a packet capture.
 
 Do not follow `nextStep` in this drive. Do not pass `--sandbox` here.
 

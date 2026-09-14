@@ -91,7 +91,7 @@ Prefer `--json`. In `--help --json`, `destructive: true` means the command **dec
 
 Raw mode is still scratch-only: `--cwd` may select only a subdirectory under `$SCRATCH/projects`, never the repo or another arbitrary path.
 
-Plain shell with captured stdout/stderr is enough (commands exit). PTY/tmux is optional; if you start a tmux session, record its name in `$SCRATCH/tmux-sessions` and write PID records with `record_pid <name> <pid>` so Cleanup can tear down **only** those exact processes.
+Plain shell with captured stdout/stderr is enough (commands exit). PTY/tmux is optional; if you start a tmux session, its name **must include `$RUN_ID`** (write it to `$SCRATCH/tmux-sessions`) and write PID records with `record_pid <name> <pid>` so Cleanup can tear down **only** those exact processes. Cleanup skips tmux names that do not contain this `RUN_ID`.
 
 Mapped features: `features/`. Drive at least one auth-free feature end-to-end after Doctor (`help-schema` or `doctor`).
 
@@ -115,7 +115,7 @@ Observe dry-run by **both** declared JSON (`sideEffects.networkCalls/fileUploads
 
 `RUN_ID` must be explicit (argv or env). Cleanup **does not** read `artifacts/LAST_RUN_ID`. Needs `python3` only — not Node or pnpm.
 
-Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory **when `/proc/$pid/stat` startTicks still match the record** (and cmdline, when recorded). Reused PIDs are skipped. Kills only tmux sessions listed in that scratch `tmux-sessions` file. Writes `cleanup.json` into the artifacts dir (idempotent if `cleanup.json` already exists). Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
+Removes `/tmp/creek-verify-$RUN_ID` only. SIGTERM only PIDs listed in that scratch `pids/` directory **when `/proc/$pid/stat` startTicks still match the record** (and cmdline, when recorded). Reused PIDs are skipped. Kills only tmux sessions listed in that scratch `tmux-sessions` file **whose name contains this `RUN_ID`**. Writes `cleanup.json` into the artifacts dir. If `cleanup.json` already exists, prints that record unchanged (does not rewrite evidence) and still removes leftover scratch. Unknown `RUN_ID` values with neither scratch nor artifacts exit 2 without creating an artifacts directory. Then confirm `test -d .cursor/skills/verify-creek/artifacts/$RUN_ID`.
 
 ## Helpers
 

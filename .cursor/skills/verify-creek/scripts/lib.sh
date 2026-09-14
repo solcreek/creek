@@ -65,20 +65,25 @@ ensure_pnpm() {
 }
 
 # Safe basename: letters, digits, dot, underscore, hyphen. No slashes, no `..`.
-validate_run_id() {
+validate_basename() {
   local id="${1:-}"
+  local what="${2:-name}"
   if [[ -z "${id}" ]]; then
-    echo "invalid RUN_ID: empty" >&2
+    echo "invalid ${what}: empty" >&2
     return 2
   fi
   if [[ "${id}" == "." || "${id}" == ".." || "${id}" == *"/"* || "${id}" == *"\\"* ]]; then
-    echo "invalid RUN_ID: must be a single path segment (got ${id})" >&2
+    echo "invalid ${what}: must be a single path segment (got ${id})" >&2
     return 2
   fi
   if [[ ! "${id}" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "invalid RUN_ID: only [A-Za-z0-9._-] allowed (got ${id})" >&2
+    echo "invalid ${what}: only [A-Za-z0-9._-] allowed (got ${id})" >&2
     return 2
   fi
+}
+
+validate_run_id() {
+  validate_basename "${1:-}" "RUN_ID"
 }
 
 # Launch/doctor/drive: never auto-load committed artifacts/LAST_RUN_ID.
@@ -195,14 +200,21 @@ PY
 record_pid() {
   local name="$1"
   local pid="$2"
+  validate_basename "${name}" "record_pid name" || return 2
   [[ "${pid}" =~ ^[0-9]+$ ]] || {
     echo "record_pid: pid must be numeric (got ${pid})" >&2
     return 2
   }
-  python3 - "${SCRATCH}/pids/${name}" "${pid}" <<'PY'
+  python3 - "${SCRATCH}/pids" "${name}" "${pid}" <<'PY'
 import json, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-pid = sys.argv[2]
+pids_dir = pathlib.Path(sys.argv[1]).resolve()
+name = sys.argv[2]
+pid = sys.argv[3]
+path = (pids_dir / name).resolve()
+try:
+    path.relative_to(pids_dir)
+except ValueError:
+    raise SystemExit(f"record_pid: {path} is outside {pids_dir}")
 stat = pathlib.Path(f"/proc/{pid}/stat")
 cmdline = pathlib.Path(f"/proc/{pid}/cmdline")
 if not stat.is_file():
@@ -220,6 +232,8 @@ PY
 }
 
 # JSON map of relpath -> {type, sha256, bytes} so in-place writes are visible.
+# Fail closed if the watched tree contains any symlink (file or directory):
+# link targets are not hashed, and a symlink can point outside scratch.
 snapshot_tree() {
   local dir="$1"
   local out="$2"
@@ -228,19 +242,31 @@ snapshot_tree() {
 import hashlib, json, os, sys
 root, out = sys.argv[1], sys.argv[2]
 entries = {}
+symlinks = []
+
+def relpath(dirpath, name):
+    rel_dir = os.path.relpath(dirpath, root)
+    if rel_dir == ".":
+        rel_dir = ""
+    return name if rel_dir == "" else f"{rel_dir}/{name}"
+
+if os.path.islink(root):
+    print(f"snapshot refused: watched root is a symlink: {root}", file=sys.stderr)
+    raise SystemExit(2)
 if os.path.isdir(root):
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = os.path.relpath(dirpath, root)
-        if rel_dir == ".":
-            rel_dir = ""
-        for name in sorted(dirnames):
-            rel = name if rel_dir == "" else f"{rel_dir}/{name}"
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in list(dirnames):
+            path = os.path.join(dirpath, name)
+            rel = relpath(dirpath, name)
+            if os.path.islink(path):
+                symlinks.append(rel)
+                continue
             entries[rel] = {"type": "dir"}
         for name in sorted(filenames):
-            rel = name if rel_dir == "" else f"{rel_dir}/{name}"
             path = os.path.join(dirpath, name)
+            rel = relpath(dirpath, name)
             if os.path.islink(path):
-                entries[rel] = {"type": "symlink", "target": os.readlink(path)}
+                symlinks.append(rel)
                 continue
             raw = open(path, "rb").read()
             entries[rel] = {
@@ -248,14 +274,18 @@ if os.path.isdir(root):
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "bytes": len(raw),
             }
+if symlinks:
+    print(
+        "snapshot refused: symlinks in watched tree (fail closed): " + ", ".join(sorted(symlinks)),
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 open(out, "w").write(json.dumps(entries, indent=2, sort_keys=True) + "\n")
 txt = out.rsplit(".", 1)[0] + ".txt"
 lines = []
 for rel, meta in sorted(entries.items()):
     if meta.get("type") == "file":
         lines.append(f"{rel}\t{meta['sha256']}\t{meta['bytes']}")
-    elif meta.get("type") == "symlink":
-        lines.append(f"{rel}\tsymlink\t{meta.get('target','')}")
     else:
         lines.append(f"{rel}\tdir")
 open(txt, "w").write("\n".join(lines) + ("\n" if lines else ""))
