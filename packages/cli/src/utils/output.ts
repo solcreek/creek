@@ -67,8 +67,11 @@ export function exitError(
 
 /** Reusable breadcrumbs for common error states. */
 export const AUTH_BREADCRUMBS: Breadcrumb[] = [
-  { command: "creek login", description: "Authenticate interactively" },
-  { command: "creek login --token <KEY>", description: "Authenticate with API key (CI/CD)" },
+  {
+    command: "creek login --token <KEY> --json",
+    description: "Authenticate with an API key (agents/CI)",
+  },
+  { command: "creek login", description: "Authenticate in a terminal (opens a browser)" },
 ];
 
 /** Non-TTY / agent deploy to a 60-minute sandbox. Copy-pasteable. */

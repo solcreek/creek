@@ -3,6 +3,7 @@ import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const projectArg = {
   project: { type: "string" as const, description: "Project slug (default: from creek.toml)" },
@@ -185,6 +186,7 @@ const domainsRm = defineCommand({
   args: {
     hostname: { type: "positional", description: "Domain to remove", required: true },
     ...projectArg,
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -194,6 +196,23 @@ const domainsRm = defineCommand({
 
     const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
     if (!domain) domainNotFound(args.hostname, slug, jsonMode);
+
+    if (isDryRun(args)) {
+      emitDryRunPlan(jsonMode, {
+        command: `creek domains rm ${domain.hostname}`,
+        wouldExecute: true,
+        project: slug,
+        hostname: domain.hostname,
+        domainId: domain.id,
+        status: domain.status,
+        sideEffects: [
+          `Remove the project domain record for ${domain.hostname}`,
+          "Cloudflare custom-hostname cleanup is attempted only when a CF hostname ID and CLOUDFLARE_ZONE_ID are present; the project record is still removed if that cleanup fails",
+        ],
+        nextStep: `creek domains rm ${domain.hostname} --project ${slug} --json`,
+      });
+      return;
+    }
 
     await apiCall(jsonMode, "delete_failed", () => client.deleteDomain(slug, domain.id));
 

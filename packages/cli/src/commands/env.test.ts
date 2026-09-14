@@ -82,6 +82,34 @@ function hasDeployBreadcrumb(): boolean {
 }
 
 describe("creek env set", () => {
+  it("dry-run does not POST and still reports pendingDeploy", async () => {
+    let posted = false;
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, () => {
+        posted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(
+      setCmd.run!({
+        args: { key: "DATABASE_URL", value: "postgres://x", "dry-run": true },
+      } as never),
+    );
+    expect(code).toBe(0);
+    expect(posted).toBe(false);
+    expect(json()).toMatchObject({
+      ok: true,
+      mode: "dry-run",
+      wouldExecute: true,
+      key: "DATABASE_URL",
+      pendingDeploy: true,
+    });
+    expect(json().nextStep).toBe("creek env set DATABASE_URL '$VALUE' --json");
+    expect(json().sideEffects).toContain(
+      "Replace $VALUE with the real secret; keep the single quotes",
+    );
+  });
+
   it("sets the variable and tells the user a deploy is needed to apply it", async () => {
     let body: { key: string; value: string } | null = null;
     server.use(
@@ -105,6 +133,35 @@ describe("creek env set", () => {
 });
 
 describe("creek env rm", () => {
+  it("dry-run GETs the list and does not DELETE", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "OLD_KEY", value: "secret" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/OLD_KEY`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(rmCmd.run!({ args: { key: "OLD_KEY", "dry-run": true } } as never));
+    expect(code).toBe(0);
+    expect(deleted).toBe(false);
+    expect(json()).toMatchObject({
+      ok: true,
+      mode: "dry-run",
+      wouldExecute: true,
+      key: "OLD_KEY",
+    });
+  });
+
+  it("dry-run wouldExecute is false when the key is missing", async () => {
+    server.use(http.get(`${API}/projects/${SLUG}/env`, () => HttpResponse.json([])));
+    const code = await runExit(rmCmd.run!({ args: { key: "MISSING", "dry-run": true } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ wouldExecute: false, exists: false });
+  });
+
   it("removes the variable and surfaces the redeploy guidance", async () => {
     server.use(
       http.delete(`${API}/projects/${SLUG}/env/OLD_KEY`, () => HttpResponse.json({ ok: true })),

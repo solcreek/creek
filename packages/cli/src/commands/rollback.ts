@@ -1,11 +1,12 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import { CreekApiError, CreekClient, parseConfig } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { resolveProjectSlug } from "../utils/command-context.js";
+import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
+import { resolveProjectSlug, apiCall } from "../utils/command-context.js";
 import {
   CreekdClient,
   CreekdResourceVersionMismatchError,
@@ -48,6 +49,7 @@ export const rollbackCommand = defineCommand({
       description: "On 412 If-Match mismatch, auto-fetch current rv and retry (self-host only).",
       default: false,
     },
+    ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -64,6 +66,7 @@ export const rollbackCommand = defineCommand({
         args.project as string | undefined,
         args["bypass-rv"] === true,
         jsonMode,
+        isDryRun(args),
       );
     }
     if (args.to) {
@@ -91,6 +94,68 @@ export const rollbackCommand = defineCommand({
 
     const deploymentId = args.deployment as string | undefined;
     const message = args.message as string | undefined;
+
+    if (isDryRun(args)) {
+      const [project, deployments] = await apiCall(jsonMode, "api_error", () =>
+        Promise.all([client.getProject(projectSlug), client.listDeployments(projectSlug)]),
+      );
+      // GET /projects returns camelCase columns; the SDK Project type still
+      // declares the legacy snake_case name.
+      const projectRow = project as {
+        productionDeploymentId?: string | null;
+        production_deployment_id?: string | null;
+      };
+      const productionId =
+        projectRow.productionDeploymentId ?? projectRow.production_deployment_id ?? null;
+      // List endpoint is ORDER BY version DESC LIMIT 20.
+      const sorted = [...deployments].sort((a, b) => b.version - a.version);
+      let target = deploymentId
+        ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
+        : sorted.find((d) => d.status === "active" && d.id !== productionId);
+      // An explicit id missing from the 20-row page may still exist.
+      if (deploymentId && !target) {
+        target = await apiCall(jsonMode, "api_error", async () => {
+          try {
+            const status = await client.getDeploymentStatus(projectSlug, deploymentId);
+            return status.deployment;
+          } catch (err) {
+            if (err instanceof CreekApiError && err.status === 404) return undefined;
+            throw err;
+          }
+        });
+      }
+      const wouldExecute =
+        !!productionId && !!target && target.status === "active" && target.id !== productionId;
+      const messageFlag = message ? ` --message ${posixSingleQuote(message)}` : "";
+      emitDryRunPlan(jsonMode, {
+        command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
+        wouldExecute,
+        project: projectSlug,
+        currentDeploymentId: productionId,
+        targetDeploymentId: target?.id ?? null,
+        targetStatus: target?.status ?? null,
+        sideEffects: wouldExecute
+          ? [
+              `Production for ${projectSlug} moves from ${productionId!.slice(0, 8)} to ${target!.id.slice(0, 8)}`,
+              "A new rollback deployment row is created",
+            ]
+          : [
+              !productionId
+                ? "No production deployment to roll back from"
+                : !target && deploymentId
+                  ? `No deployment matching "${deploymentId}"`
+                  : target && target.id === productionId
+                    ? `Deployment ${target.id.slice(0, 8)} is already production`
+                    : target && target.status !== "active"
+                      ? `Deployment ${target.id.slice(0, 8)} is ${target.status}, not active`
+                      : "No previous active deployment to roll back to",
+            ],
+        nextStep: wouldExecute
+          ? `creek rollback ${target!.id} --project ${projectSlug}${messageFlag} --json`
+          : `creek deployments --project ${projectSlug} --json`,
+      });
+      return;
+    }
 
     try {
       const result = await client.rollback(projectSlug, {
@@ -152,6 +217,7 @@ async function rollbackSelfHost(
   projectArg: string | undefined,
   bypassRv: boolean,
   jsonMode: boolean,
+  dryRun: boolean,
 ): Promise<void> {
   if (!toRaw) {
     const msg = "self-host rollback requires --to=<releaseSeq>";
@@ -189,6 +255,21 @@ async function rollbackSelfHost(
   }
 
   const client = new CreekdClient(host.addr);
+  if (dryRun) {
+    emitDryRunPlan(jsonMode, {
+      command: `creek rollback --host ${host.name} --to ${toSeq}`,
+      wouldExecute: true,
+      host: host.name,
+      app: appId,
+      to: toSeq,
+      sideEffects: [
+        `POST /v1/apps/${appId}/rollback?to=${toSeq} on ${host.name}`,
+        "If-Match is sent from the local resource-version cache",
+      ],
+      nextStep: `creek rollback --host ${host.name} --to ${toSeq} --project ${appId}${bypassRv ? " --bypass-rv" : ""} --json`,
+    });
+    return;
+  }
   const release = await doRollbackWithIfMatch(
     client,
     appId,
@@ -321,4 +402,9 @@ function resolveAppId(projectArg: string | undefined, cwd: string): string {
   const configPath = join(cwd, "creek.toml");
   if (!existsSync(configPath)) return "";
   return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+}
+
+/** POSIX-safe single-quoted string for copy-pasteable nextStep flags. */
+function posixSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }

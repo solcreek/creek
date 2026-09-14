@@ -383,3 +383,120 @@ describe("creek db migrate", () => {
     });
   });
 });
+
+const deleteCmd = (
+  dbCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>
+).delete;
+
+describe("creek db delete --dry-run", () => {
+  it("does not DELETE when the database has no bindings", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/resources`, () =>
+        HttpResponse.json({
+          resources: [
+            {
+              id: DB_ID,
+              teamId: "team-1",
+              kind: "database",
+              name: "mydb",
+              cfResourceId: "cf-1",
+              cfResourceType: "d1",
+              status: "active",
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+        }),
+      ),
+      http.get(`${API}/resources/${DB_ID}`, () =>
+        HttpResponse.json({
+          id: DB_ID,
+          teamId: "team-1",
+          kind: "database",
+          name: "mydb",
+          cfResourceId: "cf-1",
+          cfResourceType: "d1",
+          status: "active",
+          bindings: [],
+        }),
+      ),
+      http.delete(`${API}/resources/${DB_ID}`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    const code = await runExit(
+      deleteCmd.run!({ args: { name: "mydb", "dry-run": true } } as never),
+    );
+    expect(code).toBe(0);
+    expect(deleted).toBe(false);
+    expect(json()).toMatchObject({
+      ok: true,
+      mode: "dry-run",
+      wouldExecute: true,
+      name: "mydb",
+    });
+    expect(json().sideEffects).toContain(
+      'Soft-delete team database "mydb" (row marked deleted). Backing Cloudflare resource is not torn down here.',
+    );
+  });
+
+  it("wouldExecute is false when bindings remain", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/resources`, () =>
+        HttpResponse.json({
+          resources: [
+            {
+              id: DB_ID,
+              teamId: "team-1",
+              kind: "database",
+              name: "mydb",
+              cfResourceId: "cf-1",
+              cfResourceType: "d1",
+              status: "active",
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+        }),
+      ),
+      http.get(`${API}/resources/${DB_ID}`, () =>
+        HttpResponse.json({
+          id: DB_ID,
+          teamId: "team-1",
+          kind: "database",
+          name: "mydb",
+          cfResourceId: "cf-1",
+          cfResourceType: "d1",
+          status: "active",
+          bindings: [{ projectId: "p1", projectSlug: "my-api", bindingName: "DATABASE" }],
+        }),
+      ),
+      http.delete(`${API}/resources/${DB_ID}`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    const code = await runExit(
+      deleteCmd.run!({ args: { name: "mydb", "dry-run": true } } as never),
+    );
+    expect(code).toBe(0);
+    expect(deleted).toBe(false);
+    expect(json()).toMatchObject({ wouldExecute: false });
+    expect(json().nextStep).toBe("creek db detach mydb --from my-api --as DATABASE --json");
+  });
+});
+
+async function runExit(promise: Promise<unknown>): Promise<number> {
+  try {
+    await promise;
+    throw new Error("expected the command to call process.exit");
+  } catch (err) {
+    if (err instanceof ExitSignal) return err.code;
+    throw err;
+  }
+}
