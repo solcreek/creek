@@ -265,6 +265,28 @@ describe("MCP authenticated tools", () => {
     });
   });
 
+  it.each([403, 500])("get_status returns an error when deployments GET is %s", async (status) => {
+    server.use(
+      http.get("https://cp.test/projects/hello", () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "hello",
+          framework: "vite-react",
+        }),
+      ),
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json({ error: "api_error", message: "deployments lookup failed" }, { status }),
+      ),
+    );
+    const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
+    const result = await get({ projectSlug: "hello" });
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.ok).toBe(false);
+    expect(payload).not.toMatchObject({ ok: true, latestDeployment: null });
+    expect(payload.latestDeployment).toBeUndefined();
+  });
+
   it("env_ls returns masked vars and env_set does not echo the value", async () => {
     let posted: unknown;
     server.use(

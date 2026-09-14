@@ -367,7 +367,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         apiKey,
         `/projects/${encodeURIComponent(projectSlug)}/deployments`,
       );
-      const list = deploys.ok && Array.isArray(deploys.data) ? deploys.data : [];
+      if (!deploys.ok) return deploys.result;
+      const list = Array.isArray(deploys.data) ? deploys.data : [];
       const latest = list[0] as Record<string, unknown> | undefined;
       return toolJson({
         ok: true,
