@@ -22,8 +22,8 @@ fail() {
 }
 
 command -v node >/dev/null || fail "node_missing" "node not on PATH"
-command -v pnpm >/dev/null || fail "pnpm_missing" "pnpm not on PATH"
 command -v python3 >/dev/null || fail "python3_missing" "python3 not on PATH"
+PNPM_VER="$(pnpm --version)" || fail "pnpm_unusable" "pnpm --version failed"
 
 JS="$(creek_js)"
 [[ -f "${JS}" ]] || fail "cli_dist_missing" "Run ${SKILL_DIR}/scripts/launch.sh — missing ${JS}"
@@ -47,7 +47,7 @@ def check(name, ok, **extra):
         report["ok"] = False
 
 check("node", True, version="""$(node -v)""", path="""$(command -v node)""")
-check("pnpm", True, version="""$(pnpm --version)""")
+check("pnpm", True, version="""${PNPM_VER}""")
 check("creek_js_exists", True, path="${JS}")
 check("creek_version_exit", ${VER_EXIT} == 0, exitCode=${VER_EXIT}, stdout=(doc/"version.stdout").read_text().strip())
 

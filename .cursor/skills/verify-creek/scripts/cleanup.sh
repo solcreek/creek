@@ -38,16 +38,18 @@ PIDS_DIR="${SCRATCH}/pids"
 TMUX_FILE="${SCRATCH}/tmux-sessions"
 TMPDIR_CLEAN="$(mktemp -d /tmp/creek-verify-cleanup-XXXXXX)"
 SIGNALS_FILE="${TMPDIR_CLEAN}/pids.json"
-SESSIONS_FILE="${TMPDIR_CLEAN}/tmux.json"
+SESSIONS_FILE="${TMPDIR_CLEAN}/tmux-killed.json"
+SESSIONS_SKIPPED_FILE="${TMPDIR_CLEAN}/tmux-skipped.json"
 SKIPPED_FILE="${TMPDIR_CLEAN}/pids-skipped.json"
 python3 -c "import json,sys; json.dump([], open(sys.argv[1],'w'))" "${SIGNALS_FILE}"
 python3 -c "import json,sys; json.dump([], open(sys.argv[1],'w'))" "${SESSIONS_FILE}"
+python3 -c "import json,sys; json.dump([], open(sys.argv[1],'w'))" "${SESSIONS_SKIPPED_FILE}"
 python3 -c "import json,sys; json.dump([], open(sys.argv[1],'w'))" "${SKIPPED_FILE}"
 trap 'rm -rf "${TMPDIR_CLEAN}"' EXIT
 
 # SIGTERM only when PID + startTicks (+ cmdline when recorded) still match.
 python3 - "${PIDS_DIR}" "${SIGNALS_FILE}" "${SKIPPED_FILE}" <<'PY'
-import json, os, pathlib, signal, sys
+import json, os, pathlib, signal, stat, sys
 
 pids_dir = pathlib.Path(sys.argv[1])
 signals_path = pathlib.Path(sys.argv[2])
@@ -55,88 +57,137 @@ skipped_path = pathlib.Path(sys.argv[3])
 signaled = []
 skipped = []
 
-def identity(pid: int):
-    stat = pathlib.Path(f"/proc/{pid}/stat")
-    cmdline_p = pathlib.Path(f"/proc/{pid}/cmdline")
-    if not stat.is_file():
+def lkind(path: pathlib.Path):
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError:
         return None
-    parts = stat.read_text().split()
-    if len(parts) < 22:
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    if stat.S_ISDIR(mode):
+        return "dir"
+    if stat.S_ISREG(mode):
+        return "file"
+    return "other"
+
+def start_ticks(pid: int):
+    try:
+        raw = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    close = raw.rfind(")")
+    if close < 0:
+        return None
+    rest = raw[close + 1 :].split()
+    if len(rest) < 20:
         return None
     try:
-        start = int(parts[21])
+        return int(rest[19])
     except ValueError:
         return None
+
+def identity(pid: int):
+    start = start_ticks(pid)
+    if start is None:
+        return None
+    cmdline_p = pathlib.Path(f"/proc/{pid}/cmdline")
     cmd = ""
     if cmdline_p.is_file():
         cmd = cmdline_p.read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace").strip()
     return start, cmd
 
-if pids_dir.is_dir():
-    for path in sorted(pids_dir.iterdir()):
-        if not path.is_file():
-            continue
-        raw = path.read_text().strip()
-        if not raw:
-            continue
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            skipped.append({"file": path.name, "reason": "invalid json"})
-            continue
-        pid = data.get("pid")
-        start = data.get("startTicks")
-        cmdline = data.get("cmdline") or ""
-        if not isinstance(pid, int) or not isinstance(start, int):
-            skipped.append({"file": path.name, "reason": "missing pid/startTicks"})
-            continue
-        ident = identity(pid)
-        if ident is None:
-            continue
-        cur_start, cur_cmd = ident
-        if cur_start != start:
-            skipped.append({"pid": pid, "reason": "startTicks mismatch"})
-            continue
-        if cmdline and cur_cmd != cmdline:
-            skipped.append({"pid": pid, "reason": "cmdline mismatch"})
-            continue
-        try:
-            os.kill(pid, signal.SIGTERM)
-            signaled.append(str(pid))
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            skipped.append({"pid": pid, "reason": "permission denied"})
+kind = lkind(pids_dir)
+if kind == "symlink":
+    skipped.append({"file": str(pids_dir), "reason": "pids dir is a symlink"})
+elif kind == "dir":
+    with os.scandir(pids_dir) as entries:
+        for entry in sorted(entries, key=lambda e: e.name):
+            if entry.is_symlink():
+                skipped.append({"file": entry.name, "reason": "symlink"})
+                continue
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            path = pathlib.Path(entry.path)
+            raw = path.read_text().strip()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                skipped.append({"file": path.name, "reason": "invalid json"})
+                continue
+            pid = data.get("pid")
+            start = data.get("startTicks")
+            cmdline = data.get("cmdline") or ""
+            if not isinstance(pid, int) or not isinstance(start, int):
+                skipped.append({"file": path.name, "reason": "missing pid/startTicks"})
+                continue
+            ident = identity(pid)
+            if ident is None:
+                continue
+            cur_start, cur_cmd = ident
+            if cur_start != start:
+                skipped.append({"pid": pid, "reason": "startTicks mismatch"})
+                continue
+            if cmdline and cur_cmd != cmdline:
+                skipped.append({"pid": pid, "reason": "cmdline mismatch"})
+                continue
+            try:
+                os.kill(pid, signal.SIGTERM)
+                signaled.append(str(pid))
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                skipped.append({"pid": pid, "reason": "permission denied"})
 
 signals_path.write_text(json.dumps(signaled))
 skipped_path.write_text(json.dumps(skipped))
 PY
 
 if [[ -f "${TMUX_FILE}" ]]; then
+  if [[ -L "${TMUX_FILE}" ]]; then
+    python3 - "${SESSIONS_SKIPPED_FILE}" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+data.append({"file": "tmux-sessions", "reason": "symlink"})
+json.dump(data, open(path, "w"))
+PY
+  else
   while IFS= read -r session; do
     [[ -n "${session}" ]] || continue
     # Session names must include this RUN_ID so a reused name cannot be killed.
     if [[ "${session}" != *"${RUN_ID}"* ]]; then
-      python3 - "${SESSIONS_FILE}" "${session}" <<'PY'
+      python3 - "${SESSIONS_SKIPPED_FILE}" "${session}" <<'PY'
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 data = json.load(open(path))
-data.append({"session": name, "skipped": True, "reason": "name does not contain RUN_ID"})
+data.append({"session": name, "reason": "name does not contain RUN_ID"})
 json.dump(data, open(path, "w"))
 PY
       continue
     fi
     if tmux -f /exec-daemon/tmux.portal.conf has-session -t "=${session}" 2>/dev/null; then
-      tmux -f /exec-daemon/tmux.portal.conf kill-session -t "=${session}" || true
-      python3 - "${SESSIONS_FILE}" "${session}" <<'PY'
+      if tmux -f /exec-daemon/tmux.portal.conf kill-session -t "=${session}"; then
+        python3 - "${SESSIONS_FILE}" "${session}" <<'PY'
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 data = json.load(open(path))
 data.append(name)
 json.dump(data, open(path, "w"))
 PY
+      else
+        python3 - "${SESSIONS_SKIPPED_FILE}" "${session}" <<'PY'
+import json, sys
+path, name = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+data.append({"session": name, "reason": "kill-session failed"})
+json.dump(data, open(path, "w"))
+PY
+      fi
     fi
   done < "${TMUX_FILE}"
+  fi
 fi
 
 scratch_existed=0
@@ -145,9 +196,9 @@ if [[ -d "${SCRATCH}" ]]; then
   rm -rf "${SCRATCH}"
 fi
 
-python3 - "${RUN_ID}" "${SCRATCH}" "${ARTIFACTS}" "${scratch_existed}" "${SIGNALS_FILE}" "${SESSIONS_FILE}" "${SKIPPED_FILE}" <<'PY'
+python3 - "${RUN_ID}" "${SCRATCH}" "${ARTIFACTS}" "${scratch_existed}" "${SIGNALS_FILE}" "${SESSIONS_FILE}" "${SKIPPED_FILE}" "${SESSIONS_SKIPPED_FILE}" <<'PY'
 import json, pathlib, sys
-run_id, scratch, artifacts, existed, pids_file, tmux_file, skipped_file = sys.argv[1:8]
+run_id, scratch, artifacts, existed, pids_file, tmux_file, skipped_file, tmux_skipped_file = sys.argv[1:9]
 art = pathlib.Path(artifacts)
 record = art / "cleanup.json"
 if record.is_file():
@@ -169,6 +220,7 @@ payload = {
   "pidsSignaled": json.load(open(pids_file)),
   "pidsSkipped": json.load(open(skipped_file)),
   "tmuxSessionsKilled": json.load(open(tmux_file)),
+  "tmuxSessionsSkipped": json.load(open(tmux_skipped_file)),
   "note": "Did not delete artifacts. Did not kill processes by name. Signaled only PIDs whose /proc startTicks (and cmdline when recorded) still matched. Tmux sessions killed only when the recorded name contains this RUN_ID.",
 }
 record.write_text(json.dumps(payload, indent=2) + "\n")

@@ -173,7 +173,7 @@ case "${FEATURE}" in
     assert_json "${DRIVE_ROOT}/01-root-help/stdout" 0 'ok=true' 'command.name="creek"' 'command.destructive=false'
     assert_json "${DRIVE_ROOT}/02-doctor-help/stdout" 0 'command.name="doctor"' 'command.destructive=false' 'command.dryRun=false'
     assert_json "${DRIVE_ROOT}/03-deploy-help/stdout" 0 'command.name="deploy"' 'command.destructive=true' 'command.dryRun=true'
-    assert_json "${DRIVE_ROOT}/04-doctor-unknown-dry-run/stdout" 1 'ok=false' 'error="unknown_flag"'
+    assert_json "${DRIVE_ROOT}/04-doctor-unknown-dry-run/stdout" 1 'ok=false' 'error="unknown_flag"' 'flags=["--dry-run"]'
     write_feature_summary "help-schema" "01-root-help,02-doctor-help,03-deploy-help,04-doctor-unknown-dry-run" "true"
     ;;
 
@@ -187,12 +187,21 @@ case "${FEATURE}" in
 import json, pathlib, sys
 proj = pathlib.Path("${proj}")
 toml = proj / "creek.toml"
+gitignore = proj / ".gitignore"
 side = json.loads(pathlib.Path("${DRIVE_ROOT}/01-init-json/side-effects.json").read_text())
-ok = toml.is_file() and 'name = "verify-init"' in toml.read_text()
+gitignore_text = gitignore.read_text() if gitignore.is_file() else ""
+ok = (
+    toml.is_file()
+    and 'name = "verify-init"' in toml.read_text()
+    and gitignore.is_file()
+    and ".cursor" in gitignore_text
+)
 report = {
   "creekTomlExists": toml.is_file(),
   "creekTomlPath": str(toml),
   "containsName": 'name = "verify-init"' in toml.read_text() if toml.is_file() else False,
+  "gitignoreExists": gitignore.is_file(),
+  "gitignoreContainsCursor": ".cursor" in gitignore_text,
   "filesAdded": side.get("filesAdded"),
 }
 pathlib.Path("${DRIVE_ROOT}/01-init-json/proof.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -232,7 +241,7 @@ PY
     mkdir -p "${fixture}"
     printf '<h1>creek-verify-deploy</h1>\n' > "${fixture}/index.html"
     run_one "01-dry-run" "${fixture}" deploy --dry-run --json "${fixture}"
-    assert_json "${DRIVE_ROOT}/01-dry-run/stdout" 0 'mode="dry-run"' 'supported=true' 'wouldDeploy=true' 'authenticated=false' 'target.type="sandbox"' 'nextStep="creek deploy --sandbox --json"' 'sideEffects.networkCalls=false' 'sideEffects.fileUploads=false' 'sideEffects.buildExecuted=false'
+    assert_json "${DRIVE_ROOT}/01-dry-run/stdout" 0 'mode="dry-run"' 'supported=true' 'wouldDeploy=true' 'authenticated=false' 'target.type="sandbox"' 'nextStep="creek deploy --sandbox --json"' 'sideEffects.networkCalls=false' 'sideEffects.fileUploads=false' 'sideEffects.buildExecuted=false' 'sideEffects.tosPromptShown=false'
     python3 - <<PY
 import json, pathlib, sys
 dest = pathlib.Path("${DRIVE_ROOT}/01-dry-run")
@@ -258,6 +267,7 @@ ok = (
     proof["observedNoProjectMutation"]
     and proof["observedNoHomeMutation"]
     and plan.get("sideEffects", {}).get("networkCalls") is False
+    and plan.get("sideEffects", {}).get("tosPromptShown") is False
     and plan.get("authenticated") is False
     and (plan.get("target") or {}).get("type") == "sandbox"
 )

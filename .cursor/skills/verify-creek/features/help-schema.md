@@ -32,7 +32,7 @@ Runs four captured invocations against `node packages/cli/dist/index.js` in `/tm
 1. `--help --json` — assert `ok`, `command.name=="creek"`, `command.destructive==false`.
 2. `doctor --help --json` — assert `command.dryRun==false`.
 3. `deploy --help --json` — assert `command.destructive==true`.
-4. `doctor --dry-run --json` — assert exit 1, `error=="unknown_flag"`.
+4. `doctor --dry-run --json` — assert exit 1, `error=="unknown_flag"`, `flags==["--dry-run"]`.
 
 Evidence: `artifacts/$RUN_ID/drive/01-root-help/` … `04-doctor-unknown-dry-run/` plus `drive/summary.json`.
 

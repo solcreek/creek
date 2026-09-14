@@ -181,19 +181,48 @@ resolve_scratch_project_dir() {
   local requested="${1:-raw}"
   python3 - "${SCRATCH}/projects" "${requested}" <<'PY'
 import pathlib, sys
-root = pathlib.Path(sys.argv[1]).resolve()
+
+root = pathlib.Path(sys.argv[1])
 requested = sys.argv[2]
-candidate = pathlib.Path(requested)
-if not candidate.is_absolute():
-    candidate = root / candidate
-resolved = candidate.resolve()
-try:
-    resolved.relative_to(root)
-except ValueError:
-    print(f"invalid --cwd: {resolved} is outside {root}", file=sys.stderr)
+if root.is_symlink():
+    print("invalid --cwd: scratch projects root is a symlink", file=sys.stderr)
     raise SystemExit(2)
-resolved.mkdir(parents=True, exist_ok=True)
-print(resolved)
+if not root.exists():
+    root.mkdir(parents=True, exist_ok=True)
+if root.is_symlink() or not root.is_dir():
+    print("invalid --cwd: scratch projects root is not a real directory", file=sys.stderr)
+    raise SystemExit(2)
+
+candidate = pathlib.Path(requested)
+if candidate.is_absolute():
+    target = candidate
+else:
+    parts = pathlib.PurePosixPath(requested).parts
+    if any(p == ".." for p in parts):
+        print("invalid --cwd: '..' is not allowed", file=sys.stderr)
+        raise SystemExit(2)
+    target = root.joinpath(*parts) if parts else root
+
+try:
+    rel = target.relative_to(root)
+except ValueError:
+    print(f"invalid --cwd: {target} is outside {root}", file=sys.stderr)
+    raise SystemExit(2)
+if any(p == ".." for p in rel.parts):
+    print("invalid --cwd: '..' is not allowed", file=sys.stderr)
+    raise SystemExit(2)
+
+acc = root
+for part in rel.parts:
+    acc = acc / part
+    if acc.exists() and acc.is_symlink():
+        print(f"invalid --cwd: symlink in path: {acc}", file=sys.stderr)
+        raise SystemExit(2)
+acc.mkdir(parents=True, exist_ok=True)
+if acc.is_symlink():
+    print(f"invalid --cwd: resolved path is a symlink: {acc}", file=sys.stderr)
+    raise SystemExit(2)
+print(acc)
 PY
 }
 
@@ -207,24 +236,38 @@ record_pid() {
   }
   python3 - "${SCRATCH}/pids" "${name}" "${pid}" <<'PY'
 import json, pathlib, sys
-pids_dir = pathlib.Path(sys.argv[1]).resolve()
+
+def start_ticks(pid: str) -> int:
+    raw = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    close = raw.rfind(")")
+    if close < 0:
+        raise SystemExit(f"record_pid: /proc/{pid}/stat missing comm")
+    rest = raw[close + 1 :].split()
+    # Field 22 starttime is rest[19] after parsing comm via the closing ')'.
+    if len(rest) < 20:
+        raise SystemExit(f"record_pid: short /proc/{pid}/stat")
+    return int(rest[19])
+
+pids_dir_raw = pathlib.Path(sys.argv[1])
 name = sys.argv[2]
 pid = sys.argv[3]
+if pids_dir_raw.is_symlink():
+    raise SystemExit("record_pid: pids dir is a symlink")
+pids_dir = pids_dir_raw.resolve()
 path = (pids_dir / name).resolve()
 try:
     path.relative_to(pids_dir)
 except ValueError:
     raise SystemExit(f"record_pid: {path} is outside {pids_dir}")
+if path.is_symlink():
+    raise SystemExit(f"record_pid: refusing symlink {path}")
 stat = pathlib.Path(f"/proc/{pid}/stat")
 cmdline = pathlib.Path(f"/proc/{pid}/cmdline")
 if not stat.is_file():
     raise SystemExit(f"record_pid: /proc/{pid}/stat missing")
-parts = stat.read_text().split()
-if len(parts) < 22:
-    raise SystemExit(f"record_pid: short /proc/{pid}/stat")
 payload = {
     "pid": int(pid),
-    "startTicks": int(parts[21]),
+    "startTicks": start_ticks(pid),
     "cmdline": cmdline.read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace").strip(),
 }
 path.write_text(json.dumps(payload, indent=2) + "\n")
@@ -253,27 +296,29 @@ def relpath(dirpath, name):
 if os.path.islink(root):
     print(f"snapshot refused: watched root is a symlink: {root}", file=sys.stderr)
     raise SystemExit(2)
-if os.path.isdir(root):
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        for name in list(dirnames):
-            path = os.path.join(dirpath, name)
-            rel = relpath(dirpath, name)
-            if os.path.islink(path):
-                symlinks.append(rel)
-                continue
-            entries[rel] = {"type": "dir"}
-        for name in sorted(filenames):
-            path = os.path.join(dirpath, name)
-            rel = relpath(dirpath, name)
-            if os.path.islink(path):
-                symlinks.append(rel)
-                continue
-            raw = open(path, "rb").read()
-            entries[rel] = {
-                "type": "file",
-                "sha256": hashlib.sha256(raw).hexdigest(),
-                "bytes": len(raw),
-            }
+if not os.path.isdir(root):
+    print(f"snapshot refused: watched root missing: {root}", file=sys.stderr)
+    raise SystemExit(2)
+for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+    for name in list(dirnames):
+        path = os.path.join(dirpath, name)
+        rel = relpath(dirpath, name)
+        if os.path.islink(path):
+            symlinks.append(rel)
+            continue
+        entries[rel] = {"type": "dir"}
+    for name in sorted(filenames):
+        path = os.path.join(dirpath, name)
+        rel = relpath(dirpath, name)
+        if os.path.islink(path):
+            symlinks.append(rel)
+            continue
+        raw = open(path, "rb").read()
+        entries[rel] = {
+            "type": "file",
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+        }
 if symlinks:
     print(
         "snapshot refused: symlinks in watched tree (fail closed): " + ", ".join(sorted(symlinks)),

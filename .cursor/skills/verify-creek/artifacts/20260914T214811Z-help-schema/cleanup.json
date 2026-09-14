@@ -8,5 +8,6 @@
   "pidsSignaled": [],
   "pidsSkipped": [],
   "tmuxSessionsKilled": [],
-  "note": "Did not delete artifacts. Did not kill processes by name. Signaled only PIDs whose /proc startTicks (and cmdline when recorded) still matched."
+  "tmuxSessionsSkipped": [],
+  "note": "Did not delete artifacts. Did not kill processes by name. Signaled only PIDs whose /proc startTicks (and cmdline when recorded) still matched. Tmux sessions killed only when the recorded name contains this RUN_ID."
 }
