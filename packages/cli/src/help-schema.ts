@@ -55,10 +55,6 @@ function hasPositionalArgs(cmd: CommandLike): boolean {
   return Object.values(cmd.args ?? {}).some((def) => def.type === "positional");
 }
 
-function hasNamedSubCommands(cmd: CommandLike): boolean {
-  return Object.keys(cmd.subCommands ?? {}).length > 0;
-}
-
 function unknownCommand(path: string[]): WalkedHelp {
   return {
     error: "unknown_command",
@@ -69,7 +65,7 @@ function unknownCommand(path: string[]): WalkedHelp {
 /**
  * Walk known `subCommands` from argv. Global flags, option values, and
  * positionals are not path segments — `creek env set KEY --help --json`
- * is `['env','set']`. An unmatched token is a positional only when the
+ * is `['env','set']`. A leftover token is a positional only when the
  * current command declares one; otherwise it is `unknown_command`.
  */
 function walkSubcommands(root: CommandLike, rawArgs: string[]): WalkedHelp {
@@ -98,10 +94,9 @@ function walkSubcommands(root: CommandLike, rawArgs: string[]): WalkedHelp {
       name = current.meta?.name ?? token;
       continue;
     }
-    // Leftover: positional of the current command, or a bad subcommand name.
+    // Leftover is a positional only when this command declares one.
     if (hasPositionalArgs(current)) break;
-    if (hasNamedSubCommands(current)) return unknownCommand([...path, token]);
-    break;
+    return unknownCommand([...path, token]);
   }
   return { command: current, name, path };
 }

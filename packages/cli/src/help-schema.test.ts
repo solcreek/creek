@@ -72,6 +72,13 @@ describe("buildHelpSchema", () => {
     });
   });
 
+  it("returns unknown_command for leftover tokens when the command has no positional", () => {
+    expect(buildHelpSchema(app, ["env", "ls", "extra", "--help", "--json"])).toMatchObject({
+      ok: false,
+      error: "unknown_command",
+    });
+  });
+
   it("treats a leftover as a positional when the command declares one", () => {
     const schema = buildHelpSchema(app, ["deploy", "./dist", "--help", "--json"]);
     expect(schema).toMatchObject({ ok: true, path: ["deploy"] });
