@@ -41,14 +41,24 @@ run_one() {
   return "${rc}"
 }
 
+# Write drive/<feature>.summary.json and a filtered drive/summary.json.
+# labels: comma-separated step directory names to include (no cross-feature mix).
+# feature_ok: true|false — for --raw this is (rc == 0); mapped features pass true after asserts.
 write_feature_summary() {
   local feature="$1"
-  python3 - <<PY
+  local labels="$2"
+  local feature_ok="${3:-true}"
+  python3 - "${DRIVE_ROOT}" "${feature}" "${RUN_ID}" "${labels}" "${feature_ok}" <<'PY'
 import json, pathlib, sys
-root = pathlib.Path("${DRIVE_ROOT}")
-feature = "${feature}"
+root = pathlib.Path(sys.argv[1])
+feature = sys.argv[2]
+run_id = sys.argv[3]
+allowed = {s for s in sys.argv[4].split(",") if s}
+feature_ok = sys.argv[5].lower() == "true"
 steps = []
 for child in sorted(p for p in root.iterdir() if p.is_dir()):
+    if child.name not in allowed:
+        continue
     meta_p = child / "meta.json"
     if not meta_p.exists():
         continue
@@ -74,19 +84,23 @@ for child in sorted(p for p in root.iterdir() if p.is_dir()):
                 "destructive": cmd.get("destructive"),
                 "dryRun": cmd.get("dryRun"),
             }
+    exit_code = meta.get("exitCode")
     steps.append({
         "label": child.name,
         "argv": argv.get("argv"),
-        "exitCode": meta.get("exitCode"),
+        "exitCode": exit_code,
+        "ok": exit_code == 0,
         "cwd": meta.get("cwd"),
         "stdoutJson": slim,
         "stdoutParseError": parse_error,
         "stdoutBytes": len(stdout),
         "sideEffects": side,
     })
-summary = {"ok": True, "feature": feature, "runId": "${RUN_ID}", "steps": steps}
-(root/"summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-print(json.dumps({"feature": feature, "steps": [s["label"] for s in steps]}, indent=2))
+summary = {"ok": feature_ok, "feature": feature, "runId": run_id, "steps": steps}
+payload = json.dumps(summary, indent=2) + "\n"
+(root / "summary.json").write_text(payload)
+(root / f"{feature}.summary.json").write_text(payload)
+print(json.dumps({"feature": feature, "ok": feature_ok, "steps": [s["label"] for s in steps]}, indent=2))
 PY
 }
 
@@ -142,7 +156,9 @@ case "${FEATURE}" in
     fi
     rc=0
     run_one "raw" "${cwd}" "$@" || rc=$?
-    write_feature_summary "raw"
+    raw_ok="false"
+    [[ "${rc}" -eq 0 ]] && raw_ok="true"
+    write_feature_summary "raw" "raw" "${raw_ok}"
     exit "${rc}"
     ;;
 
@@ -158,7 +174,7 @@ case "${FEATURE}" in
     assert_json "${DRIVE_ROOT}/02-doctor-help/stdout" 0 'command.name="doctor"' 'command.destructive=false' 'command.dryRun=false'
     assert_json "${DRIVE_ROOT}/03-deploy-help/stdout" 0 'command.name="deploy"' 'command.destructive=true' 'command.dryRun=true'
     assert_json "${DRIVE_ROOT}/04-doctor-unknown-dry-run/stdout" 1 'ok=false' 'error="unknown_flag"'
-    write_feature_summary "help-schema"
+    write_feature_summary "help-schema" "01-root-help,02-doctor-help,03-deploy-help,04-doctor-unknown-dry-run" "true"
     ;;
 
   init)
@@ -182,7 +198,7 @@ report = {
 pathlib.Path("${DRIVE_ROOT}/01-init-json/proof.json").write_text(json.dumps(report, indent=2) + "\n")
 sys.exit(0 if ok else 1)
 PY
-    write_feature_summary "init"
+    write_feature_summary "init" "01-init-json" "true"
     ;;
 
   doctor)
@@ -208,7 +224,7 @@ shape = {
 pathlib.Path("${DRIVE_ROOT}/02-static/proof.json").write_text(json.dumps(shape, indent=2) + "\n")
 sys.exit(0 if not missing and shape["findingsIsList"] else 1)
 PY
-    write_feature_summary "doctor"
+    write_feature_summary "doctor" "01-empty,02-static" "true"
     ;;
 
   deploy-dry-run)
@@ -245,7 +261,7 @@ ok = (
 )
 sys.exit(0 if ok else 1)
 PY
-    write_feature_summary "deploy-dry-run"
+    write_feature_summary "deploy-dry-run" "01-dry-run" "true"
     ;;
 
   whoami)
@@ -269,12 +285,12 @@ PY
       fi
       CAPTURE_PASS_TOKEN=1 run_one "01-authenticated" "${proj}" whoami --json
       assert_json "${DRIVE_ROOT}/01-authenticated/stdout" 0 'ok=true' 'authenticated=true'
-      write_feature_summary "whoami"
+      write_feature_summary "whoami" "01-authenticated" "true"
     else
       # Parent CREEK_TOKEN is ignored (capture unsets it). Default proof is unauthenticated.
       run_one "01-unauthenticated" "${proj}" whoami --json || true
       assert_json "${DRIVE_ROOT}/01-unauthenticated/stdout" 1 'ok=false' 'authenticated=false' 'error="not_authenticated"'
-      write_feature_summary "whoami"
+      write_feature_summary "whoami" "01-unauthenticated" "true"
     fi
     ;;
 

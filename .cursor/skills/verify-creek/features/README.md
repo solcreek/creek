@@ -23,7 +23,7 @@ Do not add `creek deploy --sandbox` / `--prod` as a default mapped drive. Sandbo
 - Launch completed: `packages/cli/dist/index.js` exists; `node packages/cli/dist/index.js --help --json` exits 0.
 - Environment doctor (`scripts/doctor.sh`) exited 0.
 - `RUN_ID` set (or helpers generate a **new** one — they never load committed `artifacts/LAST_RUN_ID`). Scratch is `/tmp/creek-verify-$RUN_ID`, not the monorepo and not `$HOME/.creek`.
-- `HOME` for Creek processes is `$SCRATCH/home`. Parent Creek auth env (`CREEK_TOKEN`, `CREEKD_TOKEN`, `CREEKCTL_TOKEN`) is unset. `python3` is on PATH.
+- `HOME` for Creek processes is `$SCRATCH/home`. Parent Creek auth env (`CREEK_TOKEN`, `CREEKD_TOKEN`, `CREEKCTL_TOKEN`, `VERIFY_CREEK_TOKEN`) is unset in the child. `python3` is on PATH.
 - Node `^22.18.0 || >=24.11.0` (not 23.x, not 24.0–24.10), `pnpm@10.6.5` (or `corepack pnpm`).
 
 ## Driving conventions

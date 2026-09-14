@@ -114,19 +114,12 @@ open(sys.argv[4] + "/run.json", "w").write(json.dumps(payload, indent=2) + "\n")
 PY
 }
 
-# Cleanup only: resolve an existing run. Prefer $RUN_ID; LAST_RUN_ID is used
-# only when the matching scratch dir still exists (never to rewrite a sample).
+# Cleanup only: require an explicit RUN_ID (argv or env). Never read LAST_RUN_ID
+# — that pointer is shared and can name a different live run.
 resolve_run_for_cleanup() {
   require_python3
-  if [[ -z "${RUN_ID:-}" && -f "${ARTIFACTS_ROOT}/LAST_RUN_ID" ]]; then
-    local candidate
-    candidate="$(tr -d '[:space:]' < "${ARTIFACTS_ROOT}/LAST_RUN_ID")"
-    if [[ -n "${candidate}" ]] && [[ -d "${SCRATCH_ROOT}/creek-verify-${candidate}" ]]; then
-      RUN_ID="${candidate}"
-    fi
-  fi
   if [[ -z "${RUN_ID:-}" ]]; then
-    echo "cleanup: set RUN_ID (refusing LAST_RUN_ID when no live scratch exists)" >&2
+    echo "cleanup.sh: set RUN_ID via argv or env (LAST_RUN_ID is not used)" >&2
     return 2
   fi
   validate_run_id "${RUN_ID}"
@@ -150,17 +143,26 @@ require_creek_js() {
 }
 
 # Isolated Creek child: disposable HOME, never inherit parent Creek auth env.
-# Opt-in auth: CAPTURE_PASS_TOKEN=1 plus VERIFY_CREEK_TOKEN (not parent env).
+# Opt-in auth: CAPTURE_PASS_TOKEN=1 copies VERIFY_CREEK_TOKEN into CREEK_TOKEN
+# for the child only; VERIFY_CREEK_TOKEN itself is always unset in the child.
 clear_creek_auth_env() {
-  env -u CREEK_TOKEN -u CREEKD_TOKEN -u CREEKCTL_TOKEN "$@"
+  env -u CREEK_TOKEN -u CREEKD_TOKEN -u CREEKCTL_TOKEN -u VERIFY_CREEK_TOKEN "$@"
 }
 
 isolated_env() {
-  if [[ "${CAPTURE_PASS_TOKEN:-}" == "1" && -n "${VERIFY_CREEK_TOKEN:-}" ]]; then
+  local pass_token=""
+  if [[ "${CAPTURE_PASS_TOKEN:-}" == "1" ]]; then
+    pass_token="${VERIFY_CREEK_TOKEN-}"
+    if [[ -z "${pass_token}" ]]; then
+      echo "CAPTURE_PASS_TOKEN=1 requires VERIFY_CREEK_TOKEN" >&2
+      return 2
+    fi
+  fi
+  if [[ -n "${pass_token}" ]]; then
     clear_creek_auth_env \
       HOME="${ISOLATED_HOME}" \
-      CREEK_TOKEN="${VERIFY_CREEK_TOKEN}" \
       CREEK_API_URL="${CREEK_API_URL:-https://api.creek.dev}" \
+      CREEK_TOKEN="${pass_token}" \
       "$@"
   else
     clear_creek_auth_env \
@@ -275,6 +277,12 @@ def diff(before_p, after_p):
     modified = sorted(k for k in set(before) & set(after) if before[k] != after[k])
     return added, removed, modified
 
+def touches_creek_config(paths):
+    for rel in paths:
+        if rel == ".creek" or rel.startswith(".creek/"):
+            return True
+    return False
+
 pa, pr, pm = diff(dest / "tree-before.json", dest / "tree-after.json")
 ha, hr, hm = diff(dest / "home-before.json", dest / "home-after.json")
 side = {
@@ -287,7 +295,7 @@ side = {
     "isolatedHomeFilesModified": hm,
     "observedNoProjectMutation": not (pa or pr or pm),
     "observedNoHomeMutation": not (ha or hr or hm),
-    "mutatedDeveloperCreekConfig": False,
+    "mutatedDeveloperCreekConfig": touches_creek_config(ha + hr + hm),
 }
 (dest / "side-effects.json").write_text(json.dumps(side, indent=2) + "\n")
 PY
