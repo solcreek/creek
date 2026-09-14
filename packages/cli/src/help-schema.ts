@@ -45,10 +45,10 @@ type CommandLike = {
 };
 
 /** Boolean flags that never take a value — do not consume the next token. */
-const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "-y", "--version"]);
+const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
 
 /** Always accepted, even if the leaf command did not spread `globalArgs`. */
-const GLOBAL_FLAG_TOKENS = new Set(["--help", "-h", "--json", "--yes", "-y", "--version"]);
+const GLOBAL_FLAG_TOKENS = new Set(["--help", "-h", "--json", "--yes", "--version"]);
 
 type WalkedHelp =
   | { path: string[]; command: CommandLike; name: string }

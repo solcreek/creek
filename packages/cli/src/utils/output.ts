@@ -43,6 +43,7 @@ export const globalArgs = {
   },
   yes: {
     type: "boolean" as const,
+    alias: "y",
     description: "Skip confirmation prompts (auto-enabled in non-TTY)",
     default: false,
   },

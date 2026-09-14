@@ -150,6 +150,10 @@ describe("findUnknownFlags", () => {
   it("names --dry-run as a silent-drop hazard", () => {
     expect(unknownFlagMessage(["--dry-run"], ["status"])).toContain("silently dropped");
   });
+
+  it("rejects -y when the command did not declare yes", () => {
+    expect(findUnknownFlags(mini, ["status", "-y"])).toEqual(["-y"]);
+  });
 });
 
 describe("real command tree", () => {
@@ -170,5 +174,12 @@ describe("real command tree", () => {
   it("rollback declares --dry-run; status does not", () => {
     expect(findUnknownFlags(rollbackCommand, ["--dry-run", "--json"])).toEqual([]);
     expect(findUnknownFlags(statusCommand, ["--dry-run", "--json"])).toEqual(["--dry-run"]);
+  });
+
+  it("accepts -y because globalArgs.yes declares alias y", () => {
+    const yes = walkCommand(rollbackCommand, "rollback").args.find((a) => a.name === "yes");
+    expect(yes?.alias).toBe("y");
+    expect(findUnknownFlags(rollbackCommand, ["-y", "--json"])).toEqual([]);
+    expect(findUnknownFlags(statusCommand, ["-y", "--json"])).toEqual([]);
   });
 });
