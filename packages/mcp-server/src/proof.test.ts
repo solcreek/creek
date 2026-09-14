@@ -26,4 +26,48 @@ describe("provePreview", () => {
     expect(proof.status).toBe(404);
     expect(proof.error).toBe("HTTP 404");
   });
+
+  it("rejects an oversize Content-Length without reading the body", async () => {
+    server.use(
+      http.get(
+        "https://sb.test/huge-cl",
+        () =>
+          new HttpResponse("ignored", {
+            status: 200,
+            headers: {
+              "content-type": "text/html",
+              "content-length": String(3 * 1024 * 1024),
+            },
+          }),
+      ),
+    );
+    const proof = await provePreview("https://sb.test/huge-cl");
+    expect(proof.ok).toBe(false);
+    expect(proof.status).toBe(200);
+    expect(proof.error).toMatch(/too large/i);
+    expect(proof.title).toBeNull();
+  });
+
+  it("rejects a streamed body that exceeds maxBodyBytes without Content-Length", async () => {
+    const encoder = new TextEncoder();
+    server.use(
+      http.get("https://sb.test/huge-stream", () => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode("x".repeat(100)));
+            controller.close();
+          },
+        });
+        return new HttpResponse(stream, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }),
+    );
+    const proof = await provePreview("https://sb.test/huge-stream", { maxBodyBytes: 64 });
+    expect(proof.ok).toBe(false);
+    expect(proof.status).toBe(200);
+    expect(proof.error).toMatch(/too large/i);
+    expect(proof.title).toBeNull();
+  });
 });
