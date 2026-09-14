@@ -86,7 +86,7 @@ function projectHandler(productionDeploymentId: string | null) {
     HttpResponse.json({
       id: "p1",
       slug: SLUG,
-      production_deployment_id: productionDeploymentId,
+      productionDeploymentId,
     }),
   );
 }
@@ -136,7 +136,7 @@ describe("creek rollback --dry-run", () => {
     const code = await dryRun({ message: 'roll back the "outage"' });
     expect(code).toBe(0);
     expect(json().nextStep).toBe(
-      `creek rollback dep-old --project ${SLUG} --message ${JSON.stringify('roll back the "outage"')} --json`,
+      `creek rollback dep-old --project ${SLUG} --message 'roll back the "outage"' --json`,
     );
   });
 

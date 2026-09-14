@@ -99,15 +99,20 @@ export const rollbackCommand = defineCommand({
       const [project, deployments] = await apiCall(jsonMode, "api_error", () =>
         Promise.all([client.getProject(projectSlug), client.listDeployments(projectSlug)]),
       );
-      // Production is the project pointer, not "newest active" — historical
-      // rows stay status=active after a rollback.
-      const productionId = project.production_deployment_id ?? null;
-      const sorted = [...deployments].sort((a, b) => b.createdAt - a.createdAt);
+      // GET /projects returns camelCase columns; the SDK Project type still
+      // declares the legacy snake_case name.
+      const projectRow = project as {
+        productionDeploymentId?: string | null;
+        production_deployment_id?: string | null;
+      };
+      const productionId =
+        projectRow.productionDeploymentId ?? projectRow.production_deployment_id ?? null;
+      // List endpoint is ORDER BY version DESC LIMIT 20.
+      const sorted = [...deployments].sort((a, b) => b.version - a.version);
       let target = deploymentId
         ? sorted.find((d) => d.id === deploymentId || d.id.startsWith(deploymentId))
         : sorted.find((d) => d.status === "active" && d.id !== productionId);
-      // listDeployments is capped at 20; an explicit id missing from the page
-      // may still exist — resolve it by id rather than treating it as invalid.
+      // An explicit id missing from the 20-row page may still exist.
       if (deploymentId && !target) {
         target = await apiCall(jsonMode, "api_error", async () => {
           try {
@@ -121,7 +126,7 @@ export const rollbackCommand = defineCommand({
       }
       const wouldExecute =
         !!productionId && !!target && target.status === "active" && target.id !== productionId;
-      const messageFlag = message ? ` --message ${JSON.stringify(message)}` : "";
+      const messageFlag = message ? ` --message ${posixSingleQuote(message)}` : "";
       emitDryRunPlan(jsonMode, {
         command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
         wouldExecute,
@@ -397,4 +402,9 @@ function resolveAppId(projectArg: string | undefined, cwd: string): string {
   const configPath = join(cwd, "creek.toml");
   if (!existsSync(configPath)) return "";
   return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+}
+
+/** POSIX-safe single-quoted string for copy-pasteable nextStep flags. */
+function posixSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
