@@ -353,7 +353,7 @@ function AgentFirstDemo() {
           <pre className="text-muted-foreground whitespace-pre">{`{
   "mcpServers": {
     "creek": {
-      "url": "https://mcp.creek.dev/mcp"
+      "url": "https://mcp.creek.dev"
     }
   }
 }`}</pre>
