@@ -37,6 +37,6 @@ Preconditions:
 - `--dry-run` with `--template`, `--from-github`, or a GitHub repo URL returns `supported: false` and does not plan. That is not a failed dry-run of a local tree.
 - Signed-in dry-run would set `target.type` to `production` unless `--sandbox` is passed. This harness unsets `CREEK_TOKEN` so the default target is sandbox. A leaked token invalidates the sandbox assertion.
 - `wouldDeploy: true` is not a deploy. Do not follow `nextStep` (`creek deploy --sandbox --json`) during this feature; that hits the public sandbox API.
-- A bare `creek deploy` on a TTY would prompt. This harness is non-TTY and must take the `confirmation_required` branch.
+- The `confirmation_required` gate applies when stdout is not a TTY and the command has none of `--yes`, `--prod`, or `--sandbox`. This harness redirects stdout, so `creek deploy --json` exits 1 with that error. A signed-out TTY continues toward a sandbox deploy. A first-time Terms prompt can still appear on that path.
 - `creek.toml` is not a deployable payload by itself. Assert `wouldDeploy: false` on the toml-only tree before adding `index.html`.
 - On macOS the plan's `cwd` is often the `/private/var/folders/...` real path of `$VERIFY_CREEK_WORK`. Compare with `realpath`, not the path `launch.sh` printed.

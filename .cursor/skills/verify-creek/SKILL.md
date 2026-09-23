@@ -28,7 +28,7 @@ Ready when `launch.sh` prints `run.env` on stdout (and `packages/cli/dist/index.
 Each helper invocation after that sources `$RUN_ENV`, which:
 
 - Sets `HOME` to `$VERIFY_CREEK_RUN/home` so `~/.creek/config.json` is not the user's.
-- Unsets `CREEK_TOKEN` (an empty string is still a token).
+- Unsets `CREEK_TOKEN`. An empty string stays set, hides `~/.creek/config.json`, and `whoami` treats it as signed out without calling the API.
 - Points `CREEK_API_URL` and `CREEK_SANDBOX_API_URL` at `http://127.0.0.1:1` (connection refused). Commands that claim they make no network calls must succeed against that URL.
 - Uses project cwd `$VERIFY_CREEK_WORK` unless a recipe passes `--cwd`.
 

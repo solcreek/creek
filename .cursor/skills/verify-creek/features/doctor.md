@@ -14,6 +14,7 @@ Doctor analyzes a project directory for pre-deploy issues and reports stable `CK
 - Run `creek doctor` in a project directory.
 - Run `creek doctor <path>` to analyze another directory.
 - Run `creek doctor --last` to diagnose the latest failed deployment (signed-in).
+- Run `creek doctor --last --project <slug>` when the directory has no project name in `creek.toml`.
 
 ## Driving it with verify-creek
 
@@ -21,17 +22,18 @@ Preconditions:
 
 - `doctor.sh` reports a clean isolated home.
 - For `doctor-ok`, `$VERIFY_CREEK_WORK` contains an `index.html` (write one if needed).
-- Do not pass `--last` on this isolated run; it needs a token and a live API.
+- `--last` success needs a token and a live API. The isolated drive below records the auth gate and stops there.
 
-- **Static payload.** Analyze the work directory. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/doctor/ok -- doctor --json`. Exit code `0`. stdout JSON has `ok: true` and `cwd` equal to `$VERIFY_CREEK_WORK`.
+- **Static payload.** Analyze the work directory. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/doctor/ok -- doctor --json`. Exit code `0`. stdout JSON has `ok: true` and `cwd` equal to `realpath` of `$VERIFY_CREEK_WORK`. On macOS that is `/private` plus the `/var/folders/...` path `launch.sh` printed.
 - **Findings shape.** Same payload: `summary` has numeric `error`, `warn`, and `info`. `findings` is an array. Each finding that is present has a `code` starting with `CK-`.
-- **Explicit path.** Analyze the same tree by argument. Run `creek.sh "$RUN_ENV" --cwd "$VERIFY_CREEK_WORK" --evidence .cursor/skills/verify-creek/artifacts/doctor/path -- doctor "$VERIFY_CREEK_WORK" --json`. Exit code `0`. `cwd` is the explicit path.
-- **`--last` unreachable.** Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/doctor/last -- doctor --last --json`. This path requires a session against a live API. With `CREEK_TOKEN` unset and `CREEK_API_URL=http://127.0.0.1:1` it must not be reported as verified. Record the exit code and JSON error as `verified-unreachable` (auth + live API).
+- **Explicit path.** Analyze the same tree by argument. Run `creek.sh "$RUN_ENV" --cwd "$VERIFY_CREEK_WORK" --evidence .cursor/skills/verify-creek/artifacts/doctor/path -- doctor "$VERIFY_CREEK_WORK" --json`. Exit code `0`. `cwd` is the argument string. That string is resolved, and it is left as given when it is already absolute, so it can differ from the implicit `cwd` above.
+- **`--last` unreachable.** Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/doctor/last -- doctor --last --json`. Exit code `1`. stdout JSON has `ok: false`, `error: "not_authenticated"`, and no `findings`. That is the auth gate. Record the path as `verified-unreachable` (a token, then a live API). `$HOME/.creek/config.json` is still absent.
 - **Proof.** Keep the `ok` and `path` evidence directories. `$HOME/.creek/config.json` is still absent.
 
 ## Gotchas
 
 - This feature's `creek doctor` is the product command. It is not `scripts/doctor.sh` (that script health-checks the isolated CLI).
 - `ok: false` with error-severity findings exits 1. That is a valid project diagnosis, not a harness failure — assert the `CK-*` codes.
-- `--last` talks to the control plane. Success against the dead URL would mean the flag is not actually fetching; failure is the expected isolated-run result.
+- On macOS the implicit `cwd` is the real path of the work directory. Compare it with `realpath`, the same way deploy dry-run does. The explicit-path `cwd` stays the absolute string you passed.
+- `--last` reaches the control plane after a token is present. With `CREEK_TOKEN` unset and no config file it exits `not_authenticated` and does not open a connection. A token against `http://127.0.0.1:1` is the fetch, and a success on that URL would mean the flag skipped the network. Diagnosing a failed deployment stays unreachable until there is a token and a live API.
 - `stderr` may print a one-line human summary when stderr is a TTY. In this harness stderr is not a TTY; stdout is pure JSON.

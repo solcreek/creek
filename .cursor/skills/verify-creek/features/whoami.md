@@ -29,7 +29,7 @@ Preconditions:
 
 ## Gotchas
 
-- An empty `CREEK_TOKEN=""` is treated as a token and will attempt `getSession()` against the API. The harness unsets the variable; do not export an empty value.
+- Unset `CREEK_TOKEN`. An exported empty string stays set, so the config file is not read, and `whoami` exits `not_authenticated` without calling `getSession()`. The harness unsets the variable.
 - `creek login` on a TTY calls `open`/`xdg-open`. Only the non-TTY refusal is safe to drive here.
-- Do not pass `--token` with a real key during verification: it writes `$HOME/.creek/config.json` and would call the live API if URLs were not dead.
-- Success of `whoami` against `http://127.0.0.1:1` would mean it did not actually check a session. Unsigned-out must fail locally before any fetch.
+- Do not pass `--token` during verification. `login --token` calls `getSession()` before any write. A session that has a user is what writes `$HOME/.creek/config.json`. Against `http://127.0.0.1:1` the command exits `invalid_token` and leaves that file absent. A live API URL would store the key after the session check.
+- Success of `whoami` against `http://127.0.0.1:1` would mean it did not actually check a session. Signed-out must fail locally before any fetch.

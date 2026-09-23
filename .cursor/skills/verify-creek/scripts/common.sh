@@ -34,8 +34,9 @@ load_run_env() {
     echo "Run .cursor/skills/verify-creek/scripts/launch.sh first." >&2
     return 1
   fi
-  # Isolate from the caller's Creek session. An empty CREEK_TOKEN is still a
-  # token (?? does not fall through to ~/.creek/config.json).
+  # Isolate from the caller's Creek session. An empty CREEK_TOKEN stays set:
+  # ?? does not fall through to ~/.creek/config.json, and auth checks treat
+  # that empty string as signed out without calling the API.
   unset CREEK_TOKEN CREEK_API_URL CREEK_SANDBOX_API_URL CREEK_HOSTS_PATH
   # shellcheck disable=SC1090
   source "$env_file"
