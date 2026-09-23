@@ -15,7 +15,7 @@ Init writes `creek.toml` (and optionally a worker scaffold) into the current dir
 - Run `creek init` in a project directory.
 - Run `creek init <name>` to set the project name.
 - Run `creek init --db` to add a database without a prompt.
-- Run `creek init --yes` (or `--json`) to skip the overwrite prompt.
+- Run `creek init --yes` to skip the overwrite prompt. A non-TTY skips it as well. `--json` selects the JSON body and skips the database question. On a TTY, `--json` still asks before overwriting `creek.toml`.
 
 ## Driving it with verify-creek
 
@@ -35,6 +35,6 @@ Preconditions:
 ## Gotchas
 
 - Non-interactive runs skip "Add a database?" unless `--db` is passed. Assert `databasePromptSkipped: true` on the no-db path; do not treat a missing worker as a bug.
-- `init` does not `npm install` worker dependencies. The breadcrumb `npm install hono creek d1-schema` must appear before any deploy breadcrumb on the `--db` path.
+- `init` does not `npm install` worker dependencies. When `--db` creates `worker/index.ts`, the first breadcrumb is `npm install hono creek d1-schema`, ahead of `creek deploy --sandbox --json`, and `workerDependencies` is `["hono","creek","d1-schema"]`. When `worker/index.ts` already exists, `--db` still sets `database = true` and `worker = "worker/index.ts"` in `creek.toml`, and the JSON omits `workerDependencies` and the install breadcrumb.
 - `--yes` overwrites `creek.toml`. Re-running in the same work directory mutates the previous proof files; copy them out first.
 - `--adopt` / `--hostkey-fingerprint` is the self-host registration path and writes `hosts.json` under `HOME`. It is not this feature.
