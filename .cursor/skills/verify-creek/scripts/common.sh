@@ -34,9 +34,10 @@ load_run_env() {
     echo "Run .cursor/skills/verify-creek/scripts/launch.sh first." >&2
     return 1
   fi
-  # Isolate from the caller's Creek session. An empty CREEK_TOKEN stays set:
-  # ?? does not fall through to ~/.creek/config.json, and auth checks treat
-  # that empty string as signed out without calling the API.
+  # Isolate from the caller's Creek session. unset removes CREEK_TOKEN
+  # whether the caller exported a key or an empty string. run.env unsets
+  # it again, so the drive never sees that value. The CLI then reads
+  # ~/.creek/config.json under the isolated HOME, which launch leaves absent.
   unset CREEK_TOKEN CREEK_API_URL CREEK_SANDBOX_API_URL CREEK_HOSTS_PATH
   # shellcheck disable=SC1090
   source "$env_file"
