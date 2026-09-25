@@ -70,7 +70,7 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Deploy files to a 60-min sandbox | `creek deploy --sandbox` | `deploy` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
 | Deploy a demo page | — | `deploy_demo` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
 | Sandbox status / delete | `creek status <id>` | `deploy_status` / `deploy_delete` | — | [/docs/mcp](https://creek.dev/docs/mcp) |
-| Verify a preview URL is live | `creek verify <url>` | — (GET the URL) | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
+| Verify a preview URL is live | `creek verify <url>` | sandbox `deploy` `proof`; production `get_status` `proof` | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy directory | `creek deploy ./dist --sandbox` | — | — | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy from GitHub URL | `creek deploy <repo-url> --sandbox` | — | Dashboard → New Project | [/docs/cli/deploy](https://creek.dev/docs/cli/deploy) |
 | Deploy latest commit via connection | `creek deploy --from-github --prod [--project <slug>]` | `deploy_prod` | Project → Deploy latest | [/docs/cli/deploy#from-github](https://creek.dev/docs/cli/deploy) |
@@ -93,7 +93,7 @@ fits — human terminal, CI pipeline, AI agent, or web UI.
 | Per-tenant analytics | — | — | Project → Analytics tab | [/docs/analytics](https://creek.dev/docs/analytics) |
 | Dev server (local) | `creek dev` | — | — | [/docs/cli/dev](https://creek.dev/docs/cli/dev) |
 
-Non-interactive (agent/CI) deploys must pass `--sandbox` or `--prod`. `--json` is auto-enabled without a TTY; it does not skip that gate. MCP project tools (header auth): `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `rollback`. `deploy_prod` requires a GitHub connection and does not wait for the build.
+Non-interactive (agent/CI) deploys must pass `--sandbox` or `--prod`. `--json` is auto-enabled without a TTY; it does not skip that gate. MCP project tools (header auth): `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `rollback`. `deploy_prod` requires a GitHub connection and does not wait for the build — poll `get_status` until `live` and `proof.ok`.
 
 ---
 

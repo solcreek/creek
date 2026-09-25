@@ -236,7 +236,7 @@ All bindings are request-scoped and multi-tenant safe.
 
 ## Agent integration channels
 
-- **MCP server**: `https://mcp.creek.dev` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent. Sandbox `deploy` returns `proof`. Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `rollback`, `get_build_log`, resources) read `Authorization: Bearer` / `x-api-key` on the HTTP request — never `apiKey` as a tool argument. `deploy_prod` requires a GitHub connection and does not wait for the build. Also exposes `creek://skill/*` resources.
+- **MCP server**: `https://mcp.creek.dev` — Claude Desktop, Claude Code, Cursor, any MCP-aware agent. Sandbox `deploy` returns `proof`. `get_status` returns `productionUrl` and, when `live` is true, a GET `proof` of that URL — poll it after `deploy_prod` until `live` and `proof.ok`. Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `rollback`, `get_build_log`, resources) read `Authorization: Bearer` / `x-api-key` on the HTTP request — never `apiKey` as a tool argument. `deploy_prod` requires a GitHub connection and does not wait for the build. Also exposes `creek://skill/*` resources.
 - **Agent skill**: `npx skills add solcreek/creek/skills` — installs the full Creek skill into Claude Code / Cursor / Codex / OpenCode. Same content as the MCP resources. (The older `npx skills add solcreek/skills` URL is deprecated — use the monorepo subpath.)
 - **Raw CLI**: `npx creek deploy --sandbox --json` — any AI agent with bash access. Do **not** POST to sandbox-api.creek.dev yourself (some IPs get Cloudflare 1010). Prefer CLI or MCP.
 

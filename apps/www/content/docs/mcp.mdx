@@ -74,11 +74,13 @@ List projects in the authenticated team.
 
 ### `get_status`
 
-Remote status for one project.
+Remote status for one project. When the latest deployment is the live production, this also GETs `productionUrl` and attaches `proof` (same shape as sandbox `deploy`). It does **not** wait for a build.
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, type: "project", slug, framework, productionDeploymentId, latestDeployment }`
+**Output:** `{ ok, type: "project", slug, framework, productionDeploymentId, productionUrl, live, pending, latestDeployment, proof, nextStep }`
+
+Poll after `deploy_prod` until `live` is true and `proof.ok` is true. A GET while a newer row is still building would 200 the previous version — `proof` is omitted until `live`.
 
 ### `env_ls`
 
@@ -108,7 +110,7 @@ Trigger a production deploy of the latest commit on the project's GitHub product
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, triggered, branch, commitSha, pending: true }` — then poll `get_status` / `list_deployments` / `get_build_log`.
+**Output:** `{ ok, triggered, branch, commitSha, pending: true }` — then poll `get_status` until `live` and `proof.ok`.
 
 Requires a GitHub connection. Projects without one get `not_found` / "Project has no GitHub connection".
 
@@ -118,7 +120,7 @@ Recent deployments, newest first.
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt }] }` — pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
+**Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt, url }] }` — `url` is set only on `active` rows. Pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
 
 ### `rollback`
 
@@ -150,7 +152,7 @@ Agent:
 | Production (`deploy_prod`, `list_deployments`, `rollback`) | same header |
 | Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | same header |
 
-`deploy_prod` requires a GitHub connection on the project (same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. `env_set` / `env_rm` do not restart the worker — follow with `deploy_prod`.
+`deploy_prod` requires a GitHub connection on the project (same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` until `live` is true and `proof.ok` is true. `env_set` / `env_rm` do not restart the worker — follow with `deploy_prod`.
 
 Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`~/.creek/config.json` or `CREEK_TOKEN`).
 
