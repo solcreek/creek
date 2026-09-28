@@ -5,7 +5,57 @@
  * can produce structured output for agents, CI/CD, and pipes.
  */
 
+import type { StdioOptions } from "node:child_process";
+
 export const isTTY = process.stdout.isTTY ?? false;
+
+let stdoutGuarded = false;
+// True only while jsonOutput() is writing the result: the one moment the guard
+// lets a write through to stdout.
+let writingJson = false;
+
+/**
+ * Reserve stdout for the command's single JSON result.
+ *
+ * In JSON mode an agent, CI job or pipe parses stdout as one JSON document,
+ * so nothing else may reach it: not consola's progress lines (consola writes
+ * info/log/success to stdout when stdout isn't a TTY), not notices such as the
+ * Terms of Service line, not an interactive prompt. After this call every
+ * write to process.stdout goes to stderr instead, where it stays visible;
+ * jsonOutput() still writes the result to stdout. Idempotent.
+ *
+ * Child processes write to file descriptor 1 directly and bypass this; give
+ * them childStdio() so their stdout lands on stderr too.
+ *
+ * Only for commands whose JSON output is one document. `creek logs` streams
+ * NDJSON on stdout and must not call this.
+ */
+export function guardJsonStdout(): void {
+  if (stdoutGuarded) return;
+  stdoutGuarded = true;
+  const toStdout = process.stdout.write.bind(process.stdout);
+  const toStderr = process.stderr.write.bind(process.stderr);
+  process.stdout.write = ((...args: Parameters<typeof process.stdout.write>) =>
+    writingJson
+      ? toStdout(...args)
+      : (toStderr as typeof toStdout)(...args)) as typeof process.stdout.write;
+}
+
+/** Whether guardJsonStdout() is in effect. */
+export function isJsonStdoutGuarded(): boolean {
+  return stdoutGuarded;
+}
+
+/**
+ * stdio for a child process (a build, a release command, `next build`).
+ * Normally it inherits the terminal. While stdout is reserved for JSON, the
+ * child's stdout is attached to this process's stderr: it still streams live,
+ * and it never mixes into the JSON. Unlike "pipe", nothing is buffered, so a
+ * build that prints a lot can't overflow execSync's buffer.
+ */
+export function childStdio(): StdioOptions {
+  return stdoutGuarded ? ["inherit", 2, "inherit"] : "inherit";
+}
 
 /** A suggested next command for agents to follow. */
 export interface Breadcrumb {
@@ -20,7 +70,12 @@ export function jsonOutput(
   breadcrumbs?: Breadcrumb[],
 ): never {
   const output = breadcrumbs?.length ? { ...data, breadcrumbs } : data;
-  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  writingJson = true;
+  try {
+    process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  } finally {
+    writingJson = false;
+  }
   process.exit(exitCode);
 }
 

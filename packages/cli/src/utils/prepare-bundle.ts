@@ -52,7 +52,7 @@ import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
 import { hasAdapterOutput, buildNextjs, patchBundledWorker } from "./nextjs.js";
 import { patchBareNodeImports } from "../commands/deploy.js";
-import { jsonOutput } from "./output.js";
+import { childStdio, jsonOutput } from "./output.js";
 
 export interface PrepareDeployBundleInput {
   /** Absolute project directory. */
@@ -191,7 +191,7 @@ export async function prepareDeployBundle(
       } else {
         say.start(`  ${buildCmd}`);
         try {
-          execSync(buildCmd, { cwd, stdio: "inherit" });
+          execSync(buildCmd, { cwd, stdio: childStdio() });
         } catch {
           if (jsonMode)
             jsonOutput(

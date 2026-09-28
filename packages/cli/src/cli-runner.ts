@@ -102,6 +102,17 @@ export async function runCli(
       // jsonOutput writes to stdout and exits non-zero.
       jsonOutput(structured, 1, HELP_BREADCRUMBS);
     }
-    throw err; // real runtime error — let the caller surface it
+    // A runtime error no command handled. In JSON mode the caller still needs
+    // a JSON result on stdout (an empty stdout doesn't parse); the error
+    // itself, with its stack, goes to stderr for whoever reads the logs.
+    consola.error(err);
+    jsonOutput(
+      {
+        ok: false,
+        error: "internal_error",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      1,
+    );
   }
 }

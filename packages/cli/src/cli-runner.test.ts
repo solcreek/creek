@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { defineCommand } from "citty";
+import consola from "consola";
 import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
 
 describe("cliErrorToJson", () => {
@@ -106,6 +107,25 @@ describe("runCli (JSON mode error conversion)", () => {
     const code = await runExit(runCli(app, [], { jsonMode: true }));
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ ok: false, error: "no_command" });
+  });
+
+  it("turns an unhandled runtime error into a JSON internal_error, exit 1", async () => {
+    // Without this, stdout is empty and a JSON parser gets nothing at all.
+    const boom = defineCommand({
+      meta: { name: "boom" },
+      run() {
+        throw new TypeError("Cannot read properties of undefined (reading 'filter')");
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const code = await runExit(runCli(boom, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "internal_error",
+      message: "Cannot read properties of undefined (reading 'filter')",
+    });
+    expect(error).toHaveBeenCalled(); // the error itself still reaches stderr
   });
 
   it("stdout is pure JSON (parseable, no usage text)", async () => {
