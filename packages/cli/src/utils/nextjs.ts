@@ -25,6 +25,7 @@ import { createRequire } from "node:module";
 import { execSync, execFileSync } from "node:child_process";
 import consola from "consola";
 import { prismaNeedsGenerate, detectSqliteOrm, readProjectDeps } from "./db-preflight.js";
+import { childStdio } from "./output.js";
 
 // ---------------------------------------------------------------------------
 // Version detection + unified entry point
@@ -134,7 +135,7 @@ function buildWithAdapter(cwd: string, adapterPath: string): void {
   // and its chunked format uses a custom runtime incompatible with esbuild.
   execSync("npx next build --webpack", {
     cwd,
-    stdio: "inherit",
+    stdio: childStdio(),
     env: { ...process.env, NEXT_ADAPTER_PATH: adapterPath },
   });
 }
@@ -688,7 +689,7 @@ export function buildNextjsForWorkers(cwd: string, isMonorepo: boolean, projectN
   try {
     // Step 4: next build
     consola.start("  Building Next.js app...\n");
-    execSync("npx next build", { cwd, stdio: "inherit" });
+    execSync("npx next build", { cwd, stdio: childStdio() });
 
     // Step 4: Fix monorepo standalone path
     if (isMonorepo) {
@@ -699,7 +700,7 @@ export function buildNextjsForWorkers(cwd: string, isMonorepo: boolean, projectN
     consola.start("  Bundling for Cloudflare Workers...");
     execFileSync(opennextBin, ["build", "--skipNextBuild"], {
       cwd,
-      stdio: "inherit",
+      stdio: childStdio(),
     });
 
     // Step 6: Patch handler.mjs to fix dynamic require issues in Workers runtime

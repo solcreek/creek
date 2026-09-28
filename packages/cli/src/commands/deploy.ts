@@ -51,6 +51,8 @@ import {
   isTTY,
   jsonOutput,
   resolveJsonMode,
+  guardJsonStdout,
+  childStdio,
   globalArgs,
   shouldAutoConfirm,
   exitError,
@@ -765,6 +767,9 @@ export const deployCommand = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    // stdout carries exactly one JSON document in JSON mode; everything else
+    // (progress, the ToS notice, build output) goes to stderr from here on.
+    if (jsonMode) guardJsonStdout();
 
     // --prod and --sandbox are opposite intents; refuse the contradiction
     // up front rather than silently picking one.
@@ -1018,7 +1023,7 @@ async function deployCreekd(
       consola.start(`  ${resolved.buildCommand}`);
     }
     try {
-      execSync(resolved.buildCommand, { cwd, stdio: jsonMode ? "pipe" : "inherit" });
+      execSync(resolved.buildCommand, { cwd, stdio: childStdio() });
       if (!jsonMode) consola.success("  Build complete");
     } catch (e: any) {
       const msg = `Build failed: ${resolved.buildCommand}`;
@@ -1063,14 +1068,14 @@ async function deployCreekd(
       try {
         execSync(resolved.releaseCommand, {
           cwd,
-          stdio: jsonMode ? "pipe" : "inherit",
+          stdio: childStdio(),
           timeout: (resolved.releaseTimeout ?? 300) * 1000,
         });
         if (!jsonMode) consola.success("  Release complete");
       } catch (e: any) {
         const msg = e.killed
           ? `Release command timed out after ${resolved.releaseTimeout ?? 300}s`
-          : `Release command failed: ${e.stderr?.toString() || e.message}`;
+          : `Release command failed: ${e.stderr?.toString() || e.message}${jsonMode ? " (its output is on stderr)" : ""}`;
         if (jsonMode) jsonOutput({ ok: false, error: "release_failed", message: msg }, 1);
         consola.error(msg);
         try {
