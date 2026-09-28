@@ -17,10 +17,11 @@ import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 
-const CLI = resolve(__dirname, "../../dist/index.js");
+const CLI = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 
 let server: Server;
 let base = "";
@@ -67,10 +68,10 @@ beforeAll(async () => {
     if (req.method === "GET" && /^\/projects\/[^/]+$/.test(p)) {
       return json({ id: "p1", slug: "app", organizationId: "o1", productionBranch: "main" });
     }
-    if (req.method === "POST" && /\/deployments$/.test(p)) {
+    if (req.method === "POST" && p.endsWith("/deployments")) {
       return json({ deployment: { id: "d1", version: 1, status: "pending" } }, 201);
     }
-    if (req.method === "GET" && /\/deployments\/d1$/.test(p)) {
+    if (req.method === "GET" && p.endsWith("/deployments/d1")) {
       return json({ deployment: { id: "d1", status: "active", version: 1 }, url: `${base}/` });
     }
     return json({ ok: true });
@@ -214,6 +215,18 @@ describe.skipIf(!existsSync(CLI))("creek deploy --json: stdout is one JSON docum
     expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "build_failed" });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("LEAK-BUILD-STDOUT");
+  });
+
+  test("template deploy: a rejected template name is a JSON error", async () => {
+    const r = await deploy(["--template", "../etc", "--sandbox", "--json"]);
+    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_template" });
+    expect(r.code).toBe(1);
+  });
+
+  test("template deploy: malformed --data is a JSON error", async () => {
+    const r = await deploy(["--template", "landing", "--data", "{not json", "--sandbox", "--json"]);
+    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_data" });
+    expect(r.code).toBe(1);
   });
 
   test("JSON mode switched on by a pipe, without --json", async () => {
