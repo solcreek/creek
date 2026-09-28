@@ -27,6 +27,7 @@ import {
   createKVNamespace,
   type WfPBinding,
 } from "@solcreek/deploy-core";
+import { deprecatedAliasBindings } from "@solcreek/sdk/bindings";
 import type { Env } from "./types.js";
 
 export interface BindingRequirement {
@@ -112,6 +113,12 @@ export async function provisionSandboxResources(
         break;
     }
   }
+
+  // The deprecated aliases production binds (DB for DATABASE, KV for CACHE),
+  // pointing at the same sandbox resource: a Worker that reads env.DB must
+  // behave the same in the preview as in production (#61). Cleanup is
+  // unaffected — an alias adds a binding, not a resource.
+  bindings.push(...deprecatedAliasBindings(bindings));
 
   return { bindings, provisioned };
 }
