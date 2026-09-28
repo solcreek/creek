@@ -30,6 +30,8 @@
  * tables, 422 rows) replaying successfully against a real D1 in 21ms.
  */
 
+import { splitSqlStatements, stripSqlComments } from "../sql/split.js";
+
 /**
  * Convert a `sqlite3 .dump` text output into a D1-compatible SQL
  * string. The output is intended to be split on `;` and executed via
@@ -76,18 +78,16 @@ export function sqliteDumpToD1(dump: string): string {
 }
 
 /**
- * Split a `.dump` payload on statement boundaries (`;` followed by a
- * newline). Trailing `;` on each statement is stripped so downstream
- * filters and the D1 HTTP API see bare statement bodies. Multi-line
- * payloads (e.g. CREATE VIRTUAL TABLE's embedded newlines) are
- * preserved within the statement.
+ * Split a `.dump` payload into statements. Trailing `;` on each statement
+ * is stripped so downstream filters and the D1 HTTP API see bare statement
+ * bodies, and comments are dropped. Multi-line payloads (e.g. CREATE VIRTUAL
+ * TABLE's embedded newlines) stay within their statement, and a `;` inside a
+ * string literal (common in dumped row data) or a comment is not a boundary.
  */
 export function splitStatements(sql: string): string[] {
-  // Strip block comments first so their internal `;` don't create
-  // spurious statement boundaries. Non-greedy match across newlines.
-  const withoutBlockComments = sql.replace(/\/\*[\s\S]*?\*\//g, "");
-  return withoutBlockComments
-    .split(/;\s*\n/)
-    .map((s) => s.trim().replace(/;$/, "").trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+  // Comments anywhere in a statement are removed, not only leading ones, so
+  // the filters below (anchored ^…$) see the bare statement.
+  return splitSqlStatements(sql)
+    .map(stripSqlComments)
+    .filter((s) => s.length > 0);
 }

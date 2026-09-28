@@ -226,14 +226,24 @@ describe("splitStatements", () => {
     expect(stmts[0]).toContain("CREATE TABLE a");
   });
 
-  test("handles semicolons inside string literals (basic case)", () => {
-    // Single statement with a semicolon in a string value
-    const sql = "INSERT INTO t VALUES ('hello; world');";
-    const stmts = splitStatements(sql);
-    // This is a known limitation of naive splitting — in practice,
-    // Drizzle migrations don't have semicolons in string literals.
-    // We accept this trade-off for simplicity.
-    expect(stmts.length).toBeGreaterThanOrEqual(1);
+  test("a semicolon inside a string literal does not split the statement", () => {
+    expect(splitStatements("INSERT INTO t VALUES ('hello; world');")).toEqual([
+      "INSERT INTO t VALUES ('hello; world');",
+    ]);
+  });
+
+  test("a semicolon inside a comment does not split, and comment-only parts are dropped (#71)", () => {
+    // The June starter's migration: its second comment line contains a ';'.
+    const sql = [
+      "-- startup (safe/additive automatically; a destructive change asks first). Add",
+      "create table if not exists users (id integer primary key, name text not null);",
+      "-- A little seed so the app has something to show on first run.",
+      "insert into users (name) values ('Ada'), ('Grace');",
+    ].join("\n");
+    expect(splitStatements(sql)).toEqual([
+      "create table if not exists users (id integer primary key, name text not null);",
+      "insert into users (name) values ('Ada'), ('Grace');",
+    ]);
   });
 
   test("preserves trailing semicolons", () => {

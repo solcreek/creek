@@ -7,6 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { splitSqlStatements } from "@solcreek/sdk";
 
 // --- Auto-detect migration directory ---
 
@@ -111,13 +112,10 @@ export function splitStatements(sql: string): string[] {
   if (trimmed.includes(DRIZZLE_BREAKPOINT)) {
     parts = trimmed.split(DRIZZLE_BREAKPOINT);
   } else {
-    // Split on semicolons but preserve them — each statement should
-    // include its trailing semicolon for D1 execution.
-    parts = trimmed
-      .split(/;(?=\s|$)/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((s) => (s.endsWith(";") ? s : s + ";"));
+    // Split only on semicolons that end statements (not ones inside comments,
+    // string literals, quoted identifiers or trigger bodies), and keep the
+    // trailing semicolon — each statement includes it for D1 execution.
+    parts = splitSqlStatements(trimmed).map((s) => s + ";");
   }
 
   return parts.map((s) => s.trim()).filter((s) => s.length > 0);
