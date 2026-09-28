@@ -115,6 +115,55 @@ describe("GET /projects/:id/domains/:domainId", () => {
     expect(res.status).toBe(404);
   });
 
+  test("lists the ownership TXT again while the domain is pending", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    // The beforeEach mock answers with status "pending" and an ownership TXT.
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
+    const json = (await res.json()) as any;
+    expect(json.status).toBe("pending");
+    expect(json.dns.records.map((r: any) => [r.type, r.name, r.value])).toEqual([
+      ["CNAME", "app.example.com", "cname.bycreek.com"],
+      ["TXT", "_cf-custom-hostname.test.example.com", "uuid-123"],
+    ]);
+  });
+
+  test("lists only the CNAME once the edge reports the domain active", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              id: "cf-1",
+              hostname: "app.example.com",
+              status: "active",
+              ownership_verification: null,
+            },
+          }),
+        );
+      }
+      return originalFetch(input as any);
+    }) as any;
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
+    const json = (await res.json()) as any;
+    expect(json.status).toBe("active");
+    expect(json.dns.records.map((r: any) => r.type)).toEqual(["CNAME"]);
+  });
+
   test("includes the CNAME instruction so DNS records are retrievable", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);

@@ -132,7 +132,9 @@ domains.get("/:projectId/domains/:domainId", requirePermission("project:read"), 
     return c.json({ error: "not_found", message: "Domain not found" }, 404);
   }
 
-  // Live status refresh from CF if pending
+  // Live status refresh from CF if pending. While a hostname is pending, CF
+  // also returns its ownership TXT; keep it so `show` can list it again.
+  let ownership: { type: string; name: string; value: string } | null = null;
   if (domain.cfCustomHostnameId && domain.status !== "active" && c.env.CLOUDFLARE_ZONE_ID) {
     try {
       const cfStatus = await getCustomHostname(c.env, domain.cfCustomHostnameId);
@@ -141,15 +143,18 @@ domains.get("/:projectId/domains/:domainId", requirePermission("project:read"), 
           .bind(domain.id)
           .run();
         domain.status = "active";
+      } else {
+        ownership = cfStatus.ownership_verification ?? null;
       }
     } catch {
       // CF API failure — return cached status
     }
   }
 
-  // Always include the DNS instruction so it's retrievable any time, not
-  // just in the original `add` response.
-  return c.json({ ...domain, dns: dnsInstructions(c.env, domain.hostname) });
+  // Always include the DNS records so they're retrievable any time, not just
+  // in the original `add` response: the routing CNAME, plus the ownership TXT
+  // while the domain is pending and CF still has one.
+  return c.json({ ...domain, dns: verificationFor(c.env, domain.hostname, ownership) });
 });
 
 // Add a custom domain
