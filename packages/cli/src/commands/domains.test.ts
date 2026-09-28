@@ -161,6 +161,29 @@ describe("creek domains activate", () => {
     ).toBe(true);
   });
 
+  it("keeps the API's pending_edge status instead of reporting pending_dns", async () => {
+    server.use(
+      listHandler("pending"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/activate`, () =>
+        HttpResponse.json({
+          ok: false,
+          status: "pending_edge",
+          message: "The domain isn't registered with the edge yet; retry shortly.",
+        }),
+      ),
+    );
+
+    const code = await runExit(activateCmd.run!({ args: { hostname: HOST } } as never));
+
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "pending_edge",
+      status: "pending_edge",
+      hostname: HOST,
+    });
+  });
+
   it("labels a no-edge activation as a manual override", async () => {
     server.use(
       listHandler("pending"),
