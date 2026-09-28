@@ -395,6 +395,59 @@ describe("prepareDeployBundle", () => {
   });
 });
 
+describe("prepareDeployBundle: code-split pre-bundled worker", () => {
+  test("worker beside its assets uploads every chunk it imports, not only the entry", async () => {
+    // Shape of `june build`: dist/worker.js + sibling chunks, assets in dist/assets.
+    writeFixture({
+      "package.json": JSON.stringify({ name: "split" }),
+      "dist/worker.js":
+        'import { a } from "./shared-1.js";\n' +
+        'export default { async fetch() { const { b } = await import("./lazy-2.js"); return new Response(a + b); } };',
+      "dist/shared-1.js": "export const a = 'a';",
+      "dist/lazy-2.js": 'export { c as b } from "./nested/deep-3.js";',
+      "dist/nested/deep-3.js": "export const c = 'c';",
+      "dist/unreferenced-4.js": "export const unused = 1;",
+      "dist/assets/index.html": "<!doctype html>",
+      "dist/assets/_app/client.js": "console.log('client')",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ workerEntry: "dist/worker.js", buildOutput: "dist/assets" }),
+      skipBuild: true,
+    });
+
+    expect(result.plan.worker.strategy).toBe("upload-asis");
+    expect(Object.keys(result.serverFiles!).sort()).toEqual([
+      "lazy-2.js",
+      "nested/deep-3.js",
+      "shared-1.js",
+      "worker.js",
+    ]);
+    expect(result.fileList.sort()).toEqual(["_app/client.js", "index.html"]);
+  });
+
+  test("chunks of a worker inside the asset dir are modules, not public files", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "inside", dependencies: { vite: "*" } }),
+      "dist/index.html": "<!doctype html>",
+      "dist/_worker.mjs":
+        'import { x } from "./_chunks/x.mjs"; export default { fetch() { return new Response(x); } };',
+      "dist/_chunks/x.mjs": "export const x = 'x';",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", workerEntry: "dist/_worker.mjs" }),
+      skipBuild: true,
+    });
+
+    expect(Object.keys(result.serverFiles!).sort()).toEqual(["_chunks/x.mjs", "worker.js"]);
+    expect(result.fileList).toEqual(["index.html"]);
+    expect(result.assets["_chunks/x.mjs"]).toBeUndefined();
+  });
+});
+
 describe("packageScriptName", () => {
   test("extracts the script name from package-manager run commands", () => {
     expect(packageScriptName("npm run build")).toBe("build");

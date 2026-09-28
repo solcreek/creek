@@ -26,7 +26,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import consola from "consola";
 import {
@@ -264,6 +264,7 @@ export async function prepareDeployBundle(
   // (a) the framework when it's pre-bundled SSR, or (b) the plan's
   // worker.strategy for user-declared workers.
   let serverFiles: Record<string, string> | undefined;
+  let workerModulePaths: string[] = [];
 
   if (astroAdapter) {
     // Astro CF adapter writes a pre-bundled worker we just upload.
@@ -358,9 +359,30 @@ export async function prepareDeployBundle(
     // esbuild step). Ship verbatim — no Creek runtime wrapper, no
     // re-bundle. This is the path that keeps deployed bundles free of
     // any @solcreek/* dependency.
-    const bytes = readFileSync(resolve(cwd, plan.worker.entry));
-    serverFiles = { "worker.js": bytes.toString("base64") };
-    say.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
+    // A bundler that code-splits (rolldown, esbuild --splitting) emits chunks
+    // next to the entry; ship every module the entry reaches by relative
+    // import, named by its path from the entry's directory, so the imports
+    // still resolve once the entry is renamed to worker.js.
+    const modules = collectWorkerModules(resolve(cwd, plan.worker.entry));
+    serverFiles = base64ServerFiles(modules.files);
+    workerModulePaths = modules.absolutePaths;
+    const extra = Object.keys(modules.files).length - 1;
+    say.success(
+      `  Worker (pre-bundled, ${kb(modules.files)}KB${extra > 0 ? `, entry + ${extra} chunk${extra > 1 ? "s" : ""}` : ""})`,
+    );
+  }
+
+  // 8a. Chunks of a pre-bundled worker that live inside the asset dir are
+  // worker modules, not public files.
+  if (plan.assets.enabled && plan.assets.dir && workerModulePaths.length > 0) {
+    const assetsRoot = resolve(cwd, plan.assets.dir);
+    for (const abs of workerModulePaths) {
+      const rel = relative(assetsRoot, abs).replace(/\\/g, "/");
+      if (rel.startsWith("..")) continue;
+      delete clientAssets[rel];
+      delete clientAssets["/" + rel];
+      fileList = fileList.filter((p) => p !== rel && p !== "/" + rel);
+    }
   }
 
   // 8. When the worker bundle lives INSIDE the asset dir
@@ -406,6 +428,44 @@ export async function prepareDeployBundle(
 }
 
 // --- helpers ---
+
+/**
+ * Follow a pre-bundled worker's relative imports (static, re-export,
+ * side-effect, and string-literal dynamic `import()`) and return every module
+ * it reaches. The entry is named `worker.js`; the rest keep their path
+ * relative to the entry's directory. Imports that leave that directory are
+ * rejected: they cannot be expressed as upload module names.
+ */
+export function collectWorkerModules(entryAbs: string): {
+  files: Record<string, Buffer>;
+  absolutePaths: string[];
+} {
+  const root = dirname(entryAbs);
+  const files: Record<string, Buffer> = {};
+  const absolutePaths: string[] = [];
+  const seen = new Set<string>();
+  const queue = [entryAbs];
+  const specifier = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["'](\.{1,2}\/[^"'\n]+?)["']/g;
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const bytes = readFileSync(file);
+    const name = file === entryAbs ? "worker.js" : relative(root, file).replace(/\\/g, "/");
+    if (name.startsWith("..")) {
+      throw new Error(
+        `worker module ${file} is outside the worker's directory ${root}; bundle it into the worker first`,
+      );
+    }
+    files[name] = bytes;
+    absolutePaths.push(file);
+    for (const m of bytes.toString("utf-8").matchAll(specifier)) {
+      const target = resolve(dirname(file), m[1]);
+      if (/\.(m?js|cjs)$/.test(target) && existsSync(target)) queue.push(target);
+    }
+  }
+  return { files, absolutePaths };
+}
 
 function base64ServerFiles(collected: Record<string, Buffer>): Record<string, string> {
   return Object.fromEntries(

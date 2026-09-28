@@ -110,7 +110,26 @@ function isPrebundledExt(path: string): boolean {
  * drift on what "pre-bundled" means.
  */
 export function isPrebundledWorker(workerEntry: string, buildOutput: string): boolean {
-  return isPrebundledExt(workerEntry) && workerInsideAssets(workerEntry, buildOutput) !== null;
+  if (!isPrebundledExt(workerEntry)) return false;
+  return (
+    workerInsideAssets(workerEntry, buildOutput) !== null ||
+    workerBesideAssets(workerEntry, buildOutput)
+  );
+}
+
+/**
+ * A built worker next to its assets: the worker's directory is a non-root
+ * build directory that contains the asset output, e.g. `dist/worker.js` with
+ * assets in `dist/assets` (the layout `june build` and wrangler-targeted
+ * framework builds emit). A JS file at the project root never qualifies, so
+ * a hand-written `worker.js` beside `dist/` is still treated as source.
+ */
+function workerBesideAssets(workerEntry: string, buildOutput: string): boolean {
+  const wParts = normalize(workerEntry).split("/");
+  if (wParts.length < 2) return false;
+  const workerDir = wParts.slice(0, -1).join("/");
+  const out = normalize(buildOutput);
+  return out.startsWith(workerDir + "/");
 }
 
 function normalize(p: string): string {
