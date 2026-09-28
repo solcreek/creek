@@ -8,5 +8,6 @@ name = "better-auth-prisma-d1"
 database = true
 
 [release]
-# Apply prisma/migrations (Better Auth's tables included) to D1 before traffic.
-command = "creek db migrate --name better-auth-prisma-d1 --yes"
+# Apply pending prisma/migrations (Better Auth's tables included) to D1 on each
+# production deploy, before the new version goes live.
+migrations = true
