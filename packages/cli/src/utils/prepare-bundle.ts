@@ -342,8 +342,8 @@ export async function prepareDeployBundle(
     say.start("  Bundling worker...");
     // When the worker ships alongside static assets, embed the built
     // index.html so the wrapper can serve SPA deep-links on a miss. CF
-    // Static Assets serves real files at the edge and env.ASSETS isn't bound
-    // to the dispatched worker, so the shell must travel inside the bundle.
+    // Static Assets serves real files at the edge before the worker, and the
+    // wrapper answers misses from the embedded shell without a second fetch.
     const indexHtmlB64 = clientAssets["index.html"] ?? clientAssets["/index.html"];
     const spaFallbackHtml =
       plan.assets.enabled && indexHtmlB64

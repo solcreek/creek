@@ -119,6 +119,8 @@ export interface DeploymentManifest {
   hasWorker: boolean;
   assets: string[];
   entrypoint: string | null;
+  /** `[build] run_worker_first`, sent only for render mode `worker`. */
+  runWorkerFirst?: boolean | string[] | null;
 }
 
 export interface DeployBundle {

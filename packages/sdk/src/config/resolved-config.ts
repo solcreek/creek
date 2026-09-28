@@ -32,6 +32,11 @@ export interface ResolvedConfig {
   buildCommand: string;
   buildOutput: string;
   workerEntry: string | null;
+  /**
+   * `[build] run_worker_first`: run the worker before static assets (true, or
+   * route patterns). Only applies to a user-declared worker.
+   */
+  runWorkerFirst?: boolean | string[] | null;
   bindings: BindingDeclaration[];
   unsupportedBindings: { type: string; name: string }[];
   vars: Record<string, string>;
@@ -135,6 +140,7 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
     buildCommand: config.build.command,
     buildOutput: config.build.output,
     workerEntry: config.build.worker ?? null,
+    runWorkerFirst: config.build.run_worker_first ?? null,
     bindings,
     unsupportedBindings: [],
     vars: {},
