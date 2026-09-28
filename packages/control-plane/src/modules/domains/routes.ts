@@ -5,11 +5,8 @@ import { recordAudit } from "../audit/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { validateHostname } from "./validation.js";
-import {
-  createCustomHostname,
-  getCustomHostname,
-  deleteCustomHostname,
-} from "../resources/cloudflare.js";
+import { getCustomHostname, deleteCustomHostname } from "../resources/cloudflare.js";
+import { createOrAdoptCustomHostname, linkCustomHostname, recordCustomHostnameId } from "./edge.js";
 
 type DomainEnv = {
   Bindings: Env;
@@ -133,14 +130,29 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
   // owned by a different project is a genuine conflict.
   const existing = await c.env.DB.prepare("SELECT * FROM custom_domain WHERE hostname = ?")
     .bind(hostname)
-    .first<{ id: string; projectId: string; status: string }>();
+    .first<{ id: string; projectId: string; status: string; cfCustomHostnameId: string | null }>();
 
   if (existing) {
     if (existing.projectId === project.id) {
-      return c.json(
-        { domain: existing, verification: dnsInstructions(hostname), idempotent: true },
-        200,
-      );
+      // A row that never reached the edge (the CF call failed at add time) gets
+      // another attempt, so re-running `add` repairs it instead of echoing it.
+      let domain: unknown = existing;
+      let verification: Record<string, unknown> = dnsInstructions(hostname);
+      if (!existing.cfCustomHostnameId && c.env.CLOUDFLARE_ZONE_ID) {
+        const cf = await createOrAdoptCustomHostname(c.env, hostname);
+        if (cf) {
+          await linkCustomHostname(c.env, existing.id, cf);
+          domain = await c.env.DB.prepare("SELECT * FROM custom_domain WHERE id = ?")
+            .bind(existing.id)
+            .first();
+          // The repair is the first time the edge answered for this row, so its
+          // ownership record has never been shown: return it like a first add.
+          if (cf.status !== "active" && cf.ownership_verification) {
+            verification = { ...verification, txt: cf.ownership_verification };
+          }
+        }
+      }
+      return c.json({ domain, verification, idempotent: true }, 200);
     }
     return c.json(
       { error: "conflict", message: "Hostname already in use by another project" },
@@ -157,19 +169,14 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
   let initialStatus = "pending";
 
   if (c.env.CLOUDFLARE_ZONE_ID) {
-    try {
-      const cfResult = await createCustomHostname(c.env, hostname);
-      cfCustomHostnameId = cfResult.id;
-      ownershipVerification = cfResult.ownership_verification;
-
-      // If CF immediately activated (same account, CNAME pre-set), mark active
-      if (cfResult.status === "active") {
-        initialStatus = "active";
-      }
-    } catch (err) {
-      // CF API failed — still create the DB record as pending
-      // Log but don't block
-      console.error("[domains] CF API error:", err);
+    // On failure the row is still created, pending with no edge id; activate,
+    // a repeated add and the sync cron all retry it.
+    const cf = await createOrAdoptCustomHostname(c.env, hostname);
+    if (cf) {
+      cfCustomHostnameId = cf.id;
+      ownershipVerification = cf.ownership_verification;
+      // Same account with the CNAME already in place: CF activates at once.
+      if (cf.status === "active") initialStatus = "active";
     }
   }
 
@@ -259,32 +266,50 @@ domains.post(
       );
     };
 
-    // When the domain is wired through CF, only claim "active" if the edge
-    // confirms the hostname. Flipping a domain that doesn't resolve yet to
-    // "active" was the misleading part — distinguish it as "pending_dns".
-    if (domain.cfCustomHostnameId && c.env.CLOUDFLARE_ZONE_ID) {
-      try {
-        const cf = await getCustomHostname(c.env, domain.cfCustomHostnameId);
-        if (cf.status === "active") {
-          await markActive();
-          return c.json({ ok: true, status: "active" });
+    // When the zone is configured, the edge decides. A row that never reached
+    // the edge (the CF call failed at add time) is registered now: it is never
+    // marked active without a custom hostname behind it, which would route the
+    // domain with no certificate.
+    if (c.env.CLOUDFLARE_ZONE_ID) {
+      let cfId = domain.cfCustomHostnameId;
+      if (!cfId) {
+        const created = await createOrAdoptCustomHostname(c.env, domain.hostname);
+        if (!created) {
+          return c.json({
+            ok: false,
+            status: "pending_edge",
+            message: "Could not register the domain with the edge yet. Retry in a minute.",
+          });
         }
-        return c.json({
-          ok: false,
-          status: "pending_dns",
-          message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
-        });
+        // Record the id only: the row becomes active below, and only once the
+        // edge confirms it, never from the create/adopt response alone.
+        await recordCustomHostnameId(c.env, domain.id, created.id);
+        cfId = created.id;
+      }
+      let cf: Awaited<ReturnType<typeof getCustomHostname>>;
+      try {
+        cf = await getCustomHostname(c.env, cfId);
       } catch {
+        // The edge couldn't be asked, which says nothing about DNS.
         return c.json({
           ok: false,
-          status: "pending_dns",
-          message: "Could not verify the domain with the edge yet. Check your DNS and retry.",
+          status: "pending_edge",
+          message: "Could not reach the edge to verify the domain. Retry in a minute.",
         });
       }
+      if (cf.status === "active") {
+        await markActive();
+        return c.json({ ok: true, status: "active" });
+      }
+      return c.json({
+        ok: false,
+        status: "pending_dns",
+        message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
+      });
     }
 
-    // No CF hostname to verify against (self-hosted / zone not configured):
-    // honor activate as an explicit manual override, but label it as such.
+    // No edge to verify against (self-hosted, zone not configured): honor
+    // activate as an explicit manual override, but label it as such.
     await markActive();
     return c.json({ ok: true, status: "active", manual: true });
   },

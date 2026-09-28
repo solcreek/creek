@@ -150,12 +150,13 @@ export interface DomainDetail extends CustomDomain {
 /**
  * Result of `activateDomain`. activate is honest: it only reports `active`
  * when the edge confirms the hostname. `pending_dns` means Creek is ready but
- * DNS isn't resolving yet; `manual` flags an activation with no edge to verify
- * against (self-hosted / zone not configured).
+ * DNS isn't resolving yet; `pending_edge` means the domain couldn't be
+ * registered with the edge yet (retry); `manual` flags an activation with no
+ * edge to verify against (self-hosted / zone not configured).
  */
 export interface ActivateDomainResult {
   ok: boolean;
-  status?: "active" | "pending_dns";
+  status?: "active" | "pending_dns" | "pending_edge";
   message?: string;
   manual?: boolean;
 }

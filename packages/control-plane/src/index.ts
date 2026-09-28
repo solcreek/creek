@@ -15,6 +15,7 @@ import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
 import { deleteStagedBundle, consumeDeployJobBatch } from "./modules/deployments/deploy-job.js";
 import { domains } from "./modules/domains/routes.js";
+import { linkUnregisteredDomains } from "./modules/domains/edge.js";
 import { logs } from "./modules/logs/routes.js";
 import { metrics } from "./modules/metrics/routes.js";
 import { envVars } from "./modules/env/routes.js";
@@ -328,6 +329,12 @@ async function processResourceCleanupQueue(env: Env): Promise<number> {
 
 async function syncPendingDomains(env: Env): Promise<number> {
   if (!env.CLOUDFLARE_ZONE_ID) return 0;
+
+  // Rows whose CF call failed at add time have no edge id, so the status poll
+  // below can't see them. Register them first.
+  await linkUnregisteredDomains(env).catch((err) =>
+    console.error("[domains] linking unregistered domains failed:", err),
+  );
 
   const pending = await env.DB.prepare(
     `SELECT id, cfCustomHostnameId FROM custom_domain
