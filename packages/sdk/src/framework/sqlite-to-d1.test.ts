@@ -121,6 +121,24 @@ INSERT INTO x VALUES(1,'hi');`;
     expect(parts[0]).toMatch(/tokenize='porter'/);
   });
 
+  test("removes comments inside and after a statement, not only leading ones", () => {
+    expect(
+      splitStatements(
+        "SELECT 1 /* note */;\nINSERT INTO t VALUES('/* keep */', '-- keep'); -- trailing\nPRAGMA foreign_keys=OFF; -- off",
+      ),
+    ).toEqual([
+      "SELECT 1",
+      "INSERT INTO t VALUES('/* keep */', '-- keep')",
+      "PRAGMA foreign_keys=OFF",
+    ]);
+  });
+
+  test("a ; + newline inside dumped row data is not a boundary", () => {
+    expect(
+      splitStatements("INSERT INTO t VALUES('line one;\nline two');\nINSERT INTO t VALUES('x');"),
+    ).toEqual(["INSERT INTO t VALUES('line one;\nline two')", "INSERT INTO t VALUES('x')"]);
+  });
+
   test("drops single-line and block comments", () => {
     const input = `-- header comment;
 /* block comment;

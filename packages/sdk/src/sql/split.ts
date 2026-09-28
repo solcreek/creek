@@ -105,6 +105,54 @@ export function splitSqlStatements(sql: string): string[] {
   return statements;
 }
 
+/**
+ * Remove `--` and `/* *\/` comments from SQL, leaving string literals and
+ * quoted identifiers intact (a `--` or `/*` inside quotes is data, not a
+ * comment). Each comment becomes a single space so tokens around it stay
+ * apart; the result is trimmed.
+ */
+export function stripSqlComments(sql: string): string {
+  let out = "";
+  const n = sql.length;
+  let i = 0;
+  while (i < n) {
+    const c = sql[i];
+    if (c === "-" && sql[i + 1] === "-") {
+      const eol = sql.indexOf("\n", i);
+      out += eol === -1 ? " " : "\n";
+      i = eol === -1 ? n : eol + 1;
+      continue;
+    }
+    if (c === "/" && sql[i + 1] === "*") {
+      const close = sql.indexOf("*/", i + 2);
+      out += " ";
+      i = close === -1 ? n : close + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const quote = c === "[" ? "]" : c;
+      let j = i + 1;
+      while (j < n) {
+        if (sql[j] === quote) {
+          if (quote !== "]" && sql[j + 1] === quote) {
+            j += 2;
+            continue;
+          }
+          j++;
+          break;
+        }
+        j++;
+      }
+      out += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out.trim();
+}
+
 function isWordStart(c: string): boolean {
   return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_";
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { splitSqlStatements } from "./split.js";
+import { splitSqlStatements, stripSqlComments } from "./split.js";
 
 describe("splitSqlStatements", () => {
   test("splits on statement-ending semicolons", () => {
@@ -88,5 +88,19 @@ INSERT INTO a VALUES (1);`;
     expect(splitSqlStatements("INSERT INTO t VALUES ('open; string")).toEqual([
       "INSERT INTO t VALUES ('open; string",
     ]);
+  });
+});
+
+describe("stripSqlComments", () => {
+  test("removes line and block comments anywhere, keeping quoted text", () => {
+    expect(
+      stripSqlComments(
+        "SELECT 1 /* note */ + 2 -- trailing\nFROM t WHERE a = '-- keep /* keep */' AND \"x--y\" = 1",
+      ),
+    ).toBe("SELECT 1   + 2 \nFROM t WHERE a = '-- keep /* keep */' AND \"x--y\" = 1");
+  });
+
+  test("an escaped quote doesn't end the string early", () => {
+    expect(stripSqlComments("VALUES ('it''s -- data') -- note")).toBe("VALUES ('it''s -- data')");
   });
 });

@@ -30,7 +30,7 @@
  * tables, 422 rows) replaying successfully against a real D1 in 21ms.
  */
 
-import { splitSqlStatements } from "../sql/split.js";
+import { splitSqlStatements, stripSqlComments } from "../sql/split.js";
 
 /**
  * Convert a `sqlite3 .dump` text output into a D1-compatible SQL
@@ -85,5 +85,9 @@ export function sqliteDumpToD1(dump: string): string {
  * string literal (common in dumped row data) or a comment is not a boundary.
  */
 export function splitStatements(sql: string): string[] {
-  return splitSqlStatements(sql);
+  // Comments anywhere in a statement are removed, not only leading ones, so
+  // the filters below (anchored ^…$) see the bare statement.
+  return splitSqlStatements(sql)
+    .map(stripSqlComments)
+    .filter((s) => s.length > 0);
 }
