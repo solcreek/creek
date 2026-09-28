@@ -137,6 +137,7 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
       // A row that never reached the edge (the CF call failed at add time) gets
       // another attempt, so re-running `add` repairs it instead of echoing it.
       let domain: unknown = existing;
+      let verification: Record<string, unknown> = dnsInstructions(hostname);
       if (!existing.cfCustomHostnameId && c.env.CLOUDFLARE_ZONE_ID) {
         const cf = await createOrAdoptCustomHostname(c.env, hostname);
         if (cf) {
@@ -144,9 +145,14 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
           domain = await c.env.DB.prepare("SELECT * FROM custom_domain WHERE id = ?")
             .bind(existing.id)
             .first();
+          // The repair is the first time the edge answered for this row, so its
+          // ownership record has never been shown: return it like a first add.
+          if (cf.status !== "active" && cf.ownership_verification) {
+            verification = { ...verification, txt: cf.ownership_verification };
+          }
         }
       }
-      return c.json({ domain, verification: dnsInstructions(hostname), idempotent: true }, 200);
+      return c.json({ domain, verification, idempotent: true }, 200);
     }
     return c.json(
       { error: "conflict", message: "Hostname already in use by another project" },

@@ -181,7 +181,15 @@ describe("POST /projects/:id/domains", () => {
       `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
        VALUES ('existing', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
     );
-    mockEdge({ create: () => ({ id: "cf-new", hostname: "app.example.com", status: "pending" }) });
+    const txt = { type: "txt", name: "_cf-custom-hostname.app.example.com", value: "tok-1" };
+    mockEdge({
+      create: () => ({
+        id: "cf-new",
+        hostname: "app.example.com",
+        status: "pending",
+        ownership_verification: txt,
+      }),
+    });
 
     const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
       hostname: "app.example.com",
@@ -190,6 +198,10 @@ describe("POST /projects/:id/domains", () => {
     const json = (await res.json()) as any;
     expect(json.domain).toMatchObject({ id: "existing", cfCustomHostnameId: "cf-new" });
     expect(domainRow("existing").cfCustomHostnameId).toBe("cf-new");
+    // The repair is the first time the edge answered for this row, so its
+    // ownership TXT record must reach the user, as on a first add.
+    expect(json.verification.txt).toEqual(txt);
+    expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
   });
 
   test("adopts the edge's existing hostname when the create call fails", async () => {
