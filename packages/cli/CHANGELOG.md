@@ -1,5 +1,38 @@
 # @solcreek/cli
 
+## 0.4.46
+
+Requires `@solcreek/sdk@0.4.19` (`planDeploy` for pre-bundled workers,
+`run_worker_first`). Publish the SDK tag `sdk@0.4.19` before `cli@0.4.46` /
+`creek@0.4.46`.
+
+### Deploying frameworks that ship their own Workers bundle
+
+- **Code-split pre-bundled workers deploy whole** (#55). A pre-bundled worker is
+  uploaded with every module its relative imports reach — static, re-export,
+  side-effect and string-literal dynamic imports, plus `.json`, `.wasm` and
+  other data modules — named by path from the entry's directory. Chunks inside
+  the asset dir are no longer also served as static files. Imports are read
+  with esbuild's parser, so import-like text in comments or strings is ignored.
+- **Fails closed instead of shipping a broken worker.** An import that leaves
+  the worker's directory, points at a missing file, or would be uploaded as
+  `worker.js` (the entry's name) fails the deploy, naming the module and
+  specifier.
+- **`[build] run_worker_first`** in `creek.toml` (`true` or route patterns) is
+  sent with the bundle when the project has its own worker; other render modes
+  warn that it's ignored.
+
+### Custom domains
+
+- **`creek domains add` prints the API's records** instead of a hard-coded
+  `cname.creek.dev`: the routing CNAME (now `cname.bycreek.com`) and, when there
+  is one, the ownership TXT, each with what it's for. For an apex, the CNAME's
+  purpose says to use CNAME flattening, ALIAS or ANAME. `--json` passes
+  `verification.records` and `verification.apex` through.
+- **`creek domains activate --json` reports `pending_edge`** as well as
+  `pending_dns`, instead of always `pending_dns`: `pending_edge` means Creek
+  couldn't register the domain with the edge yet (retry), not a DNS problem.
+
 ## 0.4.45
 
 Requires `@solcreek/sdk@0.4.18` (`CreekClient.planRollback`). Publish the SDK
