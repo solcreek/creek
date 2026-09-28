@@ -174,6 +174,52 @@ describe("POST /projects/:id/domains", () => {
     expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
   });
 
+  test("re-adding a domain that never reached the edge registers it", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('existing', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
+    mockEdge({ create: () => ({ id: "cf-new", hostname: "app.example.com", status: "pending" }) });
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
+      hostname: "app.example.com",
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.domain).toMatchObject({ id: "existing", cfCustomHostnameId: "cf-new" });
+    expect(domainRow("existing").cfCustomHostnameId).toBe("cf-new");
+  });
+
+  test("adopts the edge's existing hostname when the create call fails", async () => {
+    seedTestProject();
+    // e.g. a previous create succeeded at CF but its response was lost
+    const calls = mockEdge({
+      find: (hostname) => [{ id: "cf-existing", hostname, status: "active" }],
+    });
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
+      hostname: "app.example.com",
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as any;
+    expect(calls).toEqual(["create", "find"]);
+    expect(json.domain).toMatchObject({ status: "active", cfCustomHostnameId: "cf-existing" });
+  });
+
+  test("still records the domain, unlinked, when the edge can't be reached", async () => {
+    seedTestProject();
+    mockEdge({});
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
+      hostname: "app.example.com",
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as any;
+    expect(json.domain).toMatchObject({ status: "pending", cfCustomHostnameId: null });
+  });
+
   test("rejects a hostname owned by a different project", async () => {
     seedTestProject();
     const now = Date.now();
@@ -304,8 +350,58 @@ describe("POST /projects/:id/domains", () => {
 
 // --- POST /projects/:id/domains/:domainId/activate ---
 
+// A CF API stand-in: `create` answers POST custom_hostnames, `find` answers the
+// ?hostname= lookup, `get` answers GET by id. A handler that is undefined makes
+// that call fail the way the real API does (success: false, errors: [...]).
+type CfHostname = { id: string; hostname: string; status: string };
+function mockEdge(handlers: {
+  create?: () => CfHostname;
+  find?: (hostname: string) => CfHostname[];
+  get?: (id: string) => CfHostname;
+}) {
+  const calls: string[] = [];
+  const fail = () =>
+    new Response(JSON.stringify({ success: false, errors: [{ code: 1406, message: "failed" }] }));
+  const ok = (result: unknown) =>
+    new Response(
+      JSON.stringify({
+        success: true,
+        result: Array.isArray(result)
+          ? result
+          : {
+              ownership_verification: null,
+              ssl: { status: "initializing" },
+              ...(result as object),
+            },
+      }),
+    );
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" ? input : input.toString());
+    if (!url.pathname.includes("custom_hostnames")) return originalFetch(input as any, init);
+    const method = init?.method ?? "GET";
+    if (method === "POST") {
+      calls.push("create");
+      return handlers.create ? ok(handlers.create()) : fail();
+    }
+    if (url.searchParams.has("hostname")) {
+      calls.push("find");
+      return handlers.find ? ok(handlers.find(url.searchParams.get("hostname")!)) : fail();
+    }
+    calls.push("get");
+    const id = url.pathname.split("/").pop()!;
+    return handlers.get ? ok(handlers.get(id)) : fail();
+  }) as any;
+  return calls;
+}
+
+function domainRow(id = "d1") {
+  return testEnv.db.db
+    .prepare("SELECT status, cfCustomHostnameId FROM custom_domain WHERE id = ?")
+    .get(id) as { status: string; cfCustomHostnameId: string | null };
+}
+
 describe("POST /projects/:id/domains/:domainId/activate", () => {
-  test("manual-overrides a pending domain when there is no CF hostname to verify", async () => {
+  test("manual-overrides a pending domain when no edge zone is configured", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);
     testEnv.db.db.exec(
@@ -313,10 +409,48 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
        VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
     );
 
-    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const res = await app.request(
+      `/projects/${PROJECT_ID}/domains/d1/activate`,
+      { method: "POST" },
+      { ...testEnv.env, CLOUDFLARE_ZONE_ID: "" },
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as any;
     expect(json).toMatchObject({ ok: true, status: "active", manual: true });
+  });
+
+  test("registers a domain that never reached the edge instead of activating it", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
+    const calls = mockEdge({
+      create: () => ({ id: "cf-new", hostname: "app.example.com", status: "pending" }),
+      get: (id) => ({ id, hostname: "app.example.com", status: "pending" }),
+    });
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const json = (await res.json()) as any;
+    expect(json).toMatchObject({ ok: false, status: "pending_dns" });
+    expect(calls).toEqual(["create", "get"]);
+    expect(domainRow()).toEqual({ status: "pending", cfCustomHostnameId: "cf-new" });
+  });
+
+  test("reports pending_edge and leaves the row alone when the edge can't be reached", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
+    mockEdge({}); // create and lookup both fail
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const json = (await res.json()) as any;
+    expect(json).toMatchObject({ ok: false, status: "pending_edge" });
+    expect(domainRow()).toEqual({ status: "pending", cfCustomHostnameId: null });
   });
 
   test("reports pending_dns (and does not flip) when the edge hasn't verified", async () => {
