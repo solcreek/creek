@@ -449,7 +449,7 @@ describe("prepareDeployBundle: code-split pre-bundled worker", () => {
 });
 
 describe("collectWorkerModules", () => {
-  test("collects non-JS modules the worker imports and does not scan them for imports", () => {
+  test("collects non-JS modules the worker imports and does not scan them for imports", async () => {
     writeFixture({
       "dist/worker.js":
         'import config from "./config.json"; import wasm from "./lib/engine.wasm"; export default { fetch() { return new Response(config.name); } };',
@@ -457,30 +457,60 @@ describe("collectWorkerModules", () => {
       "dist/lib/engine.wasm": "\0asm",
     });
 
-    const { files } = collectWorkerModules(join(cwd, "dist/worker.js"));
+    const { files } = await collectWorkerModules(join(cwd, "dist/worker.js"));
 
     expect(Object.keys(files).sort()).toEqual(["config.json", "lib/engine.wasm", "worker.js"]);
   });
 
-  test("fails on an import that leaves the worker's directory, even when the target is missing", () => {
+  test("fails on an import that leaves the worker's directory, even when the target is missing", async () => {
     writeFixture({
       "dist/worker.js":
         'import { x } from "../shared.js"; export default { fetch() { return new Response(x); } };',
     });
 
-    expect(() => collectWorkerModules(join(cwd, "dist/worker.js"))).toThrow(
+    await expect(collectWorkerModules(join(cwd, "dist/worker.js"))).rejects.toThrow(
       /imports "\.\.\/shared\.js", which is outside the worker's directory/,
     );
   });
 
-  test("fails on a dynamic import whose chunk is missing instead of shipping it dangling", () => {
+  test("fails on a dynamic import whose chunk is missing instead of shipping it dangling", async () => {
     writeFixture({
       "dist/worker.js":
         'export default { async fetch() { const m = await import("./gone-1.js"); return new Response(m.x); } };',
     });
 
-    expect(() => collectWorkerModules(join(cwd, "dist/worker.js"))).toThrow(
+    await expect(collectWorkerModules(join(cwd, "dist/worker.js"))).rejects.toThrow(
       /imports "\.\/gone-1\.js", but .* does not exist/,
+    );
+  });
+});
+
+describe("collectWorkerModules: parsing and naming", () => {
+  test("ignores import-looking text in comments and strings, and template-literal imports", async () => {
+    writeFixture({
+      "dist/worker.js": [
+        '// import("./in-comment.js")',
+        'const help = \'use import("./in-string.js") or import x from "./also-string.js"\';',
+        'import { a } from "./real.js";',
+        "export default { async fetch() { const m = await import(`./tpl-${a}.js`); return new Response(help + m); } };",
+      ].join("\n"),
+      "dist/real.js": "export const a = 'a';",
+    });
+
+    const { files } = await collectWorkerModules(join(cwd, "dist/worker.js"));
+
+    expect(Object.keys(files).sort()).toEqual(["real.js", "worker.js"]);
+  });
+
+  test("rejects a chunk that would share the entry's upload name worker.js", async () => {
+    writeFixture({
+      "dist/_worker.mjs":
+        'import { x } from "./worker.js"; export default { fetch() { return new Response(x); } };',
+      "dist/worker.js": "export const x = 'chunk';",
+    });
+
+    await expect(collectWorkerModules(join(cwd, "dist/_worker.mjs"))).rejects.toThrow(
+      /_worker\.mjs imports a module also named worker\.js/,
     );
   });
 });
