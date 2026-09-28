@@ -1971,7 +1971,18 @@ async function deployTemplate(
 
   // Deploy as sandbox (reuse sandbox flow), with the same JSON result and
   // Terms acceptance as a sandbox deploy of a local project.
-  await deploySandbox(templateDir, false, jsonMode, undefined, tos);
+  // Resolve the template's own config so its build command runs; without it
+  // the build step is skipped and the deploy finds no output.
+  let templateConfig: ResolvedConfig;
+  try {
+    templateConfig = resolveConfig(templateDir);
+  } catch (err) {
+    fail(
+      "invalid_template",
+      `Template '${templateId}' has no deployable config: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  await deploySandbox(templateDir, false, jsonMode, templateConfig!, tos);
 }
 
 function cleanupDir(dir: string): void {
