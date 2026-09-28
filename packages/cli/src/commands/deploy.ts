@@ -838,10 +838,10 @@ export const deployCommand = defineCommand({
           templateData = JSON.parse(args.data);
         } catch {
           consola.error("Invalid JSON in --data");
-          process.exit(1);
+          exitError(jsonMode, "invalid_data", "Invalid JSON in --data");
         }
       }
-      return await deployTemplate(args.template, templateData);
+      return await deployTemplate(args.template, templateData, jsonMode, tos);
     }
 
     // --- Trigger a deploy from the project's GitHub connection (no local build) ---
@@ -1859,11 +1859,28 @@ async function deploySandbox(
 // Template deploy — clone + build + deploy to sandbox
 // ============================================================================
 
-async function deployTemplate(templateId: string, data?: Record<string, unknown>) {
+async function deployTemplate(
+  templateId: string,
+  data: Record<string, unknown> | undefined,
+  jsonMode: boolean,
+  tos: TosAcceptance,
+) {
+  // Every failure below is reported the same way as the other deploy paths:
+  // a message on stderr for people, and in JSON mode a structured error on
+  // stdout (solcreek/creek#62).
+  const fail = (error: string, message: string, details?: string[]): never => {
+    consola.error(message);
+    for (const line of details ?? []) consola.error(`  ${line}`);
+    if (jsonMode) jsonOutput({ ok: false, error, message, ...(details ? { details } : {}) }, 1);
+    return process.exit(1);
+  };
+
   // Validate template ID — alphanumeric, hyphens, underscores only (no path traversal)
   if (!/^[a-zA-Z0-9_-]+$/.test(templateId)) {
-    consola.error("Invalid template name. Use only letters, numbers, hyphens, and underscores.");
-    process.exit(1);
+    fail(
+      "invalid_template",
+      "Invalid template name. Use only letters, numbers, hyphens, and underscores.",
+    );
   }
 
   consola.info(`Deploying template: ${templateId}`);
@@ -1871,6 +1888,9 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
   // Clone template to temp dir
   const tmpDir = join(process.env.TMPDIR ?? "/tmp", `creek-template-${Date.now()}`);
   const repoUrl = "https://github.com/solcreek/templates";
+  // The deploy result ends the process (jsonOutput / process.exit), so clean the
+  // clone up on the way out rather than after deploySandbox returns.
+  process.on("exit", () => cleanupDir(tmpDir));
 
   consola.start("Cloning template...");
   try {
@@ -1881,24 +1901,18 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
     );
     execFileSync("git", ["sparse-checkout", "set", templateId], { cwd: tmpDir, stdio: "pipe" });
   } catch {
-    consola.error(`Template '${templateId}' not found.`);
     consola.info("Available templates: npx create-creek-app --list");
-    cleanupDir(tmpDir);
-    process.exit(1);
+    fail("template_not_found", `Template '${templateId}' not found.`);
   }
 
   const templateDir = join(tmpDir, templateId);
   // Verify resolved path is still within tmpDir (prevent path traversal)
   if (!resolve(templateDir).startsWith(resolve(tmpDir))) {
-    consola.error("Invalid template path.");
-    cleanupDir(tmpDir);
-    process.exit(1);
+    fail("invalid_template", "Invalid template path.");
   }
 
   if (!existsSync(templateDir)) {
-    consola.error(`Template directory not found: ${templateId}`);
-    cleanupDir(tmpDir);
-    process.exit(1);
+    fail("template_not_found", `Template directory not found: ${templateId}`);
   }
 
   // Apply --data: validate against schema + merge into creek-data.json
@@ -1926,15 +1940,13 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
         const validate = ajv.compile(schemaWithoutMeta);
 
         if (!validate(merged)) {
-          consola.error("Data validation failed:");
-          for (const err of (validate.errors ?? []) as Array<{
-            instancePath?: string;
-            message?: string;
-          }>) {
-            consola.error(`  ${err.instancePath || "/"}: ${err.message}`);
-          }
-          cleanupDir(tmpDir);
-          process.exit(1);
+          const details = (
+            (validate.errors ?? []) as Array<{
+              instancePath?: string;
+              message?: string;
+            }>
+          ).map((err) => `${err.instancePath || "/"}: ${err.message}`);
+          fail("invalid_data", "Data validation failed:", details);
         }
       }
     }
@@ -1954,16 +1966,12 @@ async function deployTemplate(templateId: string, data?: Record<string, unknown>
   try {
     execFileSync("npm", ["install"], { cwd: templateDir, stdio: "pipe" });
   } catch {
-    consola.error("Failed to install dependencies");
-    cleanupDir(tmpDir);
-    process.exit(1);
+    fail("install_failed", "Failed to install dependencies");
   }
 
-  // Deploy as sandbox (reuse sandbox flow)
-  await deploySandbox(templateDir, false);
-
-  // Cleanup
-  cleanupDir(tmpDir);
+  // Deploy as sandbox (reuse sandbox flow), with the same JSON result and
+  // Terms acceptance as a sandbox deploy of a local project.
+  await deploySandbox(templateDir, false, jsonMode, undefined, tos);
 }
 
 function cleanupDir(dir: string): void {
