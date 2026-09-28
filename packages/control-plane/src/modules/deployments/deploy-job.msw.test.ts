@@ -534,3 +534,158 @@ describe("withDeployHeartbeat", () => {
     ).toBe("failed");
   });
 });
+
+describe("runDeployJob release migrations ([release] migrations, #57)", () => {
+  const D1 = "https://api.cloudflare.com/client/v4/accounts/:acc/d1/database";
+  // Ordered record of the calls that matter: D1 queries and the script upload.
+  let calls: string[];
+  // Names the fake database already has in _creek_migrations.
+  let applied: string[];
+  let failOn: string | null;
+
+  const handlers = () => [
+    http.get(D1, () => HttpResponse.json({ success: true, result: [], errors: [] })),
+    http.post(D1, () =>
+      HttpResponse.json({ success: true, result: { uuid: "d1-uuid" }, errors: [] }),
+    ),
+    http.post(`${D1}/:id/query`, async ({ request, params }) => {
+      const { sql } = (await request.json()) as { sql: string };
+      calls.push(`d1:${params.id as string}:${sql}`);
+      if (failOn && sql.includes(failOn)) {
+        return HttpResponse.json(
+          { success: false, errors: [{ code: 7500, message: "no such table: missing" }] },
+          { status: 400 },
+        );
+      }
+      if (sql.startsWith("SELECT name FROM _creek_migrations")) {
+        return HttpResponse.json({
+          success: true,
+          result: [{ results: applied.map((name) => ({ name })) }],
+          errors: [],
+        });
+      }
+      return HttpResponse.json({ success: true, result: [{ results: [] }], errors: [] });
+    }),
+    http.post(`${NS}/assets-upload-session`, () =>
+      HttpResponse.json({ success: true, result: { jwt: "j", buckets: [] }, errors: [] }),
+    ),
+    http.put(NS, () => {
+      calls.push("script-upload");
+      return HttpResponse.json({ success: true, result: { id: "s" }, errors: [] });
+    }),
+  ];
+
+  beforeEach(() => {
+    calls = [];
+    applied = [];
+    failOn = null;
+  });
+
+  async function stageWithMigrations(extra: Record<string, unknown> = {}) {
+    await testEnv.env.ASSETS.put(
+      "bundles/dep-1.json",
+      JSON.stringify({
+        manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null, renderMode: "spa" },
+        assets: { "index.html": btoa("<html>hi</html>") },
+        bindings: [{ type: "d1", bindingName: "DB" }],
+        releaseMigrations: true,
+        migrations: [
+          { name: "0001_init.sql", statements: ["CREATE TABLE a (id INTEGER);"] },
+          { name: "0002_it's.sql", statements: ["CREATE TABLE b (id INTEGER);"] },
+        ],
+        ...extra,
+      }),
+    );
+  }
+
+  const d1Calls = () => calls.filter((c) => c.startsWith("d1:"));
+
+  it("applies pending migrations to the provisioned D1 before the worker goes live", async () => {
+    server.use(...handlers());
+    await stageWithMigrations();
+
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    const upload = calls.indexOf("script-upload");
+    const migrationB = calls.findIndex((c) => c.includes("CREATE TABLE b"));
+    expect(migrationB).toBeGreaterThan(-1);
+    expect(upload).toBeGreaterThan(migrationB);
+    // Every query targets the database provisioned for the DB binding.
+    expect(d1Calls().every((c) => c.startsWith("d1:d1-uuid:"))).toBe(true);
+    // The same tracking table and names as `creek db migrate`, each recorded
+    // in the request that runs its statements (name quote-escaped).
+    expect(d1Calls()[0]).toContain("CREATE TABLE IF NOT EXISTS _creek_migrations");
+    const second = calls.find((c) => c.includes("CREATE TABLE b"))!;
+    expect(second).toContain(
+      "INSERT INTO _creek_migrations (name, applied_at) VALUES ('0002_it''s.sql',",
+    );
+  });
+
+  it("skips migrations the database already recorded", async () => {
+    applied = ["0001_init.sql"];
+    server.use(...handlers());
+    await stageWithMigrations();
+
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    expect(calls.some((c) => c.includes("CREATE TABLE a"))).toBe(false);
+    expect(calls.some((c) => c.includes("CREATE TABLE b"))).toBe(true);
+  });
+
+  it("never migrates on a branch deploy (it shares the production database)", async () => {
+    server.use(...handlers());
+    await stageWithMigrations();
+
+    await runDeployJob(testEnv.env, { ...input, branch: "feature-x" });
+
+    expect(deploymentRow().status).toBe("active");
+    expect(d1Calls()).toEqual([]);
+    const entries = await readLogEntries();
+    expect(entries.some((e) => e.msg.includes("Skipping release migrations"))).toBe(true);
+  });
+
+  it("fails at provisioning, naming the migration, and never uploads the worker", async () => {
+    failOn = "CREATE TABLE b";
+    server.use(...handlers());
+    await stageWithMigrations();
+
+    await runDeployJob(testEnv.env, input);
+
+    const row = deploymentRow();
+    expect(row.status).toBe("failed");
+    expect(row.failedStep).toBe("provisioning");
+    expect(row.errorMessage).toContain("migration 0002_it's.sql failed");
+    expect(calls).not.toContain("script-upload");
+  });
+
+  it("refuses when several databases are bound and none is DB", async () => {
+    server.use(...handlers());
+    await stageWithMigrations({
+      bindings: [
+        { type: "d1", bindingName: "MAIN" },
+        { type: "d1", bindingName: "AUDIT" },
+      ],
+    });
+
+    await runDeployJob(testEnv.env, input);
+
+    const row = deploymentRow();
+    expect(row.status).toBe("failed");
+    expect(row.failedStep).toBe("provisioning");
+    expect(row.errorMessage).toContain("none is bound as DB");
+    expect(d1Calls()).toEqual([]);
+    expect(calls).not.toContain("script-upload");
+  });
+
+  it("does nothing when the switch is off, even if migrations are present", async () => {
+    server.use(...handlers());
+    await stageWithMigrations({ releaseMigrations: false });
+
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    expect(d1Calls()).toEqual([]);
+  });
+});
