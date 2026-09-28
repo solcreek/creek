@@ -99,7 +99,7 @@ describe("creek domains show", () => {
           hostname: HOST,
           status: "pending",
           createdAt: 0,
-          dns: { cname: { name: HOST, target: "cname.creek.dev" } },
+          dns: { cname: { name: HOST, target: "cname.bycreek.com" } },
         }),
       ),
     );
@@ -110,7 +110,7 @@ describe("creek domains show", () => {
     expect(json()).toMatchObject({
       ok: true,
       project: SLUG,
-      dns: { cname: { name: HOST, target: "cname.creek.dev" } },
+      dns: { cname: { name: HOST, target: "cname.bycreek.com" } },
     });
   });
 
@@ -144,7 +144,7 @@ describe("creek domains activate", () => {
           ok: false,
           status: "pending_dns",
           message:
-            "Domain not verified yet (edge status: pending). Point DNS to cname.creek.dev, then retry.",
+            "Domain not verified yet (edge status: pending). Point DNS to cname.bycreek.com, then retry.",
         }),
       ),
     );
@@ -274,7 +274,7 @@ describe("creek domains add", () => {
       http.post(`${API}/projects/${SLUG}/domains`, () =>
         HttpResponse.json({
           domain: { id: DOM_ID, projectId: "p1", hostname: HOST, status: "pending", createdAt: 0 },
-          verification: { cname: { name: HOST, target: "cname.creek.dev" } },
+          verification: { cname: { name: HOST, target: "cname.bycreek.com" } },
           idempotent: true,
         }),
       ),
@@ -286,7 +286,7 @@ describe("creek domains add", () => {
     expect(json()).toMatchObject({
       ok: true,
       idempotent: true,
-      verification: { cname: { target: "cname.creek.dev" } },
+      verification: { cname: { target: "cname.bycreek.com" } },
     });
   });
 });

@@ -101,12 +101,27 @@ const domainsAdd = defineCommand({
     const verb = idempotent ? "Already added" : "Added";
     consola.success(`${verb} ${domain.hostname} (status: ${domain.status})`);
     consola.info("");
-    consola.info("  Point your DNS to Creek:");
-    consola.info(`    CNAME  ${domain.hostname}  →  cname.creek.dev`);
-    if (verification?.txt) {
-      consola.info("");
-      consola.info("  Or verify ownership first with a TXT record:");
-      consola.info(`    TXT  ${verification.txt.name}  →  ${verification.txt.value}`);
+    consola.info("  Set these DNS records:");
+    // The API's records; an older API only sent `cname` (+ `txt`).
+    const records =
+      verification?.records ??
+      [
+        verification?.cname && {
+          type: "CNAME",
+          name: verification.cname.name,
+          value: verification.cname.target,
+          purpose: "Routes the domain to Creek.",
+        },
+        verification?.txt && {
+          type: "TXT",
+          name: verification.txt.name,
+          value: verification.txt.value,
+          purpose: "Optional. Proves ownership before traffic arrives.",
+        },
+      ].filter((r): r is NonNullable<typeof r> => Boolean(r));
+    for (const record of records) {
+      consola.info(`    ${record.type.padEnd(5)}  ${record.name}  →  ${record.value}`);
+      consola.info(`           ${record.purpose}`);
     }
     consola.info("");
     consola.info("  Creek will automatically verify and provision SSL.");

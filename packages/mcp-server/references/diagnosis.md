@@ -88,7 +88,7 @@ Quick lookup when the user reports a specific error string verbatim.
 | "Project has no GitHub connection" (on `--from-github`) | Connect the repo first via the dashboard Settings → GitHub Connection |
 | "Could not determine target project" (on `--from-github`) | Pass `--project <slug>` or run the command from a directory with a `creek.toml` |
 | Sandbox expired | Redeploy — sandboxes last 60 minutes |
-| Domain stuck "pending" | Set CNAME to `cname.creek.dev`, then `creek domains activate` |
+| Domain stuck "pending" | Set the records from `creek domains show <host> --json` (CNAME → `cname.bycreek.com`), then `creek domains activate` |
 | Build fails | Check `[build] command` in creek.toml |
 | Webhook not firing on push | Verify the repo is connected under project Settings; GitHub App must be installed on the repo's account |
 | `CK-DB-DUAL-DRIVER-SPLIT` from `creek doctor` | Consolidate db.local.ts + db.prod.ts to the shared-routes pattern. See `references/resources.md`. |

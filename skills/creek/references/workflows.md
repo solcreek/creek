@@ -36,7 +36,7 @@ creek rollback <ID> --json             # Rollback to specific deployment
 
 ```bash
 creek domains add app.example.com --json     # Add domain
-# User sets DNS: CNAME app.example.com → cname.creek.dev
+# User sets DNS: CNAME app.example.com → cname.bycreek.com (records: `creek domains show app.example.com --json`)
 creek domains activate app.example.com --json # Activate after DNS
 creek domains ls --json                       # Verify status
 ```

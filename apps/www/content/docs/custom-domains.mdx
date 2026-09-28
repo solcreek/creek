@@ -5,7 +5,7 @@ description: Connect your own domain to a Creek project with automatic SSL.
 
 ## Overview
 
-Every Creek project gets a default URL like `my-app-my-team.bycreek.com`. You can also connect your own domain — Creek automatically provisions an SSL certificate and routes traffic to your project.
+Every Creek project gets a default URL like `my-app-my-team.bycreek.com`. You can also connect your own domain — Creek provisions an SSL certificate and routes traffic to your project.
 
 ## Add a Custom Domain
 
@@ -13,16 +13,16 @@ Every Creek project gets a default URL like `my-app-my-team.bycreek.com`. You ca
 creek domains add app.example.com --project my-app
 ```
 
-Creek will register the domain and provide DNS instructions:
+Creek registers the domain and prints the DNS records to set:
 
 ```
 ✓ Added app.example.com (status: pending)
 
-  Point your DNS to Creek:
-    CNAME  app.example.com  →  cname.creek.dev
-
-  Or verify ownership first with a TXT record:
-    TXT  _cf-custom-hostname.app.example.com  →  4581f57c-...
+  Set these DNS records:
+    CNAME  app.example.com  →  cname.bycreek.com
+           Routes the domain to Creek.
+    TXT    _cf-custom-hostname.app.example.com  →  4581f57c-...
+           Optional. Proves ownership before traffic arrives, so validation can finish sooner.
 
   Creek will automatically verify and provision SSL.
   Run `creek domains ls --project my-app` to check status.
@@ -34,9 +34,11 @@ Add a CNAME record at your DNS provider:
 
 | Type | Name | Target |
 |------|------|--------|
-| CNAME | `app.example.com` | `cname.creek.dev` |
+| CNAME | `app.example.com` | `cname.bycreek.com` |
 
-Once the CNAME is pointing to Creek, ownership verification and SSL provisioning happen automatically. This typically takes under a minute.
+Once the record points to Creek, ownership verification and SSL provisioning happen automatically. Creek checks pending domains every five minutes; `creek domains show` checks right away.
+
+Earlier versions of these docs said `cname.creek.dev`. That name still resolves, but point new domains at `cname.bycreek.com`, and move existing ones when convenient.
 
 ## Check Status
 
@@ -52,15 +54,17 @@ Status values:
 
 | Status | Meaning |
 |--------|---------|
-| `pending` | Waiting for DNS verification |
+| `pending` | Waiting for DNS to point at Creek and for the certificate |
 | `active` | Domain is live with SSL |
-| `failed` | Verification failed — check your DNS records |
+| `failed` | The edge dropped the hostname — remove the domain and add it again |
 
-Creek checks pending domains automatically every few minutes. You can also trigger a check by viewing the domain:
+To check a pending domain now, and see its DNS records again:
 
 ```bash
-creek domains ls --project my-app --json
+creek domains show app.example.com --project my-app
 ```
+
+`creek domains activate` does the same check and reports `pending_dns` (DNS isn't pointing at Creek yet) or `pending_edge` (Creek couldn't reach the edge; retry in a minute).
 
 ## Remove a Domain
 
@@ -68,7 +72,7 @@ creek domains ls --project my-app --json
 creek domains rm app.example.com --project my-app
 ```
 
-This removes the domain from Creek and cleans up the SSL certificate. Remember to update your DNS records after removal.
+This removes the domain from Creek and asks the edge to drop its certificate. Remember to update your DNS records after removal.
 
 ## Using `--project`
 
@@ -84,9 +88,12 @@ creek domains add app.example.com --project my-app
 
 ## Apex Domains
 
-To use a root domain (e.g., `example.com` without a subdomain), some DNS providers support CNAME flattening or ALIAS records at the apex. Set it to point to `cname.creek.dev` the same way.
+A root domain like `example.com` can't hold a plain CNAME record. Point it at `cname.bycreek.com` with whichever your DNS provider offers:
 
-If your DNS provider doesn't support CNAME at the apex, use a subdomain like `www.example.com` instead.
+- **CNAME flattening** (Cloudflare, and others): a CNAME at the apex that the provider resolves for you.
+- **ALIAS** or **ANAME** (Gandi, DNSimple, Route 53's alias, and others).
+
+`creek domains add` marks an apex with `"apex": true` in its JSON and says this in the record's `purpose`. If your provider supports none of these, use a subdomain like `www.example.com`, or move the domain's DNS to one that does.
 
 ## Multiple Domains
 
@@ -100,7 +107,7 @@ creek domains ls --project my-app
 
 ## JSON Output
 
-All domain commands support `--json` for scripting and CI/CD:
+All domain commands support `--json` for scripting, CI/CD and agents. `verification.records` lists every record to set, routing first:
 
 ```bash
 creek domains add app.example.com --project my-app --json
@@ -117,8 +124,15 @@ creek domains add app.example.com --project my-app --json
     "cfCustomHostnameId": "7e78..."
   },
   "verification": {
-    "cname": { "name": "app.example.com", "target": "cname.creek.dev" },
+    "cname": { "name": "app.example.com", "target": "cname.bycreek.com" },
+    "apex": false,
+    "records": [
+      { "type": "CNAME", "name": "app.example.com", "value": "cname.bycreek.com", "purpose": "Routes the domain to Creek." },
+      { "type": "TXT", "name": "_cf-custom-hostname.app.example.com", "value": "3aaf...", "purpose": "Optional. Proves ownership before traffic arrives, so validation can finish sooner." }
+    ],
     "txt": { "type": "txt", "name": "_cf-custom-hostname.app.example.com", "value": "3aaf..." }
   }
 }
 ```
+
+`creek domains show <host> --json` returns the same records under `dns`, any time.

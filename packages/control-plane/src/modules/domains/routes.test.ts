@@ -115,6 +115,55 @@ describe("GET /projects/:id/domains/:domainId", () => {
     expect(res.status).toBe(404);
   });
 
+  test("lists the ownership TXT again while the domain is pending", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    // The beforeEach mock answers with status "pending" and an ownership TXT.
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
+    const json = (await res.json()) as any;
+    expect(json.status).toBe("pending");
+    expect(json.dns.records.map((r: any) => [r.type, r.name, r.value])).toEqual([
+      ["CNAME", "app.example.com", "cname.bycreek.com"],
+      ["TXT", "_cf-custom-hostname.test.example.com", "uuid-123"],
+    ]);
+  });
+
+  test("lists only the CNAME once the edge reports the domain active", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              id: "cf-1",
+              hostname: "app.example.com",
+              status: "active",
+              ownership_verification: null,
+            },
+          }),
+        );
+      }
+      return originalFetch(input as any);
+    }) as any;
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d1`);
+    const json = (await res.json()) as any;
+    expect(json.status).toBe("active");
+    expect(json.dns.records.map((r: any) => r.type)).toEqual(["CNAME"]);
+  });
+
   test("includes the CNAME instruction so DNS records are retrievable", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);
@@ -125,7 +174,48 @@ describe("GET /projects/:id/domains/:domainId", () => {
 
     const res = await req("GET", `/projects/${PROJECT_ID}/domains/d2`);
     const json = (await res.json()) as any;
-    expect(json.dns.cname).toEqual({ name: "site.example.com", target: "cname.creek.dev" });
+    expect(json.dns.cname).toEqual({ name: "site.example.com", target: "cname.bycreek.com" });
+    expect(json.dns.apex).toBe(false);
+    expect(json.dns.records).toEqual([
+      {
+        type: "CNAME",
+        name: "site.example.com",
+        value: "cname.bycreek.com",
+        purpose: "Routes the domain to Creek.",
+      },
+    ]);
+  });
+
+  test("tells an apex domain to use flattening, ALIAS or ANAME", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d3', '${PROJECT_ID}', 'example.com', 'pending', ${now})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/domains/d3`);
+    const json = (await res.json()) as any;
+    expect(json.dns.apex).toBe(true);
+    expect(json.dns.records[0]).toMatchObject({ type: "CNAME", value: "cname.bycreek.com" });
+    expect(json.dns.records[0].purpose).toMatch(/CNAME flattening, ALIAS or ANAME/);
+  });
+
+  test("derives the target from CREEK_DOMAIN on a self-hosted install", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d4', '${PROJECT_ID}', 'site.example.com', 'pending', ${now})`,
+    );
+
+    const res = await app.request(
+      `/projects/${PROJECT_ID}/domains/d4`,
+      { method: "GET" },
+      { ...testEnv.env, CREEK_DOMAIN: "apps.example.net" },
+    );
+    const json = (await res.json()) as any;
+    expect(json.dns.cname.target).toBe("cname.apps.example.net");
   });
 });
 
@@ -143,11 +233,38 @@ describe("POST /projects/:id/domains", () => {
     expect(json.domain).toBeDefined();
     // CF returned pending status, so verification instructions are included
     expect(json.verification).toBeDefined();
-    expect(json.verification.cname.target).toBe("cname.creek.dev");
+    expect(json.verification.cname.target).toBe("cname.bycreek.com");
     expect(json.verification.txt).toBeDefined();
+    // Every record to set, routing first, then CF's ownership TXT.
+    expect(json.verification.records.map((r: any) => [r.type, r.name, r.value])).toEqual([
+      ["CNAME", "app.example.com", "cname.bycreek.com"],
+      ["TXT", "_cf-custom-hostname.test.example.com", "uuid-123"],
+    ]);
 
     // Verify CF API was called
     expect(globalThis.fetch).toHaveBeenCalled();
+  });
+
+  test("still says where to point DNS when the edge call fails", async () => {
+    seedTestProject();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("custom_hostnames")) {
+        return new Response(
+          JSON.stringify({ success: false, errors: [{ code: 1000, message: "no" }] }),
+        );
+      }
+      return originalFetch(input as any);
+    }) as any;
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains`, {
+      hostname: "app.example.com",
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as any;
+    expect(json.verification.cname.target).toBe("cname.bycreek.com");
+    expect(json.verification.records).toHaveLength(1);
+    expect(json.verification.txt).toBeUndefined();
   });
 
   test("rejects missing hostname", async () => {
@@ -171,7 +288,10 @@ describe("POST /projects/:id/domains", () => {
     const json = (await res.json()) as any;
     expect(json.idempotent).toBe(true);
     expect(json.domain.id).toBe("existing");
-    expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
+    expect(json.verification.cname).toEqual({
+      name: "app.example.com",
+      target: "cname.bycreek.com",
+    });
   });
 
   test("re-adding a domain that never reached the edge registers it", async () => {
@@ -201,7 +321,15 @@ describe("POST /projects/:id/domains", () => {
     // The repair is the first time the edge answered for this row, so its
     // ownership TXT record must reach the user, as on a first add.
     expect(json.verification.txt).toEqual(txt);
-    expect(json.verification.cname).toEqual({ name: "app.example.com", target: "cname.creek.dev" });
+    expect(json.verification.cname).toEqual({
+      name: "app.example.com",
+      target: "cname.bycreek.com",
+    });
+    // …and it's in `records`, where an agent applies it from.
+    expect(json.verification.records.map((r: any) => [r.type, r.name, r.value])).toEqual([
+      ["CNAME", "app.example.com", "cname.bycreek.com"],
+      ["TXT", "_cf-custom-hostname.app.example.com", "tok-1"],
+    ]);
   });
 
   test("adopts the edge's existing hostname when the create call fails", async () => {
