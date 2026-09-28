@@ -4,6 +4,7 @@ import {
   DEPRECATED_BINDING_ALIASES,
   INTERNAL_VARS,
   PROVISIONABLE_RESOURCES,
+  deprecatedAliasBindings,
 } from "./index.js";
 
 describe("BINDING_NAMES", () => {
@@ -86,5 +87,33 @@ describe("PROVISIONABLE_RESOURCES", () => {
 
   test("does not include ai (ai is account-level)", () => {
     expect(PROVISIONABLE_RESOURCES).not.toContain("ai");
+  });
+});
+
+describe("deprecatedAliasBindings", () => {
+  test("adds DB for DATABASE and KV for CACHE, pointing at the same resource", () => {
+    expect(
+      deprecatedAliasBindings([
+        { type: "d1", name: "DATABASE", id: "db-1" },
+        { type: "kv_namespace", name: "CACHE", namespace_id: "kv-1" },
+        { type: "r2_bucket", name: "STORAGE", bucket_name: "b" },
+      ]),
+    ).toEqual([
+      { type: "d1", name: "DB", id: "db-1" },
+      { type: "kv_namespace", name: "KV", namespace_id: "kv-1" },
+    ]);
+  });
+
+  test("skips an alias whose name is already bound, so a user's own DB wins", () => {
+    expect(
+      deprecatedAliasBindings([
+        { type: "d1", name: "DATABASE", id: "db-1" },
+        { type: "r2_bucket", name: "DB", bucket_name: "mine" },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("adds nothing for names without an alias", () => {
+    expect(deprecatedAliasBindings([{ type: "r2_bucket", name: "STORAGE" }])).toEqual([]);
   });
 });

@@ -29,6 +29,28 @@ export const DEPRECATED_BINDING_ALIASES: Record<string, string | undefined> = {
   CACHE: "KV",
 };
 
+/**
+ * The deprecated-alias bindings to add for a list of Worker bindings: for
+ * each binding with a primary name that has an alias (DATABASE → DB), a copy
+ * under the alias pointing at the same resource. An alias name already taken
+ * in the list is skipped, so a binding the user named explicitly always wins
+ * and no Worker env name is bound twice.
+ *
+ * Production and sandbox deploys both use this, so a preview binds the same
+ * names as the production deploy it previews (solcreek/creek#61).
+ */
+export function deprecatedAliasBindings<T extends { name: string }>(bindings: readonly T[]): T[] {
+  const taken = new Set(bindings.map((b) => b.name));
+  const aliases: T[] = [];
+  for (const binding of bindings) {
+    const alias = DEPRECATED_BINDING_ALIASES[binding.name];
+    if (!alias || taken.has(alias)) continue;
+    aliases.push({ ...binding, name: alias });
+    taken.add(alias);
+  }
+  return aliases;
+}
+
 /** Internal env vars injected into every user worker */
 export const INTERNAL_VARS = {
   projectSlug: "CREEK_PROJECT_SLUG",

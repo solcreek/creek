@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@solcreek/deploy-core": "workspace:*",
+    "@solcreek/sdk": "workspace:*",
     "hono": "^4.7.4"
   },
   "devDependencies": {

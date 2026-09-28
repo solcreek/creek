@@ -13,7 +13,12 @@
  */
 
 import type { Env } from "../../types.js";
-import { BINDING_NAMES, DEPRECATED_BINDING_ALIASES, INTERNAL_VARS } from "@solcreek/sdk";
+import {
+  BINDING_NAMES,
+  DEPRECATED_BINDING_ALIASES,
+  INTERNAL_VARS,
+  deprecatedAliasBindings,
+} from "@solcreek/sdk";
 import {
   provisionCFResource,
   findExistingCFResource,
@@ -353,13 +358,11 @@ export function buildBindings(
   // Deprecated aliases (e.g. DB for DATABASE) pointing at the same resource,
   // so Workers reading the old CF-primitive name keep working through the
   // v1.0 window — but only when the alias name isn't already taken, to avoid
-  // duplicate Worker env binding names.
-  for (const [, resolved] of resolvedBindings) {
-    const alias = DEPRECATED_BINDING_ALIASES[resolved.bindingName];
-    if (alias && !seen.has(alias)) {
-      emit(alias, resolved);
-      seen.add(alias);
-    }
+  // duplicate Worker env binding names. Shared with sandbox provisioning so a
+  // preview binds the same names.
+  for (const alias of deprecatedAliasBindings(bindings)) {
+    bindings.push(alias);
+    seen.add(alias.name);
   }
 
   // Queue producer binding

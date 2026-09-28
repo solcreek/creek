@@ -932,6 +932,9 @@ importers:
       '@solcreek/deploy-core':
         specifier: workspace:*
         version: link:../deploy-core
+      '@solcreek/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       hono:
         specifier: ^4.7.4
         version: 4.12.12

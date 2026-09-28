@@ -25,6 +25,10 @@
     "./client": {
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
+    },
+    "./bindings": {
+      "types": "./dist/bindings/index.d.ts",
+      "default": "./dist/bindings/index.js"
     }
   },
   "files": [

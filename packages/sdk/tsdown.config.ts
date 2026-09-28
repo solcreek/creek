@@ -11,6 +11,7 @@ export default defineConfig({
     "src/config/index.ts",
     "src/framework/index.ts",
     "src/client/index.ts",
+    "src/bindings/index.ts",
   ],
   format: "esm",
   dts: true,
