@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
 import type { ResolvedConfig } from "@solcreek/sdk";
-import { prepareDeployBundle, packageScriptName } from "./prepare-bundle.js";
+import { prepareDeployBundle, packageScriptName, collectWorkerModules } from "./prepare-bundle.js";
 
 let cwd: string;
 
@@ -445,6 +445,43 @@ describe("prepareDeployBundle: code-split pre-bundled worker", () => {
     expect(Object.keys(result.serverFiles!).sort()).toEqual(["_chunks/x.mjs", "worker.js"]);
     expect(result.fileList).toEqual(["index.html"]);
     expect(result.assets["_chunks/x.mjs"]).toBeUndefined();
+  });
+});
+
+describe("collectWorkerModules", () => {
+  test("collects non-JS modules the worker imports and does not scan them for imports", () => {
+    writeFixture({
+      "dist/worker.js":
+        'import config from "./config.json"; import wasm from "./lib/engine.wasm"; export default { fetch() { return new Response(config.name); } };',
+      "dist/config.json": '{ "name": "import from \\"./not-a-module.js\\"" }',
+      "dist/lib/engine.wasm": "\0asm",
+    });
+
+    const { files } = collectWorkerModules(join(cwd, "dist/worker.js"));
+
+    expect(Object.keys(files).sort()).toEqual(["config.json", "lib/engine.wasm", "worker.js"]);
+  });
+
+  test("fails on an import that leaves the worker's directory, even when the target is missing", () => {
+    writeFixture({
+      "dist/worker.js":
+        'import { x } from "../shared.js"; export default { fetch() { return new Response(x); } };',
+    });
+
+    expect(() => collectWorkerModules(join(cwd, "dist/worker.js"))).toThrow(
+      /imports "\.\.\/shared\.js", which is outside the worker's directory/,
+    );
+  });
+
+  test("fails on a dynamic import whose chunk is missing instead of shipping it dangling", () => {
+    writeFixture({
+      "dist/worker.js":
+        'export default { async fetch() { const m = await import("./gone-1.js"); return new Response(m.x); } };',
+    });
+
+    expect(() => collectWorkerModules(join(cwd, "dist/worker.js"))).toThrow(
+      /imports "\.\/gone-1\.js", but .* does not exist/,
+    );
   });
 });
 

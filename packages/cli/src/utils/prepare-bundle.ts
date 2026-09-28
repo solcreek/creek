@@ -432,9 +432,12 @@ export async function prepareDeployBundle(
 /**
  * Follow a pre-bundled worker's relative imports (static, re-export,
  * side-effect, and string-literal dynamic `import()`) and return every module
- * it reaches. The entry is named `worker.js`; the rest keep their path
- * relative to the entry's directory. Imports that leave that directory are
- * rejected: they cannot be expressed as upload module names.
+ * it reaches: JS chunks and the non-JS modules Workers accepts (`.json`,
+ * `.wasm`, text, binary data). The entry is named `worker.js`; the rest keep
+ * their path relative to the entry's directory. Only JS modules are scanned
+ * for further imports. A relative import that leaves that directory, or whose
+ * target does not exist, fails the deploy: shipping it would leave a dangling
+ * import that only breaks when a request reaches it.
  */
 export function collectWorkerModules(entryAbs: string): {
   files: Record<string, Buffer>;
@@ -446,22 +449,30 @@ export function collectWorkerModules(entryAbs: string): {
   const seen = new Set<string>();
   const queue = [entryAbs];
   const specifier = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["'](\.{1,2}\/[^"'\n]+?)["']/g;
+  const isJs = (path: string) => /\.(m?js|cjs)$/.test(path);
+  const nameOf = (path: string) => relative(root, path).replace(/\\/g, "/");
   while (queue.length > 0) {
     const file = queue.shift()!;
     if (seen.has(file)) continue;
     seen.add(file);
     const bytes = readFileSync(file);
-    const name = file === entryAbs ? "worker.js" : relative(root, file).replace(/\\/g, "/");
-    if (name.startsWith("..")) {
-      throw new Error(
-        `worker module ${file} is outside the worker's directory ${root}; bundle it into the worker first`,
-      );
-    }
-    files[name] = bytes;
+    files[file === entryAbs ? "worker.js" : nameOf(file)] = bytes;
     absolutePaths.push(file);
+    if (!isJs(file)) continue;
     for (const m of bytes.toString("utf-8").matchAll(specifier)) {
       const target = resolve(dirname(file), m[1]);
-      if (/\.(m?js|cjs)$/.test(target) && existsSync(target)) queue.push(target);
+      const from = nameOf(file) || "worker.js";
+      if (nameOf(target).startsWith("..")) {
+        throw new Error(
+          `worker module ${from} imports "${m[1]}", which is outside the worker's directory ${root}; bundle it into the worker first`,
+        );
+      }
+      if (!existsSync(target) || !statSync(target).isFile()) {
+        throw new Error(
+          `worker module ${from} imports "${m[1]}", but ${target} does not exist; rebuild the worker or bundle it into one file`,
+        );
+      }
+      queue.push(target);
     }
   }
   return { files, absolutePaths };
