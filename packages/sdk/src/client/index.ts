@@ -3,6 +3,7 @@ import type {
   Deployment,
   CustomDomain,
   DomainDetail,
+  DomainDnsInstruction,
   ActivateDomainResult,
   CreateProjectRequest,
   CreateProjectResponse,
@@ -467,12 +468,11 @@ export class CreekClient {
     hostname: string,
   ): Promise<{
     domain: CustomDomain;
-    // CNAME is always present; `txt` only on a first add that needs ownership
-    // verification, absent on an idempotent re-add.
-    verification?: {
-      cname: { name: string; target: string };
-      txt?: { type: string; name: string; value: string };
-    } | null;
+    // Null once the domain is active. `txt` only on a first add where CF
+    // returned an ownership record; `records` lists everything to set.
+    verification?:
+      | (DomainDnsInstruction & { txt?: { type: string; name: string; value: string } })
+      | null;
     // True when the hostname was already on this project (add is idempotent).
     idempotent?: boolean;
   }> {

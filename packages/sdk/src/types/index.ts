@@ -135,9 +135,26 @@ export interface CustomDomain {
   createdAt: number;
 }
 
-/** The DNS record a tenant must create to point a hostname at Creek. */
+/**
+ * One DNS record to set for a custom domain. `purpose` says why, in words a
+ * person or an agent can act on (at an apex, it says to use CNAME flattening,
+ * ALIAS or ANAME, since a plain CNAME isn't allowed there).
+ */
+export interface DomainDnsRecord {
+  type: "CNAME" | "TXT";
+  name: string;
+  value: string;
+  purpose: string;
+}
+
+/** The DNS records a tenant sets to point a hostname at Creek. */
 export interface DomainDnsInstruction {
+  /** The routing record alone; predates `records` and is kept for existing clients. */
   cname: { name: string; target: string };
+  /** True when the hostname has no subdomain (see DomainDnsRecord.purpose). */
+  apex?: boolean;
+  /** Every record to set, routing first. Apply these. */
+  records?: DomainDnsRecord[];
 }
 
 /** A single custom domain plus its (always-retrievable) DNS instruction. */

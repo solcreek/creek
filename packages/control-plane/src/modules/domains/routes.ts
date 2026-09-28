@@ -24,13 +24,68 @@ type DomainEnv = {
 
 const domains = new Hono<DomainEnv>();
 
-// The CNAME target tenants point their DNS at. Single source of truth for the
-// DNS instruction surfaced by `add`, the single-domain GET, and `activate`, so
-// the records are always retrievable — not only printed once at add time.
-const CNAME_TARGET = "cname.creek.dev";
+// The CNAME target tenants point their DNS at: `cname.` on the tenant zone,
+// the CF for SaaS fallback origin (infra: custom-hostnames.tf). It's the same
+// target Creek's own domains use, and it follows CREEK_DOMAIN on a self-hosted
+// install. Single source of truth for the DNS instruction surfaced by `add`,
+// the single-domain GET, and `activate`, so the records are always retrievable
+// — not only printed once at add time.
+//
+// Until 2026-09 the instruction said cname.creek.dev, which sits on the product
+// zone rather than the tenant zone. Keep that name resolving for anyone who
+// followed it.
+function cnameTarget(env: Env): string {
+  return `cname.${env.CREEK_DOMAIN || "bycreek.com"}`;
+}
 
-function dnsInstructions(hostname: string) {
-  return { cname: { name: hostname, target: CNAME_TARGET } };
+// A registrable domain with no subdomain can't hold a plain CNAME. Two labels
+// is a heuristic: it misses multi-label suffixes (example.co.uk), which then
+// get the subdomain wording.
+function isApex(hostname: string): boolean {
+  return hostname.split(".").length === 2;
+}
+
+export type DnsRecord = {
+  type: "CNAME" | "TXT";
+  name: string;
+  value: string;
+  purpose: string;
+};
+
+function dnsInstructions(env: Env, hostname: string) {
+  const target = cnameTarget(env);
+  const route: DnsRecord = {
+    type: "CNAME",
+    name: hostname,
+    value: target,
+    purpose: isApex(hostname)
+      ? "Routes the domain to Creek. At the apex, set it as your DNS provider's CNAME flattening, ALIAS or ANAME record; a plain CNAME isn't allowed there."
+      : "Routes the domain to Creek.",
+  };
+  return {
+    // `cname` predates `records` and is kept for existing clients.
+    cname: { name: hostname, target },
+    apex: isApex(hostname),
+    records: [route],
+  };
+}
+
+// `add`'s verification block: the routing record, plus CF's optional ownership
+// TXT when it returned one (kept as `txt` for existing clients too).
+function verificationFor(
+  env: Env,
+  hostname: string,
+  txt: { type: string; name: string; value: string } | null,
+) {
+  const dns = dnsInstructions(env, hostname);
+  if (!txt) return dns;
+  const ownership: DnsRecord = {
+    type: "TXT",
+    name: txt.name,
+    value: txt.value,
+    purpose: "Optional. Proves ownership before traffic arrives, so validation can finish sooner.",
+  };
+  return { ...dns, txt, records: [...dns.records, ownership] };
 }
 
 // List custom domains for a project
@@ -97,7 +152,7 @@ domains.get("/:projectId/domains/:domainId", requirePermission("project:read"), 
 
   // Always include the DNS instruction so it's retrievable any time, not
   // just in the original `add` response.
-  return c.json({ ...domain, dns: dnsInstructions(domain.hostname) });
+  return c.json({ ...domain, dns: dnsInstructions(c.env, domain.hostname) });
 });
 
 // Add a custom domain
@@ -138,7 +193,7 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
   if (existing) {
     if (existing.projectId === project.id) {
       return c.json(
-        { domain: existing, verification: dnsInstructions(hostname), idempotent: true },
+        { domain: existing, verification: dnsInstructions(c.env, hostname), idempotent: true },
         200,
       );
     }
@@ -153,7 +208,7 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
 
   // Call CF Custom Hostnames API
   let cfCustomHostnameId: string | null = null;
-  let ownershipVerification: unknown = null;
+  let ownershipVerification: { type: string; name: string; value: string } | null = null;
   let initialStatus = "pending";
 
   if (c.env.CLOUDFLARE_ZONE_ID) {
@@ -199,14 +254,11 @@ domains.post("/:projectId/domains", requirePermission("domain:manage"), async (c
   return c.json(
     {
       domain,
-      // Include verification instructions if not auto-activated
+      // The records to set, unless CF already activated it. Returned even when
+      // CF gave no ownership record (e.g. the CF call failed), so the caller
+      // always knows where to point DNS.
       verification:
-        initialStatus !== "active" && ownershipVerification
-          ? {
-              ...dnsInstructions(hostname),
-              txt: ownershipVerification,
-            }
-          : null,
+        initialStatus !== "active" ? verificationFor(c.env, hostname, ownershipVerification) : null,
     },
     201,
   );
@@ -272,7 +324,7 @@ domains.post(
         return c.json({
           ok: false,
           status: "pending_dns",
-          message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
+          message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${cnameTarget(c.env)}, then retry.`,
         });
       } catch {
         return c.json({
