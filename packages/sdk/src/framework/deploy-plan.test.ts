@@ -244,6 +244,40 @@ describe("planDeploy", () => {
       }
     });
 
+    test("built worker beside its assets (dist/worker.js + dist/assets) → upload-asis", () => {
+      // The layout june build and other wrangler-targeted builds emit.
+      const result = planDeploy(
+        input({
+          workerEntry: "dist/worker.js",
+          workerEntryExists: true,
+          buildOutput: "dist/assets",
+          buildOutputExists: true,
+        }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.plan.worker).toEqual({ strategy: "upload-asis", entry: "dist/worker.js" });
+        expect(result.plan.assets).toEqual({
+          enabled: true,
+          dir: "dist/assets",
+          excludeFile: null,
+        });
+      }
+    });
+
+    test("root-level worker.js beside dist/ stays esbuild-bundle (source, not a build)", () => {
+      const result = planDeploy(
+        input({
+          workerEntry: "worker.js",
+          workerEntryExists: true,
+          buildOutput: "dist",
+          buildOutputExists: true,
+        }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.plan.worker.strategy).toBe("esbuild-bundle");
+    });
+
     test(".mjs outside buildOutput → esbuild-bundle (treat as source)", () => {
       // Edge case: prebundled .mjs file lives outside dist/. Could be
       // user's hand-written ESM module — we don't risk uploading it

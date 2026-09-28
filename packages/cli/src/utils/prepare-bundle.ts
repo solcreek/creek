@@ -26,7 +26,8 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { build as esbuild } from "esbuild";
 import { execSync } from "node:child_process";
 import consola from "consola";
 import {
@@ -264,6 +265,7 @@ export async function prepareDeployBundle(
   // (a) the framework when it's pre-bundled SSR, or (b) the plan's
   // worker.strategy for user-declared workers.
   let serverFiles: Record<string, string> | undefined;
+  let workerModulePaths: string[] = [];
 
   if (astroAdapter) {
     // Astro CF adapter writes a pre-bundled worker we just upload.
@@ -358,9 +360,30 @@ export async function prepareDeployBundle(
     // esbuild step). Ship verbatim — no Creek runtime wrapper, no
     // re-bundle. This is the path that keeps deployed bundles free of
     // any @solcreek/* dependency.
-    const bytes = readFileSync(resolve(cwd, plan.worker.entry));
-    serverFiles = { "worker.js": bytes.toString("base64") };
-    say.success(`  Worker (pre-bundled, ${Math.round(bytes.length / 1024)}KB)`);
+    // A bundler that code-splits (rolldown, esbuild --splitting) emits chunks
+    // next to the entry; ship every module the entry reaches by relative
+    // import, named by its path from the entry's directory, so the imports
+    // still resolve once the entry is renamed to worker.js.
+    const modules = await collectWorkerModules(resolve(cwd, plan.worker.entry));
+    serverFiles = base64ServerFiles(modules.files);
+    workerModulePaths = modules.absolutePaths;
+    const extra = Object.keys(modules.files).length - 1;
+    say.success(
+      `  Worker (pre-bundled, ${kb(modules.files)}KB${extra > 0 ? `, entry + ${extra} chunk${extra > 1 ? "s" : ""}` : ""})`,
+    );
+  }
+
+  // 8a. Chunks of a pre-bundled worker that live inside the asset dir are
+  // worker modules, not public files.
+  if (plan.assets.enabled && plan.assets.dir && workerModulePaths.length > 0) {
+    const assetsRoot = resolve(cwd, plan.assets.dir);
+    for (const abs of workerModulePaths) {
+      const rel = relative(assetsRoot, abs).replace(/\\/g, "/");
+      if (rel.startsWith("..")) continue;
+      delete clientAssets[rel];
+      delete clientAssets["/" + rel];
+      fileList = fileList.filter((p) => p !== rel && p !== "/" + rel);
+    }
   }
 
   // 8. When the worker bundle lives INSIDE the asset dir
@@ -406,6 +429,93 @@ export async function prepareDeployBundle(
 }
 
 // --- helpers ---
+
+/**
+ * Follow a pre-bundled worker's relative imports and return every module it
+ * reaches: JS chunks and the non-JS modules Workers accepts (`.json`, `.wasm`,
+ * text, binary data). Imports come from esbuild's parser (static, re-export,
+ * side-effect, and string-literal dynamic `import()`), so import-looking text
+ * in comments or strings is not a dependency. Only JS modules are scanned for
+ * further imports; a template-literal `import()` has no static target and is
+ * left to the runtime.
+ *
+ * The entry is named `worker.js`; the rest keep their path relative to the
+ * entry's directory. The deploy fails when a relative import leaves that
+ * directory, when its target does not exist, or when another module would
+ * also be named `worker.js`: shipping any of those leaves a dangling or
+ * shadowed import that only breaks when a request reaches it.
+ */
+export async function collectWorkerModules(entryAbs: string): Promise<{
+  files: Record<string, Buffer>;
+  absolutePaths: string[];
+}> {
+  const root = dirname(entryAbs);
+  const files: Record<string, Buffer> = {};
+  const absolutePaths: string[] = [];
+  const seen = new Set<string>();
+  const queue = [entryAbs];
+  const isJs = (path: string) => /\.(m?js|cjs)$/.test(path);
+  const nameOf = (path: string) => relative(root, path).replace(/\\/g, "/");
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const name = file === entryAbs ? "worker.js" : nameOf(file);
+    if (file !== entryAbs && name === "worker.js") {
+      throw new Error(
+        `worker entry ${basename(entryAbs)} imports a module also named worker.js, the name the entry is uploaded as; rename that module or bundle it into the entry`,
+      );
+    }
+    files[name] = readFileSync(file);
+    absolutePaths.push(file);
+    if (!isJs(file)) continue;
+    const from = file === entryAbs ? basename(entryAbs) : name;
+    for (const spec of await relativeImports(file)) {
+      if (spec.includes("*")) continue; // template-literal import(): no static target
+      const target = resolve(dirname(file), spec);
+      if (nameOf(target).startsWith("..")) {
+        throw new Error(
+          `worker module ${from} imports "${spec}", which is outside the worker's directory ${root}; bundle it into the worker first`,
+        );
+      }
+      if (!existsSync(target) || !statSync(target).isFile()) {
+        throw new Error(
+          `worker module ${from} imports "${spec}", but ${target} does not exist; rebuild the worker or bundle it into one file`,
+        );
+      }
+      queue.push(target);
+    }
+  }
+  return { files, absolutePaths };
+}
+
+/** Relative import specifiers of one JS module, as esbuild's parser sees them. */
+async function relativeImports(file: string): Promise<string[]> {
+  const result = await esbuild({
+    entryPoints: [file],
+    bundle: true,
+    write: false,
+    metafile: true,
+    format: "esm",
+    platform: "neutral",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "collect-imports",
+        setup(b) {
+          // Record every import without resolving or loading it.
+          b.onResolve({ filter: /.*/ }, (args) =>
+            args.kind === "entry-point" ? undefined : { path: args.path, external: true },
+          );
+        },
+      },
+    ],
+  });
+  const input = Object.values(result.metafile!.inputs)[0];
+  return (input?.imports ?? [])
+    .map((i) => i.path)
+    .filter((p) => p.startsWith("./") || p.startsWith("../"));
+}
 
 function base64ServerFiles(collected: Record<string, Buffer>): Record<string, string> {
   return Object.fromEntries(

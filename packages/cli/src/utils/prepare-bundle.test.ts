@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
 import type { ResolvedConfig } from "@solcreek/sdk";
-import { prepareDeployBundle, packageScriptName } from "./prepare-bundle.js";
+import { prepareDeployBundle, packageScriptName, collectWorkerModules } from "./prepare-bundle.js";
 
 let cwd: string;
 
@@ -392,6 +392,126 @@ describe("prepareDeployBundle", () => {
     expect(result.plan.worker.strategy).toBe("upload-asis");
     expect(result.fileList.sort()).toEqual(["index.html"]);
     expect(result.assets["edge/_worker.mjs"]).toBeUndefined();
+  });
+});
+
+describe("prepareDeployBundle: code-split pre-bundled worker", () => {
+  test("worker beside its assets uploads every chunk it imports, not only the entry", async () => {
+    // Shape of `june build`: dist/worker.js + sibling chunks, assets in dist/assets.
+    writeFixture({
+      "package.json": JSON.stringify({ name: "split" }),
+      "dist/worker.js":
+        'import { a } from "./shared-1.js";\n' +
+        'export default { async fetch() { const { b } = await import("./lazy-2.js"); return new Response(a + b); } };',
+      "dist/shared-1.js": "export const a = 'a';",
+      "dist/lazy-2.js": 'export { c as b } from "./nested/deep-3.js";',
+      "dist/nested/deep-3.js": "export const c = 'c';",
+      "dist/unreferenced-4.js": "export const unused = 1;",
+      "dist/assets/index.html": "<!doctype html>",
+      "dist/assets/_app/client.js": "console.log('client')",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ workerEntry: "dist/worker.js", buildOutput: "dist/assets" }),
+      skipBuild: true,
+    });
+
+    expect(result.plan.worker.strategy).toBe("upload-asis");
+    expect(Object.keys(result.serverFiles!).sort()).toEqual([
+      "lazy-2.js",
+      "nested/deep-3.js",
+      "shared-1.js",
+      "worker.js",
+    ]);
+    expect(result.fileList.sort()).toEqual(["_app/client.js", "index.html"]);
+  });
+
+  test("chunks of a worker inside the asset dir are modules, not public files", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "inside", dependencies: { vite: "*" } }),
+      "dist/index.html": "<!doctype html>",
+      "dist/_worker.mjs":
+        'import { x } from "./_chunks/x.mjs"; export default { fetch() { return new Response(x); } };',
+      "dist/_chunks/x.mjs": "export const x = 'x';",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", workerEntry: "dist/_worker.mjs" }),
+      skipBuild: true,
+    });
+
+    expect(Object.keys(result.serverFiles!).sort()).toEqual(["_chunks/x.mjs", "worker.js"]);
+    expect(result.fileList).toEqual(["index.html"]);
+    expect(result.assets["_chunks/x.mjs"]).toBeUndefined();
+  });
+});
+
+describe("collectWorkerModules", () => {
+  test("collects non-JS modules the worker imports and does not scan them for imports", async () => {
+    writeFixture({
+      "dist/worker.js":
+        'import config from "./config.json"; import wasm from "./lib/engine.wasm"; export default { fetch() { return new Response(config.name); } };',
+      "dist/config.json": '{ "name": "import from \\"./not-a-module.js\\"" }',
+      "dist/lib/engine.wasm": "\0asm",
+    });
+
+    const { files } = await collectWorkerModules(join(cwd, "dist/worker.js"));
+
+    expect(Object.keys(files).sort()).toEqual(["config.json", "lib/engine.wasm", "worker.js"]);
+  });
+
+  test("fails on an import that leaves the worker's directory, even when the target is missing", async () => {
+    writeFixture({
+      "dist/worker.js":
+        'import { x } from "../shared.js"; export default { fetch() { return new Response(x); } };',
+    });
+
+    await expect(collectWorkerModules(join(cwd, "dist/worker.js"))).rejects.toThrow(
+      /imports "\.\.\/shared\.js", which is outside the worker's directory/,
+    );
+  });
+
+  test("fails on a dynamic import whose chunk is missing instead of shipping it dangling", async () => {
+    writeFixture({
+      "dist/worker.js":
+        'export default { async fetch() { const m = await import("./gone-1.js"); return new Response(m.x); } };',
+    });
+
+    await expect(collectWorkerModules(join(cwd, "dist/worker.js"))).rejects.toThrow(
+      /imports "\.\/gone-1\.js", but .* does not exist/,
+    );
+  });
+});
+
+describe("collectWorkerModules: parsing and naming", () => {
+  test("ignores import-looking text in comments and strings, and template-literal imports", async () => {
+    writeFixture({
+      "dist/worker.js": [
+        '// import("./in-comment.js")',
+        'const help = \'use import("./in-string.js") or import x from "./also-string.js"\';',
+        'import { a } from "./real.js";',
+        "export default { async fetch() { const m = await import(`./tpl-${a}.js`); return new Response(help + m); } };",
+      ].join("\n"),
+      "dist/real.js": "export const a = 'a';",
+    });
+
+    const { files } = await collectWorkerModules(join(cwd, "dist/worker.js"));
+
+    expect(Object.keys(files).sort()).toEqual(["real.js", "worker.js"]);
+  });
+
+  test("rejects a chunk that would share the entry's upload name worker.js", async () => {
+    writeFixture({
+      "dist/_worker.mjs":
+        'import { x } from "./worker.js"; export default { fetch() { return new Response(x); } };',
+      "dist/worker.js": "export const x = 'chunk';",
+    });
+
+    await expect(collectWorkerModules(join(cwd, "dist/_worker.mjs"))).rejects.toThrow(
+      /_worker\.mjs imports a module also named worker\.js/,
+    );
   });
 });
 
