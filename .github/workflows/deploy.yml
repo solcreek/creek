@@ -54,8 +54,10 @@ jobs:
               - 'packages/deploy-core/**'
             sandbox-dispatch:
               - 'packages/sandbox-dispatch/**'
+              - 'packages/deploy-core/src/content-type.ts'
             dispatch-worker:
               - 'packages/dispatch-worker/**'
+              - 'packages/deploy-core/src/content-type.ts'
             realtime-worker:
               - 'packages/realtime-worker/**'
             deploy-api:

@@ -146,33 +146,11 @@ export function narrowSetCookieDomains(headers: Headers): void {
 }
 
 // --- MIME type inference ---
-// WfP Static Assets does not set Content-Type on responses.
-
-const MIME_TYPES: Record<string, string> = {
-  html: "text/html; charset=utf-8",
-  css: "text/css; charset=utf-8",
-  js: "text/javascript; charset=utf-8",
-  mjs: "text/javascript; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  svg: "image/svg+xml",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  ico: "image/x-icon",
-  woff: "font/woff",
-  woff2: "font/woff2",
-  ttf: "font/ttf",
-  otf: "font/otf",
-  txt: "text/plain; charset=utf-8",
-  xml: "application/xml; charset=utf-8",
-  wasm: "application/wasm",
-  map: "application/json; charset=utf-8",
-};
+// WfP Static Assets does not set Content-Type on responses; the table is
+// shared with the production dispatcher (@solcreek/deploy-core/content-type).
 
 import { generateQrSvg } from "./qr.js";
+import { inferContentType } from "@solcreek/deploy-core/content-type";
 
 // --- Banner HTML ---
 
@@ -426,15 +404,8 @@ export default {
 
       // Infer Content-Type if missing
       if (response.ok && !response.headers.get("Content-Type")) {
-        const lastSegment = url.pathname.split("/").pop() ?? "";
-        const ext = lastSegment.includes(".")
-          ? (lastSegment.split(".").pop()?.toLowerCase() ?? "")
-          : "";
-        const contentType = ext
-          ? (MIME_TYPES[ext] ?? "application/octet-stream")
-          : "text/html; charset=utf-8";
         const headers = new Headers(response.headers);
-        headers.set("Content-Type", contentType);
+        headers.set("Content-Type", inferContentType(url.pathname));
         response = new Response(response.body, {
           status: response.status,
           statusText: response.statusText,

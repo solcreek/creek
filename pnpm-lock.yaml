@@ -764,6 +764,9 @@ importers:
 
   packages/dispatch-worker:
     dependencies:
+      '@solcreek/deploy-core':
+        specifier: workspace:*
+        version: link:../deploy-core
       hono:
         specifier: ^4.7.4
         version: 4.12.12
@@ -944,6 +947,10 @@ importers:
         version: 4.82.2(@cloudflare/workers-types@4.20260414.1)
 
   packages/sandbox-dispatch:
+    dependencies:
+      '@solcreek/deploy-core':
+        specifier: workspace:*
+        version: link:../deploy-core
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260405.1

@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./content-type": "./src/content-type.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
