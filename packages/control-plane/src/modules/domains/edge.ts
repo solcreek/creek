@@ -34,15 +34,27 @@ export async function createOrAdoptCustomHostname(
 }
 
 /**
- * The sync cron's repair pass: registers pending rows that never reached the
- * edge. Returns how many it linked. Rows it can't register stay as they are
- * and are tried again on the next run.
+ * The sync cron's repair pass: links rows that have no edge id to the edge.
+ * Returns how many it linked. Rows it can't register stay as they are and are
+ * tried again on a later run.
+ *
+ * Active rows are included. Rows created before cfCustomHostnameId existed can
+ * be active with a live custom hostname at the edge whose id was never stored
+ * (production had one, verified 2026-09-28): linking adopts that hostname and
+ * keeps the row active, and the status sync can then see it. An active row
+ * whose edge hostname isn't active is moved back to pending by
+ * linkCustomHostname. An edge that can't be reached changes nothing: a
+ * transient failure must never take a serving domain down.
+ *
+ * Rows are taken in random order, so a hostname the edge keeps rejecting
+ * can't hold the batch and starve the ones behind it.
  */
 export async function linkUnregisteredDomains(env: Env, limit = 20): Promise<number> {
   if (!env.CLOUDFLARE_ZONE_ID) return 0;
   const rows = await env.DB.prepare(
     `SELECT id, hostname FROM custom_domain
-     WHERE status IN ('pending', 'provisioning') AND cfCustomHostnameId IS NULL
+     WHERE status IN ('pending', 'provisioning', 'active') AND cfCustomHostnameId IS NULL
+     ORDER BY RANDOM()
      LIMIT ?`,
   )
     .bind(limit)
@@ -58,16 +70,23 @@ export async function linkUnregisteredDomains(env: Env, limit = 20): Promise<num
   return linked;
 }
 
-/** Records the edge's id on the row, and marks it active if the edge already is. */
+/**
+ * Records the edge's id on the row and lines its status up with the edge: an
+ * active edge hostname makes the row active; a row marked active whose edge
+ * hostname isn't active goes back to pending (dispatch only routes active
+ * rows, and without an active edge hostname there is no certificate behind
+ * it). Other statuses are left as they are.
+ */
 export async function linkCustomHostname(
   env: Env,
   domainId: string,
   cf: CustomHostnameResult,
 ): Promise<void> {
-  const status = cf.status === "active" ? "active" : null;
   await env.DB.prepare(
-    "UPDATE custom_domain SET cfCustomHostnameId = ?, status = COALESCE(?, status) WHERE id = ?",
+    `UPDATE custom_domain SET cfCustomHostnameId = ?,
+       status = CASE WHEN ? = 'active' THEN 'active' WHEN status = 'active' THEN 'pending' ELSE status END
+     WHERE id = ?`,
   )
-    .bind(cf.id, status, domainId)
+    .bind(cf.id, cf.status ?? null, domainId)
     .run();
 }

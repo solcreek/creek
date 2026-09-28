@@ -70,6 +70,82 @@ describe("linkUnregisteredDomains (the sync cron's repair pass)", () => {
     expect(row("gone")).toEqual({ status: "failed", cfCustomHostnameId: null });
   });
 
+  test("links a legacy active row to its live edge hostname and keeps it active", async () => {
+    // Created before cfCustomHostnameId existed: served, but the id was never
+    // stored (production's app.creek.dev, 2026-09-28).
+    insertDomain("legacy", "app.example.com", "active");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response(
+          JSON.stringify({ success: false, errors: [{ code: 1406, message: "Duplicate" }] }),
+        );
+      }
+      expect(String(input)).toContain("hostname=app.example.com");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          result: [{ id: "cf-live", hostname: "app.example.com", status: "active" }],
+        }),
+      );
+    }) as any;
+
+    expect(await linkUnregisteredDomains(testEnv.env)).toBe(1);
+    expect(row("legacy")).toEqual({ status: "active", cfCustomHostnameId: "cf-live" });
+  });
+
+  test("moves an active row back to pending when its edge hostname isn't active", async () => {
+    insertDomain("stale", "stale.example.com", "active");
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            result: { id: "cf-stale", hostname: "stale.example.com", status: "pending" },
+          }),
+        ),
+    ) as any;
+
+    expect(await linkUnregisteredDomains(testEnv.env)).toBe(1);
+    expect(row("stale")).toEqual({ status: "pending", cfCustomHostnameId: "cf-stale" });
+  });
+
+  test("never demotes an active row when the edge can't be reached", async () => {
+    insertDomain("serving", "serving.example.com", "active");
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("network down");
+    }) as any;
+
+    expect(await linkUnregisteredDomains(testEnv.env)).toBe(0);
+    expect(row("serving")).toEqual({ status: "active", cfCustomHostnameId: null });
+  });
+
+  test("a hostname the edge keeps rejecting doesn't starve the rest of the batch", async () => {
+    // With a batch of one, a fixed order would pick "bad" on every run.
+    insertDomain("bad", "bad.example.com", "pending");
+    insertDomain("good", "good.example.com", "pending");
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (init?.method === "POST" && body.hostname === "good.example.com") {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: { id: "cf-good", hostname: "good.example.com", status: "pending" },
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({ success: false, errors: [{ code: 1000, message: "no" }] }),
+      );
+    }) as any;
+
+    // Random order: the chance "good" is never picked in 40 runs is 2^-40.
+    for (let i = 0; i < 40 && row("good").cfCustomHostnameId === null; i++) {
+      await linkUnregisteredDomains(testEnv.env, 1);
+    }
+    expect(row("good").cfCustomHostnameId).toBe("cf-good");
+    expect(row("bad").cfCustomHostnameId).toBeNull();
+  });
+
   test("does nothing when no edge zone is configured", async () => {
     insertDomain("ok", "ok.example.com", "pending");
     globalThis.fetch = vi.fn() as any;
