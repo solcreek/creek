@@ -6,6 +6,7 @@ import {
   findNewDeployment,
   makeProgress,
   sameOriginApiHint,
+  workerFirstManifest,
   ephemeralSandboxDbWarning,
   resolveDeployEnv,
   parseWaitDuration,
@@ -199,6 +200,31 @@ describe("makeProgress (deploy --json stdout hygiene)", () => {
     expect(start).toHaveBeenCalledTimes(1);
     expect(success).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("workerFirstManifest", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test("sends run_worker_first for a user-declared worker", () => {
+    expect(workerFirstManifest("worker", true)).toEqual({ runWorkerFirst: true });
+    expect(workerFirstManifest("worker", ["/api/*"])).toEqual({ runWorkerFirst: ["/api/*"] });
+  });
+
+  test("sends nothing when unset or false", () => {
+    expect(workerFirstManifest("worker", null)).toEqual({});
+    expect(workerFirstManifest("worker", undefined)).toEqual({});
+    expect(workerFirstManifest("worker", false)).toEqual({});
+  });
+
+  test("warns and drops it when there is no user-declared worker", () => {
+    const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
+    expect(workerFirstManifest("ssr", true)).toEqual({});
+    expect(workerFirstManifest("spa", ["/api/*"])).toEqual({});
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[0][0])).toContain(
+      "run_worker_first is set but this deploy has no user-declared worker",
+    );
   });
 });
 

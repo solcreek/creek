@@ -26,11 +26,11 @@ export function generateWorkerWrapper(
 
   // Worker + static-assets hybrid. Routing model: Cloudflare Static Assets
   // serves matching files at the edge BEFORE the worker runs, so the only
-  // requests that reach here are API calls and asset MISSES. env.ASSETS is
-  // NOT bound to the dispatched worker under Workers for Platforms, so the
-  // SPA deep-link fallback can't fetch index.html at runtime — we embed the
-  // built index.html and return it for unmatched GET navigations (the same
-  // mechanism the pure-SPA deploy path uses). When there's no index.html to
+  // requests that reach here are API calls and asset MISSES (unless
+  // [build] run_worker_first is set). The SPA deep-link fallback embeds the
+  // built index.html and returns it for unmatched GET navigations (the same
+  // mechanism the pure-SPA deploy path uses), so it works whether or not the
+  // worker reads env.ASSETS, which Creek binds for user-declared workers. When there's no index.html to
   // embed, spaShell is null and behaviour is unchanged (handler 404 stands).
   if (hasAssets) {
     const spaShell =

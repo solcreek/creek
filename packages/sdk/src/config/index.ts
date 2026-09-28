@@ -34,6 +34,9 @@ export const CreekConfigSchema = z.object({
       command: z.string().default("npm run build"),
       output: z.string().default("dist"),
       worker: z.string().optional(),
+      // Run the worker before static assets: true for every request, or a
+      // list of route patterns ("/api/*", "!/api/public/*"). Needs `worker`.
+      run_worker_first: z.union([z.boolean(), z.array(z.string()).min(1)]).optional(),
     })
     .default({}),
   // v1 format: boolean resource flags (CF Workers bindings)
