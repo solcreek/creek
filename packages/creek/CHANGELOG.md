@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.46
+
+- Bundles [`@solcreek/cli@0.4.46`](../cli/CHANGELOG.md#0446) and requires
+  [`@solcreek/sdk@0.4.19`](../sdk/CHANGELOG.md#0419): code-split pre-bundled
+  workers deploy with all their modules (and fail closed on unresolvable
+  imports), `[build] run_worker_first`, and custom-domain output that prints
+  the API's records (`cname.bycreek.com`, apex guidance) instead of a hard-coded
+  target. Publish `sdk@0.4.19` before `cli@0.4.46` / `creek@0.4.46`.
+
 ## 0.4.45
 
 - Bundles [`@solcreek/cli@0.4.45`](../cli/CHANGELOG.md#0445) and requires
