@@ -11,7 +11,15 @@ import { splitSqlStatements } from "@solcreek/sdk";
 
 // --- Auto-detect migration directory ---
 
-const CANDIDATE_DIRS = ["drizzle", "drizzle/migrations", "prisma/migrations", "migrations", "sql"];
+// db/migrations is June's default location (solcreek/creek#57).
+const CANDIDATE_DIRS = [
+  "drizzle",
+  "drizzle/migrations",
+  "prisma/migrations",
+  "migrations",
+  "db/migrations",
+  "sql",
+];
 
 /**
  * Whether a directory holds migrations in either supported layout:

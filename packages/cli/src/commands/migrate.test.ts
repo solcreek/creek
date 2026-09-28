@@ -42,6 +42,20 @@ describe("detectMigrationDir", () => {
     expect(detectMigrationDir(testDir)).toBeNull();
   });
 
+  test("finds db/migrations/ (June's layout) when it contains .sql files", () => {
+    mkdirSync(join(testDir, "db", "migrations"), { recursive: true });
+    writeFileSync(join(testDir, "db", "migrations", "0001_init.sql"), "CREATE TABLE t (id INT);");
+    expect(detectMigrationDir(testDir)).toBe(join(testDir, "db", "migrations"));
+  });
+
+  test("prefers migrations/ over db/migrations/ when both exist", () => {
+    mkdirSync(join(testDir, "migrations"));
+    writeFileSync(join(testDir, "migrations", "0001.sql"), "SELECT 1;");
+    mkdirSync(join(testDir, "db", "migrations"), { recursive: true });
+    writeFileSync(join(testDir, "db", "migrations", "0001.sql"), "SELECT 2;");
+    expect(detectMigrationDir(testDir)).toBe(join(testDir, "migrations"));
+  });
+
   test("finds drizzle/ when it contains .sql files", () => {
     mkdirSync(join(testDir, "drizzle"));
     writeFileSync(join(testDir, "drizzle", "0001.sql"), "CREATE TABLE t (id INT);");
