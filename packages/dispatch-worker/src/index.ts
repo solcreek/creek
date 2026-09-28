@@ -4,6 +4,7 @@ import {
   getLimitsForPlan,
   parseHostnameWithTeams,
 } from "./parse.js";
+import { inferContentType } from "@solcreek/deploy-core/content-type";
 
 interface Env {
   DISPATCHER: {
@@ -236,39 +237,8 @@ async function resolveTeamPlan(parsed: ParsedHostname, db: D1Database): Promise<
 }
 
 // --- MIME type inference ---
-// WfP Static Assets does not set Content-Type on responses.
-// This is a known limitation — we infer from file extension.
-
-const MIME_TYPES: Record<string, string> = {
-  html: "text/html; charset=utf-8",
-  css: "text/css; charset=utf-8",
-  js: "text/javascript; charset=utf-8",
-  mjs: "text/javascript; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  svg: "image/svg+xml",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  ico: "image/x-icon",
-  woff: "font/woff",
-  woff2: "font/woff2",
-  ttf: "font/ttf",
-  otf: "font/otf",
-  txt: "text/plain; charset=utf-8",
-  xml: "application/xml; charset=utf-8",
-  wasm: "application/wasm",
-  map: "application/json; charset=utf-8",
-};
-
-function inferContentType(pathname: string): string {
-  const lastSegment = pathname.split("/").pop() ?? "";
-  const ext = lastSegment.includes(".") ? (lastSegment.split(".").pop()?.toLowerCase() ?? "") : "";
-  if (!ext) return "text/html; charset=utf-8"; // Extensionless = SPA route
-  return MIME_TYPES[ext] ?? "application/octet-stream";
-}
+// WfP Static Assets does not set Content-Type on responses; the table is
+// shared with the sandbox dispatcher (@solcreek/deploy-core/content-type).
 
 // --- Cross-tenant cookie isolation ---
 
