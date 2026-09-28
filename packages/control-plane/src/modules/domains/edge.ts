@@ -71,6 +71,20 @@ export async function linkUnregisteredDomains(env: Env, limit = 20): Promise<num
 }
 
 /**
+ * Records only the edge's id on the row, leaving its status alone. For a
+ * caller that confirms the edge state itself before changing status (activate).
+ */
+export async function recordCustomHostnameId(
+  env: Env,
+  domainId: string,
+  cfId: string,
+): Promise<void> {
+  await env.DB.prepare("UPDATE custom_domain SET cfCustomHostnameId = ? WHERE id = ?")
+    .bind(cfId, domainId)
+    .run();
+}
+
+/**
  * Records the edge's id on the row and lines its status up with the edge: an
  * active edge hostname makes the row active; a row marked active whose edge
  * hostname isn't active goes back to pending (dispatch only routes active

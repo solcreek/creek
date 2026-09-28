@@ -6,7 +6,7 @@ import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { validateHostname } from "./validation.js";
 import { getCustomHostname, deleteCustomHostname } from "../resources/cloudflare.js";
-import { createOrAdoptCustomHostname, linkCustomHostname } from "./edge.js";
+import { createOrAdoptCustomHostname, linkCustomHostname, recordCustomHostnameId } from "./edge.js";
 
 type DomainEnv = {
   Bindings: Env;
@@ -281,27 +281,31 @@ domains.post(
             message: "Could not register the domain with the edge yet. Retry in a minute.",
           });
         }
-        await linkCustomHostname(c.env, domain.id, created);
+        // Record the id only: the row becomes active below, and only once the
+        // edge confirms it, never from the create/adopt response alone.
+        await recordCustomHostnameId(c.env, domain.id, created.id);
         cfId = created.id;
       }
+      let cf: Awaited<ReturnType<typeof getCustomHostname>>;
       try {
-        const cf = await getCustomHostname(c.env, cfId);
-        if (cf.status === "active") {
-          await markActive();
-          return c.json({ ok: true, status: "active" });
-        }
-        return c.json({
-          ok: false,
-          status: "pending_dns",
-          message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
-        });
+        cf = await getCustomHostname(c.env, cfId);
       } catch {
+        // The edge couldn't be asked, which says nothing about DNS.
         return c.json({
           ok: false,
-          status: "pending_dns",
-          message: "Could not verify the domain with the edge yet. Check your DNS and retry.",
+          status: "pending_edge",
+          message: "Could not reach the edge to verify the domain. Retry in a minute.",
         });
       }
+      if (cf.status === "active") {
+        await markActive();
+        return c.json({ ok: true, status: "active" });
+      }
+      return c.json({
+        ok: false,
+        status: "pending_dns",
+        message: `Domain not verified yet (edge status: ${cf.status}). Point DNS to ${CNAME_TARGET}, then retry.`,
+      });
     }
 
     // No edge to verify against (self-hosted, zone not configured): honor

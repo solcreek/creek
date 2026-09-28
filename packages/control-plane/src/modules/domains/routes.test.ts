@@ -465,6 +465,42 @@ describe("POST /projects/:id/domains/:domainId/activate", () => {
     expect(domainRow()).toEqual({ status: "pending", cfCustomHostnameId: null });
   });
 
+  test("does not activate from the create response when the edge can't confirm it", async () => {
+    // The create/adopt call answers "active", then the confirming GET fails:
+    // the row must stay non-active, because dispatch routes active rows.
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', ${now})`,
+    );
+    const calls = mockEdge({
+      create: () => ({ id: "cf-new", hostname: "app.example.com", status: "active" }),
+      // no `get` handler: the confirming GET fails
+    });
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const json = (await res.json()) as any;
+    expect(json).toMatchObject({ ok: false, status: "pending_edge" });
+    expect(calls).toEqual(["create", "get"]);
+    expect(domainRow()).toEqual({ status: "pending", cfCustomHostnameId: "cf-new" });
+  });
+
+  test("reports pending_edge, not pending_dns, when verifying a linked domain fails", async () => {
+    seedTestProject();
+    const now = Math.floor(Date.now() / 1000);
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, cfCustomHostnameId, createdAt)
+       VALUES ('d1', '${PROJECT_ID}', 'app.example.com', 'pending', 'cf-1', ${now})`,
+    );
+    mockEdge({}); // the GET fails
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/d1/activate`);
+    const json = (await res.json()) as any;
+    expect(json).toMatchObject({ ok: false, status: "pending_edge" });
+    expect(domainRow()).toEqual({ status: "pending", cfCustomHostnameId: "cf-1" });
+  });
+
   test("reports pending_dns (and does not flip) when the edge hasn't verified", async () => {
     seedTestProject();
     const now = Math.floor(Date.now() / 1000);
