@@ -3,6 +3,7 @@ import { cfApi } from "./cf-api.js";
 import { hashAsset, createAssetUploadSession, uploadAssetFiles } from "./assets.js";
 import { extractAssetMetafiles } from "./asset-metafiles.js";
 import { SPA_WORKER_SCRIPT } from "./spa-worker.js";
+import { workerAssetsOptions } from "./worker-assets.js";
 
 /**
  * Map file extension to Workers module type.
@@ -298,6 +299,14 @@ export async function deployWithAssets(
     });
   }
 
+  // A user-declared worker gets its ASSETS binding and run_worker_first.
+  const workerAssets = workerAssetsOptions(
+    input.renderMode,
+    input.bindings,
+    assetsConfig,
+    input.runWorkerFirst,
+  );
+
   // Deploy to each script name
   for (const script of scripts) {
     const tags = [
@@ -329,8 +338,8 @@ export async function deployWithAssets(
       mainModule,
       completionJwt,
       tags,
-      input.bindings,
-      assetsConfig,
+      workerAssets.bindings,
+      workerAssets.assetsConfig,
       isProduction ? cronSchedules : undefined,
       input.compatibilityDate,
       input.compatibilityFlags,

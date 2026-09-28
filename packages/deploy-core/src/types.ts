@@ -23,6 +23,8 @@ export interface DeployAssetsInput {
   clientAssets: Record<string, ArrayBuffer>;
   serverFiles?: Record<string, ArrayBuffer>;
   renderMode: "spa" | "ssr" | "worker";
+  /** `run_worker_first` for a user-declared worker (render mode `worker`). */
+  runWorkerFirst?: boolean | string[] | null;
   teamId: string;
   teamSlug: string;
   projectSlug: string;

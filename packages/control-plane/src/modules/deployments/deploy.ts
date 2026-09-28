@@ -5,7 +5,12 @@ import type { WfPBinding } from "../resources/service.js";
 // own diverged copy — a fix to one (e.g. the observability settings PATCH)
 // silently missed the other. deploy-job.msw.test.ts asserts the observability
 // call so a future divergence fails CI.
-import { cfApi, deployScriptWithAssets, extractAssetMetafiles } from "@solcreek/deploy-core";
+import {
+  cfApi,
+  deployScriptWithAssets,
+  extractAssetMetafiles,
+  workerAssetsOptions,
+} from "@solcreek/deploy-core";
 
 /** Map file extension to CF Workers module type */
 function workerModuleType(name: string): string {
@@ -166,6 +171,8 @@ export interface DeployAssetsInput {
   clientAssets: Record<string, ArrayBuffer>;
   serverFiles?: Record<string, ArrayBuffer>;
   renderMode: "spa" | "ssr" | "worker";
+  /** `run_worker_first` for a user-declared worker (render mode `worker`). */
+  runWorkerFirst?: boolean | string[] | null;
   teamId: string;
   teamSlug: string;
   projectSlug: string;
@@ -305,6 +312,14 @@ export default {
     });
   }
 
+  // A user-declared worker gets its ASSETS binding and run_worker_first.
+  const workerAssets = workerAssetsOptions(
+    input.renderMode,
+    input.bindings,
+    assetsConfig,
+    input.runWorkerFirst,
+  );
+
   // Deploy to each script name with appropriate tags
   for (const script of scripts) {
     const tags = [
@@ -339,8 +354,8 @@ export default {
       mainModule,
       completionJwt,
       tags,
-      input.bindings,
-      assetsConfig,
+      workerAssets.bindings,
+      workerAssets.assetsConfig,
       isProduction ? input.cronSchedules : undefined,
       input.compatibilityDate,
       input.compatibilityFlags,

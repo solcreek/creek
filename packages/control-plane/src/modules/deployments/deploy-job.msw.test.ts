@@ -223,6 +223,50 @@ describe("runDeployJob (integration via MSW)", () => {
     expect(await testEnv.env.ASSETS.get("bundles/dep-1-server/worker.js")).toBeNull();
   });
 
+  it("a user-declared worker reaches WfP with an ASSETS binding and run_worker_first", async () => {
+    // creek.toml [build] run_worker_first travels in the staged manifest and
+    // must come out the other end as upload metadata (solcreek/creek#56).
+    const metas: Array<{
+      bindings: Array<{ type: string; name: string }>;
+      assets: { config: Record<string, unknown> };
+    }> = [];
+    server.use(
+      http.post(`${NS}/assets-upload-session`, () =>
+        HttpResponse.json({ success: true, result: { jwt: "j", buckets: [] }, errors: [] }),
+      ),
+      http.put(NS, async ({ request }) => {
+        const fd = await (request as unknown as { formData(): Promise<FormData> }).formData();
+        metas.push(JSON.parse(await (fd.get("metadata") as unknown as File).text()));
+        return HttpResponse.json({ success: true, result: { id: "s" }, errors: [] });
+      }),
+    );
+    await testEnv.env.ASSETS.put(
+      "bundles/dep-1.json",
+      JSON.stringify({
+        manifest: {
+          assets: ["index.html"],
+          hasWorker: true,
+          entrypoint: "dist/worker.js",
+          renderMode: "worker",
+          runWorkerFirst: ["/", "/api/*"],
+        },
+        assets: { "index.html": btoa("<html>hi</html>") },
+        serverFiles: {
+          "worker.js": btoa("export default { fetch() { return new Response('w'); } };"),
+        },
+      }),
+    );
+
+    await runDeployJob(testEnv.env, input);
+
+    expect(deploymentRow().status).toBe("active");
+    expect(metas.length).toBeGreaterThan(0);
+    for (const meta of metas) {
+      expect(meta.bindings).toContainEqual({ type: "assets", name: "ASSETS" });
+      expect(meta.assets.config.run_worker_first).toEqual(["/", "/api/*"]);
+    }
+  });
+
   it("fails at the uploading step when the bundle is missing from staging", async () => {
     // No stageBundle() — R2 has no bundle for dep-1.
     await runDeployJob(testEnv.env, input);
