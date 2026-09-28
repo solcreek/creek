@@ -1777,6 +1777,7 @@ async function deploySandbox(
           hasWorker: prepared.serverFiles !== undefined,
           entrypoint: prepared.effectiveEntrypoint,
           renderMode: effectiveRenderMode,
+          ...workerFirstManifest(effectiveRenderMode, resolved?.runWorkerFirst),
         },
         assets: clientAssets,
         serverFiles,
@@ -2139,6 +2140,7 @@ async function deployAuthenticated(
         entrypoint: effectiveEntrypoint,
         renderMode: effectiveRenderMode,
         framework: framework ?? undefined,
+        ...workerFirstManifest(effectiveRenderMode, resolved.runWorkerFirst),
       },
       workerScript: null,
       assets: clientAssets,
@@ -2432,6 +2434,26 @@ async function deployAuthenticated(
  * ships pointing at localhost and breaks in the browser. Returns a hint
  * for that case, else null (spa / ssr don't have this footgun).
  */
+/**
+ * Manifest field for `[build] run_worker_first`. Only a user-declared worker
+ * (render mode `worker`) can run before its static assets; for any other
+ * mode the setting has nothing to apply to, so say so instead of dropping it.
+ */
+export function workerFirstManifest(
+  renderMode: string,
+  runWorkerFirst: boolean | string[] | null | undefined,
+): { runWorkerFirst?: boolean | string[] } {
+  if (runWorkerFirst === undefined || runWorkerFirst === null || runWorkerFirst === false)
+    return {};
+  if (renderMode !== "worker") {
+    consola.warn(
+      `  [build] run_worker_first is set but this deploy has no user-declared worker (mode: ${renderMode}); it is ignored. Set [build].worker to use it.`,
+    );
+    return {};
+  }
+  return { runWorkerFirst };
+}
+
 export function sameOriginApiHint(renderMode: string, assetsEnabled: boolean): string | null {
   if (renderMode !== "worker" || !assetsEnabled) return null;
   return 'Same-origin: this worker serves your SPA and API together — call the API with relative paths (fetch("/api/...")). The build runs without VITE_API_URL, so a hardcoded localhost fallback breaks in the browser; set VITE_API_URL="" for production if your frontend reads it.';

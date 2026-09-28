@@ -283,6 +283,7 @@ Every supported key. Unknown keys are ignored on parse.
 | `[build] command` | string | `npm run build` | Build script run before deploy. |
 | `[build] output` | string | `dist` | Directory of built static assets. |
 | `[build] worker` | string | — | Worker entry (e.g. `worker/index.ts`). Enables `creek dev` and Worker deploys. |
+| `[build] run_worker_first` | bool \| string[] | `false` | Run the worker before static assets: `true` for every request, or route patterns such as `["/api/*", "!/api/public/*"]`. Needs `[build] worker`. Without it, a request for an existing file is served directly and never reaches the worker. The worker reads its own files with `env.ASSETS.fetch(request)`. |
 | `[resources] database` | bool | `false` | Provision and bind a D1 database (`env.DB`). |
 | `[resources] cache` | bool | `false` | Provision and bind a KV namespace (`env.KV`). |
 | `[resources] storage` | bool | `false` | Provision and bind an R2 bucket (`env.STORAGE`). |

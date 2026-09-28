@@ -58,6 +58,19 @@ export async function createCustomHostname(
   });
 }
 
+/** The custom hostname already registered for `hostname`, or null. */
+export async function findCustomHostnameByName(
+  env: Env,
+  hostname: string,
+): Promise<CustomHostnameResult | null> {
+  const results = (await cfApi(
+    env,
+    "GET",
+    `/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+  )) as CustomHostnameResult[] | null;
+  return results?.find((r) => r.hostname === hostname) ?? null;
+}
+
 export async function getCustomHostname(
   env: Env,
   customHostnameId: string,

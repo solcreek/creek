@@ -271,9 +271,11 @@ const domainsActivate = defineCommand({
     );
 
     // Honest activate: only report success when the edge confirms the hostname.
-    // pending_dns means DNS isn't resolving yet — surface it as a non-success
-    // (exit 1) with the actionable reason, not a misleading "Activated".
+    // pending_dns means DNS isn't resolving yet; pending_edge means the domain
+    // couldn't be registered with the edge yet. Either is a non-success (exit 1)
+    // with the actionable reason, not a misleading "Activated".
     if (result.status === "pending_dns" || result.ok === false) {
+      const status = result.status ?? "pending_dns";
       const message =
         result.message ?? "Domain is not verified yet — set the DNS record and retry.";
       const showCrumb = {
@@ -284,9 +286,9 @@ const domainsActivate = defineCommand({
         jsonOutput(
           {
             ok: false,
-            error: "pending_dns",
+            error: status,
             hostname: domain.hostname,
-            status: "pending_dns",
+            status,
             message,
             project: slug,
           },

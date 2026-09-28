@@ -128,6 +128,31 @@ describe("fromCreekConfig", () => {
   });
 });
 
+describe("[build] run_worker_first", () => {
+  const toml = (value: string) =>
+    `[project]\nname = "app"\n\n[build]\nworker = "dist/worker.js"\noutput = "dist/assets"\nrun_worker_first = ${value}\n`;
+
+  test("true is carried as runWorkerFirst", () => {
+    writeFileSync(join(cwd, "creek.toml"), toml("true"));
+    expect(resolveConfig(cwd).runWorkerFirst).toBe(true);
+  });
+
+  test("route patterns are carried as a list", () => {
+    writeFileSync(join(cwd, "creek.toml"), toml(`["/api/*", "!/api/public/*"]`));
+    expect(resolveConfig(cwd).runWorkerFirst).toEqual(["/api/*", "!/api/public/*"]);
+  });
+
+  test("absent means null", () => {
+    writeFileSync(join(cwd, "creek.toml"), `[project]\nname = "app"\n`);
+    expect(resolveConfig(cwd).runWorkerFirst).toBeNull();
+  });
+
+  test("an empty pattern list is rejected", () => {
+    writeFileSync(join(cwd, "creek.toml"), toml("[]"));
+    expect(() => resolveConfig(cwd)).toThrow();
+  });
+});
+
 // --- wrangler conversion ---
 
 describe("fromWranglerConfig", () => {

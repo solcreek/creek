@@ -23,3 +23,5 @@ export {
   getKVNamespaceByTitle,
   deleteKVNamespace,
 } from "./resources.js";
+
+export { workerAssetsOptions, type RunWorkerFirst } from "./worker-assets.js";

@@ -71,6 +71,7 @@ routes.post("/deploy", async (c) => {
       hasWorker?: boolean;
       entrypoint?: string | null;
       renderMode?: "spa" | "ssr" | "static" | "worker";
+      runWorkerFirst?: boolean | string[] | null;
     };
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
@@ -130,6 +131,7 @@ routes.post("/deploy", async (c) => {
     hasWorker: body.manifest?.hasWorker ?? false,
     entrypoint: body.manifest?.entrypoint ?? null,
     renderMode: body.manifest?.renderMode ?? ("spa" as const),
+    runWorkerFirst: body.manifest?.runWorkerFirst ?? null,
   };
 
   // creek's own cap (not Cloudflare's — CF limits the gzipped worker script).
@@ -467,6 +469,7 @@ async function runSandboxDeploy(
       hasWorker: boolean;
       entrypoint: string | null;
       renderMode: string;
+      runWorkerFirst?: boolean | string[] | null;
     };
     assets: Record<string, string>;
     serverFiles?: Record<string, string>;
@@ -573,6 +576,7 @@ async function runSandboxDeploy(
         clientAssets,
         serverFiles,
         renderMode,
+        runWorkerFirst: bundle.manifest.runWorkerFirst ?? null,
         teamId, // cache-coherent OR sandbox-unique salt
         teamSlug: "sandbox",
         projectSlug: sandboxId,

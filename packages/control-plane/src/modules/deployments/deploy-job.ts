@@ -27,6 +27,8 @@ export interface StagedBundle {
     hasWorker: boolean;
     entrypoint: string | null;
     renderMode?: "spa" | "ssr" | "worker";
+    /** `[build] run_worker_first` from creek.toml (render mode `worker` only). */
+    runWorkerFirst?: boolean | string[] | null;
   };
   assets: Record<string, string>; // path -> base64
   /** Legacy: server files inlined as base64 (older CLI). */
@@ -297,6 +299,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
             clientAssets: decodedClientAssets,
             serverFiles: decodedServerFiles,
             renderMode,
+            runWorkerFirst: bundle.manifest.runWorkerFirst ?? null,
             teamId,
             teamSlug,
             projectSlug,
