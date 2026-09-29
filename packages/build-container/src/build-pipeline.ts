@@ -21,7 +21,9 @@ import {
   collectServerFiles,
   detectAstroCloudflareBuild,
   resolveDeployHint,
+  collectMigrations,
   type DeployHint,
+  type MigrationBundle,
   type ResolvedConfig,
 } from "@solcreek/sdk";
 
@@ -88,6 +90,9 @@ export interface BuildResult {
     cron: string[] | undefined;
     queue: boolean | undefined;
     hint?: DeployHint;
+    /** `[release] migrations`: applied by the deploy job before activation. */
+    releaseMigrations?: boolean;
+    migrations?: MigrationBundle[];
   };
 }
 
@@ -438,6 +443,28 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       `${fileList.length} assets, ${serverFiles ? Object.keys(serverFiles).length : 0} server files`,
     );
 
+    // `[release] migrations`: ship the migrations for the deploy job to apply,
+    // as `creek deploy` does. An unreadable file fails the build rather than
+    // letting the migrations after it be applied.
+    let releaseMigrations: MigrationBundle[] = [];
+    if (resolved.releaseMigrations) {
+      try {
+        releaseMigrations = collectMigrations(workDir, { strict: true });
+      } catch (err) {
+        cleanup(repoDir);
+        const message = err instanceof Error ? err.message : String(err);
+        log("bundle", "error", message);
+        return { error: "migrations_unreadable", message, logs };
+      }
+      log(
+        "bundle",
+        releaseMigrations.length > 0 ? "info" : "warn",
+        releaseMigrations.length > 0
+          ? `${releaseMigrations.length} migrations for [release] migrations`
+          : "[release] migrations is on but no migrations were found",
+      );
+    }
+
     const result: BuildResult = {
       success: true,
       timing,
@@ -469,6 +496,9 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         cron: resolved.cron.length > 0 ? resolved.cron : undefined,
         queue: resolved.queue || undefined,
         hint: deployHint ?? undefined,
+        ...(releaseMigrations.length > 0
+          ? { releaseMigrations: true, migrations: releaseMigrations }
+          : {}),
       },
     };
 
