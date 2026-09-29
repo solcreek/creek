@@ -56,6 +56,26 @@ describe("releaseMigrationsForDeploy", () => {
     expect(warnings[0]).toContain("no migrations were found");
   });
 
+  test("aborts on a migration it cannot read instead of skipping it", () => {
+    writeMigration("0001_users.sql", "CREATE TABLE users (id INTEGER);");
+    mkdirSync(join(dir, "db/migrations/0002_unreadable.sql"));
+    writeMigration("0003_posts.sql", "CREATE TABLE posts (id INTEGER);");
+
+    expect(() =>
+      releaseMigrationsForDeploy({ releaseMigrations: true, releaseCommand: null }, dir),
+    ).toThrow(/Cannot read migration 0002_unreadable.sql/);
+  });
+
+  test("the not-found warning lists every directory it checked", () => {
+    const { warnings } = releaseMigrationsForDeploy(
+      { releaseMigrations: true, releaseCommand: null },
+      dir,
+    );
+
+    expect(warnings[0]).toContain("drizzle/migrations/");
+    expect(warnings[0]).toContain("db/migrations/");
+  });
+
   test("warns that [release] command does not run on Cloudflare deploys", () => {
     const { warnings } = releaseMigrationsForDeploy(
       { releaseMigrations: false, releaseCommand: "creek db migrate --yes" },
