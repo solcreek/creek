@@ -660,7 +660,7 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(calls).not.toContain("script-upload");
   });
 
-  it("refuses when several databases are bound and none is DB", async () => {
+  it("refuses when several databases are bound and none is DATABASE or DB", async () => {
     server.use(...handlers());
     await stageWithMigrations({
       bindings: [
@@ -674,7 +674,7 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     const row = deploymentRow();
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("provisioning");
-    expect(row.errorMessage).toContain("none is bound as DB");
+    expect(row.errorMessage).toContain("none is bound as DATABASE or DB");
     expect(d1Calls()).toEqual([]);
     expect(calls).not.toContain("script-upload");
   });
