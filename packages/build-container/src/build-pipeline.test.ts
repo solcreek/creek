@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { buildAndBundle, detectPM, detectWorkspaceCascade } from "./build-pipeline.js";
 
@@ -280,5 +281,70 @@ id = "x"
     const config = resolveConfig(tmpDir);
     const reqs = resolvedConfigToBindingRequirements(config);
     expect(reqs).toEqual([{ type: "kv", bindingName: "MY_CACHE" }]);
+  });
+});
+
+describe("buildAndBundle — [release] migrations (#57)", () => {
+  // A dependency-free static project in a local git repo, so clone, install
+  // and build all run without network.
+  function makeRepo(creekToml: string, migrations: Record<string, string>) {
+    writeFileSync(join(tmpDir, "creek.toml"), creekToml);
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "app",
+        private: true,
+        scripts: {
+          build:
+            "node -e \"require('fs').mkdirSync('dist');require('fs').writeFileSync('dist/index.html','hi')\"",
+        },
+      }),
+    );
+    mkdirSync(join(tmpDir, "db/migrations"), { recursive: true });
+    for (const [name, sql] of Object.entries(migrations)) {
+      writeFileSync(join(tmpDir, "db/migrations", name), sql);
+    }
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: tmpDir,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+    git("init", "-q", "-b", "main");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+  }
+
+  test("ships the migrations when the switch is on", async () => {
+    makeRepo('[project]\nname = "app"\n[release]\nmigrations = true\n', {
+      "0001_init.sql": "CREATE TABLE a (id INTEGER);",
+      "0002_more.sql": "CREATE TABLE b (id INTEGER);",
+    });
+
+    const result = await buildAndBundle({ repoUrl: tmpDir });
+
+    expect("error" in result ? result : null).toBeNull();
+    if ("error" in result) return;
+    expect(result.bundle.releaseMigrations).toBe(true);
+    expect(result.bundle.migrations).toEqual([
+      { name: "0001_init.sql", statements: ["CREATE TABLE a (id INTEGER);"] },
+      { name: "0002_more.sql", statements: ["CREATE TABLE b (id INTEGER);"] },
+    ]);
+  });
+
+  test("ships none when the switch is off", async () => {
+    makeRepo('[project]\nname = "app"\n', { "0001_init.sql": "CREATE TABLE a (id INTEGER);" });
+
+    const result = await buildAndBundle({ repoUrl: tmpDir });
+
+    if ("error" in result) throw new Error(result.message);
+    expect(result.bundle.releaseMigrations).toBeUndefined();
+    expect(result.bundle.migrations).toBeUndefined();
   });
 });

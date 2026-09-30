@@ -292,7 +292,8 @@ Every supported key. Unknown keys are ignored on parse.
 | `[cache] driver` | `sqlite` \| `redis` | `sqlite` | Semantic cache driver (v2). |
 | `[storage] driver` | `fs` \| `s3` | `fs` | Semantic storage driver (v2). |
 | `[email] enabled` | bool | `false` | Enable the email binding. |
-| `[release] command` | string | — | Command run once per deploy after build (e.g. migrations). |
+| `[release] migrations` | bool | `false` | Apply pending migrations on each production deploy (`creek deploy` or a push to the production branch), after resources are provisioned and before the new version goes live. Each migration is applied atomically (all of its statements or none) and must be under 90 KB. A failed migration fails the deploy before the new version is activated. Branch deploys never migrate. Uses the same records as `creek db migrate`. |
+| `[release] command` | string | — | `creekd` targets only: command run once per deploy after build (e.g. migrations). |
 | `[release] timeout` | number | `60` | Release-command timeout, in seconds. |
 | `[triggers] cron` | string[] | `[]` | Cron schedules for the worker's `scheduled()` handler. |
 | `[triggers] queue` | bool | `false` | Enable the queue producer/consumer binding. |
@@ -303,8 +304,10 @@ Cloudflare service names (`d1`/`kv`/`r2`); the CF-native names are silently igno
 **Cloudflare-native settings** — `compatibility_date`, `compatibility_flags`, and
 explicit bindings are read from `wrangler.toml` / `wrangler.jsonc` when present, not
 from `creek.toml`. Creek layers on top of an existing wrangler config. Database
-**migrations** are plain `.sql` files in a migrations directory applied with
-`creek db migrate`, not a config key.
+**migrations** are plain `.sql` files in a migrations directory (the first of
+`drizzle/`, `drizzle/migrations/`, `prisma/migrations/`, `migrations/`,
+`db/migrations/`, or `sql/` that holds any), applied with
+`creek db migrate` or automatically on deploy with `[release] migrations = true`.
 
 ## For AI Agents
 

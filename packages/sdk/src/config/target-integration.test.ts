@@ -187,6 +187,23 @@ describe("target integration: resolveConfig → target", () => {
       const config = resolveConfig(dir);
       expect(config.releaseCommand).toBe("bun run db:migrate");
       expect(config.releaseTimeout).toBe(90);
+      expect(config.releaseMigrations).toBe(false);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  test("release migrations flows through resolveConfig", () => {
+    const dir = makeTestDir(`
+      [project]
+      name = "release-migrations-app"
+      [release]
+      migrations = true
+    `);
+    try {
+      const config = resolveConfig(dir);
+      expect(config.releaseMigrations).toBe(true);
+      expect(config.releaseCommand).toBeNull();
     } finally {
       cleanup(dir);
     }
@@ -201,6 +218,7 @@ describe("target integration: resolveConfig → target", () => {
       const config = resolveConfig(dir);
       expect(config.releaseCommand).toBeNull();
       expect(config.releaseTimeout).toBe(60);
+      expect(config.releaseMigrations).toBe(false);
     } finally {
       cleanup(dir);
     }

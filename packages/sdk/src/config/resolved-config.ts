@@ -50,6 +50,8 @@ export interface ResolvedConfig {
   releaseCommand: string | null;
   /** Release command timeout in seconds */
   releaseTimeout: number;
+  /** `[release] migrations`: apply pending migrations during a production deploy */
+  releaseMigrations: boolean;
 }
 
 /** Binding requirements sent to the control plane (new API path) */
@@ -150,6 +152,7 @@ function fromCreekConfig(toml: string, cwd: string): ResolvedConfig {
     queue: config.triggers.queue,
     releaseCommand: config.release?.command ?? null,
     releaseTimeout: config.release?.timeout ?? 60,
+    releaseMigrations: config.release?.migrations ?? false,
   };
 }
 
@@ -239,6 +242,7 @@ function fromWranglerConfig(
     queue: !!wrangler.queues,
     releaseCommand: null,
     releaseTimeout: 60,
+    releaseMigrations: false,
   };
 }
 
@@ -276,6 +280,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     queue: false,
     releaseCommand: null,
     releaseTimeout: 60,
+    releaseMigrations: false,
   };
 }
 
@@ -302,6 +307,7 @@ function fromStaticSite(cwd: string): ResolvedConfig {
     queue: false,
     releaseCommand: null,
     releaseTimeout: 60,
+    releaseMigrations: false,
   };
 }
 

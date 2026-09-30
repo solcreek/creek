@@ -32,7 +32,7 @@ import {
 } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { collectMigrations } from "./migrate.js";
+import { MIGRATION_DIRS, collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
@@ -1997,6 +1997,36 @@ function cleanupDir(dir: string): void {
 // Authenticated deploy — existing flow
 // ============================================================================
 
+/**
+ * The migrations a Cloudflare production deploy ships for the deploy job to
+ * apply before the new version goes live (`[release] migrations = true`,
+ * solcreek/creek#57), plus warnings for config that won't do what it says:
+ * the switch on with no migrations found, or `[release] command`, which only
+ * runs on creekd targets.
+ */
+export function releaseMigrationsForDeploy(
+  resolved: Pick<ResolvedConfig, "releaseMigrations" | "releaseCommand">,
+  cwd: string,
+): { migrations: ReturnType<typeof collectMigrations>; warnings: string[] } {
+  const warnings: string[] = [];
+  // Strict: a file that can't be read throws rather than being skipped, so a
+  // deploy never applies the migrations that follow it.
+  const migrations = resolved.releaseMigrations ? collectMigrations(cwd, { strict: true }) : [];
+  if (resolved.releaseMigrations && migrations.length === 0) {
+    warnings.push(
+      `[release] migrations is on but no migrations were found (looked in ${MIGRATION_DIRS.map((d) => `${d}/`).join(", ")})`,
+    );
+  }
+  if (resolved.releaseCommand) {
+    warnings.push(
+      resolved.releaseMigrations
+        ? "[release] command is ignored on Cloudflare deploys; [release] migrations applies the migrations"
+        : "[release] command is ignored on Cloudflare deploys; set [release] migrations = true to apply migrations during deploy",
+    );
+  }
+  return { migrations, warnings };
+}
+
 async function deployAuthenticated(
   cwd: string,
   resolved: ResolvedConfig,
@@ -2008,6 +2038,21 @@ async function deployAuthenticated(
   waitMs?: number,
 ) {
   const progress = makeProgress(jsonMode);
+  // Read the migrations before anything is created server-side, so an
+  // unreadable one stops the deploy without leaving a project or deployment.
+  let releaseMigrations: ReturnType<typeof releaseMigrationsForDeploy>["migrations"];
+  let releaseWarnings: string[];
+  try {
+    ({ migrations: releaseMigrations, warnings: releaseWarnings } = releaseMigrationsForDeploy(
+      resolved,
+      cwd,
+    ));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (jsonMode) jsonOutput({ ok: false, error: "migration_unreadable", message }, 1);
+    consola.error(message);
+    process.exit(1);
+  }
   try {
     const client = new CreekClient(getApiUrl(), token);
 
@@ -2157,6 +2202,10 @@ async function deployAuthenticated(
       (hasAdapterOutput(cwd)
         ? ["nodejs_compat"]
         : ["nodejs_compat", ...resolved.compatibilityFlags.filter((f) => f !== "nodejs_compat")]);
+    for (const msg of releaseWarnings) {
+      progress.warn(`  ${msg}`);
+      buildLog.warn("detect", msg);
+    }
     const bundle = {
       manifest: {
         assets: fileList,
@@ -2177,6 +2226,9 @@ async function deployAuthenticated(
       compatibilityFlags: prodCompatFlags,
       ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
       ...(resolved.queue ? { queue: true } : {}),
+      ...(releaseMigrations.length > 0
+        ? { releaseMigrations: true, migrations: releaseMigrations }
+        : {}),
     };
 
     await stageDeploymentBundle(client, project.id, deployment.id, bundle);
@@ -2188,9 +2240,14 @@ async function deployAuthenticated(
     // against POLL_TIMEOUT); `ensureDriftLogged` below awaits it lazily at a
     // terminal state, by which point this fast query has long since resolved.
     // Best-effort — detectMigrationDrift is already .catch()'d to null.
-    const driftPromise = detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(
-      () => null,
-    );
+    //
+    // When the deploy job applies the migrations itself, an early check would
+    // report as pending exactly the migrations it is about to apply, so the
+    // check starts at the terminal state instead and reports what remains.
+    const detectDrift = () =>
+      detectMigrationDrift({ cwd, projectSlug: project.slug, client }).catch(() => null);
+    let driftPromise: ReturnType<typeof detectDrift> | null =
+      releaseMigrations.length > 0 ? null : detectDrift();
     // Await drift once (memoized), emit its build-log line once, and return the
     // resolved drift object — the caller uses it for the stdout warning and the
     // JSON `migrations` block. The DB state can't change mid-deploy, so a single
@@ -2201,11 +2258,12 @@ async function deployAuthenticated(
     // the final log upload + exit. A hung drift query must not block reporting
     // the deploy outcome — cap it and treat a timeout as "no drift info".
     const DRIFT_LOG_TIMEOUT_MS = 3000;
-    let driftObj: Awaited<typeof driftPromise> = null;
+    let driftObj: Awaited<ReturnType<typeof detectDrift>> = null;
     let driftLogged = false;
-    const ensureDriftLogged = async (): Promise<Awaited<typeof driftPromise>> => {
+    const ensureDriftLogged = async (): Promise<Awaited<ReturnType<typeof detectDrift>>> => {
       if (driftLogged) return driftObj;
       driftLogged = true;
+      driftPromise ??= detectDrift();
       driftObj = await withTimeout(driftPromise, DRIFT_LOG_TIMEOUT_MS, null);
       const msg = driftObj ? driftWarning(driftObj) : null;
       if (msg) buildLog.warn("detect", msg, "migration_drift");

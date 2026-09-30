@@ -7,6 +7,11 @@ import {
 } from "../resources/service.js";
 import { setQueueConsumer } from "../resources/cloudflare.js";
 import { resolveDeployTarget } from "./target.js";
+import {
+  applyReleaseMigrations,
+  pickMigrationDatabase,
+  type BundleMigration,
+} from "./release-migrations.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
 import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
@@ -50,6 +55,10 @@ export interface StagedBundle {
   cron?: string[];
   // Queue trigger
   queue?: boolean;
+  /** `[release] migrations = true`: apply these before the new worker goes live. */
+  releaseMigrations?: boolean;
+  /** The project's migrations, in order (sent when releaseMigrations is on). */
+  migrations?: BundleMigration[];
 }
 
 export interface DeployJobInput {
@@ -231,6 +240,47 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
         log("provision", "info", "Queue provisioned");
       } catch (err) {
         throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    // Release-phase migrations: after provisioning, before the new worker goes
+    // live, and only for production. Branch and preview deploys share the
+    // production database, so a preview must never migrate it.
+    if (bundle.releaseMigrations) {
+      const isProductionDeploy = !branch || branch === productionBranch;
+      if (!isProductionDeploy) {
+        log(
+          "provision",
+          "info",
+          "Skipping release migrations: branch deploys share the production database",
+        );
+      } else if (!bundle.migrations?.length) {
+        log("provision", "warn", "[release] migrations is on but the bundle carries no migrations");
+      } else {
+        const target = pickMigrationDatabase(resolvedBindings);
+        if (!target.ok) throw new StepError("provisioning", target.message);
+        log(
+          "provision",
+          "info",
+          `Applying pending migrations to ${target.bindingName} (${bundle.migrations.length} in project)`,
+        );
+        try {
+          const result = await applyReleaseMigrations(
+            env,
+            target.databaseId,
+            bundle.migrations,
+            (message) => log("provision", "info", message),
+          );
+          log(
+            "provision",
+            "info",
+            result.applied.length > 0
+              ? `Migrations applied: ${result.applied.length} (${result.alreadyApplied} already applied)`
+              : `Migrations up to date (${result.alreadyApplied} applied)`,
+          );
+        } catch (err) {
+          throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
+        }
       }
     }
 
