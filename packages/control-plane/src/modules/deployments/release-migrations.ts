@@ -25,7 +25,9 @@ const TRACKING_TABLE_SQL = `CREATE TABLE IF NOT EXISTS _creek_migrations (
 
 /**
  * Each migration goes to D1 as one /query request, statements and tracking
- * insert together, which D1 runs as one batch. A migration over this size is
+ * insert together. D1 runs a multi-statement request atomically: when any
+ * statement fails, the earlier ones, DDL included, are rolled back (verified
+ * against the D1 REST API 2026-09-29). A migration over this size is
  * refused rather than split: split across requests, a failure part-way would
  * leave its earlier statements applied while it stays pending, and the next
  * deploy would replay them.
