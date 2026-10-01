@@ -169,6 +169,7 @@ async function projectStatus(jsonMode: boolean) {
         framework: project.framework,
         productionDeploymentId: project.production_deployment_id,
         bindings: resolved.bindings.map((b) => b.type),
+        unsupportedBindings: resolved.unsupportedBindings,
         undeclaredBindings,
         cron: resolved.cron,
         queue: resolved.queue,
