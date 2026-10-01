@@ -102,6 +102,45 @@ describe("creek status <id> (sandbox)", () => {
   });
 });
 
+describe("creek status (project)", () => {
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-status-test-"));
+    writeFileSync(
+      join(projDir, "wrangler.jsonc"),
+      JSON.stringify({
+        name: "demo",
+        main: "worker.js",
+        d1_databases: [{ binding: "DB" }],
+        durable_objects: { bindings: [{ name: "ROOM", class_name: "Room" }] },
+      }),
+    );
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("lists wrangler bindings Creek won't bind under unsupportedBindings", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json({ slug: "demo", framework: null, production_deployment_id: null }),
+      ),
+      http.get(`${API}/projects/demo/bindings`, () => HttpResponse.json({ bindings: [] })),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      bindings: ["d1"],
+      unsupportedBindings: [{ type: "durable_object", name: "ROOM" }],
+    });
+  });
+});
+
 describe("creek ops deployments", () => {
   it("lists deployments with the auth token and exits 0", async () => {
     process.env.CREEK_TOKEN = "tok-abc";
