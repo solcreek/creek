@@ -3,7 +3,13 @@ import consola from "consola";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { stringify } from "smol-toml";
-import { detectFramework, runDoctor, type Finding } from "@solcreek/sdk";
+import {
+  detectFramework,
+  runDoctor,
+  vinextBuildScript,
+  VINEXT_ASSETS_DIR,
+  type Finding,
+} from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { globalArgs, resolveJsonMode, jsonOutput, shouldAutoConfirm } from "../utils/output.js";
 import {
@@ -77,12 +83,20 @@ export const initCommand = defineCommand({
     // Detect framework
     const pkgPath = join(cwd, "package.json");
     let framework: string | undefined;
+    let buildCommand = "npm run build";
+    let buildOutput = "dist";
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const detected = detectFramework(pkg);
       if (detected) {
         framework = detected;
         if (!jsonMode) consola.info(`Detected framework: ${framework}`);
+      }
+      // vinext: a project migrated with `vinext init` keeps `build` for
+      // Next.js and builds vinext with `build:vinext`.
+      if (detected === "vinext") {
+        buildCommand = `npm run ${vinextBuildScript(pkg)}`;
+        buildOutput = VINEXT_ASSETS_DIR;
       }
     }
 
@@ -114,8 +128,8 @@ export const initCommand = defineCommand({
         ...(framework ? { framework } : {}),
       },
       build: {
-        command: "npm run build",
-        output: "dist",
+        command: buildCommand,
+        output: buildOutput,
         ...(useDb ? { worker: "worker/index.ts" } : {}),
       },
       ...(useDb ? { resources: { database: true } } : {}),

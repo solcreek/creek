@@ -2,6 +2,15 @@ import { describe, test, expect } from "vitest";
 import { parseConfig } from "./index.js";
 
 describe("parseConfig", () => {
+  test('accepts framework = "vinext" (written by creek init)', () => {
+    const config = parseConfig(`
+[project]
+name = "my-app"
+framework = "vinext"
+`);
+    expect(config.project.framework).toBe("vinext");
+  });
+
   test("parses minimal creek.toml", () => {
     const config = parseConfig(`
 [project]
