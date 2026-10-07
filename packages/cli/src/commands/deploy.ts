@@ -1865,6 +1865,7 @@ async function deploySandbox(
           assets: fileList,
           hasWorker: prepared.serverFiles !== undefined,
           entrypoint: prepared.effectiveEntrypoint,
+          ...(prepared.mainModule ? { mainModule: prepared.mainModule } : {}),
           renderMode: effectiveRenderMode,
           ...workerFirstManifest(
             effectiveRenderMode,
@@ -2306,6 +2307,7 @@ async function deployAuthenticated(
         assets: fileList,
         hasWorker: effectiveHasWorker,
         entrypoint: effectiveEntrypoint,
+        ...(prepared.mainModule ? { mainModule: prepared.mainModule } : {}),
         renderMode: effectiveRenderMode,
         framework: framework ?? undefined,
         ...workerFirstManifest(

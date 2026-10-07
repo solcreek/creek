@@ -452,6 +452,7 @@ describe("buildAndBundle — vinext Build Output", () => {
     expect(bundle.manifest).toMatchObject({
       hasWorker: true,
       entrypoint: "index.js",
+      mainModule: "index.js",
       renderMode: "worker",
     });
     expect(bundle.manifest.runWorkerFirst).toBeUndefined();
