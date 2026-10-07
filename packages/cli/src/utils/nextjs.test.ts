@@ -148,7 +148,7 @@ describe("resolveAdapterPath (adapter cache floor)", () => {
   });
 
   it("reuses a cached copy at or above the floor", () => {
-    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.17");
+    fakeAdapter(join(cwd, ".creek", "node_modules"), ADAPTER_MIN_VERSION);
     const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
     expect(resolved).not.toBeNull();
     expect(resolved).toContain(join(".creek", "node_modules", "@solcreek", "adapter-creek"));
@@ -173,9 +173,17 @@ describe("resolveAdapterPath (adapter cache floor)", () => {
     expect(resolveAdapterPath(cwd, "0.2.14")).not.toBeNull();
   });
 
-  it("prefers the project node_modules copy over .creek when both pass the floor", () => {
-    fakeAdapter(join(cwd, "node_modules"), "0.2.17");
+  it("rejects a cached 0.2.18, whose size guard still enforces the retired gzipped limits", () => {
+    // 0.2.18 fails any build past 10 MB gzipped, which Cloudflare now accepts
+    // (the limit is 64 MiB uncompressed). It must not be reused.
     fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.18");
+    expect(resolveAdapterPath(cwd, ADAPTER_MIN_VERSION)).toBeNull();
+    expect(resolveAdapterPath(cwd, "0.2.17")).not.toBeNull(); // the previous floor reused it
+  });
+
+  it("prefers the project node_modules copy over .creek when both pass the floor", () => {
+    fakeAdapter(join(cwd, "node_modules"), "0.2.19");
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.20");
     const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
     // node_modules is tried before .creek in the base order.
     expect(resolved).toContain(join("node_modules", "@solcreek", "adapter-creek"));
