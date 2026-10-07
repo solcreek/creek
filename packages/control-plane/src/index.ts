@@ -169,50 +169,7 @@ app.route("/resources", resources);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
 
-// Local dev: simulate dispatch worker for testing (GET /preview/:slug/*)
-app.get("/preview/:slug/*", async (c) => {
-  const slug = c.req.param("slug");
-  const project = await c.env.DB.prepare(
-    "SELECT id, productionDeploymentId FROM project WHERE slug = ?",
-  )
-    .bind(slug)
-    .first<{ id: string; productionDeploymentId: string | null }>();
-
-  if (!project?.productionDeploymentId) {
-    return c.text("Project not found or no production deployment", 404);
-  }
-
-  const prefix = `${project.id}/${project.productionDeploymentId}`;
-  const reqPath = c.req.path.replace(`/preview/${slug}`, "") || "/index.html";
-  const assetPath = reqPath === "/" ? "/index.html" : reqPath;
-
-  const object = await c.env.ASSETS.get(`${prefix}${assetPath}`);
-  if (object) {
-    const ext = assetPath.split(".").pop()?.toLowerCase() ?? "";
-    const types: Record<string, string> = {
-      html: "text/html; charset=utf-8",
-      css: "text/css; charset=utf-8",
-      js: "application/javascript; charset=utf-8",
-      json: "application/json; charset=utf-8",
-      png: "image/png",
-      svg: "image/svg+xml",
-      ico: "image/x-icon",
-    };
-    return new Response(object.body as ReadableStream, {
-      headers: { "Content-Type": types[ext] || "application/octet-stream" },
-    });
-  }
-
-  // SPA fallback
-  const fallback = await c.env.ASSETS.get(`${prefix}/index.html`);
-  if (fallback) {
-    return new Response(fallback.body as ReadableStream, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  }
-
-  return c.text("Not Found", 404);
-});
+// GET /preview/:slug/* (local dispatch stand-in) is mounted by src/local/serve.ts only.
 
 // Export Hono app for testing
 export { app };
