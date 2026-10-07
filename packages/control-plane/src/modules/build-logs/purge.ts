@@ -13,6 +13,7 @@
  */
 
 import type { Env } from "../../types.js";
+import { deployStageLogKey } from "./storage.js";
 
 const BATCH_SIZE = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +47,7 @@ export async function purgeExpiredBuildLogs(env: Env): Promise<number> {
     // removed and the object becomes orphan storage (rare enough to
     // accept; a separate R2 lifecycle rule could reap orphans later).
     try {
-      await env.LOGS_BUCKET.delete(row.r2Key);
+      await env.LOGS_BUCKET.delete([row.r2Key, deployStageLogKey(row.r2Key)]);
     } catch {
       // swallow — proceed to D1 cleanup anyway
     }

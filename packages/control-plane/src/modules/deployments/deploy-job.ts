@@ -14,7 +14,7 @@ import {
 } from "./release-migrations.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
-import { storeBuildLogIfAbsent } from "../build-logs/storage.js";
+import { storeBuildLogIfAbsent, storeDeployStageLog } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 import type {
   BuildLogLine,
@@ -458,12 +458,12 @@ function stepToBuildLogStep(step: string): BuildLogStep {
  * Persist the accumulated deploy-stage log so `creek deployments logs` can show
  * what the server did — not just the deployment row's one-line error.
  *
- * Best-effort and, crucially, no-clobber: the build_log row is keyed by
- * deploymentId, but the CLI and remote-builder also upload their own (richer,
- * build-stage) logs for the same deployment. storeBuildLogIfAbsent claims the
- * row atomically and only writes when nothing else has — i.e. GitHub-push
- * deploys and CLI deploys where the client already disconnected, which is
- * exactly the case B2 is about. Never throws.
+ * Best-effort and no-clobber: the build_log row is keyed by deploymentId,
+ * but the CLI and remote-builder also upload their own (richer, build-stage)
+ * logs for the same deployment, replacing the main log object. So the job's
+ * lines always go to a separate stage-log object, which the read path merges
+ * in, and storeBuildLogIfAbsent claims the row (and main object) only when no
+ * client log exists yet. Never throws.
  */
 async function persistDeployLog(
   env: Env,
@@ -481,9 +481,7 @@ async function persistDeployLog(
     const body = opts.lines.length
       ? opts.lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
       : "";
-    // Atomic no-clobber: only writes if no client/remote-builder log already
-    // owns this deployment (they carry the richer build-stage log).
-    await storeBuildLogIfAbsent(env, {
+    const log = {
       team: input.teamSlug,
       project: input.projectSlug,
       deploymentId: input.deploymentId,
@@ -493,7 +491,13 @@ async function persistDeployLog(
       body,
       errorCode: opts.errorCode,
       errorStep: opts.errorStep,
-    });
+    };
+    // Always kept in its own object: a client upload replaces the main log,
+    // possibly after this, and the read path merges the two.
+    await storeDeployStageLog(env, log);
+    // Atomic no-clobber: claims the build_log row only if no client/remote-
+    // builder log owns this deployment yet, so the log is listed at all.
+    await storeBuildLogIfAbsent(env, log);
   } catch {
     // Log persistence must never break or mask a deploy outcome.
   }
