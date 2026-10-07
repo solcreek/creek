@@ -1,5 +1,25 @@
 # @solcreek/sdk
 
+## 0.4.21
+
+- **vinext.** `detectFramework` returns `"vinext"`, ahead of `next`, and
+  `isSSRFramework` includes it; `creek.toml` accepts `framework = "vinext"`.
+  `detectVinextBuild` / `parseVinextWorkerConfig` read vinext's Cloudflare build
+  output (`.cloudflare/output/v0/workers/default/worker.config.json`): entry
+  module, compatibility date and flags, KV / D1 / R2 / AI bindings, text vars,
+  secrets, bindings Creek can't provide, and `runWorkerFirst`.
+  `collectVinextServerFiles` collects its worker modules, `vinextBuildScript`
+  picks `build:vinext` or `build`, and `resolveConfig` uses it for the default
+  build command. `planDeploy` deploys the output in `worker` render mode.
+- **Doctor.** New `CK-VINEXT-LEGACY-SETUP`, `CK-VINEXT-UNSUPPORTED-BINDINGS` and
+  `CK-VINEXT-SECRETS`. Worker-entry checks skip vinext projects, and
+  `CK-NOTHING-TO-DEPLOY` gives an unbuilt vinext project its own note.
+- **`.assetsignore`.** `parseAssetsIgnore` and `applyAssetsIgnore` match
+  gitignore patterns with the `ignore` package, the matcher Wrangler uses (new
+  dependency).
+- **`collectServerFiles` throws past `maxFiles`** instead of returning a partial
+  set, and takes an `include` filter applied before files are counted.
+
 ## 0.4.20
 
 - **`[release] migrations`** in `creek.toml`: `true` resolves to
