@@ -128,7 +128,8 @@ export function resolveAdapterPath(cwd?: string, minVersion?: string): string | 
  * The build the adapter path runs, in place of `[build] command` and the
  * project's build script. webpack, not Turbopack (the Next.js 16 default): the
  * adapter swaps local SQLite drivers for D1 through webpack aliases, which a
- * Turbopack build never applies, and it refuses a Turbopack build outright.
+ * Turbopack build never applies, and it stops a Turbopack build whose output
+ * contains better-sqlite3.
  */
 export const NEXT_ADAPTER_BUILD = "next build --webpack";
 
