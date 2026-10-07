@@ -251,6 +251,31 @@ describe("DELETE /projects/:idOrSlug", () => {
     ]);
   });
 
+  test("a project delete that fails queues no Cloudflare cleanup", async () => {
+    // The hostname must not be torn down while the project and its domain
+    // stay: queueing is part of the delete's transaction.
+    seedProject(testEnv, "flaky-app", { id: "proj-flaky" });
+    const db = testEnv.db.db;
+    db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt, cfCustomHostnameId)
+       VALUES ('cd-2', 'proj-flaky', 'flaky.example.com', 'active', ${Date.now()}, 'cfh-2')`,
+    );
+    // Fail the delete transaction after its statements have run.
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = ((stmts: D1PreparedStatement[]) =>
+      batch([
+        ...stmts,
+        env.DB.prepare("INSERT INTO no_such_table VALUES (1)"),
+      ])) as typeof env.DB.batch;
+
+    const res = await req("DELETE", "/projects/flaky-app");
+
+    expect(res.status).toBe(500);
+    expect(db.prepare("SELECT id FROM project WHERE id = 'proj-flaky'").get()).toBeDefined();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM resource_cleanup_queue").get()).toEqual({ n: 0 });
+  });
+
   test("returns 404 for non-existent project", async () => {
     const res = await req("DELETE", "/projects/nonexistent");
     expect(res.status).toBe(404);

@@ -425,7 +425,9 @@ export function buildBindings(
 // --- Cleanup ---
 
 /**
- * Schedule resource deletion when a project is deleted.
+ * The statement that schedules a deleted project's Cloudflare cleanup, for
+ * the caller to run in the same batch as the project's deletion: queued and
+ * deleted together, or neither.
  *
  * Copies resource info into `resource_cleanup_queue` for async CF
  * resource deletion. The actual `project_resource_binding` rows are
@@ -436,17 +438,15 @@ export function buildBindings(
  * resource has no remaining bindings after project deletion, it becomes
  * "unattached" but stays alive until explicitly deleted via the API.
  */
-export async function scheduleResourceCleanup(env: Env, projectId: string): Promise<void> {
+export function projectCleanupStatement(env: Env, projectId: string): D1PreparedStatement {
   // Queue custom domain hostnames for CF cleanup
   // createdAt is NOT NULL, in seconds (drizzle `timestamp` mode).
-  await env.DB.prepare(
+  return env.DB.prepare(
     `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
      SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted', ?
      FROM custom_domain
      WHERE projectId = ? AND cfCustomHostnameId IS NOT NULL`,
-  )
-    .bind(Math.floor(Date.now() / 1000), projectId)
-    .run();
+  ).bind(Math.floor(Date.now() / 1000), projectId);
 }
 
 // --- Queue lookup ---
