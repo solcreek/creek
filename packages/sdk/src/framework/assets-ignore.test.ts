@@ -66,6 +66,18 @@ describe("parseAssetsIgnore", () => {
     expect(ignored("private/data.json")).toBe(false);
   });
 
+  test("character classes match as in gitignore", () => {
+    const ignored = parseAssetsIgnore("secret[0-9].json\n");
+    expect(ignored("secret1.json")).toBe(true);
+    expect(ignored("secretA.json")).toBe(false);
+  });
+
+  test("an escaped leading ! or # is a literal name", () => {
+    const ignored = parseAssetsIgnore("\\!important.txt\n\\#notes.txt\n");
+    expect(ignored("!important.txt")).toBe(true);
+    expect(ignored("#notes.txt")).toBe(true);
+  });
+
   test("comments and blank lines are ignored; regex metacharacters are literal", () => {
     const ignored = parseAssetsIgnore("# comment\n\nfile(1).txt\n");
     expect(ignored("file(1).txt")).toBe(true);
