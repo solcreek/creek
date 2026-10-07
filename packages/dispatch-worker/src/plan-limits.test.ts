@@ -31,9 +31,7 @@ function makeEnv(opts: {
           }
           if (sql.includes("FROM custom_domain")) {
             return (
-              sql.includes("t.plan")
-                ? { plan: opts.plan }
-                : { slug: "shop", team_slug: "acme" }
+              sql.includes("t.plan") ? { plan: opts.plan } : { slug: "shop", team_slug: "acme" }
             ) as T;
           }
           return null;

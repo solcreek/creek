@@ -229,9 +229,7 @@ describe("upgradeHintForPlan", () => {
 
 describe("limitExceededBody", () => {
   test("describes a CPU limit hit with the plan's ceiling and the next plan", () => {
-    expect(
-      limitExceededBody("Worker exceeded CPU time limit.", "free", PLAN_LIMITS.free),
-    ).toEqual({
+    expect(limitExceededBody("Worker exceeded CPU time limit.", "free", PLAN_LIMITS.free)).toEqual({
       error: "cpu_limit_exceeded",
       message: "CPU time limit exceeded (5000ms on free plan).",
       upgrade: "Upgrade to Starter for higher limits.",
@@ -240,7 +238,11 @@ describe("limitExceededBody", () => {
 
   test("describes a subrequest limit hit", () => {
     expect(
-      limitExceededBody("Too many subrequests: hit the subrequest limit", "starter", PLAN_LIMITS.starter),
+      limitExceededBody(
+        "Too many subrequests: hit the subrequest limit",
+        "starter",
+        PLAN_LIMITS.starter,
+      ),
     ).toEqual({
       error: "subrequest_limit_exceeded",
       message: "Subrequest limit exceeded (1000 on starter plan).",
