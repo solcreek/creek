@@ -15,15 +15,21 @@ Feature recipes live in [features/](features/README.md). Read the index, then th
 
 ## Launch
 
-There is no long-lived server. Launch means: build the workspace CLI once, then create an isolated run directory.
+There is no long-lived server. Launch means: install workspace deps if needed, build the workspace CLI once, then create an isolated run directory.
 
-From the repo root:
+From the repo root, if `node_modules` is missing:
+
+```bash
+pnpm install
+```
+
+Then:
 
 ```bash
 RUN_ENV=$(.cursor/skills/verify-creek/scripts/launch.sh)
 ```
 
-Ready when `launch.sh` prints `run.env` on stdout (and `packages/cli/dist/index.js` exists). `VERIFY_CREEK_FORCE_BUILD=1` rebuilds even if dist is present. If the CLI build fails with `Failed to import module "unrun"`, tsdown 0.22.3 needs that peer at the repo root (`pnpm add -D unrun`); a present dist is enough and launch will not rebuild.
+Ready when `launch.sh` prints the `run.env` path on stdout (and `packages/cli/dist/index.js` exists). `launch.sh` exits 1 if `node_modules` is missing. `VERIFY_CREEK_FORCE_BUILD=1` rebuilds even if dist is present. If the CLI build fails with `Failed to import module "unrun"`, tsdown 0.22.3 needs that peer at the repo root (`pnpm add -D unrun`); a present dist is enough and launch will not rebuild.
 
 Each helper invocation after that sources `$RUN_ENV`, which:
 
