@@ -157,6 +157,21 @@ describe("collectVinextServerFiles", () => {
     expect(modules.some((m) => m.endsWith(".json"))).toBe(false);
   });
 
+  test("JSON metadata doesn't count toward the module limit", () => {
+    bundle([
+      "index.js",
+      ...Array.from({ length: 499 }, (_, i) => `chunk-${i}.js`),
+      ".vite/manifest.json",
+      "vinext-server.json",
+    ]);
+    expect(Object.keys(collectVinextServerFiles(cwd, build("index.js")))).toHaveLength(500);
+  });
+
+  test("more than 500 actual modules still throws", () => {
+    bundle(["index.js", ...Array.from({ length: 500 }, (_, i) => `chunk-${i}.js`)]);
+    expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/more than 500/);
+  });
+
   test("throws when the entry is missing", () => {
     bundle(["ssr/index.js", "chunk.js"]);
     expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/entry index.js/);

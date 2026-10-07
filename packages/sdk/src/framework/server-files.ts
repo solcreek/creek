@@ -143,18 +143,22 @@ function shouldSkipFile(name: string): boolean {
  * uploaded with some of its chunks missing fails at runtime, on whichever
  * route imports them, so a partial collection is never usable.
  *
+ * `include` drops files by their relative path before they count toward
+ * `maxFiles`.
+ *
  * The caller is responsible for base64 encoding if needed.
  */
 export function collectServerFiles(
   dir: string,
-  options?: { maxFiles?: number },
+  options?: { maxFiles?: number; include?: (relPath: string) => boolean },
 ): Record<string, Buffer> {
   const maxFiles = options?.maxFiles ?? 500;
+  const include = options?.include ?? (() => true);
   const result: Record<string, Buffer> = {};
 
   if (!existsSync(dir)) return result;
 
-  _collectRecursive(dir, dir, result, maxFiles);
+  _collectRecursive(dir, dir, result, maxFiles, include);
   return result;
 }
 
@@ -163,6 +167,7 @@ function _collectRecursive(
   base: string,
   out: Record<string, Buffer>,
   maxFiles: number,
+  include: (relPath: string) => boolean,
 ): void {
   let entries;
   try {
@@ -177,9 +182,10 @@ function _collectRecursive(
     const full = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      _collectRecursive(full, base, out, maxFiles);
+      _collectRecursive(full, base, out, maxFiles, include);
     } else if (entry.isFile() && !shouldSkipFile(entry.name)) {
       const rel = relative(base, full);
+      if (!include(rel)) continue;
       if (Object.keys(out).length >= maxFiles) {
         throw new Error(
           `${base} has more than ${maxFiles} worker modules; refusing to upload a partial worker`,

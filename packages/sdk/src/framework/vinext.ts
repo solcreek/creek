@@ -144,10 +144,9 @@ export function parseVinextWorkerConfig(raw: unknown): VinextBuild {
  * entry: they pick it by file name, not from the manifest.
  */
 export function collectVinextServerFiles(cwd: string, build: VinextBuild): Record<string, Buffer> {
-  const files = collectServerFiles(join(cwd, build.serverDir));
-  const modules = Object.fromEntries(
-    Object.entries(files).filter(([name]) => !name.endsWith(".json")),
-  );
+  const modules = collectServerFiles(join(cwd, build.serverDir), {
+    include: (name) => !name.endsWith(".json"),
+  });
   if (!isEntryModuleSelected(Object.keys(modules), build.mainModule)) {
     throw new Error(
       `vinext worker entry ${build.mainModule} is missing from ${build.serverDir}, or another module would be picked as the entry`,

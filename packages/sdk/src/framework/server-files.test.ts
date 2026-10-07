@@ -190,6 +190,17 @@ describe("collectServerFiles", () => {
     expect(() => collectServerFiles(tmpDir, { maxFiles: 3 })).toThrow(/more than 3 worker modules/);
   });
 
+  test("include filters before counting toward maxFiles", () => {
+    for (let i = 0; i < 3; i++) writeFileSync(join(tmpDir, `file-${i}.mjs`), "x");
+    writeFileSync(join(tmpDir, "meta.json"), "{}");
+
+    const files = collectServerFiles(tmpDir, {
+      maxFiles: 3,
+      include: (p) => !p.endsWith(".json"),
+    });
+    expect(Object.keys(files).sort()).toEqual(["file-0.mjs", "file-1.mjs", "file-2.mjs"]);
+  });
+
   test("collects exactly maxFiles modules", () => {
     for (let i = 0; i < 3; i++) {
       writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
