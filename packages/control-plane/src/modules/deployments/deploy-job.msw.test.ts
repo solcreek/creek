@@ -9,7 +9,12 @@ import {
   type LocalTestEnv,
 } from "../../local/test-env.js";
 import { runDeployJob, withDeployHeartbeat, consumeDeployJobBatch } from "./deploy-job.js";
-import { buildR2Key } from "../build-logs/storage.js";
+import {
+  buildR2Key,
+  deployStageLogKey,
+  readLogLines,
+  storeBuildLog,
+} from "../build-logs/storage.js";
 import type { BuildLogLine } from "../build-logs/types.js";
 
 // Integration: drives the full async deploy pipeline (read R2 bundle ->
@@ -620,6 +625,31 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(second).toContain(
       "INSERT INTO _creek_migrations (name, applied_at) VALUES ('0002_it''s.sql',",
     );
+  });
+
+  it("keeps the applied-migration lines after the CLI's log replaces the main one", async () => {
+    server.use(...handlers());
+    await stageWithMigrations();
+    await runDeployJob(testEnv.env, input);
+
+    // The CLI uploads its own log after the deploy turns active.
+    await storeBuildLog(testEnv.env, {
+      team: "team",
+      project: "myapp",
+      deploymentId: "dep-1",
+      status: "success",
+      startedAt: 1,
+      endedAt: 2,
+      body:
+        JSON.stringify({ ts: 1, step: "build", stream: "creek", level: "info", msg: "cli" }) + "\n",
+    });
+
+    const mainKey = buildR2Key("team", "myapp", "dep-1");
+    const main = (await readLogLines(testEnv.env.LOGS_BUCKET!, mainKey)) ?? [];
+    expect(main.join("\n")).not.toContain("Applied migration");
+    const stage = (await readLogLines(testEnv.env.LOGS_BUCKET!, deployStageLogKey(mainKey))) ?? [];
+    expect(stage.join("\n")).toContain("Applied migration 0001_init.sql");
+    expect(stage.join("\n")).toContain("Applied migration 0002_it's.sql");
   });
 
   it("skips migrations the database already recorded", async () => {

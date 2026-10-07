@@ -199,3 +199,72 @@ describe("GET deployment logs — server-side failure fallback", () => {
     expect(body.metadata.errorStep).toBe("provisioning");
   });
 });
+
+describe("GET deployment logs — deploy job's stage log merged in", () => {
+  const line = (ts: number, step: string, msg: string) =>
+    JSON.stringify({ ts, step, stream: "creek", level: "info", msg });
+
+  async function seedLogs(main: string[], stage: string[] | null) {
+    seedDeployment({ id: "dep-merge", status: "active" });
+    const r2Key = `builds/${TEST_TEAM.slug}/${PROJECT_SLUG}/dep-merge.ndjson.gz`;
+    await testEnv.env.DB.prepare(
+      `INSERT INTO build_log (deploymentId, status, startedAt, endedAt, bytes, lines, truncated, r2Key)
+       VALUES ('dep-merge', 'success', 1, 9, 1, ${main.length}, 0, ?)`,
+    )
+      .bind(r2Key)
+      .run();
+    await testEnv.env.LOGS_BUCKET!.put(r2Key, gzipSync(main.join("\n") + "\n"));
+    if (stage) {
+      await testEnv.env.LOGS_BUCKET!.put(
+        r2Key.replace(/\.ndjson\.gz$/, ".deploy.ndjson.gz"),
+        gzipSync(stage.join("\n") + "\n"),
+      );
+    }
+  }
+
+  test("a CLI-uploaded log still shows the migrations the deploy job applied", async () => {
+    // The CLI's log (uploaded last, replacing the main object) and the job's
+    // own stage log, which carries the release-migration lines.
+    await seedLogs(
+      [
+        line(1, "build", "build ok"),
+        line(2, "upload", "bundle uploaded"),
+        line(8, "activate", "deployed"),
+      ],
+      [
+        line(3, "provision", "Applying pending migrations to DATABASE (2 in project)"),
+        line(4, "provision", "Applied migration 0001_users.sql (2 statements)"),
+        line(5, "provision", "Migrations applied: 1 (1 already applied)"),
+      ],
+    );
+
+    const res = await getLogs("dep-merge");
+    const body = (await res.json()) as { entries: Array<{ ts: number; msg: string }> };
+
+    expect(body.entries.map((e) => e.msg)).toEqual([
+      "build ok",
+      "bundle uploaded",
+      "Applying pending migrations to DATABASE (2 in project)",
+      "Applied migration 0001_users.sql (2 statements)",
+      "Migrations applied: 1 (1 already applied)",
+      "deployed",
+    ]);
+  });
+
+  test("lines in both objects appear once (the job also wrote the main log)", async () => {
+    const shared = [line(3, "provision", "Applied migration 0001_users.sql (1 statements)")];
+    await seedLogs(shared, shared);
+
+    const body = (await (await getLogs("dep-merge")).json()) as { entries: unknown[] };
+
+    expect(body.entries).toHaveLength(1);
+  });
+
+  test("a log without a stage object reads as before", async () => {
+    await seedLogs([line(1, "build", "build ok")], null);
+
+    const body = (await (await getLogs("dep-merge")).json()) as { entries: Array<{ msg: string }> };
+
+    expect(body.entries.map((e) => e.msg)).toEqual(["build ok"]);
+  });
+});
