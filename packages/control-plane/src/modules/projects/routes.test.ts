@@ -220,6 +220,37 @@ describe("DELETE /projects/:idOrSlug", () => {
     expect(count("SELECT COUNT(*) c FROM resource WHERE id = 'res-del'")).toBe(1);
   });
 
+  test("deletes a project with a registered custom domain and queues the hostname", async () => {
+    // The cleanup insert used to omit the NOT NULL createdAt, so this delete
+    // failed for any project whose custom domain had reached Cloudflare.
+    seedProject(testEnv, "domain-app", { id: "proj-dom" });
+    const db = testEnv.db.db;
+    db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt, cfCustomHostnameId)
+       VALUES ('cd-1', 'proj-dom', 'app.example.com', 'active', ${Date.now()}, 'cfh-1')`,
+    );
+
+    const res = await req("DELETE", "/projects/domain-app");
+
+    expect(res.status).toBe(200);
+    expect(db.prepare("SELECT id FROM project WHERE id = 'proj-dom'").get()).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          "SELECT resourceType, cfResourceId, cfResourceName, status, reason FROM resource_cleanup_queue",
+        )
+        .all(),
+    ).toEqual([
+      {
+        resourceType: "custom_hostname",
+        cfResourceId: "cfh-1",
+        cfResourceName: "app.example.com",
+        status: "pending",
+        reason: "project_deleted",
+      },
+    ]);
+  });
+
   test("returns 404 for non-existent project", async () => {
     const res = await req("DELETE", "/projects/nonexistent");
     expect(res.status).toBe(404);

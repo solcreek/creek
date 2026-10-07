@@ -438,13 +438,14 @@ export function buildBindings(
  */
 export async function scheduleResourceCleanup(env: Env, projectId: string): Promise<void> {
   // Queue custom domain hostnames for CF cleanup
+  // createdAt is NOT NULL, in seconds (drizzle `timestamp` mode).
   await env.DB.prepare(
-    `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason)
-     SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted'
+    `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+     SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted', ?
      FROM custom_domain
      WHERE projectId = ? AND cfCustomHostnameId IS NOT NULL`,
   )
-    .bind(projectId)
+    .bind(Math.floor(Date.now() / 1000), projectId)
     .run();
 }
 
