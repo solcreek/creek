@@ -439,7 +439,7 @@ describe("creek db delete --dry-run", () => {
       name: "mydb",
     });
     expect(json().sideEffects).toContain(
-      'Soft-delete team database "mydb" (row marked deleted). Backing Cloudflare resource is not torn down here.',
+      'Delete team database "mydb": the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.',
     );
   });
 

@@ -412,6 +412,11 @@ export class CreekClient {
     return this.request("PATCH", `/resources/${id}`, { name });
   }
 
+  /**
+   * Delete a team-owned resource. The Cloudflare resource behind it (D1/R2/KV)
+   * and its data are deleted by the control plane's scheduled cleanup within
+   * minutes, irreversibly. Refused (409) while any project still binds it.
+   */
   async deleteResource(id: string): Promise<{ id: string; status: string }> {
     return this.request("DELETE", `/resources/${id}`);
   }
