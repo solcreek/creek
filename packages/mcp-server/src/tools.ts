@@ -686,7 +686,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "delete_resource",
-    "Delete a team-owned resource. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+    "Delete a team-owned resource. This is permanent: the D1 database or KV namespace behind it is queued for deletion with all its data, and an R2 bucket is deleted only if it is empty. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
       resourceId: z.string().describe("Resource ID"),
     },
