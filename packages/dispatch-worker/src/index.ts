@@ -2,6 +2,7 @@ import {
   type ParsedHostname,
   type TeamInfo,
   getLimitsForPlan,
+  limitExceededBody,
   parseHostnameWithTeams,
 } from "./parse.js";
 import { inferContentType } from "@solcreek/deploy-core/content-type";
@@ -416,26 +417,12 @@ export default {
         });
       }
 
-      if (message.includes("CPU time limit")) {
-        return new Response(
-          JSON.stringify({
-            error: "cpu_limit_exceeded",
-            message: `CPU time limit exceeded (${limits.cpuMs}ms on ${plan} plan).`,
-            upgrade: plan === "free" ? "Upgrade to Pro for higher limits." : undefined,
-          }),
-          { status: 429, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (message.includes("subrequest limit")) {
-        return new Response(
-          JSON.stringify({
-            error: "subrequest_limit_exceeded",
-            message: `Subrequest limit exceeded (${limits.subRequests} on ${plan} plan).`,
-            upgrade: plan === "free" ? "Upgrade to Pro for higher limits." : undefined,
-          }),
-          { status: 429, headers: { "Content-Type": "application/json" } },
-        );
+      const limitBody = limitExceededBody(message, plan, limits);
+      if (limitBody) {
+        return new Response(JSON.stringify(limitBody), {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       return new Response(`Error: ${message}`, { status: 500 });
