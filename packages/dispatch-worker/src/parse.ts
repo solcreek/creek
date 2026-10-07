@@ -50,12 +50,12 @@ function isPlan(plan: string): plan is Plan {
   return (PLANS as readonly string[]).includes(plan);
 }
 
-/** Limits for a team's plan; an unknown plan gets free's. */
 /** The plan whose limits apply: a team's plan, or free when it is unknown. */
 function effectivePlan(plan: string): Plan {
   return isPlan(plan) ? plan : "free";
 }
 
+/** Limits for a team's plan; an unknown plan gets free's. */
 export function getLimitsForPlan(plan: string): WorkerLimits {
   return PLAN_LIMITS[effectivePlan(plan)];
 }
