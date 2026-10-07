@@ -44,7 +44,7 @@ creek domains ls --json                       # Verify status
 ## Supported Frameworks
 
 **SPA**: vite-react, vite-vue, vite-svelte, vite-solid, static HTML, astro
-**SSR**: nextjs, react-router, sveltekit, nuxt, solidstart, tanstack-start
+**SSR**: nextjs, vinext, react-router, sveltekit, nuxt, solidstart, tanstack-start
 
 Not every SSR framework has equal support yet — check
 [creek.dev/docs/getting-started](https://creek.dev/docs/getting-started)

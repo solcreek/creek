@@ -149,6 +149,7 @@ No API key required for sandbox deploys. See the [API documentation](https://cre
 Creek auto-detects and configures the build for:
 
 - Next.js
+- vinext
 - Vite (React, Vue, Svelte, Solid)
 - Astro
 - SvelteKit

@@ -21,6 +21,7 @@ for Vite apps and meta-frameworks built on top of Vite.
 | Vite + Svelte | ✓ zero-config | |
 | Vite + Solid | ✓ zero-config | |
 | Astro | ✓ zero-config | Vite underneath |
+| vinext | ✓ zero-config SSR | Next.js API on Vite; deploys vinext's Cloudflare build output (`vinext init --platform=cloudflare`) |
 | SvelteKit | 🧪 experimental SSR | Vite underneath |
 | Nuxt | 🧪 experimental SSR | Vite underneath |
 | TanStack Start | ✓ zero-config | |
