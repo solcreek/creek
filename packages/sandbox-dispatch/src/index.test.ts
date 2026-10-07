@@ -121,11 +121,7 @@ describe("sandbox per-request limits", () => {
 
   test.each([
     ["Worker exceeded CPU time limit.", "cpu_limit_exceeded", /1000ms per request in a sandbox/],
-    [
-      "Too many subrequests: hit the subrequest limit",
-      "subrequest_limit_exceeded",
-      /50 per request in a sandbox/,
-    ],
+    ["Too many subrequests.", "subrequest_limit_exceeded", /50 per request in a sandbox/],
   ])("a limit hit (%s) is a 429 naming the sandbox ceiling", async (thrown, code, message) => {
     const { env } = createEnv({
       d1Rows: activeRow,

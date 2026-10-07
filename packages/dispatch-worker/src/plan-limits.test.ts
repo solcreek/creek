@@ -118,7 +118,7 @@ describe("a limit hit becomes a 429 naming the ceiling and the next plan", () =>
     const worker = await loadWorker();
     const { env, request } = makeEnv({
       plan: "pro",
-      workerThrows: "Too many subrequests: exceeded the subrequest limit",
+      workerThrows: "Too many subrequests.",
     });
     const res = await worker.fetch(request, env);
     expect(res.status).toBe(429);

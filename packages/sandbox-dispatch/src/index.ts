@@ -515,7 +515,9 @@ export default {
           { status: 404 },
         );
       }
-      if (message.includes("CPU time limit")) {
+      // The runtime reports a subrequest-limit hit as "Too many subrequests.";
+      // match case-insensitively, as dispatch-worker's limitExceededBody does.
+      if (/cpu time limit/i.test(message)) {
         return Response.json(
           {
             error: "cpu_limit_exceeded",
@@ -524,7 +526,7 @@ export default {
           { status: 429 },
         );
       }
-      if (message.includes("subrequest limit")) {
+      if (/too many subrequests|subrequest limit/i.test(message)) {
         return Response.json(
           {
             error: "subrequest_limit_exceeded",

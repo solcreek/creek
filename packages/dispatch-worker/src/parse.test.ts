@@ -256,13 +256,7 @@ describe("limitExceededBody", () => {
   });
 
   test("describes a subrequest limit hit", () => {
-    expect(
-      limitExceededBody(
-        "Too many subrequests: hit the subrequest limit",
-        "starter",
-        PLAN_LIMITS.starter,
-      ),
-    ).toEqual({
+    expect(limitExceededBody("Too many subrequests.", "starter", PLAN_LIMITS.starter)).toEqual({
       error: "subrequest_limit_exceeded",
       message: "Subrequest limit exceeded (1000 on starter plan).",
       upgrade: "Upgrade to Pro for higher limits.",
@@ -273,6 +267,18 @@ describe("limitExceededBody", () => {
     const body = limitExceededBody("CPU time limit", "enterprise", PLAN_LIMITS.enterprise);
     expect(body?.upgrade).toBeUndefined();
     expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty("upgrade");
+  });
+
+  // Regression: the matcher looked for "subrequest limit", but the runtime
+  // throws "Too many subrequests.", so a real hit fell through to a 500.
+  test.each([
+    ["Too many subrequests.", "subrequest_limit_exceeded"],
+    ["Error: TOO MANY SUBREQUESTS", "subrequest_limit_exceeded"],
+    ["exceeded the Subrequest Limit", "subrequest_limit_exceeded"],
+    ["Worker exceeded CPU time limit.", "cpu_limit_exceeded"],
+    ["worker exceeded cpu time limit", "cpu_limit_exceeded"],
+  ])("recognizes %j", (thrown, code) => {
+    expect(limitExceededBody(thrown, "free", PLAN_LIMITS.free)?.error).toBe(code);
   });
 
   test("returns null for any other error", () => {

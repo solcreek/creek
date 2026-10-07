@@ -66,6 +66,13 @@ export function upgradeHintForPlan(plan: string): string | undefined {
   return `Upgrade to ${next[0]!.toUpperCase()}${next.slice(1)} for higher limits.`;
 }
 
+// The runtime reports a subrequest-limit hit as "Too many subrequests.", which
+// says nothing about a "limit"; a CPU hit reads "...exceeded CPU time limit".
+// Match either case-insensitively so a wording change in case alone still
+// lands on the 429.
+const CPU_LIMIT_ERROR = /cpu time limit/i;
+const SUBREQUEST_LIMIT_ERROR = /too many subrequests|subrequest limit/i;
+
 /**
  * The 429 body for a user worker that threw because it hit its CPU or
  * subrequest limit, or null when the error is something else.
@@ -75,14 +82,14 @@ export function limitExceededBody(
   plan: string,
   limits: WorkerLimits,
 ): { error: string; message: string; upgrade?: string } | null {
-  if (errorMessage.includes("CPU time limit")) {
+  if (CPU_LIMIT_ERROR.test(errorMessage)) {
     return {
       error: "cpu_limit_exceeded",
       message: `CPU time limit exceeded (${limits.cpuMs}ms on ${plan} plan).`,
       upgrade: upgradeHintForPlan(plan),
     };
   }
-  if (errorMessage.includes("subrequest limit")) {
+  if (SUBREQUEST_LIMIT_ERROR.test(errorMessage)) {
     return {
       error: "subrequest_limit_exceeded",
       message: `Subrequest limit exceeded (${limits.subRequests} on ${plan} plan).`,
