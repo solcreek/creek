@@ -4,7 +4,6 @@
   "description": "URL shortener with AI + Analytics Engine + KV + R2 (JSONC with inline comments)",
   "expectedBindings": [
     { "type": "ai", "name": "AI" },
-    { "type": "analytics_engine", "name": "ANALYTICS" },
     { "type": "kv", "name": "KV" },
     { "type": "r2", "name": "R2" }
   ],

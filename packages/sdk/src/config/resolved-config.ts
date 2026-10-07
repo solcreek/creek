@@ -193,14 +193,14 @@ function fromWranglerConfig(
   // Analytics Engine
   if (wrangler.analytics_engine_datasets?.length) {
     for (const ae of wrangler.analytics_engine_datasets) {
-      bindings.push({ type: "analytics_engine", name: ae.binding });
+      unsupportedBindings.push({ type: "analytics_engine", name: ae.binding });
     }
   }
 
   // Durable Objects
   if (wrangler.durable_objects?.bindings?.length) {
     for (const d of wrangler.durable_objects.bindings) {
-      bindings.push({ type: "durable_object", name: d.name });
+      unsupportedBindings.push({ type: "durable_object", name: d.name });
     }
   }
 

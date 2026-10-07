@@ -437,6 +437,7 @@ async function dryRunPlan(
       : null,
     buildOutputFallback,
     bindings,
+    unsupportedBindings: resolved?.unsupportedBindings ?? [],
     findings: doctorReport.findings,
     wouldDeploy,
     sideEffects: {

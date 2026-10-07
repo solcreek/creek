@@ -128,6 +128,25 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(String(plan.nextStep)).toContain("--sandbox");
   });
 
+  it("lists wrangler bindings Creek won't bind under unsupportedBindings", async () => {
+    writeFileSync(
+      join(dir, "wrangler.jsonc"),
+      JSON.stringify({
+        name: "app",
+        main: "worker.js",
+        d1_databases: [{ binding: "DB" }],
+        durable_objects: { bindings: [{ name: "ROOM", class_name: "Room" }] },
+        analytics_engine_datasets: [{ binding: "AE" }],
+      }),
+    );
+    const plan = await dryRunJson();
+    expect(plan.bindings).toEqual([{ name: "DB", type: "d1" }]);
+    expect(plan.unsupportedBindings).toEqual([
+      { type: "analytics_engine", name: "AE" },
+      { type: "durable_object", name: "ROOM" },
+    ]);
+  });
+
   it("index.html is wouldDeploy: true and nextStep is --sandbox --json", async () => {
     writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
     const plan = await dryRunJson();

@@ -217,7 +217,8 @@ binding = "QUEUE"
     );
 
     const config = resolveConfig(cwd);
-    expect(config.bindings.find((b) => b.type === "durable_object")).toBeDefined();
+    expect(config.bindings).toEqual([]);
+    expect(config.unsupportedBindings).toEqual([{ type: "durable_object", name: "COUNTER" }]);
     expect(config.queue).toBe(true);
   });
 

@@ -38,10 +38,6 @@ exports[`real-world wrangler config fixtures > counterscale (Self-hosted web ana
       "name": "DAILY_ROLLUPS",
       "type": "r2",
     },
-    {
-      "name": "WEB_COUNTER_AE",
-      "type": "analytics_engine",
-    },
   ],
   "buildCommand": "",
   "buildOutput": ".",
@@ -60,7 +56,12 @@ exports[`real-world wrangler config fixtures > counterscale (Self-hosted web ana
   "releaseTimeout": 60,
   "source": "wrangler.json",
   "target": "cf",
-  "unsupportedBindings": [],
+  "unsupportedBindings": [
+    {
+      "name": "WEB_COUNTER_AE",
+      "type": "analytics_engine",
+    },
+  ],
   "vars": {},
   "workerEntry": "./workers/app.ts",
 }
@@ -216,10 +217,6 @@ exports[`real-world wrangler config fixtures > sink (URL shortener with AI + Ana
       "name": "AI",
       "type": "ai",
     },
-    {
-      "name": "ANALYTICS",
-      "type": "analytics_engine",
-    },
   ],
   "buildCommand": "",
   "buildOutput": ".",
@@ -238,7 +235,12 @@ exports[`real-world wrangler config fixtures > sink (URL shortener with AI + Ana
   "releaseTimeout": 60,
   "source": "wrangler.jsonc",
   "target": "cf",
-  "unsupportedBindings": [],
+  "unsupportedBindings": [
+    {
+      "name": "ANALYTICS",
+      "type": "analytics_engine",
+    },
+  ],
   "vars": {},
   "workerEntry": ".output/server/index.mjs",
 }
@@ -343,12 +345,7 @@ exports[`real-world wrangler config fixtures > uptimeflare (Serverless uptime mo
 
 exports[`real-world wrangler config fixtures > worker-image (Image processing with Durable Objects (JSONC format)) > matches snapshot 1`] = `
 {
-  "bindings": [
-    {
-      "name": "PHOTON_CONTAINER",
-      "type": "durable_object",
-    },
-  ],
+  "bindings": [],
   "buildCommand": "",
   "buildOutput": ".",
   "compatibilityDate": "2025-06-24",
@@ -362,7 +359,12 @@ exports[`real-world wrangler config fixtures > worker-image (Image processing wi
   "releaseTimeout": 60,
   "source": "wrangler.jsonc",
   "target": "cf",
-  "unsupportedBindings": [],
+  "unsupportedBindings": [
+    {
+      "name": "PHOTON_CONTAINER",
+      "type": "durable_object",
+    },
+  ],
   "vars": {
     "WHITE_LIST": "miantiao.me,mt.ci",
   },
