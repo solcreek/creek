@@ -4,6 +4,12 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.49
+
+- Bundles [`@solcreek/cli@0.4.49`](../cli/CHANGELOG.md#0449): Next.js deploys
+  build with `@solcreek/adapter-creek@0.2.20`, so workers with non-Latin text
+  use half the source memory. Requires `@solcreek/sdk@0.4.21` (unchanged).
+
 ## 0.4.48
 
 - Bundles [`@solcreek/cli@0.4.48`](../cli/CHANGELOG.md#0448) and requires
