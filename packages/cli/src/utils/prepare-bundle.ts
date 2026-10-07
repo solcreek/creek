@@ -46,6 +46,7 @@ import {
   isSSRFramework,
   isPreBundledFramework,
   collectServerFiles,
+  isEntryModuleSelected,
   planDeploy,
   type BindingRequirement,
   type DeployPlan,
@@ -325,7 +326,7 @@ export async function prepareDeployBundle(
     } catch (err) {
       fail("invalid_build_output", (err as Error).message);
     }
-    if (!isDetectedMainModule(Object.keys(collected), vinext.mainModule)) {
+    if (!isEntryModuleSelected(Object.keys(collected), vinext.mainModule)) {
       fail(
         "invalid_build_output",
         `vinext worker entry ${vinext.mainModule} is missing from ${vinext.serverDir}, or another module would be picked as the entry`,
@@ -586,22 +587,6 @@ async function relativeImports(file: string): Promise<string[]> {
   return (input?.imports ?? [])
     .map((i) => i.path)
     .filter((p) => p.startsWith("./") || p.startsWith("../"));
-}
-
-// Main-module choice made by the deploy servers (deploy-core and the
-// control-plane's copy): the first of these names present, else the first
-// file. They do not read the manifest's entrypoint.
-const SERVER_MAIN_MODULE_NAMES = ["worker.js", "server.js", "index.js", "index.mjs"];
-
-/**
- * Whether the deploy servers will pick `mainModule` as the entry of a worker
- * made of `names` — a build output that names its own entry must not be
- * shadowed by another module the servers prefer.
- */
-export function isDetectedMainModule(names: string[], mainModule: string): boolean {
-  if (!names.includes(mainModule)) return false;
-  const picked = SERVER_MAIN_MODULE_NAMES.find((n) => names.includes(n)) ?? names[0];
-  return picked === mainModule;
 }
 
 /**

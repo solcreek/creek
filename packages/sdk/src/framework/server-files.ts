@@ -78,6 +78,22 @@ export function detectAstroCloudflareBuild(cwd: string): {
   return null;
 }
 
+// Names the deploy servers take as a worker's main module: deploy-core
+// (sandbox) and the control-plane's copy each pick the FIRST file, in
+// upload order, whose name is one of theirs, else the first file. They do
+// not read the manifest's entrypoint. deploy-core also knows `entry.mjs`.
+const MAIN_MODULE_NAMES = new Set(["worker.js", "server.js", "index.js", "index.mjs", "entry.mjs"]);
+
+/**
+ * Whether both deploy servers will take `mainModule` as the entry of a
+ * worker made of `names`, whatever order the files arrive in: it must be
+ * one of their main-module names and the only such name in the worker.
+ */
+export function isEntryModuleSelected(names: string[], mainModule: string): boolean {
+  if (!names.includes(mainModule) || !MAIN_MODULE_NAMES.has(mainModule)) return false;
+  return names.every((n) => n === mainModule || !MAIN_MODULE_NAMES.has(n));
+}
+
 // Files to skip when collecting server output
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 

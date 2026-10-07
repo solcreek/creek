@@ -25,7 +25,6 @@ import {
   packageScriptName,
   collectWorkerModules,
   mergeFrameworkBindings,
-  isDetectedMainModule,
 } from "./prepare-bundle.js";
 import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
@@ -759,19 +758,5 @@ describe("mergeFrameworkBindings", () => {
   test("no framework output → unchanged", () => {
     const base = [{ type: "kv" as const, bindingName: "CACHE" }];
     expect(mergeFrameworkBindings(base, null)).toBe(base);
-  });
-});
-
-describe("isDetectedMainModule", () => {
-  test("index.js among chunks is picked", () => {
-    expect(isDetectedMainModule(["_next/a.js", "index.js", "ssr/index.js"], "index.js")).toBe(true);
-  });
-
-  test("a preferred name elsewhere in the bundle would shadow the entry", () => {
-    expect(isDetectedMainModule(["index.js", "worker.js"], "index.js")).toBe(false);
-  });
-
-  test("entry missing", () => {
-    expect(isDetectedMainModule(["ssr/index.js"], "index.js")).toBe(false);
   });
 });
