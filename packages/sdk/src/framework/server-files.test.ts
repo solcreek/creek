@@ -259,6 +259,10 @@ describe("isEntryModuleSelected", () => {
     expect(isEntryModuleSelected(["worker.js", "index.js"], "index.js")).toBe(false);
   });
 
+  test("entry.mjs alone is not enough: the control-plane doesn't know the name", () => {
+    expect(isEntryModuleSelected(["chunks/a.js", "entry.mjs"], "entry.mjs")).toBe(false);
+  });
+
   test("an entry the servers don't recognise by name is not selected", () => {
     expect(isEntryModuleSelected(["custom.js", "chunk.js"], "custom.js")).toBe(false);
   });
