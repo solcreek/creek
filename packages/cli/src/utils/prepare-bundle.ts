@@ -31,8 +31,6 @@ import { build as esbuild } from "esbuild";
 import { execSync } from "node:child_process";
 import consola from "consola";
 import {
-  applyAssetsIgnore,
-  ASSETS_IGNORE_FILE,
   detectFramework,
   detectAstroCloudflareBuild,
   detectVinextBuild,
@@ -297,17 +295,11 @@ export async function prepareDeployBundle(
         if (subdir) clientAssetsDir = resolve(clientAssetsDir, subdir);
       }
     }
+    // collectAssets honours the dir's `.assetsignore`, where build tools
+    // list their metadata (vinext: `.vite/manifest.json`).
     const collected = collectAssets(clientAssetsDir);
-    // Honour the assets dir's `.assetsignore`, as Wrangler does — build
-    // tools list their metadata there (vinext: `.vite/manifest.json`).
-    const ignorePath = join(clientAssetsDir, ASSETS_IGNORE_FILE);
-    const kept = applyAssetsIgnore(
-      existsSync(ignorePath) ? readFileSync(ignorePath, "utf-8") : null,
-      collected.assets,
-      collected.fileList,
-    );
-    clientAssets = kept.assets;
-    fileList = kept.fileList;
+    clientAssets = collected.assets;
+    fileList = collected.fileList;
   }
 
   // 7. Bundle server / worker. Five strategies, dispatched by either

@@ -15,6 +15,29 @@ afterEach(() => {
 });
 
 describe("collectAssets", () => {
+  // The collector behind both framework builds and `creek deploy <dir>`
+  // (deployDirectory), so exclusions apply to every upload.
+  test("honours .assetsignore at the root, and never uploads the file itself", () => {
+    mkdirSync(join(tmpDir, "private", "nested"), { recursive: true });
+    writeFileSync(join(tmpDir, ".assetsignore"), "private/\n!*.json\n");
+    writeFileSync(join(tmpDir, "index.html"), "root");
+    writeFileSync(join(tmpDir, "public.json"), "{}");
+    writeFileSync(join(tmpDir, "private", "data.json"), "{}");
+    writeFileSync(join(tmpDir, "private", "nested", "data.json"), "{}");
+
+    const result = collectAssets(tmpDir);
+    expect(result.fileList.sort()).toEqual(["index.html", "public.json"]);
+    expect(Object.keys(result.assets).sort()).toEqual(["index.html", "public.json"]);
+  });
+
+  test("an .assetsignore below the root is an ordinary file", () => {
+    mkdirSync(join(tmpDir, "sub"), { recursive: true });
+    writeFileSync(join(tmpDir, "sub", ".assetsignore"), "*\n");
+    writeFileSync(join(tmpDir, "sub", "a.js"), "x");
+
+    expect(collectAssets(tmpDir).fileList).toContain(join("sub", "a.js"));
+  });
+
   test("collects flat files", () => {
     writeFileSync(join(tmpDir, "index.html"), "<h1>hi</h1>");
     writeFileSync(join(tmpDir, "style.css"), "body {}");
