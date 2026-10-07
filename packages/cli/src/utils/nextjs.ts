@@ -269,7 +269,7 @@ export const ADAPTER_PKG = "@solcreek/adapter-creek";
 // `^0.2.2`, `npm install` would keep an already-locked 0.2.16 (it satisfies the
 // range), so bumping only the floor would loop into the legacy fallback. Pin the
 // floor here too so the refresh fetches the fixed build.
-export const ADAPTER_VERSION = "^0.2.19";
+export const ADAPTER_VERSION = "^0.2.20";
 // Zero-change Prisma-on-D1: the adapter's build-time swap imports
 // @prisma/adapter-d1 (an optional peer it doesn't ship), installed on demand.
 const PRISMA_D1_PKG = "@prisma/adapter-d1";
@@ -297,10 +297,14 @@ const PRISMA_D1_PKG = "@prisma/adapter-d1";
 //   0.2.19 — size guard checks Cloudflare's 64 MiB uncompressed limit. Up to
 //            0.2.18 it measured gzip against the retired 3 MB / 10 MB limits,
 //            so it failed builds past 10 MB gzipped that now upload fine.
+//   0.2.20 — worker.js stays one byte per character in V8. Up to 0.2.19 one
+//            character above U+00FF (CJK in a regex literal survives minify)
+//            made V8 hold the whole source two bytes per character: a 33 MB
+//            worker took 66 MB of the 128 MB isolate before serving a request.
 // Kept at the latest because the reinstall cost is trivial and a cached copy
 // in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
 // Exported (with ADAPTER_VERSION/ADAPTER_PKG) for the lockstep invariant test.
-export const ADAPTER_MIN_VERSION = "0.2.19";
+export const ADAPTER_MIN_VERSION = "0.2.20";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
