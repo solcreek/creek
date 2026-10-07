@@ -82,8 +82,8 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   // objects, and such a bucket is not deleted at all, later or otherwise.
   const deletionEffect =
     kind === "storage"
-      ? "the bucket is deleted within minutes if it is empty. A bucket that still holds objects is not deleted and stays, objects included: empty it before deleting it."
-      : "the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.";
+      ? "the bucket is deleted, normally within minutes, if it is empty. A bucket that still holds objects is not deleted and stays, objects included: empty it before deleting it."
+      : "the Cloudflare resource and all its data are permanently deleted, normally within minutes (a failed attempt is retried). This cannot be undone.";
   const cmdName = kind === "database" ? "db" : kind === "cache" ? "cache" : kind;
 
   const ls = defineCommand({

@@ -440,7 +440,7 @@ describe("creek db delete --dry-run", () => {
       name: "mydb",
     });
     expect(json().sideEffects).toContain(
-      'Delete team database "mydb": the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.',
+      'Delete team database "mydb": the Cloudflare resource and all its data are permanently deleted, normally within minutes (a failed attempt is retried). This cannot be undone.',
     );
   });
 
@@ -524,7 +524,7 @@ describe("creek storage delete --dry-run", () => {
 
     expect(code).toBe(0);
     const [effect] = json().sideEffects as string[];
-    expect(effect).toContain("deleted within minutes if it is empty");
+    expect(effect).toContain("deleted, normally within minutes, if it is empty");
     expect(effect).toContain("still holds objects is not deleted");
     expect(effect).toContain("empty it before deleting it");
     expect(effect).not.toContain("all its data are permanently deleted");
