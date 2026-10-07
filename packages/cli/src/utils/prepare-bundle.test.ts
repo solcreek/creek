@@ -1,17 +1,19 @@
 /**
  * Integration tests for prepareDeployBundle.
  *
- * Strategy: build temp project fixtures on disk (no mocks) and assert
+ * Strategy: build temp project fixtures on disk and assert
  * the prepared bundle's shape — render mode, asset list, server file
  * presence, exclusion behavior. This catches the orchestration bugs
  * that pure planDeploy unit tests miss (e.g. forgetting to filter
  * dist/_worker.mjs out of clientAssets, or letting framework
  * detection drift between the two deploy paths).
  *
- * To stay fast, we never invoke the real build script — every fixture
- * runs with `skipBuild: true` and pre-staged build output. esbuild
- * IS run for real on the worker fixture (cheap, ~50ms), so we exercise
- * the actual bundleWorker path.
+ * To stay fast, fixtures use pre-staged build output. Most run with
+ * `skipBuild: true`; tests of the build step itself run with a trivial
+ * command (`true`) or a missing build script, and `buildNextjs` is
+ * mocked, since a real `next build` can't run here. esbuild IS run for
+ * real on the worker fixture (cheap, ~50ms), so we exercise the actual
+ * bundleWorker path.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
