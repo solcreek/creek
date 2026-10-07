@@ -7,7 +7,8 @@
  * Supports the gitignore subset these files use in practice: comments,
  * `!` negation (last match wins), `*` / `**` / `?` globs, a trailing `/`
  * for directories, and anchoring by a leading or inner `/`. A pattern that
- * matches a directory excludes everything under it. The file itself is
+ * matches a directory excludes everything under it, and a negation cannot
+ * re-include a file inside an excluded directory. The file itself is
  * never uploaded.
  */
 
@@ -40,24 +41,26 @@ export function parseAssetsIgnore(content: string): (relPath: string) => boolean
     });
   }
 
+  // Last matching rule wins: true = ignored, false = re-included, null = no match.
+  const decide = (path: string, isDir: boolean): boolean | null => {
+    let state: boolean | null = null;
+    for (const rule of rules) {
+      if (rule.dirOnly && !isDir) continue;
+      if (rule.regex.test(path)) state = !rule.negate;
+    }
+    return state;
+  };
+
   return (relPath: string) => {
     const path = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
     if (path === ASSETS_IGNORE_FILE) return true;
-    // Test the file and each ancestor directory: ignoring a directory
-    // ignores its contents.
+    // As in gitignore, a file under an ignored directory stays ignored —
+    // a negation can re-include the directory, but not a file inside it.
     const segments = path.split("/");
-    let ignored = false;
-    for (const rule of rules) {
-      for (let i = 1; i <= segments.length; i++) {
-        const isDir = i < segments.length;
-        if (rule.dirOnly && !isDir) continue;
-        if (rule.regex.test(segments.slice(0, i).join("/"))) {
-          ignored = !rule.negate;
-          break;
-        }
-      }
+    for (let i = 1; i < segments.length; i++) {
+      if (decide(segments.slice(0, i).join("/"), true) === true) return true;
     }
-    return ignored;
+    return decide(path, false) === true;
   };
 }
 

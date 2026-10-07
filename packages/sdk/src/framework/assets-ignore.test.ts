@@ -54,6 +54,18 @@ describe("parseAssetsIgnore", () => {
     expect(ignored("keep.json")).toBe(false);
   });
 
+  test("a file negation can't re-include a file under an ignored directory", () => {
+    const ignored = parseAssetsIgnore("private/\n!*.json\n");
+    expect(ignored("private/data.json")).toBe(true);
+    expect(ignored("private/nested/data.json")).toBe(true);
+    expect(ignored("public.json")).toBe(false);
+  });
+
+  test("re-including the directory itself re-includes its files", () => {
+    const ignored = parseAssetsIgnore("private/\n!private/\n");
+    expect(ignored("private/data.json")).toBe(false);
+  });
+
   test("comments and blank lines are ignored; regex metacharacters are literal", () => {
     const ignored = parseAssetsIgnore("# comment\n\nfile(1).txt\n");
     expect(ignored("file(1).txt")).toBe(true);
