@@ -1,5 +1,60 @@
 # @solcreek/cli
 
+## 0.4.47
+
+Requires `@solcreek/sdk@0.4.20` (`collectMigrations`, `splitSqlStatements`,
+`[release] migrations`). Publish the SDK tag `sdk@0.4.20` before `cli@0.4.47` /
+`creek@0.4.47`.
+
+### Release migrations
+
+- **`[release] migrations = true` ships migrations with production deploys.**
+  `creek deploy` includes the project's migrations in the bundle and warns when
+  none are found, listing every directory it checked. It also warns that
+  `[release] command` does not run on Cloudflare deploys. With migrations on,
+  the pending-migration check runs after the deploy settles, so it reports what
+  is still pending rather than what the deploy applies.
+- **An unreadable migration stops the deploy** before the project or deployment
+  is created, exiting with `migration_unreadable` and naming the file.
+- **Migration deploys skip the build cache**, whose hit would deploy without
+  the job that applies migrations.
+
+### Migrations and SQL
+
+- **`db/migrations` is detected** by `creek db migrate`, the sandbox's
+  migration seeding, and deploy's drift check. It is checked after
+  `migrations/`, so a project with both keeps using `migrations/`.
+- **Semicolons inside comments and strings no longer split statements** in
+  `creek db migrate`, `creek db seed`, and sandbox seeding; a `;` in a comment
+  or string literal used to send D1 broken fragments ("No SQL statements
+  detected"). Drizzle's statement-breakpoint files are unaffected.
+
+### JSON output (`--json`, or any non-TTY stdout)
+
+- **`creek deploy` keeps its JSON result alone on stdout.** The Terms notice,
+  other log output, the build's own output, npm's script banner and child
+  processes' output now go to stderr. This also replaces the creekd path's
+  stdio pipe, which could fail a large build with `ENOBUFS`.
+- **An unhandled error answers with JSON**: `{ ok: false, error:
+  "internal_error", message }` on stdout, exit 1, with the error still logged
+  to stderr.
+- **`creek deploy --template` reports results and failures as JSON** (invalid
+  template name, template not found, invalid `--data`, dependency install), and
+  removes the cloned template when the process exits.
+
+### Templates
+
+- **Template deploys run the template's build.** The template was deployed
+  without its resolved config, so nothing was built and every template deploy
+  failed with "nothing to deploy: build output dist not found".
+
+### Next.js
+
+- **Requires `@solcreek/adapter-creek` >= 0.2.19**; an older cached or pinned
+  copy is reinstalled. Its size guard now checks Cloudflare's current limit, 64
+  MiB uncompressed. Up to 0.2.18 it measured gzip against the retired 3 MB /
+  10 MB limits, so it failed builds past 10 MB gzipped that now upload fine.
+
 ## 0.4.46
 
 Requires `@solcreek/sdk@0.4.19` (`planDeploy` for pre-bundled workers,

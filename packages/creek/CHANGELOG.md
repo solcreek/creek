@@ -4,6 +4,16 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.47
+
+- Bundles [`@solcreek/cli@0.4.47`](../cli/CHANGELOG.md#0447) and requires
+  [`@solcreek/sdk@0.4.20`](../sdk/CHANGELOG.md#0420): `[release] migrations`
+  ships migrations with production deploys, `db/migrations` detection, a SQL
+  splitter that ignores semicolons in comments and strings, `--json` output that
+  keeps stdout to the result alone, working template deploys, and the Next.js
+  adapter floor raised to 0.2.19 (size guard on the 64 MiB uncompressed limit).
+  Publish `sdk@0.4.20` before `cli@0.4.47` / `creek@0.4.47`.
+
 ## 0.4.46
 
 - Bundles [`@solcreek/cli@0.4.46`](../cli/CHANGELOG.md#0446) and requires
