@@ -182,19 +182,25 @@ export async function ensureProjectBindings(
     // `creek storage attach --as DB`), and blindly adopting it would silently
     // bind DATABASE to an R2/KV. On a type mismatch, fall through to auto-create.
     if (aliasBinding && aliasBinding.cfResourceId && aliasCfType === req.type) {
-      await env.DB.prepare(
+      // Bind only while the resource is still live, in one statement: the
+      // alias could be detached and the resource deleted (its Cloudflare
+      // resource queued for teardown) since it was read above. If so, fall
+      // through to creating a fresh resource rather than binding the old one.
+      const adopted = await env.DB.prepare(
         `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)
+         SELECT ?, ?, id, ? FROM resource WHERE id = ? AND status != 'deleted'
          ON CONFLICT(projectId, bindingName) DO UPDATE SET resourceId = excluded.resourceId`,
       )
-        .bind(projectId, req.bindingName, aliasBinding.resourceId, Date.now())
+        .bind(projectId, req.bindingName, Date.now(), aliasBinding.resourceId)
         .run();
-      result.set(req.bindingName, {
-        bindingName: req.bindingName,
-        cfResourceId: aliasBinding.cfResourceId,
-        cfType: aliasCfType,
-      });
-      continue;
+      if (adopted.meta.changes) {
+        result.set(req.bindingName, {
+          bindingName: req.bindingName,
+          cfResourceId: aliasBinding.cfResourceId,
+          cfType: aliasCfType,
+        });
+        continue;
+      }
     }
 
     // No binding exists — auto-create resource + binding

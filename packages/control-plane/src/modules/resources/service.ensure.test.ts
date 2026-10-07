@@ -35,7 +35,7 @@ function envWithBindings(rows: Row[]): any {
             return {
               all: async () => ({ results: rows }),
               first: async () => rows[0] ?? null,
-              run: async () => ({}),
+              run: async () => ({ meta: { changes: 1 } }),
             };
           },
         };

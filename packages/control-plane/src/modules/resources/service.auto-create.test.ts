@@ -46,6 +46,55 @@ function failBatches() {
     ])) as typeof env.DB.batch;
 }
 
+describe("ensureProjectBindings — alias adoption", () => {
+  function seedAlias() {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('res-alias', '${TEST_TEAM.id}', 'database', 'old-db', 'old-d1-id', 'd1', 'active', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+       VALUES ('proj-app', 'DB', 'res-alias', ${now})`,
+    );
+  }
+
+  test("binds the resource already bound under the deprecated alias", async () => {
+    seedAlias();
+
+    const result = await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    expect(result.get("DATABASE")?.cfResourceId).toBe("old-d1-id");
+  });
+
+  test("never binds the alias's resource once it has been deleted under the deploy", async () => {
+    seedAlias();
+    // Between reading the alias and binding it, the alias is detached and the
+    // resource deleted (its Cloudflare database queued for teardown).
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const prepare = env.DB.prepare.bind(env.DB);
+    env.DB.prepare = ((sql: string) => {
+      if (sql.includes("INSERT INTO project_resource_binding") && sql.includes("ON CONFLICT")) {
+        testEnv.db.db.exec("DELETE FROM project_resource_binding WHERE resourceId = 'res-alias'");
+        testEnv.db.db.exec("UPDATE resource SET status = 'deleted' WHERE id = 'res-alias'");
+      }
+      return prepare(sql);
+    }) as typeof env.DB.prepare;
+
+    const result = await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    // A fresh database instead of the one being torn down.
+    expect(result.get("DATABASE")?.cfResourceId).toBe("new-d1-id");
+    expect(
+      count("SELECT COUNT(*) AS n FROM project_resource_binding WHERE resourceId = 'res-alias'"),
+    ).toBe(0);
+  });
+});
+
 describe("ensureProjectBindings — auto-created resource", () => {
   test("creates the resource and its binding", async () => {
     await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
