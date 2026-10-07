@@ -24,6 +24,16 @@ describe("createLocalTestEnv", () => {
     expect(tables).toContain("session");
   });
 
+  it("creates the audit tables from migrations with production's column types", async () => {
+    // recordAudit writes Date.now() (epoch ms), and production stores
+    // createdAt as INTEGER. The migration is the only source of these tables.
+    for (const table of ["audit_log", "audit_ip_log"]) {
+      const cols = ((await testEnv.env.DB.prepare(`PRAGMA table_info(${table})`).all()) as any)
+        .results as Array<{ name: string; type: string }>;
+      expect(cols.find((c) => c.name === "createdAt")?.type).toBe("INTEGER");
+    }
+  });
+
   it("D1 adapter: insert + query round-trip", async () => {
     await testEnv.env.DB.prepare(
       "INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
