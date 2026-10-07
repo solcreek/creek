@@ -146,6 +146,21 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["refused:failed", "fine:done"]);
   });
 
+  it("a 2xx that reports success: false is a failure, not done", async () => {
+    names = { soft: "creek-soft0000" };
+    queue("d1", "soft", "creek-soft0000");
+    respond = () =>
+      HttpResponse.json({
+        success: false,
+        errors: [{ code: 7500, message: "busy" }],
+        result: null,
+      });
+
+    expect(await processResourceCleanupQueue(testEnv.env)).toBe(0);
+
+    expect(statuses()).toEqual(["soft:failed"]);
+  });
+
   it("overlapping runs delete each resource once", async () => {
     names = { "d1-a": "creek-aaaa0000", "d1-b": "creek-bbbb0000" };
     queue("d1", "d1-a", "creek-aaaa0000");

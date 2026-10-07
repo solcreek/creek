@@ -5,8 +5,8 @@ import type { Env } from "../../types.js";
  * and KV from `DELETE /resources/:id`, custom hostnames from a project
  * deletion. Runs from the scheduled handler, a bounded batch per tick.
  *
- * A row is `done` only when Cloudflare confirms the delete, or answers 404
- * (already gone). Any other answer marks it `failed` and logs why, so a
+ * A row is `done` only when Cloudflare confirms the delete (a 2xx whose
+ * envelope doesn't say `success: false`), or answers 404 (already gone). Any other answer marks it `failed` and logs why, so a
  * resource that is still there is never recorded as cleaned up.
  *
  * D1, R2 and KV rows carry in cfResourceName the name Creek gave the
@@ -61,9 +61,16 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
           method: "DELETE",
           headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
         });
-        if (!res.ok && res.status !== 404) {
+        if (res.status !== 404) {
+          // Cloudflare can report a failure in a 2xx envelope too.
           const body = await res.text().catch(() => "");
-          throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+          let refused = !res.ok;
+          try {
+            refused ||= (JSON.parse(body) as { success?: unknown }).success === false;
+          } catch {
+            // Not JSON: the status decides.
+          }
+          if (refused) throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
         }
       }
 
