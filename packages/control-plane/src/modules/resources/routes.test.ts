@@ -6,6 +6,7 @@ import {
   type LocalTestEnv,
 } from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
+import { processResourceCleanupQueue } from "./cleanup-queue.js";
 
 let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
@@ -188,6 +189,8 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(queued[0]).toMatchObject({
       resourceType: "d1",
       cfResourceId: "d1-uuid",
+      // The name Creek gives what it provisions, checked before deleting.
+      cfResourceName: "creek-res-d1",
       status: "pending",
       reason: "resource_deleted",
     });
@@ -206,7 +209,7 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect((await req("DELETE", "/resources/res-r2")).status).toBe(200);
 
     expect(cleanupRows()).toMatchObject([
-      { resourceType: "r2", cfResourceId: "creek-bucket-1", cfResourceName: "creek-bucket-1" },
+      { resourceType: "r2", cfResourceId: "creek-bucket-1", cfResourceName: "creek-res-r2" },
     ]);
   });
 
@@ -239,6 +242,45 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
       status: string;
     };
     expect(row.status).toBe("active");
+  });
+
+  test("nothing is queued while another live row uses the same Cloudflare resource", async () => {
+    seedResource("res-one", { kind: "database", cfResourceId: "shared-d1", cfResourceType: "d1" });
+    seedResource("res-two", { kind: "database", cfResourceId: "shared-d1", cfResourceType: "d1" });
+
+    expect((await req("DELETE", "/resources/res-one")).status).toBe(200);
+
+    expect(cleanupRows()).toEqual([]);
+  });
+
+  test("adopting another resource's Cloudflare ID and deleting it never deletes that resource", async () => {
+    // POST /resources accepts a caller-supplied cfResourceId. Point one at a
+    // database Creek provisioned for someone else, then delete the new row.
+    const created = await req("POST", "/resources", {
+      kind: "database",
+      name: "adopted",
+      cfResourceId: "victim-d1-uuid",
+    });
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    expect((await req("DELETE", `/resources/${id}`)).status).toBe(200);
+
+    // Queued under the adopting row's own expected name, not the victim's.
+    const [queued] = cleanupRows();
+    expect(queued.cfResourceName).toBe(`creek-${id.slice(0, 8)}`);
+
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      // Cloudflare reports the victim database under its own creek- name.
+      return Response.json({ success: true, result: { name: "creek-victim00" }, errors: [] });
+    }) as typeof fetch;
+    testEnv.env.CLOUDFLARE_ACCOUNT_ID = "acc";
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(calls.filter((c) => c.startsWith("DELETE"))).toEqual([]);
+    expect(cleanupRows()[0].status).toBe("failed");
   });
 
   test("a resource that was never provisioned has nothing to tear down", async () => {

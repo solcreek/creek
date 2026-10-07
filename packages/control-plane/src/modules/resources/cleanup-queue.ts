@@ -8,6 +8,11 @@ import type { Env } from "../../types.js";
  * A row is `done` only when Cloudflare confirms the delete, or answers 404
  * (already gone). Any other answer marks it `failed` and logs why, so a
  * resource that is still there is never recorded as cleaned up.
+ *
+ * D1, R2 and KV rows carry in cfResourceName the name Creek gave the
+ * resource when it provisioned it. The resource is deleted only if it still
+ * has that name: a resource row's cfResourceId can be caller-supplied, and
+ * this keeps such an ID from deleting a resource Creek didn't create for it.
  */
 export async function processResourceCleanupQueue(env: Env): Promise<number> {
   const pending = await env.DB.prepare(
@@ -30,6 +35,19 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
       .run();
 
     try {
+      const owned = await isCreekProvisioned(env, row);
+      if (owned === "gone") {
+        await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?")
+          .bind(row.id)
+          .run();
+        cleaned++;
+        continue;
+      }
+      if (!owned) {
+        throw new Error(
+          `refusing to delete: it is not the resource Creek provisioned as ${row.cfResourceName}`,
+        );
+      }
       const url = cleanupUrl(env, row);
       if (url) {
         const res = await fetch(url, {
@@ -58,6 +76,42 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
   }
 
   return cleaned;
+}
+
+/**
+ * Whether the queued D1/R2/KV resource is still the one Creek provisioned
+ * under the expected name: true, false, or "gone" when Cloudflare no longer
+ * has it. Other row types are not checked.
+ */
+async function isCreekProvisioned(
+  env: Env,
+  row: { resourceType: string; cfResourceId: string; cfResourceName: string },
+): Promise<boolean | "gone"> {
+  const account = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
+  let url: string;
+  let nameField: "name" | "title";
+  switch (row.resourceType) {
+    case "r2":
+      // The bucket's ID is its name.
+      return row.cfResourceId === row.cfResourceName;
+    case "d1":
+      url = `${account}/d1/database/${row.cfResourceId}`;
+      nameField = "name";
+      break;
+    case "kv":
+      url = `${account}/storage/kv/namespaces/${row.cfResourceId}`;
+      nameField = "title";
+      break;
+    default:
+      return true;
+  }
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
+  });
+  if (res.status === 404) return "gone";
+  if (!res.ok) throw new Error(`lookup HTTP ${res.status}`);
+  const body = (await res.json()) as { result?: Record<string, unknown> };
+  return body.result?.[nameField] === row.cfResourceName;
 }
 
 /** The Cloudflare API URL that deletes a queued resource, or null when there is none. */

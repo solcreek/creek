@@ -220,20 +220,31 @@ resources.delete("/:id", requirePermission("project:create"), async (c) => {
   // scheduled cleanup deletes it on its next run; the data is not
   // recoverable after that. Both statements match the same live row, so a
   // missing or already-deleted resource queues nothing.
+  //
+  // cfResourceId can come from the caller (POST /resources accepts one), so
+  // it is not proof the resource is this team's. The queue records the name
+  // Creek gives every resource it provisions, `creek-<first 8 of id>`, and
+  // the cleanup deletes only a resource that still carries it. Nothing is
+  // queued while another live row points at the same Cloudflare resource.
   const now = Date.now();
   const [, res] = await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
-       SELECT type, cfResourceId, cfResourceId, 'pending', 'resource_deleted', ?
+       SELECT type, cfResourceId, 'creek-' || substr(id, 1, 8), 'pending', 'resource_deleted', ?
        FROM (
          -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
          SELECT cfResourceId, status, id, teamId,
                 COALESCE(cfResourceType, CASE kind WHEN 'database' THEN 'd1'
                   WHEN 'storage' THEN 'r2' WHEN 'cache' THEN 'kv' END) AS type
          FROM resource
-       )
+       ) r
        WHERE id = ? AND teamId = ? AND status != 'deleted'
-         AND cfResourceId IS NOT NULL AND type IN ('d1', 'r2', 'kv')`,
+         AND cfResourceId IS NOT NULL AND type IN ('d1', 'r2', 'kv')
+         AND NOT EXISTS (
+           SELECT 1 FROM resource other
+           WHERE other.cfResourceId = r.cfResourceId AND other.id != r.id
+             AND other.status != 'deleted'
+         )`,
     ).bind(Math.floor(now / 1000), id, teamId),
     c.env.DB.prepare(
       `UPDATE resource SET status = 'deleted', updatedAt = ? WHERE id = ? AND teamId = ? AND status != 'deleted'`,
