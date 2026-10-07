@@ -20,6 +20,16 @@ pnpm vitest run packages/sdk/src/config/resolved-config.test.ts
 pnpm --filter @solcreek/sdk build
 ```
 
+### Nix (optional, pinned toolchain)
+
+```bash
+nix develop                     # shell with Node 24, pnpm 10.6.5 (via corepack), Bun, node-gyp tools
+nix run .#verify                # the CI gate: install → format → build → test → typecheck
+nix run .#verify -- test        # only the named steps; the last output line names a failed step
+```
+
+`nix/toolchain.nix` is the single tool list shared by the dev shell and `verify`. npm deps stay in `pnpm-lock.yaml`, not Nix. Keep `nix/verify.sh` in sync with `.github/workflows/test.yml`. New files are invisible to the flake until `git add`ed.
+
 Tests live alongside source as `*.test.ts` files. Type-level tests use `*.test-d.ts`. Vitest globals are enabled (no imports needed for `describe`, `it`, `expect`).
 
 ## Monorepo Structure
