@@ -146,6 +146,23 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["refused:failed", "fine:done"]);
   });
 
+  it("overlapping runs delete each resource once", async () => {
+    names = { "d1-a": "creek-aaaa0000", "d1-b": "creek-bbbb0000" };
+    queue("d1", "d1-a", "creek-aaaa0000");
+    queue("d1", "d1-b", "creek-bbbb0000");
+
+    // Two scheduled runs that both read the queue before either claims a row.
+    const [first, second] = await Promise.all([
+      processResourceCleanupQueue(testEnv.env),
+      processResourceCleanupQueue(testEnv.env),
+    ]);
+
+    expect(deletes.filter((p) => p.endsWith("/d1-a"))).toHaveLength(1);
+    expect(deletes.filter((p) => p.endsWith("/d1-b"))).toHaveLength(1);
+    expect(first + second).toBe(2);
+    expect(statuses()).toEqual(["d1-a:done", "d1-b:done"]);
+  });
+
   it("a custom hostname with no zone configured needs no API call", async () => {
     queue("custom_hostname", "cfh-1", "app.example.com");
     testEnv.env.CLOUDFLARE_ZONE_ID = undefined as unknown as string;

@@ -30,14 +30,21 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
   let cleaned = 0;
 
   for (const row of pending.results) {
-    await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'cleaning' WHERE id = ?")
+    // Claim the row. Overlapping runs can select the same pending row; only
+    // the one whose claim changes it goes on to delete.
+    const claim = await env.DB.prepare(
+      "UPDATE resource_cleanup_queue SET status = 'cleaning' WHERE id = ? AND status = 'pending'",
+    )
       .bind(row.id)
       .run();
+    if (!claim.meta.changes) continue;
 
     try {
       const owned = await isCreekProvisioned(env, row);
       if (owned === "gone") {
-        await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?")
+        await env.DB.prepare(
+          "UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ? AND status = 'cleaning'",
+        )
           .bind(row.id)
           .run();
         cleaned++;
@@ -60,7 +67,9 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
         }
       }
 
-      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?")
+      await env.DB.prepare(
+        "UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ? AND status = 'cleaning'",
+      )
         .bind(row.id)
         .run();
       cleaned++;
@@ -69,7 +78,9 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
         `[cleanup] ${row.resourceType} ${row.cfResourceId} failed:`,
         err instanceof Error ? err.message : err,
       );
-      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'failed' WHERE id = ?")
+      await env.DB.prepare(
+        "UPDATE resource_cleanup_queue SET status = 'failed' WHERE id = ? AND status = 'cleaning'",
+      )
         .bind(row.id)
         .run();
     }
