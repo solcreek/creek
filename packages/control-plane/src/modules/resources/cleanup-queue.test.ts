@@ -265,6 +265,25 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["soft:pending"]);
   });
 
+  it("a lookup that answers 2xx with success: false is retried, not refused for good", async () => {
+    queue("d1", "flaky-lookup", "creek-flaky000");
+    server.use(
+      http.get("https://api.cloudflare.com/client/v4/accounts/:acc/d1/database/:id", () =>
+        HttpResponse.json({
+          success: false,
+          errors: [{ code: 7500, message: "busy" }],
+          result: null,
+        }),
+      ),
+    );
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(deletes).toEqual([]);
+    expect(row("flaky-lookup").status).toBe("pending");
+    expect(row("flaky-lookup").attempts).toBe(1);
+  });
+
   it("overlapping runs delete each resource once", async () => {
     names = { "d1-a": "creek-aaaa0000", "d1-b": "creek-bbbb0000" };
     queue("d1", "d1-a", "creek-aaaa0000");

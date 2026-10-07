@@ -182,8 +182,16 @@ async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "g
   });
   if (res.status === 404) return "gone";
   if (!res.ok) throw new Error(`lookup HTTP ${res.status}`);
-  const body = (await res.json()) as { result?: Record<string, unknown> };
-  return body.result?.[nameField] === row.cfResourceName;
+  const body = (await res.json()) as {
+    success?: boolean;
+    result?: Record<string, unknown>;
+  };
+  // A 2xx can still carry a failed envelope. That's an API error to retry,
+  // not evidence the resource has another name.
+  if (body.success === false || !body.result) {
+    throw new Error(`lookup failed: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return body.result[nameField] === row.cfResourceName;
 }
 
 /** The Cloudflare API URL that deletes a queued resource, or null when there is none. */
