@@ -10,6 +10,7 @@ import {
   ensurePrismaD1,
   hasAdapterOutput,
   readAdapterCompat,
+  readAdapterEntrypoint,
   resolveAdapterPath,
   semverGte,
 } from "./nextjs";
@@ -208,5 +209,35 @@ describe("adapter version constants stay in lockstep", () => {
     // The lowest version ADAPTER_VERSION can resolve to is its own floor.
     const rangeFloor = ADAPTER_VERSION.replace(/^[\^~]/, "");
     expect(semverGte(rangeFloor, ADAPTER_MIN_VERSION)).toBe(true);
+  });
+});
+
+describe("readAdapterEntrypoint", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "creek-adapter-entry-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  function writeManifest(raw: string): void {
+    mkdirSync(join(cwd, ".creek/adapter-output"), { recursive: true });
+    writeFileSync(join(cwd, ".creek/adapter-output/manifest.json"), raw);
+  }
+
+  it("reads the entry the adapter recorded (adapter 0.2.19 writes worker.js)", () => {
+    writeManifest(JSON.stringify({ entrypoint: "worker.js", serverFiles: ["worker.js"] }));
+    expect(readAdapterEntrypoint(cwd)).toBe("worker.js");
+  });
+
+  it("returns null without a manifest, when it is unreadable, or names no entry", () => {
+    expect(readAdapterEntrypoint(cwd)).toBeNull();
+    writeManifest("{not json");
+    expect(readAdapterEntrypoint(cwd)).toBeNull();
+    writeManifest(JSON.stringify({ entrypoint: "" }));
+    expect(readAdapterEntrypoint(cwd)).toBeNull();
+    writeManifest(JSON.stringify({ entrypoint: 7 }));
+    expect(readAdapterEntrypoint(cwd)).toBeNull();
   });
 });

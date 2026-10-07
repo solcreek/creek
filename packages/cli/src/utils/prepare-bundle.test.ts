@@ -404,6 +404,45 @@ describe("prepareDeployBundle", () => {
     expect(result.mainModule).toBeNull();
   });
 
+  test("Next.js adapter output — declares the entry the adapter recorded", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({
+        entrypoint: "worker.js",
+        serverFiles: ["worker.js"],
+      }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "nextjs", buildOutput: ".creek/adapter-output" }),
+      skipBuild: true,
+    });
+
+    expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
+    expect(result.mainModule).toBe("worker.js");
+  });
+
+  test("Next.js adapter output naming a file it didn't emit — leaves the servers to guess", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "server.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "nextjs", buildOutput: ".creek/adapter-output" }),
+      skipBuild: true,
+    });
+
+    expect(result.serverFiles).toBeDefined();
+    expect(result.mainModule).toBeNull();
+  });
+
   test("framework auto-detection from package.json — no resolved.framework", async () => {
     writeFixture({
       "package.json": JSON.stringify({
@@ -723,6 +762,23 @@ describe("prepareDeployBundle — vinext Build Output", () => {
     expect(result.fileList).not.toContain(".vite/manifest.json");
     expect(result.fileList).not.toContain(".assetsignore");
     expect(result.assets[".vite/manifest.json"]).toBeUndefined();
+  });
+
+  test("a module named like a guessed entry beside index.js deploys: the entry is declared", async () => {
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd);
+    writeFixture({
+      ".cloudflare/output/v0/workers/default/bundle/worker.js": "export default {};",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig(VINEXT_CONFIG),
+      skipBuild: true,
+    });
+
+    expect(Object.keys(result.serverFiles!)).toContain("worker.js");
+    expect(result.mainModule).toBe("index.js");
   });
 
   test("a leftover wrangler main (legacy setup) does not override the Build Output", async () => {

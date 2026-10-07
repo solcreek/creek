@@ -203,6 +203,22 @@ export function readAdapterCompat(
 }
 
 /**
+ * The worker entry file the Creek adapter recorded in
+ * `.creek/adapter-output/manifest.json` (relative to `server/`), or null when
+ * the manifest is absent, unreadable or names none.
+ */
+export function readAdapterEntrypoint(cwd: string): string | null {
+  const manifestPath = join(cwd, ".creek/adapter-output/manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, "utf-8")) as { entrypoint?: unknown };
+    return typeof m.entrypoint === "string" && m.entrypoint.length > 0 ? m.entrypoint : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Patch the bundled worker to fix opennext's dynamic require issues.
  *
  * @deprecated Legacy path — only used for Next.js < 16.2. For >= 16.2,
