@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
@@ -304,6 +304,51 @@ describe("processResourceCleanupQueue", () => {
     expect(deletes).toEqual([]);
     expect(row("flaky-lookup").status).toBe("pending");
     expect(row("flaky-lookup").attempts).toBe(1);
+  });
+
+  describe("time taken by earlier rows in the same run", () => {
+    afterEach(() => vi.useRealTimers());
+    // Each DELETE takes ten simulated minutes.
+    function slowDeletes(fail: (url: string) => boolean = () => false) {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      respond = (url) => {
+        vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+        return fail(url)
+          ? HttpResponse.json(
+              { success: false, errors: [{ code: 7500, message: "busy" }] },
+              { status: 503 },
+            )
+          : HttpResponse.json({ success: true, result: {}, errors: [] });
+      };
+    }
+
+    it("stamps each claim when it is taken, not when the run started", async () => {
+      names = { first: "creek-first000", second: "creek-second00" };
+      queue("d1", "first", "creek-first000");
+      queue("d1", "second", "creek-second00");
+      slowDeletes((url) => url.endsWith("/second"));
+      const start = nowSec();
+
+      await processResourceCleanupQueue(testEnv.env);
+
+      // The second row was claimed after the first row's ten minutes.
+      expect(row("second").claimedAt).toBeGreaterThanOrEqual(start + 10 * 60);
+    });
+
+    it("starts a retry's backoff when the attempt failed", async () => {
+      names = { first: "creek-first000", second: "creek-second00" };
+      queue("d1", "first", "creek-first000");
+      queue("d1", "second", "creek-second00");
+      slowDeletes((url) => url.endsWith("/second"));
+      const start = nowSec();
+
+      await processResourceCleanupQueue(testEnv.env);
+
+      // Failed twenty minutes into the run: due five minutes after that, not
+      // already due on the next tick.
+      expect(row("second").status).toBe("pending");
+      expect(row("second").nextAttemptAt).toBeGreaterThanOrEqual(start + 20 * 60 + 5 * 60);
+    });
   });
 
   it("overlapping runs delete each resource once", async () => {

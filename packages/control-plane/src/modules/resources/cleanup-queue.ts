@@ -50,8 +50,10 @@ const CLAIMABLE = `(
   OR (status = 'cleaning' AND COALESCE(claimedAt, 0) < ?)
 )`;
 
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
 export async function processResourceCleanupQueue(env: Env): Promise<number> {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSeconds();
   const staleBefore = now - LEASE_SECONDS;
   const due = await env.DB.prepare(
     `SELECT id, resourceType, cfResourceId, cfResourceName, attempts
@@ -67,13 +69,16 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
 
   for (const row of due.results) {
     // Claim the row. Overlapping runs can select the same row; only the one
-    // whose claim changes it goes on to delete.
+    // whose claim changes it goes on to delete. The claim is stamped now, not
+    // when the run started: earlier rows may have taken a while, and an old
+    // stamp would hand this row a lease that is already close to expiring.
+    const claimedAt = nowSeconds();
     const claim = await env.DB.prepare(
       `UPDATE resource_cleanup_queue
        SET status = 'cleaning', claimedAt = ?, attempts = attempts + 1
        WHERE id = ? AND ${CLAIMABLE}`,
     )
-      .bind(now, row.id, now, staleBefore)
+      .bind(claimedAt, row.id, claimedAt, claimedAt - LEASE_SECONDS)
       .run();
     if (!claim.meta.changes) continue;
     const attempt = row.attempts + 1;
@@ -84,7 +89,7 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
         `UPDATE resource_cleanup_queue SET status = ?, nextAttemptAt = ?
          WHERE id = ? AND status = 'cleaning' AND claimedAt = ?`,
       )
-        .bind(status, nextAttemptAt, row.id, now)
+        .bind(status, nextAttemptAt, row.id, claimedAt)
         .run();
 
     try {
@@ -136,7 +141,8 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
         `[cleanup] ${row.resourceType} ${row.cfResourceId} attempt ${attempt} failed${retry ? ", will retry" : ""}:`,
         err instanceof Error ? err.message : err,
       );
-      if (retry) await finish("pending", now + retryDelaySeconds(attempt));
+      // The backoff runs from when this attempt failed.
+      if (retry) await finish("pending", nowSeconds() + retryDelaySeconds(attempt));
       else await finish("failed");
     }
   }
