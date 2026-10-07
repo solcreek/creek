@@ -5,6 +5,11 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
+if [[ ! -d "$VERIFY_CREEK_REPO/node_modules" ]]; then
+  echo "verify-creek: node_modules missing. From the repo root: pnpm install" >&2
+  exit 1
+fi
+
 need_cli=0
 if [[ ! -f "$VERIFY_CREEK_CLI_DIST" || "${VERIFY_CREEK_FORCE_BUILD:-}" == "1" ]]; then
   need_cli=1
