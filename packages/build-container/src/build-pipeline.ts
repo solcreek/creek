@@ -299,24 +299,15 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     if (resolved.buildCommand) {
       const { useCascade, targetName } = detectWorkspaceCascade(workDir, pm);
 
-      const buildCmdLabel =
-        useCascade && targetName
-          ? `pnpm --filter ${targetName}... build`
-          : `${pm} run ${buildScript}`;
-      log("build", "info", buildCmdLabel);
+      const steps = buildSteps(pm, useCascade ? targetName : null, buildScript);
+      log("build", "info", steps.map((st) => [st.cmd, ...st.args].join(" ")).join(" && "));
       t0 = t();
       try {
-        if (useCascade && targetName) {
-          execFileSync("pnpm", ["--filter", `${targetName}...`, "build"], {
-            cwd: repoDir,
+        for (const st of steps) {
+          execFileSync(st.cmd, st.args, {
+            cwd: st.at === "repo" ? repoDir : workDir,
             stdio: "pipe",
-            timeout: 300_000,
-          });
-        } else {
-          execFileSync(pm, ["run", buildScript], {
-            cwd: workDir,
-            stdio: "pipe",
-            timeout: 180_000,
+            timeout: st.timeoutMs,
           });
         }
         buildResult = { success: true };
@@ -678,6 +669,51 @@ export function mergeAdapterBindings(
  * references — producing a misleading "no output files" error
  * three steps later.
  */
+export interface BuildStep {
+  cmd: string;
+  args: string[];
+  /** Run at the repo root (a workspace filter) or in the project dir. */
+  at: "repo" | "project";
+  timeoutMs: number;
+}
+
+/**
+ * The commands that build the project. With a pnpm workspace cascade
+ * (`cascadeTarget` set), workspace dependencies build with their own
+ * `build` scripts first; the target builds with `buildScript`. A target
+ * whose script is `build` builds in the same filter run, as before. Any
+ * other script (vinext's `build:vinext`, where `build` is still
+ * `next build`) runs on its own after its dependencies.
+ */
+export function buildSteps(
+  pm: string,
+  cascadeTarget: string | null,
+  buildScript: string,
+): BuildStep[] {
+  if (!cascadeTarget) {
+    return [{ cmd: pm, args: ["run", buildScript], at: "project", timeoutMs: 180_000 }];
+  }
+  if (buildScript === "build") {
+    return [
+      {
+        cmd: "pnpm",
+        args: ["--filter", `${cascadeTarget}...`, "build"],
+        at: "repo",
+        timeoutMs: 300_000,
+      },
+    ];
+  }
+  return [
+    {
+      cmd: "pnpm",
+      args: ["--filter", `${cascadeTarget}^...`, "build"],
+      at: "repo",
+      timeoutMs: 300_000,
+    },
+    { cmd: "pnpm", args: ["run", buildScript], at: "project", timeoutMs: 180_000 },
+  ];
+}
+
 /**
  * Detect whether the target should be built via `pnpm --filter` cascade
  * instead of a plain `pnpm run build` in the subdirectory.

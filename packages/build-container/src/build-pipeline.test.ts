@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { buildAndBundle, detectPM, detectWorkspaceCascade } from "./build-pipeline.js";
+import { buildAndBundle, buildSteps, detectPM, detectWorkspaceCascade } from "./build-pipeline.js";
 
 /**
  * These tests verify the build pipeline logic using mock project directories.
@@ -346,5 +346,28 @@ describe("buildAndBundle — [release] migrations (#57)", () => {
     if ("error" in result) throw new Error(result.message);
     expect(result.bundle.releaseMigrations).toBeUndefined();
     expect(result.bundle.migrations).toBeUndefined();
+  });
+});
+
+describe("buildSteps", () => {
+  test("standalone project runs the selected script in the project dir", () => {
+    expect(buildSteps("npm", null, "build:vinext")).toEqual([
+      { cmd: "npm", args: ["run", "build:vinext"], at: "project", timeoutMs: 180_000 },
+    ]);
+  });
+
+  test("workspace cascade with `build`: one filter run over the target and its deps", () => {
+    expect(buildSteps("pnpm", "web", "build")).toEqual([
+      { cmd: "pnpm", args: ["--filter", "web...", "build"], at: "repo", timeoutMs: 300_000 },
+    ]);
+  });
+
+  test("workspace cascade with build:vinext: deps build first, then the target's own script", () => {
+    // The target's `build` is still `next build` after `vinext init`; running
+    // it would produce no vinext Build Output.
+    expect(buildSteps("pnpm", "web", "build:vinext")).toEqual([
+      { cmd: "pnpm", args: ["--filter", "web^...", "build"], at: "repo", timeoutMs: 300_000 },
+      { cmd: "pnpm", args: ["run", "build:vinext"], at: "project", timeoutMs: 180_000 },
+    ]);
   });
 });
