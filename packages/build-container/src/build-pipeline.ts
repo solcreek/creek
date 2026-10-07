@@ -565,8 +565,11 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
           hasWorker: effectiveHasWorker,
           entrypoint: effectiveEntrypoint,
           renderMode: effectiveRenderMode,
-          // vinext's static-assets cache keeps its private paths worker-first.
-          ...(vinext?.runWorkerFirst ? { runWorkerFirst: vinext.runWorkerFirst } : {}),
+          ...workerFirst(
+            effectiveRenderMode,
+            resolved.runWorkerFirst,
+            vinext?.runWorkerFirst ?? null,
+          ),
         },
         assets: isWorker ? {} : assets,
         serverFiles,
@@ -655,6 +658,22 @@ export function mergeAdapterBindings(
   const images = adapterWrangler.images as { binding?: string } | undefined;
   if (images?.binding) push("images", images.binding);
   return out;
+}
+
+/**
+ * `run_worker_first` for the manifest, with the CLI's precedence: the
+ * project's config (`[build].run_worker_first`, including an explicit
+ * false) over the build output's (vinext's static-assets cache). Only a
+ * worker-mode deploy runs a worker before its assets.
+ */
+export function workerFirst(
+  renderMode: string,
+  configured: boolean | string[] | null | undefined,
+  fromOutput: boolean | string[] | null,
+): { runWorkerFirst?: boolean | string[] } {
+  if (renderMode !== "worker") return {};
+  const value = configured ?? fromOutput;
+  return value ? { runWorkerFirst: value } : {};
 }
 
 export interface BuildStep {

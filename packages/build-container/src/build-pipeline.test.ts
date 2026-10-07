@@ -3,7 +3,13 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { buildAndBundle, buildSteps, detectPM, detectWorkspaceCascade } from "./build-pipeline.js";
+import {
+  buildAndBundle,
+  buildSteps,
+  detectPM,
+  detectWorkspaceCascade,
+  workerFirst,
+} from "./build-pipeline.js";
 
 /**
  * These tests verify the build pipeline logic using mock project directories.
@@ -369,5 +375,26 @@ describe("buildSteps", () => {
       { cmd: "pnpm", args: ["--filter", "web^...", "build"], at: "repo", timeoutMs: 300_000 },
       { cmd: "pnpm", args: ["run", "build:vinext"], at: "project", timeoutMs: 180_000 },
     ]);
+  });
+});
+
+describe("workerFirst", () => {
+  const vinextPaths = ["/_vinext/static-cache/*"];
+
+  test("the build output's paths apply when config sets nothing", () => {
+    expect(workerFirst("worker", null, vinextPaths)).toEqual({ runWorkerFirst: vinextPaths });
+  });
+
+  test("config wins, including an explicit false", () => {
+    expect(workerFirst("worker", true, vinextPaths)).toEqual({ runWorkerFirst: true });
+    expect(workerFirst("worker", false, vinextPaths)).toEqual({});
+  });
+
+  test("config applies on its own for a non-vinext worker", () => {
+    expect(workerFirst("worker", ["/api/*"], null)).toEqual({ runWorkerFirst: ["/api/*"] });
+  });
+
+  test("only worker mode runs a worker first", () => {
+    expect(workerFirst("ssr", true, vinextPaths)).toEqual({});
   });
 });
