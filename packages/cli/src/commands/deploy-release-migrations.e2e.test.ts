@@ -93,9 +93,11 @@ function userEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function deploy(): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function deploy(
+  args: string[] = ["--prod", "--skip-build", "--json"],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CLI, "deploy", "--prod", "--skip-build", "--json"], {
+    const child = spawn(process.execPath, [CLI, "deploy", ...args], {
       cwd: app,
       env: {
         ...userEnv(),
@@ -138,7 +140,13 @@ describe.skipIf(!existsSync(CLI))("creek deploy with [release] migrations (#57)"
   });
 
   describe("with a clean git checkout the build cache would serve", () => {
+    // A no-op build, so deploys without --skip-build can run one.
+    const BUILD = ["--prod", "--json"];
     beforeEach(() => {
+      writeFileSync(
+        join(app, "package.json"),
+        JSON.stringify({ name: "app", private: true, scripts: { build: "node -e 0" } }),
+      );
       const git = (...args: string[]) =>
         execFileSync("git", args, {
           cwd: app,
@@ -178,7 +186,7 @@ describe.skipIf(!existsSync(CLI))("creek deploy with [release] migrations (#57)"
         },
       });
 
-      const r = await deploy();
+      const r = await deploy(BUILD);
 
       expect(r.code, r.stderr).toBe(0);
       expect(turboRequests()).toHaveLength(1);
@@ -186,12 +194,42 @@ describe.skipIf(!existsSync(CLI))("creek deploy with [release] migrations (#57)"
     });
 
     test("with [release] migrations the cache is skipped and the bundle staged", async () => {
-      const r = await deploy();
+      const r = await deploy(BUILD);
 
       expect(r.code, r.stderr).toBe(0);
       expect(turboRequests()).toEqual([]);
       expect(bundlePuts()).toHaveLength(1);
       expect(JSON.parse(bundlePuts()[0].body)).toMatchObject({ releaseMigrations: true });
+    });
+
+    test("--skip-build uploads the local output, never the cached build", async () => {
+      // Migrations off, so only --skip-build can keep the deploy off the cache.
+      writeFileSync(
+        join(app, "creek.toml"),
+        '[project]\nname = "app"\n\n[build]\noutput = "dist"\n',
+      );
+      execFileSync("git", ["commit", "-qam", "off"], {
+        cwd: app,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+
+      const r = await deploy(["--prod", "--skip-build", "--json"]);
+
+      expect(r.code, r.stderr).toBe(0);
+      expect(turboRequests()).toEqual([]);
+      expect(bundlePuts()).toHaveLength(1);
+      const log = requests
+        .filter((q) => q.method === "POST" && /^\/builds\/[^/]+\/logs$/.test(q.path))
+        .map((q) => q.body)
+        .join("\n");
+      expect(log).toContain("build skipped (--skip-build)");
     });
   });
 

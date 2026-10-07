@@ -25,14 +25,16 @@ const CLI = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 
 let server: Server;
 let base = "";
+// Bodies of the build logs the CLI uploads (POST /builds/:id/logs).
+let buildLogs: string[] = [];
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
-    for await (const _ of req) {
-      // drain the body
-    }
+    let body = "";
+    for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? "/", base);
     const p = url.pathname;
+    if (req.method === "POST" && /^\/builds\/[^/]+\/logs$/.test(p)) buildLogs.push(body);
     const json = (body: unknown, code = 200) => {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -88,6 +90,7 @@ let app: string;
 let home: string;
 
 beforeEach(() => {
+  buildLogs = [];
   app = mkdtempSync(join(tmpdir(), "creek-json-stdout-"));
   home = mkdtempSync(join(tmpdir(), "creek-json-home-"));
   mkdirSync(join(app, "dist"));
@@ -208,6 +211,21 @@ describe.skipIf(!existsSync(CLI))("creek deploy --json: stdout is one JSON docum
     const r = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
     expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true, mode: "production" });
     expect(r.stderr).toContain("LEAK-GRANDCHILD");
+  });
+
+  test("the production build log records whether the build ran", async () => {
+    const built = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
+    expect(built.code, built.stderr).toBe(0);
+    expect(buildLogs.join("\n")).toContain("ran: npm run build");
+
+    buildLogs = [];
+    const skipped = await deploy(["--prod", "--skip-build", "--json"], {
+      CREEK_TOKEN: "test-token",
+    });
+    expect(skipped.code, skipped.stderr).toBe(0);
+    const log = buildLogs.join("\n");
+    expect(log).toContain("build skipped (--skip-build)");
+    expect(log).not.toContain("ran: npm run build");
   });
 
   test("a failing build still yields one JSON error document", async () => {
