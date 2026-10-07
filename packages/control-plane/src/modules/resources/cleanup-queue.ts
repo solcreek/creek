@@ -3,7 +3,8 @@ import type { Env } from "../../types.js";
 /**
  * Tears down Cloudflare resources queued in `resource_cleanup_queue`: D1, R2
  * and KV from `DELETE /resources/:id`, custom hostnames from a project
- * deletion. Runs from the scheduled handler, a bounded batch per tick.
+ * deletion, and resources (queues included) whose recording transaction
+ * rolled back after they were provisioned. Runs from the scheduled handler, a bounded batch per tick.
  *
  * A row is `done` only when Cloudflare confirms the delete (a 2xx whose
  * envelope doesn't say `success: false`), or answers 404 (already gone).
@@ -16,7 +17,7 @@ import type { Env } from "../../types.js";
  * own. A run cut off mid-row leaves a claim that expires after
  * LEASE_SECONDS, and a later run reclaims it.
  *
- * D1, R2 and KV rows carry in cfResourceName the name Creek gave the
+ * D1, R2, KV and queue rows carry in cfResourceName the name Creek gave the
  * resource when it provisioned it. The resource is deleted only if it still
  * has that name: a resource row's cfResourceId can be caller-supplied, and
  * this keeps such an ID from deleting a resource Creek didn't create for it.
@@ -145,9 +146,7 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
 
 /** Whether a live resource row still references the queued D1/R2/KV resource. */
 async function isStillInUse(env: Env, row: QueueRow): Promise<boolean> {
-  if (row.resourceType !== "d1" && row.resourceType !== "r2" && row.resourceType !== "kv") {
-    return false;
-  }
+  if (!["d1", "r2", "kv", "queue"].includes(row.resourceType)) return false;
   const live = await env.DB.prepare(
     `SELECT 1 FROM resource WHERE cfResourceId = ? AND status != 'deleted' LIMIT 1`,
   )
@@ -164,7 +163,7 @@ async function isStillInUse(env: Env, row: QueueRow): Promise<boolean> {
 async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "gone"> {
   const account = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
   let url: string;
-  let nameField: "name" | "title";
+  let nameField: "name" | "title" | "queue_name";
   switch (row.resourceType) {
     case "r2":
       // The bucket's ID is its name.
@@ -176,6 +175,10 @@ async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "g
     case "kv":
       url = `${account}/storage/kv/namespaces/${row.cfResourceId}`;
       nameField = "title";
+      break;
+    case "queue":
+      url = `${account}/queues/${row.cfResourceId}`;
+      nameField = "queue_name";
       break;
     default:
       return true;
@@ -207,6 +210,8 @@ function cleanupUrl(env: Env, row: QueueRow): string | null {
       return `${account}/r2/buckets/${row.cfResourceName}`;
     case "kv":
       return `${account}/storage/kv/namespaces/${row.cfResourceId}`;
+    case "queue":
+      return `${account}/queues/${row.cfResourceId}`;
     case "custom_hostname":
       return env.CLOUDFLARE_ZONE_ID
         ? `https://api.cloudflare.com/client/v4/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames/${row.cfResourceId}`

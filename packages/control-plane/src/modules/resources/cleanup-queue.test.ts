@@ -100,6 +100,28 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["d1-uuid:done", "creek-bbbb2222:done", "kv-id:done"]);
   });
 
+  it("deletes a queued Cloudflare queue that still has its provisioned name", async () => {
+    server.use(
+      http.get("https://api.cloudflare.com/client/v4/accounts/:acc/queues/:id", ({ params }) =>
+        HttpResponse.json({
+          success: true,
+          result: {
+            queue_id: params.id,
+            queue_name: params.id === "q-mine" ? "creek-q-mine0000" : "orders",
+          },
+          errors: [],
+        }),
+      ),
+    );
+    queue("queue", "q-mine", "creek-q-mine0000");
+    queue("queue", "q-other", "creek-q-mine0000");
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(deletes).toEqual(["/client/v4/accounts/acc/queues/q-mine"]);
+    expect(statuses()).toEqual(["q-mine:done", "q-other:failed"]);
+  });
+
   it("refuses to delete a resource that isn't the one Creek provisioned", async () => {
     // A resource row whose cfResourceId was supplied by the caller and points
     // at someone else's database: its name is not this row's creek-<id8>.

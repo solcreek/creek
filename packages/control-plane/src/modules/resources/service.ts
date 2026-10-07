@@ -216,16 +216,21 @@ export async function ensureProjectBindings(
     // DELETE /resources/:id landing between them would find the new resource
     // unbound, delete it and queue its Cloudflare resource for teardown,
     // under the binding this deploy then adds.
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-      ).bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now),
-      env.DB.prepare(
-        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)`,
-      ).bind(projectId, req.bindingName, resourceId, now),
-    ]);
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        ).bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now),
+        env.DB.prepare(
+          `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES (?, ?, ?, ?)`,
+        ).bind(projectId, req.bindingName, resourceId, now),
+      ]);
+    } catch (err) {
+      if (cfId) await queueRolledBackResource(env, cfType, cfId, cfName);
+      throw err;
+    }
 
     if (cfId) {
       result.set(req.bindingName, {
@@ -277,16 +282,21 @@ export async function ensureQueue(
 
   if (!existing) {
     // Insert resource + binding, together (see the d1/r2/kv path above).
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-         VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
-      ).bind(resourceId, teamId, queueName, queueId, now, now),
-      env.DB.prepare(
-        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)`,
-      ).bind(projectId, BINDING_NAMES.queue, resourceId, now),
-    ]);
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
+        ).bind(resourceId, teamId, queueName, queueId, now, now),
+        env.DB.prepare(
+          `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES (?, ?, ?, ?)`,
+        ).bind(projectId, BINDING_NAMES.queue, resourceId, now),
+      ]);
+    } catch (err) {
+      await queueRolledBackResource(env, "queue", queueId, queueName);
+      throw err;
+    }
   } else {
     // Update existing resource with CF ID
     await env.DB.prepare(
@@ -419,6 +429,32 @@ export function buildBindings(
 }
 
 // --- Cleanup ---
+
+/**
+ * Queue a Cloudflare resource this code just provisioned for teardown, when
+ * the transaction that would have recorded it rolled back (for example, a
+ * concurrent deploy bound the same name first). Without this nothing would
+ * reference it, and nothing would ever delete it. Queued under the name it
+ * was provisioned with, which the cleanup checks before deleting.
+ * Best-effort: the caller is already failing with the original error.
+ */
+async function queueRolledBackResource(
+  env: Env,
+  cfType: string,
+  cfId: string,
+  cfName: string,
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+       VALUES (?, ?, ?, 'pending', 'provision_rolled_back', ?)`,
+    )
+      .bind(cfType, cfId, cfName, Math.floor(Date.now() / 1000))
+      .run();
+  } catch (err) {
+    console.error(`[resources] could not queue rolled-back ${cfType} ${cfId} for cleanup:`, err);
+  }
+}
 
 /**
  * The statement that schedules a deleted project's Cloudflare cleanup, for
