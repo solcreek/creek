@@ -2277,7 +2277,7 @@ async function deployAuthenticated(
     const buildLog = new BuildLogEmitter();
     buildLog.info(
       "detect",
-      `framework=${framework ?? "none"} renderMode=${effectiveRenderMode} entrypoint=${effectiveEntrypoint ?? "none"}`,
+      `framework=${framework ?? "none"} renderMode=${effectiveRenderMode} entrypoint=${effectiveEntrypoint ?? "none"} mainModule=${prepared.mainModule ?? (serverFiles ? "guessed" : "none")}`,
     );
     if (skipBuild) {
       buildLog.info("build", "build skipped (--skip-build)");

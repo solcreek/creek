@@ -178,14 +178,23 @@ describe("collectVinextServerFiles", () => {
     expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/more than 500/);
   });
 
+  test("an inherited property name is not a collected entry", () => {
+    bundle(["index.js"]);
+    expect(() => collectVinextServerFiles(cwd, build("toString"))).toThrow(/entry toString/);
+  });
+
   test("throws when the entry is missing", () => {
     bundle(["ssr/index.js", "chunk.js"]);
     expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/entry index.js/);
   });
 
-  test("throws when another module would be taken as the entry", () => {
-    bundle(["custom.js", "index.js"]);
-    expect(() => collectVinextServerFiles(cwd, build("custom.js"))).toThrow(/entry custom.js/);
+  test("a module with a guessable name beside the entry is fine: the entry is declared", () => {
+    bundle(["custom.js", "index.js", "worker.js"]);
+    expect(Object.keys(collectVinextServerFiles(cwd, build("custom.js"))).sort()).toEqual([
+      "custom.js",
+      "index.js",
+      "worker.js",
+    ]);
   });
 });
 

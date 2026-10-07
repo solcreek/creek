@@ -78,26 +78,6 @@ export function detectAstroCloudflareBuild(cwd: string): {
   return null;
 }
 
-// Servers that predate `manifest.mainModule` pick a worker's main module by
-// name: the FIRST file, in upload order, whose name is one of theirs, else
-// the first file. deploy-core (sandbox) knew `entry.mjs`; the control-plane
-// did not. Current servers run a declared `manifest.mainModule` instead, so
-// this check only matters while those older servers may receive the bundle.
-const CONTROL_PLANE_MAIN_MODULES = ["worker.js", "server.js", "index.js", "index.mjs"];
-const DEPLOY_CORE_MAIN_MODULES = [...CONTROL_PLANE_MAIN_MODULES, "entry.mjs"];
-
-/**
- * Whether both deploy servers will take `mainModule` as the entry of a
- * worker made of `names`, whatever order the files arrive in: both must
- * know its name, and no other name either of them knows may be present.
- */
-export function isEntryModuleSelected(names: string[], mainModule: string): boolean {
-  if (!names.includes(mainModule) || !CONTROL_PLANE_MAIN_MODULES.includes(mainModule)) {
-    return false;
-  }
-  return names.every((n) => n === mainModule || !DEPLOY_CORE_MAIN_MODULES.includes(n));
-}
-
 // Files to skip when collecting server output
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 

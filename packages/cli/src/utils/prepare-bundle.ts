@@ -54,7 +54,12 @@ import {
 import { collectAssets } from "./bundle.js";
 import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
-import { hasAdapterOutput, buildNextjs, patchBundledWorker } from "./nextjs.js";
+import {
+  hasAdapterOutput,
+  buildNextjs,
+  patchBundledWorker,
+  readAdapterEntrypoint,
+} from "./nextjs.js";
 import { patchBareNodeImports } from "../commands/deploy.js";
 import { childStdio, jsonOutput } from "./output.js";
 
@@ -313,6 +318,11 @@ export async function prepareDeployBundle(
   // worker.strategy for user-declared workers.
   let serverFiles: Record<string, string> | undefined;
   let workerModulePaths: string[] = [];
+  // The uploaded entry's file name, where this deploy knows it for certain.
+  // Sent as manifest.mainModule; the deploy servers run that file and refuse
+  // the bundle if it is missing, so it is left null when only a guess is
+  // possible (framework SSR output whose entry name varies by preset).
+  let knownEntry: string | null = null;
 
   if (vinext) {
     // vinext's Build Output is a complete, pre-bundled worker.
@@ -324,6 +334,7 @@ export async function prepareDeployBundle(
       fail("invalid_build_output", (err as Error).message);
     }
     serverFiles = base64ServerFiles(collected);
+    knownEntry = vinext.mainModule;
     say.success(`  vinext worker: ${Object.keys(collected).length} modules (${kb(collected)}KB)`);
   } else if (astroAdapter) {
     // Astro CF adapter writes a pre-bundled worker we just upload.
@@ -332,6 +343,7 @@ export async function prepareDeployBundle(
       say.start("  Collecting Astro CF server files...");
       const collected = collectServerFiles(serverDir);
       serverFiles = base64ServerFiles(collected);
+      knownEntry = "entry.mjs";
       say.success(`  Astro CF worker: ${Object.keys(collected).length} files`);
     }
   } else if (isSSRFramework(framework) && framework) {
@@ -352,6 +364,10 @@ export async function prepareDeployBundle(
         }
       }
       serverFiles = base64ServerFiles(collected);
+      // The adapter records its entry in manifest.json; declare it only when
+      // that file was collected, else leave the servers to guess as before.
+      const adapterEntry = readAdapterEntrypoint(cwd);
+      if (adapterEntry && Object.hasOwn(collected, adapterEntry)) knownEntry = adapterEntry;
       say.success(`  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`);
     } else if (framework === "nextjs") {
       // Legacy Next.js: wrangler dry-run produces the bundle.
@@ -412,6 +428,7 @@ export async function prepareDeployBundle(
       spaFallbackHtml,
     });
     serverFiles = { "worker.js": Buffer.from(bundled).toString("base64") };
+    knownEntry = "worker.js";
     say.success(`  Worker bundled (${Math.round(bundled.length / 1024)}KB)`);
   } else if (plan.worker.strategy === "upload-asis" && plan.worker.entry) {
     // Pre-bundled worker (e.g. dist/_worker.mjs from the user's own
@@ -424,6 +441,8 @@ export async function prepareDeployBundle(
     // still resolve once the entry is renamed to worker.js.
     const modules = await collectWorkerModules(resolve(cwd, plan.worker.entry));
     serverFiles = base64ServerFiles(modules.files);
+    // collectWorkerModules uploads the entry as worker.js.
+    knownEntry = "worker.js";
     workerModulePaths = modules.absolutePaths;
     const extra = Object.keys(modules.files).length - 1;
     say.success(
@@ -463,16 +482,7 @@ export async function prepareDeployBundle(
     : astroAdapter
       ? "entry.mjs"
       : (plan.worker.entry ?? null);
-  // Known entry module names: the build output's own (vinext, Astro), or
-  // worker.js, the name Creek gives a worker it bundles or uploads as-is.
-  const mainModule = vinext
-    ? vinext.mainModule
-    : astroAdapter
-      ? "entry.mjs"
-      : serverFiles &&
-          (plan.worker.strategy === "esbuild-bundle" || plan.worker.strategy === "upload-asis")
-        ? "worker.js"
-        : null;
+  const mainModule = serverFiles ? knownEntry : null;
 
   // Resources declared but the deploy carries no server code: the
   // bindings get provisioned with nothing able to read them, and

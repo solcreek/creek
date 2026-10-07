@@ -217,7 +217,6 @@ export function getClientAssetsDir(framework: Framework | null): string | null {
 export {
   getSSRServerDir,
   collectServerFiles,
-  isEntryModuleSelected,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
 } from "./server-files.js";

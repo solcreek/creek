@@ -23,7 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BindingDeclaration } from "../config/resolved-config.js";
-import { collectServerFiles, isEntryModuleSelected } from "./server-files.js";
+import { collectServerFiles } from "./server-files.js";
 
 export const VINEXT_OUTPUT_DIR = ".cloudflare/output/v0/workers/default";
 export const VINEXT_SERVER_DIR = `${VINEXT_OUTPUT_DIR}/bundle`;
@@ -144,18 +144,16 @@ export function parseVinextWorkerConfig(raw: unknown): VinextBuild {
  * module imports — the bundler inlines JSON imports — and the Workers
  * upload API rejects a JSON module part (code 10162), so they are left out.
  *
- * Throws unless the deploy servers will take `manifest.mainModule` as the
- * entry. The bundle declares it, but servers that predate that field pick
- * the entry by file name, so the name must leave them no other choice.
+ * Throws when `manifest.mainModule` is not among the modules: the deploy
+ * declares it as the worker's entry, and the servers refuse a bundle whose
+ * declared entry was not uploaded.
  */
 export function collectVinextServerFiles(cwd: string, build: VinextBuild): Record<string, Buffer> {
   const modules = collectServerFiles(join(cwd, build.serverDir), {
     include: (name) => !name.endsWith(".json"),
   });
-  if (!isEntryModuleSelected(Object.keys(modules), build.mainModule)) {
-    throw new Error(
-      `vinext worker entry ${build.mainModule} is missing from ${build.serverDir}, or another module would be picked as the entry`,
-    );
+  if (!Object.hasOwn(modules, build.mainModule)) {
+    throw new Error(`vinext worker entry ${build.mainModule} is missing from ${build.serverDir}`);
   }
   return modules;
 }
