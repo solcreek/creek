@@ -2188,7 +2188,9 @@ async function deployAuthenticated(
       "detect",
       `framework=${framework ?? "none"} renderMode=${effectiveRenderMode} entrypoint=${effectiveEntrypoint ?? "none"}`,
     );
-    if (resolved.buildCommand) {
+    if (skipBuild) {
+      buildLog.info("build", "build skipped (--skip-build)");
+    } else if (resolved.buildCommand) {
       buildLog.info("build", `ran: ${resolved.buildCommand}`);
     }
     buildLog.info("bundle", `${fileList.length} assets (${assetSummary(fileList)})`);
