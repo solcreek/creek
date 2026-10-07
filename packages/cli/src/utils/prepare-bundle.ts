@@ -55,6 +55,8 @@ import { collectAssets } from "./bundle.js";
 import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
 import {
+  adapterOutputBuiltAt,
+  describeBuildAge,
   hasAdapterOutput,
   buildNextjs,
   patchBundledWorker,
@@ -350,6 +352,12 @@ export async function prepareDeployBundle(
     if (framework === "nextjs" && hasAdapterOutput(cwd)) {
       // Next.js adapter output → patch bare imports, upload as-is.
       const adapterServerDir = resolve(cwd, ".creek/adapter-output/server");
+      if (skipBuild) {
+        // The upload is whatever the last build left behind; say how old it is.
+        const builtAt = adapterOutputBuiltAt(cwd);
+        if (builtAt)
+          say.info(`  --skip-build: deploying .creek/adapter-output, ${describeBuildAge(builtAt)}`);
+      }
       say.start("  Collecting adapter output...");
       const collected: Record<string, Buffer> = {};
       if (existsSync(adapterServerDir)) {

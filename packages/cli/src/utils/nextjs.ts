@@ -19,6 +19,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -124,16 +125,22 @@ export function resolveAdapterPath(cwd?: string, minVersion?: string): string | 
 }
 
 /**
+ * The build the adapter path runs, in place of `[build] command` and the
+ * project's build script. webpack, not Turbopack (the Next.js 16 default): the
+ * adapter swaps local SQLite drivers for D1 through webpack aliases, which a
+ * Turbopack build never applies, and it refuses a Turbopack build outright.
+ */
+export const NEXT_ADAPTER_BUILD = "next build --webpack";
+
+/**
  * Build a Next.js app using the Creek adapter (>= 16.2.3).
  *
  * Sets NEXT_ADAPTER_PATH to the resolved adapter. No opennext, no wrangler,
  * no config patching — the adapter handles everything inside onBuildComplete().
  */
 function buildWithAdapter(cwd: string, adapterPath: string): void {
-  consola.start("  Building Next.js with Creek adapter...\n");
-  // --webpack is required: Turbopack does not generate standalone output,
-  // and its chunked format uses a custom runtime incompatible with esbuild.
-  execSync("npx next build --webpack", {
+  consola.start(`  Building Next.js with the Creek adapter: ${NEXT_ADAPTER_BUILD}\n`);
+  execSync(`npx ${NEXT_ADAPTER_BUILD}`, {
     cwd,
     stdio: childStdio(),
     env: { ...process.env, NEXT_ADAPTER_PATH: adapterPath },
@@ -216,6 +223,33 @@ export function readAdapterEntrypoint(cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * When the adapter output in `.creek/adapter-output` was built: the time its
+ * manifest was written, or null when there is none.
+ */
+export function adapterOutputBuiltAt(cwd: string): Date | null {
+  try {
+    return statSync(join(cwd, ".creek/adapter-output/manifest.json")).mtime;
+  } catch {
+    return null;
+  }
+}
+
+/** "built 5 minutes ago (2026-10-07T15:03Z)": how long ago `builtAt` was, and when, in UTC. */
+export function describeBuildAge(builtAt: Date, now: Date = new Date()): string {
+  const minutes = Math.floor((now.getTime() - builtAt.getTime()) / 60_000);
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  const ago =
+    minutes < 1
+      ? "less than a minute ago"
+      : minutes < 60
+        ? plural(minutes, "minute")
+        : minutes < 48 * 60
+          ? plural(Math.floor(minutes / 60), "hour")
+          : plural(Math.floor(minutes / (24 * 60)), "day");
+  return `built ${ago} (${builtAt.toISOString().slice(0, 16)}Z)`;
 }
 
 /**

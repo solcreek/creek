@@ -15,7 +15,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
@@ -423,6 +423,31 @@ describe("prepareDeployBundle", () => {
 
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
     expect(result.mainModule).toBe("worker.js");
+  });
+
+  test("--skip-build says when the Next.js adapter output it deploys was built", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    const builtAt = new Date(Date.now() - 3 * 60 * 60 * 1000 - 5 * 60 * 1000);
+    utimesSync(join(cwd, ".creek/adapter-output/manifest.json"), builtAt, builtAt);
+    const infoSpy = vi.spyOn(consola, "info").mockImplementation(() => undefined);
+    try {
+      await prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ framework: "nextjs", buildOutput: ".creek/adapter-output" }),
+        skipBuild: true,
+      });
+      const lines = infoSpy.mock.calls.map((c) => String(c[0]));
+      expect(lines).toContain(
+        `  --skip-build: deploying .creek/adapter-output, built 3 hours ago (${builtAt.toISOString().slice(0, 16)}Z)`,
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   test("Next.js adapter entry named like an inherited property is not declared", async () => {

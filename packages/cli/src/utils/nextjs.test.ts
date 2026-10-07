@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  adapterOutputBuiltAt,
+  describeBuildAge,
+  NEXT_ADAPTER_BUILD,
   ADAPTER_MIN_VERSION,
   ADAPTER_PKG,
   ADAPTER_VERSION,
@@ -247,5 +250,57 @@ describe("readAdapterEntrypoint", () => {
     expect(readAdapterEntrypoint(cwd)).toBeNull();
     writeManifest(JSON.stringify({ entrypoint: 7 }));
     expect(readAdapterEntrypoint(cwd)).toBeNull();
+  });
+});
+
+describe("Next.js adapter build", () => {
+  it("builds with webpack, which the adapter requires", () => {
+    // Turbopack is the Next.js 16 default; the adapter's D1 driver swap is a
+    // webpack alias and the adapter refuses a Turbopack build.
+    expect(NEXT_ADAPTER_BUILD).toBe("next build --webpack");
+  });
+});
+
+describe("describeBuildAge", () => {
+  const now = new Date("2026-10-07T15:00:30Z");
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  const MIN = 60_000;
+
+  it.each([
+    [0, "less than a minute ago"],
+    [59_000, "less than a minute ago"],
+    [MIN, "1 minute ago"],
+    [59 * MIN, "59 minutes ago"],
+    [60 * MIN, "1 hour ago"],
+    [47 * 60 * MIN, "47 hours ago"],
+    [48 * 60 * MIN, "2 days ago"],
+    [30 * 24 * 60 * MIN, "30 days ago"],
+  ])("%d ms → %s", (ms, text) => {
+    expect(describeBuildAge(ago(ms), now)).toBe(
+      `built ${text} (${ago(ms).toISOString().slice(0, 16)}Z)`,
+    );
+  });
+});
+
+describe("adapterOutputBuiltAt", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "creek-adapter-built-at-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is the time the adapter wrote its manifest", () => {
+    const dir = join(cwd, ".creek", "adapter-output");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "manifest.json"), "{}");
+    const at = new Date("2026-10-01T08:00:00Z");
+    utimesSync(join(dir, "manifest.json"), at, at);
+    expect(adapterOutputBuiltAt(cwd)?.toISOString()).toBe(at.toISOString());
+  });
+
+  it("is null without adapter output", () => {
+    expect(adapterOutputBuiltAt(cwd)).toBeNull();
   });
 });
