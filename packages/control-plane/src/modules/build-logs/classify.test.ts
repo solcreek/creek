@@ -39,7 +39,16 @@ describe("classifyDeployFailure", () => {
       "Your Worker exceeded the uncompressed size limit of 64 MiB.",
     );
     expect(r.code).toBe("bundle_too_large");
-    expect(r.hint).toMatch(/64 MiB uncompressed/);
+    expect(r.hint).toMatch(/current Workers limit is 64 MiB uncompressed/);
+  });
+
+  it("does not claim a legacy-limit rejection exceeded 64 MiB", () => {
+    // Hints are regenerated for persisted failures, and pre-2026-09-04 records
+    // hit the old gzipped limits — a 10 MB rejection says nothing about 64 MiB.
+    const r = classifyDeployFailure("deploying", "script is over the 10 MB limit");
+    expect(r.code).toBe("bundle_too_large");
+    expect(r.hint).not.toMatch(/over the Workers size limit \(64 MiB/);
+    expect(r.hint).toMatch(/rejected as too large/);
   });
 
   it("codes a resource/binding failure", () => {
