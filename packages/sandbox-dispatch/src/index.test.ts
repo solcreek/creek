@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from "vitest";
-import worker, { deriveCacheControl, extractPreloadLinks } from "./index.js";
+import worker, { deriveCacheControl, extractPreloadLinks, SANDBOX_LIMITS } from "./index.js";
 
 interface MockSandboxRow {
   id: string;
@@ -54,8 +54,11 @@ function createMockKV() {
 }
 
 function createMockDispatcher(scriptHandlers: Record<string, (req: Request) => Promise<Response>>) {
+  const limitsSeen: unknown[] = [];
   return {
-    get(name: string) {
+    limitsSeen,
+    get(name: string, _meta?: unknown, options?: { limits?: unknown }) {
+      limitsSeen.push(options?.limits);
       return {
         async fetch(req: Request): Promise<Response> {
           const handler = scriptHandlers[name];
@@ -83,8 +86,72 @@ function createEnv(opts: {
     },
     d1,
     kv,
+    dispatcher,
   };
 }
+
+describe("sandbox per-request limits", () => {
+  const sandboxId = "lim12345";
+  const activeRow = {
+    [sandboxId]: {
+      id: sandboxId,
+      status: "active",
+      expiresAt: Date.now() + 60_000,
+      previewHost: `${sandboxId}.creeksandbox.com`,
+      deployDurationMs: 9000,
+    },
+  };
+  const url = `https://${sandboxId}.creeksandbox.com/`;
+
+  test("runs the user worker with SANDBOX_LIMITS", async () => {
+    const { env, dispatcher } = createEnv({
+      d1Rows: activeRow,
+      scriptHandlers: { [`${sandboxId}-sandbox`]: async () => new Response("ok") },
+    });
+    await worker.fetch(new Request(url), env);
+    expect(dispatcher.limitsSeen).toEqual([SANDBOX_LIMITS]);
+  });
+
+  // Regression: 10 ms (Cloudflare's doc example) failed every SSR route.
+  test("leaves room for an SSR render, but stays below the free plan's 5,000 ms", () => {
+    expect(SANDBOX_LIMITS.cpuMs).toBeGreaterThanOrEqual(1_000);
+    expect(SANDBOX_LIMITS.cpuMs).toBeLessThan(5_000);
+    expect(SANDBOX_LIMITS.subRequests).toBeGreaterThanOrEqual(50);
+  });
+
+  test.each([
+    ["Worker exceeded CPU time limit.", "cpu_limit_exceeded", /1000ms per request in a sandbox/],
+    ["Too many subrequests.", "subrequest_limit_exceeded", /50 per request in a sandbox/],
+  ])("a limit hit (%s) is a 429 naming the sandbox ceiling", async (thrown, code, message) => {
+    const { env } = createEnv({
+      d1Rows: activeRow,
+      scriptHandlers: {
+        [`${sandboxId}-sandbox`]: async () => {
+          throw new Error(thrown);
+        },
+      },
+    });
+    const res = await worker.fetch(new Request(url), env);
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe(code);
+    expect(body.message).toMatch(message);
+    expect(body.message).toMatch(/Deploy to a project for higher limits/);
+  });
+
+  test("any other worker error is still a 500", async () => {
+    const { env } = createEnv({
+      d1Rows: activeRow,
+      scriptHandlers: {
+        [`${sandboxId}-sandbox`]: async () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    const res = await worker.fetch(new Request(url), env);
+    expect(res.status).toBe(500);
+  });
+});
 
 describe("sandbox-dispatch worker", () => {
   test("returns 404 for unknown hostname", async () => {

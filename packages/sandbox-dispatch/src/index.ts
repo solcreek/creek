@@ -11,6 +11,17 @@ interface Env {
   SANDBOX_DOMAIN: string;
 }
 
+// --- Per-request limits ---
+// Sandboxes are anonymous, so they get their own ceiling below the free plan's
+// (dispatch-worker's PLAN_LIMITS) rather than sharing it. 1,000 ms covers a
+// typical SSR render including a cold start: across production user workers
+// (30 days to 2026-10-07) a typical SSR app's CPU p99 ran 50–400 ms. The
+// heaviest app (p99 1.9 s) can hit it, which a 60-minute preview can live
+// with. The old 10 ms was Cloudflare's doc example and failed every SSR route.
+// 50 subrequests (which include D1/KV/R2 binding calls) is Workers Free's
+// default.
+export const SANDBOX_LIMITS = { cpuMs: 1_000, subRequests: 50 } as const;
+
 // --- Visitor cap ---
 // Limit each sandbox to 50 unique visitor IPs. Uses KV to track.
 const VISITOR_CAP = 50;
@@ -372,11 +383,7 @@ export default {
     const scriptName = `${sandboxId}-sandbox`;
 
     try {
-      const userWorker = env.DISPATCHER.get(
-        scriptName,
-        {},
-        { limits: { cpuMs: 10, subRequests: 5 } }, // sandbox = free tier limits
-      );
+      const userWorker = env.DISPATCHER.get(scriptName, {}, { limits: SANDBOX_LIMITS });
       let response = await userWorker.fetch(request);
 
       // Null-body statuses (101/204/205/304) cannot carry a body per
@@ -506,6 +513,26 @@ export default {
         return Response.json(
           { error: "not_found", message: "Sandbox deployment not found" },
           { status: 404 },
+        );
+      }
+      // The runtime reports a subrequest-limit hit as "Too many subrequests.";
+      // match case-insensitively, as dispatch-worker's limitExceededBody does.
+      if (/cpu time limit/i.test(message)) {
+        return Response.json(
+          {
+            error: "cpu_limit_exceeded",
+            message: `CPU time limit exceeded (${SANDBOX_LIMITS.cpuMs}ms per request in a sandbox). Deploy to a project for higher limits.`,
+          },
+          { status: 429 },
+        );
+      }
+      if (/too many subrequests|subrequest limit/i.test(message)) {
+        return Response.json(
+          {
+            error: "subrequest_limit_exceeded",
+            message: `Subrequest limit exceeded (${SANDBOX_LIMITS.subRequests} per request in a sandbox). Deploy to a project for higher limits.`,
+          },
+          { status: 429 },
         );
       }
       return Response.json(

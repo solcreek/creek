@@ -12,23 +12,100 @@ export interface TeamInfo {
   plan: string;
 }
 
-// Per-plan CPU + subrequest ceilings the dispatch Worker applies to each user
-// worker via `DISPATCHER.get(name, {}, { limits })`. CPU time excludes I/O
-// waits (D1/fetch/KV don't count), but an SSR render plus a cold Prisma
-// query-compiler WASM start can still cost hundreds of ms of pure CPU — and a
-// page makes several subrequests. The earlier values (free 10ms / 5 reqs) were
-// CF's doc-example numbers and throttled every SSR + database app to an
-// immediate "exceeded CPU time limit" exception on every route. These track
-// closer to the platform CPU defaults (Workers Paid default is 30,000ms) so
-// SSR works on every plan, with headroom widening up the tiers.
-export const PLAN_LIMITS: Record<string, { cpuMs: number; subRequests: number }> = {
-  free: { cpuMs: 1000, subRequests: 50 },
-  pro: { cpuMs: 5000, subRequests: 200 },
-  enterprise: { cpuMs: 30000, subRequests: 1000 },
+export interface WorkerLimits {
+  cpuMs: number;
+  subRequests: number;
+}
+
+/**
+ * Plans in upgrade order. Must match the tiers on the pricing page
+ * (apps/www/src/app/pricing/page.tsx); pricing-page.test.ts reads the page to check.
+ */
+export const PLANS = ["free", "starter", "pro", "enterprise"] as const;
+export type Plan = (typeof PLANS)[number];
+
+// Per-plan, per-request CPU + subrequest ceilings the dispatch Worker applies
+// to each user worker via `DISPATCHER.get(name, {}, { limits })`. CPU time
+// excludes I/O waits (D1/fetch/KV don't count); subrequests include binding
+// calls (D1/KV/R2), not just fetch().
+//
+// A per-request ceiling is runaway protection (an infinite loop, mining), not
+// cost control: CPU on Workers for Platforms is $0.02 per million ms, so the
+// heaviest production app (30 days to 2026-10-07: 120k requests, CPU p50
+// 345 ms / p99 1.9 s / max 3.9 s) cost about $1.1 of CPU a month. Every
+// production team is on `free` today, so free must carry real SSR + database
+// workloads with headroom over that app; paid tiers widen subrequests and the
+// runaway ceiling. Workers for Platforms caps a user worker's HTTP invocation
+// at 30,000 ms CPU and Workers Paid defaults to 10,000 subrequests, so the top
+// plan sits at both, and each step up still raises CPU — the upgrade hint
+// promises higher limits.
+export const PLAN_LIMITS: Record<Plan, WorkerLimits> = {
+  free: { cpuMs: 5_000, subRequests: 200 },
+  starter: { cpuMs: 10_000, subRequests: 1_000 },
+  pro: { cpuMs: 20_000, subRequests: 5_000 },
+  enterprise: { cpuMs: 30_000, subRequests: 10_000 },
 };
 
-export function getLimitsForPlan(plan: string) {
-  return PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+function isPlan(plan: string): plan is Plan {
+  return (PLANS as readonly string[]).includes(plan);
+}
+
+/** The plan whose limits apply: a team's plan, or free when it is unknown. */
+function effectivePlan(plan: string): Plan {
+  return isPlan(plan) ? plan : "free";
+}
+
+/** Limits for a team's plan; an unknown plan gets free's. */
+export function getLimitsForPlan(plan: string): WorkerLimits {
+  return PLAN_LIMITS[effectivePlan(plan)];
+}
+
+/**
+ * The upgrade suggestion shown when a request hits its plan's limit: the next
+ * plan up, or undefined on the top plan. An unknown plan is treated as free,
+ * matching getLimitsForPlan.
+ */
+export function upgradeHintForPlan(plan: string): string | undefined {
+  const index = PLANS.indexOf(effectivePlan(plan));
+  const next = PLANS[index + 1];
+  if (!next) return undefined;
+  if (next === "enterprise") return "Contact us about Enterprise for higher limits.";
+  return `Upgrade to ${next[0]!.toUpperCase()}${next.slice(1)} for higher limits.`;
+}
+
+// The runtime reports a subrequest-limit hit as "Too many subrequests.", which
+// says nothing about a "limit"; a CPU hit reads "...exceeded CPU time limit".
+// Match either case-insensitively so a wording change in case alone still
+// lands on the 429.
+const CPU_LIMIT_ERROR = /cpu time limit/i;
+const SUBREQUEST_LIMIT_ERROR = /too many subrequests|subrequest limit/i;
+
+/**
+ * The 429 body for a user worker that threw because it hit its CPU or
+ * subrequest limit, or null when the error is something else. It names the
+ * plan whose limits were enforced, so an unknown plan reads as free.
+ */
+export function limitExceededBody(
+  errorMessage: string,
+  teamPlan: string,
+  limits: WorkerLimits,
+): { error: string; message: string; upgrade?: string } | null {
+  const plan = effectivePlan(teamPlan);
+  if (CPU_LIMIT_ERROR.test(errorMessage)) {
+    return {
+      error: "cpu_limit_exceeded",
+      message: `CPU time limit exceeded (${limits.cpuMs}ms on ${plan} plan).`,
+      upgrade: upgradeHintForPlan(plan),
+    };
+  }
+  if (SUBREQUEST_LIMIT_ERROR.test(errorMessage)) {
+    return {
+      error: "subrequest_limit_exceeded",
+      message: `Subrequest limit exceeded (${limits.subRequests} on ${plan} plan).`,
+      upgrade: upgradeHintForPlan(plan),
+    };
+  }
+  return null;
 }
 
 /**

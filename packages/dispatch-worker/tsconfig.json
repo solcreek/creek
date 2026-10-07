@@ -5,5 +5,8 @@
     "rootDir": "src",
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Reads apps/www's pricing page with node:fs, which the Workers types don't
+  // declare; vitest still runs it.
+  "exclude": ["src/pricing-page.test.ts"]
 }
