@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
+import { mainModuleProblem } from "@solcreek/deploy-core";
 import { shortDeployId } from "./deploy.js";
 import {
   runDeployJob,
@@ -221,10 +222,12 @@ deployments.put(
           assets?: unknown[];
           hasWorker?: boolean;
           entrypoint?: unknown;
+          mainModule?: unknown;
           renderMode?: string;
         };
         assets?: Record<string, unknown>;
         serverFiles?: Record<string, unknown>;
+        serverFileNames?: unknown;
       };
       try {
         parsedBundle = JSON.parse(bundleBody);
@@ -248,6 +251,20 @@ deployments.put(
           { error: "validation", message: "Bundle must include at least one asset" },
           400,
         );
+      }
+
+      // A declared main module must be one of the server files the bundle
+      // carries — inline, or staged separately and listed in serverFileNames.
+      // Reject it here rather than deploy another module as the entry.
+      const declaredMain = parsedBundle.manifest.mainModule;
+      if (declaredMain !== undefined && declaredMain !== null) {
+        const names = parsedBundle.serverFiles
+          ? Object.keys(parsedBundle.serverFiles)
+          : Array.isArray(parsedBundle.serverFileNames)
+            ? parsedBundle.serverFileNames.filter((n): n is string => typeof n === "string")
+            : [];
+        const problem = mainModuleProblem(names, declaredMain as string);
+        if (problem) return c.json({ error: "validation", message: problem }, 400);
       }
 
       const MAX_ASSET_COUNT = 10_000;
@@ -1163,6 +1180,7 @@ async function deployFromBundleCache(
         assets: string[];
         hasWorker: boolean;
         entrypoint: string | null;
+        mainModule?: string | null;
         renderMode: string;
         framework?: string;
       };
@@ -1205,6 +1223,7 @@ async function deployFromBundleCache(
       {
         clientAssets,
         serverFiles,
+        mainModule: bundle.manifest.mainModule ?? null,
         renderMode,
         teamId: deployment.teamId,
         teamSlug: deployment.teamSlug,

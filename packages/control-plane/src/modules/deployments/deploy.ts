@@ -9,6 +9,7 @@ import {
   cfApi,
   deployScriptWithAssets,
   extractAssetMetafiles,
+  selectMainModule,
   workerAssetsOptions,
 } from "@solcreek/deploy-core";
 
@@ -170,6 +171,8 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 export interface DeployAssetsInput {
   clientAssets: Record<string, ArrayBuffer>;
   serverFiles?: Record<string, ArrayBuffer>;
+  /** The bundle's `manifest.mainModule`: the server file to run as the entry. */
+  mainModule?: string | null;
   renderMode: "spa" | "ssr" | "worker";
   /** `run_worker_first` for a user-declared worker (render mode `worker`). */
   runWorkerFirst?: boolean | string[] | null;
@@ -243,11 +246,9 @@ export async function deployWithAssets(
     // activation_timeout. A minified worker stays just under; the unminified
     // one just over — freeing here reclaims a full worker's worth of memory.
     for (const name of serverFileNames) input.serverFiles[name] = new ArrayBuffer(0);
-    // Find main module (usually worker.js, server.js, or index.js)
-    mainModule =
-      serverFileNames.find(
-        (n) => n === "worker.js" || n === "server.js" || n === "index.js" || n === "index.mjs",
-      ) ?? serverFileNames[0];
+    // The bundle's declared main module, else the name-based guess. Same
+    // selector as the sandbox path, so the two pick the same entry.
+    mainModule = selectMainModule(serverFileNames, input.mainModule);
   } else {
     // SPA: worker with embedded index.html for client-side routing fallback
     // WfP Static Assets doesn't support not_found_handling, so the worker handles it

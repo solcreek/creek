@@ -101,6 +101,47 @@ describe("PUT /bundle", () => {
     expect(json.deployment).toBeDefined();
   });
 
+  test("accepts a declared main module among inline or staged server files", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    const workerManifest = { ...bundle.manifest, hasWorker: true, renderMode: "worker" };
+
+    const inline = await req("PUT", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`, {
+      ...bundle,
+      manifest: { ...workerManifest, mainModule: "index.js" },
+      serverFiles: { "index.js": btoa("export default {}") },
+    });
+    expect(inline.status).toBe(202);
+
+    seedDeployment("queued", "dep-staged");
+    const staged = await req("PUT", `/projects/${PROJECT_ID}/deployments/dep-staged/bundle`, {
+      ...bundle,
+      manifest: { ...workerManifest, mainModule: "index.js" },
+      serverFileNames: ["worker.js", "index.js"],
+    });
+    expect(staged.status).toBe(202);
+  });
+
+  test("rejects 400 when the declared main module is not among the server files", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+
+    const res = await req("PUT", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`, {
+      ...bundle,
+      manifest: {
+        ...bundle.manifest,
+        hasWorker: true,
+        renderMode: "worker",
+        mainModule: "index.js",
+      },
+      serverFileNames: ["worker.js"],
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string; message: string };
+    expect(json.error).toBe("validation");
+    expect(json.message).toContain('"index.js" is not one of the uploaded server files');
+  });
+
   test("allows retry on failed deployment", async () => {
     seedTestProject();
     seedDeployment("failed");

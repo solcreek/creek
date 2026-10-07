@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import type { Env } from "./types.js";
-import { deployWithAssets, shortDeployId, execD1Query } from "@solcreek/deploy-core";
+import {
+  deployWithAssets,
+  shortDeployId,
+  execD1Query,
+  mainModuleProblem,
+} from "@solcreek/deploy-core";
 import { provisionSandboxResources } from "./provision.js";
 import { scanBundle } from "./scan.js";
 import { verifyAgentToken } from "./agent-challenge.js";
@@ -70,6 +75,7 @@ routes.post("/deploy", async (c) => {
       assets?: string[];
       hasWorker?: boolean;
       entrypoint?: string | null;
+      mainModule?: string | null;
       renderMode?: "spa" | "ssr" | "static" | "worker";
       runWorkerFirst?: boolean | string[] | null;
     };
@@ -130,9 +136,20 @@ routes.post("/deploy", async (c) => {
     assets: body.manifest?.assets ?? assetPaths,
     hasWorker: body.manifest?.hasWorker ?? false,
     entrypoint: body.manifest?.entrypoint ?? null,
+    mainModule: body.manifest?.mainModule ?? null,
     renderMode: body.manifest?.renderMode ?? ("spa" as const),
     runWorkerFirst: body.manifest?.runWorkerFirst ?? null,
   };
+
+  // A declared main module must be one of the uploaded server files.
+  // Reject it here rather than deploy another module as the entry.
+  const mainModuleError = mainModuleProblem(
+    Object.keys(body.serverFiles ?? {}),
+    manifest.mainModule,
+  );
+  if (mainModuleError) {
+    return c.json({ error: "validation", message: mainModuleError }, 400);
+  }
 
   // creek's own cap (not Cloudflare's — CF limits the gzipped worker script).
   // Raised 50→100MB to match the production path so an unminified worker can
@@ -468,6 +485,7 @@ async function runSandboxDeploy(
       assets: string[];
       hasWorker: boolean;
       entrypoint: string | null;
+      mainModule?: string | null;
       renderMode: string;
       runWorkerFirst?: boolean | string[] | null;
     };
@@ -575,6 +593,7 @@ async function runSandboxDeploy(
       {
         clientAssets,
         serverFiles,
+        mainModule: bundle.manifest.mainModule ?? null,
         renderMode,
         runWorkerFirst: bundle.manifest.runWorkerFirst ?? null,
         teamId, // cache-coherent OR sandbox-unique salt
