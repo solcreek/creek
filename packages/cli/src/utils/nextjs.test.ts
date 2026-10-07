@@ -182,9 +182,17 @@ describe("resolveAdapterPath (adapter cache floor)", () => {
     expect(resolveAdapterPath(cwd, "0.2.17")).not.toBeNull(); // the previous floor reused it
   });
 
+  it("rejects a cached 0.2.19, which leaves non-Latin-1 source two bytes per character", () => {
+    // A CJK character in a regex literal doubled the isolate memory the worker
+    // source takes; 0.2.20 escapes it. A cached 0.2.19 must not be reused.
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.19");
+    expect(resolveAdapterPath(cwd, ADAPTER_MIN_VERSION)).toBeNull();
+    expect(resolveAdapterPath(cwd, "0.2.19")).not.toBeNull(); // the previous floor reused it
+  });
+
   it("prefers the project node_modules copy over .creek when both pass the floor", () => {
-    fakeAdapter(join(cwd, "node_modules"), "0.2.19");
-    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.20");
+    fakeAdapter(join(cwd, "node_modules"), "0.2.20");
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.21");
     const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
     // node_modules is tried before .creek in the base order.
     expect(resolved).toContain(join("node_modules", "@solcreek", "adapter-creek"));

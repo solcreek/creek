@@ -1,5 +1,19 @@
 # @solcreek/cli
 
+## 0.4.49
+
+Requires `@solcreek/sdk@0.4.21` (unchanged).
+
+### Next.js
+
+- **Workers with Chinese, Japanese, Korean or other non-Latin text use half
+  the source memory.** Next.js deploys now build with
+  `@solcreek/adapter-creek@0.2.20`, which keeps the worker source one byte per
+  character in the isolate. Before, one such character left in a regular
+  expression made a 33 MB worker take 66 MB of the 128 MB memory limit before
+  serving a request. The build log reports the memory saved. An older adapter
+  cached in `.creek` is replaced on the next deploy.
+
 ## 0.4.48
 
 Requires `@solcreek/sdk@0.4.21` (vinext detection and build output,
