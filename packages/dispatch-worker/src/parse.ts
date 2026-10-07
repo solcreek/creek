@@ -35,13 +35,15 @@ export type Plan = (typeof PLANS)[number];
 // 345 ms / p99 1.9 s / max 3.9 s) cost about $1.1 of CPU a month. Every
 // production team is on `free` today, so free must carry real SSR + database
 // workloads with headroom over that app; paid tiers widen subrequests and the
-// runaway ceiling. Workers Paid defaults are 30,000 ms CPU and 10,000
-// subrequests.
+// runaway ceiling. Workers for Platforms caps a user worker's HTTP invocation
+// at 30,000 ms CPU and Workers Paid defaults to 10,000 subrequests, so the top
+// plan sits at both, and each step up still raises CPU — the upgrade hint
+// promises higher limits.
 export const PLAN_LIMITS: Record<Plan, WorkerLimits> = {
   free: { cpuMs: 5_000, subRequests: 200 },
-  starter: { cpuMs: 15_000, subRequests: 1_000 },
-  pro: { cpuMs: 30_000, subRequests: 5_000 },
-  enterprise: { cpuMs: 120_000, subRequests: 10_000 },
+  starter: { cpuMs: 10_000, subRequests: 1_000 },
+  pro: { cpuMs: 20_000, subRequests: 5_000 },
+  enterprise: { cpuMs: 30_000, subRequests: 10_000 },
 };
 
 function isPlan(plan: string): plan is Plan {

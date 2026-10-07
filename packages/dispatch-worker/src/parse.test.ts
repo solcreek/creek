@@ -164,15 +164,15 @@ describe("getLimitsForPlan", () => {
   // Regression: starter is on the pricing page but had no entry, so a starter
   // team silently got free's limits.
   test("starter plan has its own limits", () => {
-    expect(getLimitsForPlan("starter")).toEqual({ cpuMs: 15_000, subRequests: 1_000 });
+    expect(getLimitsForPlan("starter")).toEqual({ cpuMs: 10_000, subRequests: 1_000 });
   });
 
   test("pro plan limits", () => {
-    expect(getLimitsForPlan("pro")).toEqual({ cpuMs: 30_000, subRequests: 5_000 });
+    expect(getLimitsForPlan("pro")).toEqual({ cpuMs: 20_000, subRequests: 5_000 });
   });
 
   test("enterprise plan limits", () => {
-    expect(getLimitsForPlan("enterprise")).toEqual({ cpuMs: 120_000, subRequests: 10_000 });
+    expect(getLimitsForPlan("enterprise")).toEqual({ cpuMs: 30_000, subRequests: 10_000 });
   });
 
   test("every plan has limits", () => {
@@ -194,9 +194,12 @@ describe("getLimitsForPlan", () => {
     }
   });
 
-  test("no plan exceeds the platform ceilings (5 min CPU, 10,000 subrequests by default)", () => {
+  // Regression: enterprise was set to 120,000 ms against the general Workers
+  // 5-minute ceiling, but Workers for Platforms caps a user worker's HTTP
+  // invocation at 30 s of CPU, so the limit could never be granted.
+  test("no plan exceeds the Workers for Platforms ceilings (30 s CPU, 10,000 subrequests)", () => {
     for (const limits of Object.values(PLAN_LIMITS)) {
-      expect(limits.cpuMs).toBeLessThanOrEqual(300_000);
+      expect(limits.cpuMs).toBeLessThanOrEqual(30_000);
       expect(limits.subRequests).toBeLessThanOrEqual(10_000);
     }
   });
