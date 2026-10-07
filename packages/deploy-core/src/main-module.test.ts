@@ -33,7 +33,8 @@ describe("selectMainModule", () => {
     });
 
     it("a nested file with a guessed name is not a match", () => {
-      expect(selectMainModule(["ssr/index.js", "app.js"])).toBe("ssr/index.js");
+      // ssr/index.js comes second, so only a basename match would pick it.
+      expect(selectMainModule(["app.js", "ssr/index.js"])).toBe("app.js");
     });
   });
 });
