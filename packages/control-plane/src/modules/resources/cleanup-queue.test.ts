@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
-import { processResourceCleanupQueue } from "./cleanup-queue.js";
+import { MAX_ATTEMPTS, processResourceCleanupQueue } from "./cleanup-queue.js";
 
 const deletes: string[] = [];
 let respond: (url: string) => Response = () =>
@@ -61,6 +61,18 @@ function queue(resourceType: string, cfResourceId: string, cfResourceName = cfRe
     )
     .run(resourceType, cfResourceId, cfResourceName, Math.floor(Date.now() / 1000));
 }
+const row = (cfResourceId: string) =>
+  testEnv.db.db
+    .prepare(
+      "SELECT status, attempts, claimedAt, nextAttemptAt FROM resource_cleanup_queue WHERE cfResourceId = ?",
+    )
+    .get(cfResourceId) as {
+    status: string;
+    attempts: number;
+    claimedAt: number | null;
+    nextAttemptAt: number | null;
+  };
+const nowSec = () => Math.floor(Date.now() / 1000);
 const statuses = () =>
   (
     testEnv.db.db
@@ -129,7 +141,7 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["raced:done"]);
   });
 
-  it("marks a delete Cloudflare refused as failed, not done", async () => {
+  it("puts a delete Cloudflare refused back in the queue with backoff, not done", async () => {
     names = { refused: "creek-refused0", fine: "creek-fine0000" };
     queue("d1", "refused", "creek-refused0");
     queue("kv", "fine", "creek-fine0000");
@@ -143,7 +155,99 @@ describe("processResourceCleanupQueue", () => {
 
     expect(await processResourceCleanupQueue(testEnv.env)).toBe(1);
 
-    expect(statuses()).toEqual(["refused:failed", "fine:done"]);
+    expect(statuses()).toEqual(["refused:pending", "fine:done"]);
+    const retried = row("refused");
+    expect(retried.attempts).toBe(1);
+    // First retry no sooner than 5 minutes out.
+    expect(retried.nextAttemptAt).toBeGreaterThanOrEqual(nowSec() + 5 * 60 - 2);
+
+    // Not claimed again before it is due.
+    deletes.length = 0;
+    await processResourceCleanupQueue(testEnv.env);
+    expect(deletes).toEqual([]);
+  });
+
+  it("retries a due row and marks it failed after the attempt limit", async () => {
+    names = { flaky: "creek-flaky000" };
+    queue("d1", "flaky", "creek-flaky000");
+    respond = () =>
+      HttpResponse.json(
+        { success: false, errors: [{ code: 7500, message: "busy" }] },
+        { status: 503 },
+      );
+
+    for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+      // Make the row due now, as if its backoff had passed.
+      testEnv.db.db.exec("UPDATE resource_cleanup_queue SET nextAttemptAt = NULL");
+      await processResourceCleanupQueue(testEnv.env);
+      expect(row("flaky").attempts).toBe(i);
+      expect(row("flaky").status).toBe(i < MAX_ATTEMPTS ? "pending" : "failed");
+    }
+    expect(deletes).toHaveLength(MAX_ATTEMPTS);
+  });
+
+  it("reclaims a row stranded in cleaning by an interrupted run", async () => {
+    names = { stuck: "creek-stuck000", legacy: "creek-legacy00" };
+    queue("d1", "stuck", "creek-stuck000");
+    queue("d1", "legacy", "creek-legacy00");
+    // One claimed 20 minutes ago, one claimed before claims carried a time.
+    testEnv.db.db.exec(
+      `UPDATE resource_cleanup_queue SET status = 'cleaning', attempts = 1, claimedAt = ${nowSec() - 20 * 60} WHERE cfResourceId = 'stuck'`,
+    );
+    testEnv.db.db.exec(
+      "UPDATE resource_cleanup_queue SET status = 'cleaning', claimedAt = NULL WHERE cfResourceId = 'legacy'",
+    );
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(statuses()).toEqual(["stuck:done", "legacy:done"]);
+    expect(row("stuck").attempts).toBe(2);
+  });
+
+  it("leaves a row another run claimed recently alone", async () => {
+    names = { busy: "creek-busy0000" };
+    queue("d1", "busy", "creek-busy0000");
+    testEnv.db.db.exec(
+      `UPDATE resource_cleanup_queue SET status = 'cleaning', attempts = 1, claimedAt = ${nowSec() - 60}`,
+    );
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(deletes).toEqual([]);
+    expect(row("busy").status).toBe("cleaning");
+  });
+
+  it("doesn't record an outcome once another run has taken the row over", async () => {
+    names = { taken: "creek-taken000" };
+    queue("d1", "taken", "creek-taken000");
+    respond = () => {
+      // While this run's delete is in flight, its claim expires and another
+      // run reclaims the row.
+      testEnv.db.db.exec("UPDATE resource_cleanup_queue SET claimedAt = claimedAt + 1000");
+      return HttpResponse.json({ success: true, result: {}, errors: [] });
+    };
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(row("taken").status).toBe("cleaning");
+  });
+
+  it("never deletes a resource a live resource row references", async () => {
+    // Re-registered by a live row after it was queued for deletion.
+    names = { readopted: "creek-readopt0" };
+    queue("d1", "readopted", "creek-readopt0");
+    testEnv.db.db.exec(
+      `INSERT INTO organization (id, name, slug, createdAt) VALUES ('t-live', 'L', 'l', ${Date.now()})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('res-live', 't-live', 'database', 'live', 'readopted', 'd1', 'active', ${Date.now()}, ${Date.now()})`,
+    );
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(deletes).toEqual([]);
+    expect(row("readopted").status).toBe("cancelled");
   });
 
   it("a 2xx that reports success: false is a failure, not done", async () => {
@@ -158,7 +262,7 @@ describe("processResourceCleanupQueue", () => {
 
     expect(await processResourceCleanupQueue(testEnv.env)).toBe(0);
 
-    expect(statuses()).toEqual(["soft:failed"]);
+    expect(statuses()).toEqual(["soft:pending"]);
   });
 
   it("overlapping runs delete each resource once", async () => {

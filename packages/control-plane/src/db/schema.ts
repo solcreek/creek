@@ -402,6 +402,9 @@ export const resourceCleanupQueue = sqliteTable(
     status: text("status").notNull().default("pending"),
     reason: text("reason"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    claimedAt: integer("claimedAt", { mode: "timestamp" }),
+    nextAttemptAt: integer("nextAttemptAt", { mode: "timestamp" }),
   },
   (table) => [index("idx_cleanup_status").on(table.status)],
 );
