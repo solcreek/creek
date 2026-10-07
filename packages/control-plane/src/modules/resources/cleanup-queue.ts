@@ -144,7 +144,7 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
   return cleaned;
 }
 
-/** Whether a live resource row still references the queued D1/R2/KV resource. */
+/** Whether a live resource row still references the queued D1/R2/KV/queue resource. */
 async function isStillInUse(env: Env, row: QueueRow): Promise<boolean> {
   if (!["d1", "r2", "kv", "queue"].includes(row.resourceType)) return false;
   const live = await env.DB.prepare(
@@ -156,9 +156,10 @@ async function isStillInUse(env: Env, row: QueueRow): Promise<boolean> {
 }
 
 /**
- * Whether the queued D1/R2/KV resource is still the one Creek provisioned
- * under the expected name: true, false, or "gone" when Cloudflare no longer
- * has it. Other row types are not checked.
+ * Whether the queued D1/R2/KV/queue resource is still the one Creek
+ * provisioned under the expected name (a D1's name, a KV namespace's title,
+ * a queue's queue_name, an R2 bucket's id): true, false, or "gone" when
+ * Cloudflare no longer has it. Other row types are not checked.
  */
 async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "gone"> {
   const account = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
