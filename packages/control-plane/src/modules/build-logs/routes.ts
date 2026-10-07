@@ -265,23 +265,29 @@ buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read
 });
 
 /**
- * Parse and merge two ndjson logs into one timeline: identical lines once,
- * ordered by timestamp, and lines with equal timestamps kept in their
- * original order (main log first). Non-JSON residue is skipped.
+ * Merge the main log with the deploy job's stage log into one timeline,
+ * ordered by timestamp (stable, so equal timestamps keep their order, main
+ * log first). Every main line is kept, repeats included. A stage line is
+ * dropped only as many times as the same line occurs in the main log, which
+ * happens when the job also wrote the main log. Non-JSON residue is skipped.
  */
-export function mergeLogLines(main: string[], extra: string[]): BuildLogLine[] {
-  const seen = new Set<string>();
+export function mergeLogLines(main: string[], stage: string[]): BuildLogLine[] {
+  const inMain = new Map<string, number>();
+  for (const line of main) inMain.set(line, (inMain.get(line) ?? 0) + 1);
+  const stageOnly = stage.filter((line) => {
+    const n = inMain.get(line) ?? 0;
+    if (n === 0) return true;
+    inMain.set(line, n - 1);
+    return false;
+  });
   const merged: BuildLogLine[] = [];
-  for (const line of [...main, ...extra]) {
-    if (seen.has(line)) continue;
-    seen.add(line);
+  for (const line of [...main, ...stageOnly]) {
     try {
       merged.push(JSON.parse(line) as BuildLogLine);
     } catch {
       // Non-JSON residue from scrubNdjson fallback path — skip.
     }
   }
-  // Array.prototype.sort is stable, so equal timestamps keep their order.
   return merged.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
 }
 

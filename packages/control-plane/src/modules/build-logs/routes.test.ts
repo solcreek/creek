@@ -260,11 +260,28 @@ describe("GET deployment logs — deploy job's stage log merged in", () => {
     expect(body.entries).toHaveLength(1);
   });
 
-  test("a log without a stage object reads as before", async () => {
-    await seedLogs([line(1, "build", "build ok")], null);
+  test("a log without a stage object reads as before, repeated lines included", async () => {
+    // Two identical lines in the same millisecond are both real output.
+    await seedLogs(
+      [line(1, "build", "build ok"), line(2, "build", "retry"), line(2, "build", "retry")],
+      null,
+    );
 
     const body = (await (await getLogs("dep-merge")).json()) as { entries: Array<{ msg: string }> };
 
-    expect(body.entries.map((e) => e.msg)).toEqual(["build ok"]);
+    expect(body.entries.map((e) => e.msg)).toEqual(["build ok", "retry", "retry"]);
+  });
+
+  test("only as many stage lines are dropped as the main log already has", async () => {
+    const repeated = line(3, "provision", "Retrying D1 query");
+    await seedLogs([repeated], [repeated, repeated, line(4, "provision", "done")]);
+
+    const body = (await (await getLogs("dep-merge")).json()) as { entries: Array<{ msg: string }> };
+
+    expect(body.entries.map((e) => e.msg)).toEqual([
+      "Retrying D1 query",
+      "Retrying D1 query",
+      "done",
+    ]);
   });
 });
