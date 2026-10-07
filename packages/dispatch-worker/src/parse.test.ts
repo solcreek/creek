@@ -265,6 +265,26 @@ describe("limitExceededBody", () => {
     expect(limitExceededBody(thrown, "free", PLAN_LIMITS.free)?.error).toBe(code);
   });
 
+  // Regression: an unknown plan is enforced with free's limits, but the
+  // message named the raw value ("5000ms on legacy-beta plan").
+  test("names the plan whose limits were enforced when the plan is unknown", () => {
+    expect(
+      limitExceededBody(
+        "Worker exceeded CPU time limit.",
+        "legacy-beta",
+        getLimitsForPlan("legacy-beta"),
+      ),
+    ).toEqual({
+      error: "cpu_limit_exceeded",
+      message: "CPU time limit exceeded (5000ms on free plan).",
+      upgrade: "Upgrade to Starter for higher limits.",
+    });
+    expect(
+      limitExceededBody("Too many subrequests.", "legacy-beta", getLimitsForPlan("legacy-beta"))
+        ?.message,
+    ).toBe("Subrequest limit exceeded (200 on free plan).");
+  });
+
   test("returns null for any other error", () => {
     expect(limitExceededBody("Network connection lost.", "free", PLAN_LIMITS.free)).toBeNull();
   });

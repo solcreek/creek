@@ -51,8 +51,13 @@ function isPlan(plan: string): plan is Plan {
 }
 
 /** Limits for a team's plan; an unknown plan gets free's. */
+/** The plan whose limits apply: a team's plan, or free when it is unknown. */
+function effectivePlan(plan: string): Plan {
+  return isPlan(plan) ? plan : "free";
+}
+
 export function getLimitsForPlan(plan: string): WorkerLimits {
-  return isPlan(plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS.free;
+  return PLAN_LIMITS[effectivePlan(plan)];
 }
 
 /**
@@ -61,7 +66,7 @@ export function getLimitsForPlan(plan: string): WorkerLimits {
  * matching getLimitsForPlan.
  */
 export function upgradeHintForPlan(plan: string): string | undefined {
-  const index = PLANS.indexOf(isPlan(plan) ? plan : "free");
+  const index = PLANS.indexOf(effectivePlan(plan));
   const next = PLANS[index + 1];
   if (!next) return undefined;
   if (next === "enterprise") return "Contact us about Enterprise for higher limits.";
@@ -77,13 +82,15 @@ const SUBREQUEST_LIMIT_ERROR = /too many subrequests|subrequest limit/i;
 
 /**
  * The 429 body for a user worker that threw because it hit its CPU or
- * subrequest limit, or null when the error is something else.
+ * subrequest limit, or null when the error is something else. It names the
+ * plan whose limits were enforced, so an unknown plan reads as free.
  */
 export function limitExceededBody(
   errorMessage: string,
-  plan: string,
+  teamPlan: string,
   limits: WorkerLimits,
 ): { error: string; message: string; upgrade?: string } | null {
+  const plan = effectivePlan(teamPlan);
   if (CPU_LIMIT_ERROR.test(errorMessage)) {
     return {
       error: "cpu_limit_exceeded",
