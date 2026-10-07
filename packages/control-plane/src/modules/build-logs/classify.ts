@@ -57,7 +57,7 @@ export function classifyDeployFailure(
   if (/payload too large|too large|size limit|over the .* limit/.test(msg)) {
     return {
       code: "bundle_too_large",
-      hint: "The worker bundle is over the Workers size limit. Clear a stale .next/dev build or large inlined assets, then redeploy.",
+      hint: "The worker bundle was rejected as too large (the current Workers limit is 64 MiB uncompressed). Clear a stale .next/dev build or large inlined assets, then redeploy.",
     };
   }
 
