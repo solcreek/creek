@@ -142,6 +142,35 @@ describe("PUT /bundle", () => {
     expect(json.message).toContain('"index.js" is not one of the uploaded server files');
   });
 
+  test("checks the declared main module against the files the deploy will use", async () => {
+    // A non-empty serverFileNames wins over inline serverFiles at deploy time
+    // (resolveServerFiles), so validation must read the same list.
+    seedTestProject();
+    seedDeployment("queued");
+    const workerManifest = { ...bundle.manifest, hasWorker: true, renderMode: "worker" };
+
+    const shadowed = await req(
+      "PUT",
+      `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`,
+      {
+        ...bundle,
+        manifest: { ...workerManifest, mainModule: "index.js" },
+        serverFiles: { "index.js": btoa("export default {}") },
+        serverFileNames: ["worker.js"],
+      },
+    );
+    expect(shadowed.status).toBe(400);
+
+    seedDeployment("queued", "dep-empty-inline");
+    const staged = await req("PUT", `/projects/${PROJECT_ID}/deployments/dep-empty-inline/bundle`, {
+      ...bundle,
+      manifest: { ...workerManifest, mainModule: "index.js" },
+      serverFiles: {},
+      serverFileNames: ["index.js"],
+    });
+    expect(staged.status).toBe(202);
+  });
+
   test("allows retry on failed deployment", async () => {
     seedTestProject();
     seedDeployment("failed");

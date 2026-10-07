@@ -253,16 +253,16 @@ deployments.put(
         );
       }
 
-      // A declared main module must be one of the server files the bundle
-      // carries — inline, or staged separately and listed in serverFileNames.
-      // Reject it here rather than deploy another module as the entry.
+      // A declared main module must be one of the server files the deploy will
+      // use. Same precedence as resolveServerFiles: a non-empty serverFileNames
+      // (files staged separately) wins over inline serverFiles. Reject it here
+      // rather than deploy another module as the entry.
       const declaredMain = parsedBundle.manifest.mainModule;
       if (declaredMain !== undefined && declaredMain !== null) {
-        const names = parsedBundle.serverFiles
-          ? Object.keys(parsedBundle.serverFiles)
-          : Array.isArray(parsedBundle.serverFileNames)
-            ? parsedBundle.serverFileNames.filter((n): n is string => typeof n === "string")
-            : [];
+        const staged = Array.isArray(parsedBundle.serverFileNames)
+          ? parsedBundle.serverFileNames.filter((n): n is string => typeof n === "string")
+          : [];
+        const names = staged.length > 0 ? staged : Object.keys(parsedBundle.serverFiles ?? {});
         const problem = mainModuleProblem(names, declaredMain as string);
         if (problem) return c.json({ error: "validation", message: problem }, 400);
       }
