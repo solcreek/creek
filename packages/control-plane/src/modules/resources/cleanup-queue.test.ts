@@ -301,13 +301,13 @@ describe("processResourceCleanupQueue", () => {
     expect(statuses()).toEqual(["d1-a:done", "d1-b:done"]);
   });
 
-  it("a custom hostname with no zone configured needs no API call", async () => {
+  it("a custom hostname it can't delete (no zone configured) fails instead of passing as done", async () => {
     queue("custom_hostname", "cfh-1", "app.example.com");
     testEnv.env.CLOUDFLARE_ZONE_ID = undefined as unknown as string;
 
     await processResourceCleanupQueue(testEnv.env);
 
     expect(deletes).toEqual([]);
-    expect(statuses()).toEqual(["cfh-1:done"]);
+    expect(statuses()).toEqual(["cfh-1:failed"]);
   });
 });

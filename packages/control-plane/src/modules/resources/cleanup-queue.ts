@@ -106,22 +106,25 @@ export async function processResourceCleanupQueue(env: Env): Promise<number> {
         );
       }
       const url = cleanupUrl(env, row);
-      if (url) {
-        const res = await fetch(url, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
-        });
-        if (res.status !== 404) {
-          // Cloudflare can report a failure in a 2xx envelope too.
-          const body = await res.text().catch(() => "");
-          let refused = !res.ok;
-          try {
-            refused ||= (JSON.parse(body) as { success?: unknown }).success === false;
-          } catch {
-            // Not JSON: the status decides.
-          }
-          if (refused) throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+      // Nothing to call (e.g. a custom hostname with no zone configured): the
+      // resource may still exist, so this is not done.
+      if (!url) {
+        throw new PermanentFailure(`no way to delete a ${row.resourceType} in this configuration`);
+      }
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
+      });
+      if (res.status !== 404) {
+        // Cloudflare can report a failure in a 2xx envelope too.
+        const body = await res.text().catch(() => "");
+        let refused = !res.ok;
+        try {
+          refused ||= (JSON.parse(body) as { success?: unknown }).success === false;
+        } catch {
+          // Not JSON: the status decides.
         }
+        if (refused) throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
       }
 
       await finish("done");
