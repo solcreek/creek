@@ -41,7 +41,7 @@ creek deploy --prod --json
 - Do not treat dry-run `wouldDeploy: true` as a license to omit the flags in `nextStep`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
 - Do not POST to `sandbox-api.creek.dev` yourself. Some egress IPs get Cloudflare 1010. Use the CLI or MCP.
-- Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
+- Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` until `live` is true and `proof.ok` is true. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
 - Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
 - Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`, `storage delete`, `cache delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
 - Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`destructive: true` means `--dry-run` exists).
@@ -59,7 +59,7 @@ Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm
 
 Do not pass `apiKey` to tools. Prefer the CLI (`creek db`, `creek deployments logs`) when you have a shell.
 
-MCP `deploy` JSON includes `proof` (GET of the preview URL). If `proof.ok` is false, treat the deploy as unverified even if `url` is present.
+MCP `deploy` JSON includes `proof` (GET of the preview URL). If `proof.ok` is false, treat the deploy as unverified even if `url` is present. MCP `get_status` attaches the same `proof` of `productionUrl` only when `live` is true (latest deploy is the current production) — do not treat a 200 of the previous version as the new commit being live.
 
 `creek deploy --prod --json` also attaches `proof`. 2xx and 3xx count as live (a 302 to a login page is still a live site).
 

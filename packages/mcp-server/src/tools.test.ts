@@ -237,7 +237,7 @@ describe("MCP authenticated tools", () => {
     });
   });
 
-  it("get_status includes latest deployment", async () => {
+  it("get_status includes latest deployment, productionUrl, and proof when live", async () => {
     server.use(
       http.get("https://cp.test/projects/hello", () =>
         HttpResponse.json({
@@ -250,19 +250,150 @@ describe("MCP authenticated tools", () => {
       ),
       http.get("https://cp.test/projects/hello/deployments", () =>
         HttpResponse.json([
-          { id: "dep-new", status: "active", version: 2, createdAt: 200 },
-          { id: "dep-old", status: "active", version: 1, createdAt: 100 },
+          {
+            id: "dep-new",
+            status: "active",
+            version: 2,
+            createdAt: 200,
+            url: "https://hello.bycreek.test",
+          },
+          {
+            id: "dep-old",
+            status: "active",
+            version: 1,
+            createdAt: 100,
+            url: "https://hello-dep-old.bycreek.test",
+          },
         ]),
+      ),
+      http.get("https://hello.bycreek.test/", () =>
+        HttpResponse.html("<html><head><title>hello live</title></head><body>ok</body></html>"),
       ),
     );
     const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
     const result = await get({ projectSlug: "hello" });
+    expect(result.isError).toBeUndefined();
     expect(JSON.parse(result.content[0].text)).toMatchObject({
       ok: true,
       slug: "hello",
       productionDeploymentId: "dep-new",
-      latestDeployment: { id: "dep-new", status: "active", version: 2 },
+      productionUrl: "https://hello.bycreek.test",
+      live: true,
+      pending: false,
+      latestDeployment: {
+        id: "dep-new",
+        status: "active",
+        version: 2,
+        url: "https://hello.bycreek.test",
+      },
+      proof: { ok: true, status: 200, title: "hello live" },
     });
+  });
+
+  it("get_status does not GET proof while a newer deploy is still pending", async () => {
+    let proved = false;
+    server.use(
+      http.get("https://cp.test/projects/hello", () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "hello",
+          productionDeploymentId: "dep-old",
+        }),
+      ),
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          { id: "dep-new", status: "building", version: 3, url: null },
+          {
+            id: "dep-old",
+            status: "active",
+            version: 2,
+            url: "https://hello.bycreek.test",
+          },
+        ]),
+      ),
+      http.get("https://hello.bycreek.test/", () => {
+        proved = true;
+        return HttpResponse.html("<html><head><title>stale</title></head></html>");
+      }),
+    );
+    const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
+    const result = await get({ projectSlug: "hello" });
+    const payload = JSON.parse(result.content[0].text);
+    expect(proved).toBe(false);
+    expect(payload).toMatchObject({
+      ok: true,
+      live: false,
+      pending: true,
+      productionUrl: "https://hello.bycreek.test",
+      proof: null,
+      latestDeployment: { id: "dep-new", status: "building", version: 3 },
+    });
+    expect(payload.nextStep).toContain("get_status");
+  });
+
+  it("get_status marks verify_failed when live production is not reachable", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello", () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "hello",
+          productionDeploymentId: "dep-new",
+        }),
+      ),
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          {
+            id: "dep-new",
+            status: "active",
+            version: 2,
+            url: "https://hello.bycreek.test",
+          },
+        ]),
+      ),
+      http.get("https://hello.bycreek.test/", () => new HttpResponse("nope", { status: 502 })),
+    );
+    const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
+    const result = await get({ projectSlug: "hello" });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: false,
+      live: true,
+      error: "verify_failed",
+      proof: { ok: false, status: 502 },
+    });
+  });
+
+  it("get_status points at get_build_log when the latest deploy failed", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello", () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "hello",
+          productionDeploymentId: "dep-old",
+        }),
+      ),
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          { id: "dep-new", status: "failed", version: 3, url: null },
+          {
+            id: "dep-old",
+            status: "active",
+            version: 2,
+            url: "https://hello.bycreek.test",
+          },
+        ]),
+      ),
+    );
+    const get = registerAndCapture(new Headers({ "x-api-key": "ck_live_test" })).get("get_status")!;
+    const payload = JSON.parse((await get({ projectSlug: "hello" })).content[0].text);
+    expect(payload).toMatchObject({
+      ok: true,
+      live: false,
+      pending: false,
+      proof: null,
+      latestDeployment: { id: "dep-new", status: "failed" },
+    });
+    expect(payload.nextStep).toContain("get_build_log");
   });
 
   it.each([403, 500])("get_status returns an error when deployments GET is %s", async (status) => {
@@ -339,13 +470,16 @@ describe("MCP authenticated tools", () => {
     )!;
     const result = await deploy({ projectSlug: "hello" });
     expect(posted).toEqual({ projectId: "hello" });
-    expect(JSON.parse(result.content[0].text)).toMatchObject({
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload).toMatchObject({
       ok: true,
       triggered: true,
       pending: true,
       branch: "main",
       commitSha: "abc1234deadbeef",
     });
+    expect(payload.nextStep).toContain("get_status");
+    expect(payload.nextStep).toContain("proof.ok");
   });
 
   it("list_deployments returns a slim list", async () => {
@@ -359,6 +493,7 @@ describe("MCP authenticated tools", () => {
             branch: "main",
             triggerType: "cli",
             createdAt: 200,
+            url: "https://hello.bycreek.test",
           },
           {
             id: "d1",
@@ -367,6 +502,7 @@ describe("MCP authenticated tools", () => {
             branch: "main",
             triggerType: "rollback",
             createdAt: 100,
+            url: "https://hello-d1abcdef-team.bycreek.test",
           },
         ]),
       ),
@@ -383,8 +519,13 @@ describe("MCP authenticated tools", () => {
       version: 2,
       status: "active",
       triggerType: "cli",
+      url: "https://hello.bycreek.test",
     });
-    expect(payload.deployments[1]).toMatchObject({ id: "d1", triggerType: "rollback" });
+    expect(payload.deployments[1]).toMatchObject({
+      id: "d1",
+      triggerType: "rollback",
+      url: "https://hello-d1abcdef-team.bycreek.test",
+    });
   });
 
   it("rollback POSTs the required deploymentId even if other fields are empty", async () => {
