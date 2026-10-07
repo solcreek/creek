@@ -42,6 +42,14 @@ That's it. The CLI detects Next.js >= 16.2.3 + the adapter package, then:
 2. The adapter's `onBuildComplete` hook bundles the worker output
 3. CLI uploads `.creek/adapter-output/` (worker + static assets)
 
+### How the build runs
+
+For Next.js, Creek runs `next build --webpack` itself. It does not use `[build] command` from `creek.toml` or the `build` script in `package.json`, because the adapter has to run inside that build. Run any other step you need before `creek deploy`.
+
+The build uses webpack, not Turbopack (the Next.js 16 default). The adapter runs the Prisma and Drizzle `better-sqlite3` adapters on D1 through webpack aliases, which a Turbopack build does not apply. A Turbopack build that bundles `better-sqlite3` stops with an error. Build with `--webpack` if you run `next build` with the adapter yourself. Calling `better-sqlite3` directly is not supported on Workers.
+
+`creek deploy --skip-build` deploys `.creek/adapter-output` from the last build, and prints when that build was made.
+
 ### creek.toml (optional)
 
 ```toml title="creek.toml"
@@ -57,7 +65,6 @@ Setting `framework = "nextjs"` is optional — the CLI auto-detects from `packag
 - **Streaming SSR** via `TransformStream` — no `node:http` server dependency
 - **Embedded manifests** — route, build, and prerender manifests inlined into the bundle via a custom `fs` shim
 - **Node.js API shims** — `http`, `https`, `net`, `inspector`, `fs`, `vm`, `process` EventEmitter stubs
-- **Turbopack runtime patching** — dynamic chunk loading replaced with static `requireChunk()` switch
 
 ### Monorepo Setup
 
@@ -77,7 +84,7 @@ export default nextConfig;
 ## Known Limitations
 
 - **Requires Next.js >= 16.2.3** — older versions fall back to a legacy build path
-- **`--webpack` flag is mandatory** — Turbopack's chunked output format can't be bundled by esbuild (the adapter sets this automatically)
+- **Builds with webpack** — see [How the build runs](#how-the-build-runs); `creek deploy` runs `next build --webpack` for you
 - **ISR / on-demand revalidation** — cache handler is in-memory only; Durable Object-backed cache is planned
 - **Image Optimization** — use `unoptimized: true` or a custom loader; `sharp` is shimmed to no-op (falls back to `resvg.wasm` for `@vercel/og`)
 - **Bundle size** — large Next.js apps produce 5-7MB workers; within Workers limits but worth monitoring

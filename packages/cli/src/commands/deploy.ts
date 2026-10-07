@@ -2235,7 +2235,8 @@ async function deployAuthenticated(
     // Single source of truth for build → plan → collect → bundle. Both
     // sandbox and authenticated paths call the same function; they
     // diverge only in where the bundle gets POSTed.
-    if (!skipBuild && resolved.buildCommand) progress.section("Build");
+    if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand))
+      progress.section("Build");
     const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild, jsonMode });
     const {
       plan,
@@ -2281,8 +2282,9 @@ async function deployAuthenticated(
     );
     if (skipBuild) {
       buildLog.info("build", "build skipped (--skip-build)");
-    } else if (resolved.buildCommand) {
-      buildLog.info("build", `ran: ${resolved.buildCommand}`);
+    } else if (prepared.buildRan) {
+      // What actually ran: a Next.js deploy runs its own build, not [build] command.
+      buildLog.info("build", `ran: ${prepared.buildRan}`);
     }
     buildLog.info("bundle", `${fileList.length} assets (${assetSummary(fileList)})`);
 

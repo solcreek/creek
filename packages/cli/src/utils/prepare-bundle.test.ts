@@ -1,21 +1,23 @@
 /**
  * Integration tests for prepareDeployBundle.
  *
- * Strategy: build temp project fixtures on disk (no mocks) and assert
+ * Strategy: build temp project fixtures on disk and assert
  * the prepared bundle's shape — render mode, asset list, server file
  * presence, exclusion behavior. This catches the orchestration bugs
  * that pure planDeploy unit tests miss (e.g. forgetting to filter
  * dist/_worker.mjs out of clientAssets, or letting framework
  * detection drift between the two deploy paths).
  *
- * To stay fast, we never invoke the real build script — every fixture
- * runs with `skipBuild: true` and pre-staged build output. esbuild
- * IS run for real on the worker fixture (cheap, ~50ms), so we exercise
- * the actual bundleWorker path.
+ * To stay fast, fixtures use pre-staged build output. Most run with
+ * `skipBuild: true`; tests of the build step itself run with a trivial
+ * command (`true`) or a missing build script, and `buildNextjs` is
+ * mocked, since a real `next build` can't run here. esbuild IS run for
+ * real on the worker fixture (cheap, ~50ms), so we exercise the actual
+ * bundleWorker path.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
@@ -27,6 +29,14 @@ import {
   mergeFrameworkBindings,
 } from "./prepare-bundle.js";
 import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
+import { buildNextjs } from "./nextjs.js";
+
+// A real `next build` can't run here; tests that reach the Next.js build
+// assert that it was called.
+vi.mock("./nextjs.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nextjs.js")>()),
+  buildNextjs: vi.fn(() => "next build --webpack"),
+}));
 
 let cwd: string;
 
@@ -423,6 +433,105 @@ describe("prepareDeployBundle", () => {
 
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
     expect(result.mainModule).toBe("worker.js");
+  });
+
+  test("an empty [build] command does not skip the Next.js build", async () => {
+    // The Next.js build ignores [build] command; skipping it would deploy
+    // whatever adapter output a previous build left behind.
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    vi.mocked(buildNextjs).mockClear();
+
+    await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "",
+        buildOutput: ".creek/adapter-output",
+      }),
+      skipBuild: false,
+    });
+
+    expect(buildNextjs).toHaveBeenCalledTimes(1);
+  });
+
+  test("buildRan names the build that ran, not [build] command", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    const next = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "npm run build",
+        buildOutput: ".creek/adapter-output",
+      }),
+      skipBuild: false,
+    });
+    expect(next.buildRan).toBe("next build --webpack");
+
+    const skipped = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "npm run build",
+        buildOutput: ".creek/adapter-output",
+      }),
+      skipBuild: true,
+    });
+    expect(skipped.buildRan).toBeNull();
+  });
+
+  test("buildRan is the configured command when it runs, and null without a build script", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "spa", dependencies: { vite: "*" } }),
+      "dist/index.html": "<!doctype html>",
+    });
+    const ran = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", buildCommand: "true" }),
+      skipBuild: false,
+    });
+    expect(ran.buildRan).toBe("true");
+
+    const missing = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", buildCommand: "npm run build" }),
+      skipBuild: false,
+    });
+    expect(missing.buildRan).toBeNull();
+  });
+
+  test("--skip-build says when the Next.js adapter output it deploys was built", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    const builtAt = new Date(Date.now() - 3 * 60 * 60 * 1000 - 5 * 60 * 1000);
+    utimesSync(join(cwd, ".creek/adapter-output/manifest.json"), builtAt, builtAt);
+    const infoSpy = vi.spyOn(consola, "info").mockImplementation(() => undefined);
+    try {
+      await prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ framework: "nextjs", buildOutput: ".creek/adapter-output" }),
+        skipBuild: true,
+      });
+      const lines = infoSpy.mock.calls.map((c) => String(c[0]));
+      expect(lines).toContain(
+        `  --skip-build: deploying .creek/adapter-output, built 3 hours ago (${builtAt.toISOString().slice(0, 16)}Z)`,
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   test("Next.js adapter entry named like an inherited property is not declared", async () => {

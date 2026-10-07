@@ -55,6 +55,8 @@ import { collectAssets } from "./bundle.js";
 import { bundleSSRServer } from "./ssr-bundle.js";
 import { bundleWorker } from "./worker-bundle.js";
 import {
+  adapterOutputBuiltAt,
+  describeBuildAge,
   hasAdapterOutput,
   buildNextjs,
   patchBundledWorker,
@@ -114,6 +116,12 @@ export interface PreparedDeployBundle {
   assets: Record<string, string>;
   /** Server / worker files, base64-encoded. Undefined for pure SPA. */
   serverFiles?: Record<string, string>;
+  /**
+   * The build that ran: the Next.js build (which ignores `[build] command`)
+   * or the configured command. Null when the build was skipped or there was
+   * no build script to run.
+   */
+  buildRan: string | null;
 }
 
 /**
@@ -175,11 +183,14 @@ export async function prepareDeployBundle(
   const monorepo = framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
 
   // 2. Build (when not skipped). Framework-specific build for Next.js
-  // adapter; otherwise the user's build script.
-  if (!skipBuild && resolved.buildCommand) {
+  // adapter; otherwise the user's build script. The Next.js build ignores
+  // `[build] command`, so an empty one must not skip it: that would deploy
+  // whatever .creek/adapter-output a previous build left.
+  let buildRan: string | null = null;
+  if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand)) {
     if (nextjsMode === "opennext") {
       try {
-        buildNextjs(cwd, monorepo.isMonorepo);
+        buildRan = buildNextjs(cwd, monorepo.isMonorepo);
       } catch {
         if (jsonMode)
           jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
@@ -218,6 +229,7 @@ export async function prepareDeployBundle(
         say.start(`  ${buildCmd}`);
         try {
           execSync(buildCmd, { cwd, stdio: childStdio() });
+          buildRan = buildCmd;
         } catch {
           if (jsonMode)
             jsonOutput(
@@ -350,6 +362,12 @@ export async function prepareDeployBundle(
     if (framework === "nextjs" && hasAdapterOutput(cwd)) {
       // Next.js adapter output → patch bare imports, upload as-is.
       const adapterServerDir = resolve(cwd, ".creek/adapter-output/server");
+      if (skipBuild) {
+        // The upload is whatever the last build left behind; say how old it is.
+        const builtAt = adapterOutputBuiltAt(cwd);
+        if (builtAt)
+          say.info(`  --skip-build: deploying .creek/adapter-output, ${describeBuildAge(builtAt)}`);
+      }
       say.start("  Collecting adapter output...");
       const collected: Record<string, Buffer> = {};
       if (existsSync(adapterServerDir)) {
@@ -509,6 +527,7 @@ export async function prepareDeployBundle(
     fileList,
     assets: clientAssets,
     serverFiles,
+    buildRan,
   };
 }
 
