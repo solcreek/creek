@@ -1,5 +1,51 @@
 # @solcreek/cli
 
+## 0.4.48
+
+Requires `@solcreek/sdk@0.4.21` (vinext detection and build output,
+`.assetsignore`). Publish the SDK tag `sdk@0.4.21` before `cli@0.4.48` /
+`creek@0.4.48`.
+
+### vinext
+
+- **vinext apps deploy.** A project that depends on `vinext` is detected as
+  vinext, ahead of `next` (which `vinext init` keeps), and builds with
+  `build:vinext` when the project has one, else `build`. The deploy ships
+  vinext's Cloudflare build output: the worker with its static assets, the
+  compatibility date and flags it was built for, and the KV, D1, R2 and Workers
+  AI bindings declared in `cloudflare.config.ts` under their own names. Text
+  bindings become environment variables. Set the project up with
+  `vinext init --platform=cloudflare`.
+- **The deploy stops before uploading** when there is no build output, when the
+  project uses vinext's legacy Wrangler setup, or when `cloudflare.config.ts`
+  declares a binding Creek can't provide (the error names it). Workers AI must
+  be bound as `AI`.
+- **`creek deploy --dry-run` and `creek doctor`** show the bindings and
+  compatibility settings from the last vinext build, and report the legacy
+  Wrangler setup (`CK-VINEXT-LEGACY-SETUP`), bindings Creek can't provide
+  (`CK-VINEXT-UNSUPPORTED-BINDINGS`) and secrets to set with `creek env set`
+  (`CK-VINEXT-SECRETS`). Checks about a missing or undeclared worker entry no
+  longer fire for vinext projects.
+- **`creek init`** writes `framework = "vinext"` with vinext's build command and
+  output, and `creek.toml` accepts that framework.
+- **Sandbox deploys** warn that the database is temporary when it is declared
+  only in `cloudflare.config.ts`.
+
+### Deploys
+
+- **`.assetsignore` is honoured** in the assets directory of every deploy,
+  including `creek deploy <dir>`, with the gitignore patterns Wrangler uses.
+  The files it lists, and the file itself, are no longer published.
+- **The deploy names the worker's entry file** for vinext, Astro, Next.js
+  (adapter builds) and workers Creek bundles, so that file runs rather than one
+  picked by name. The production build log's detect line shows it.
+- **A worker with more than 500 modules stops the deploy** with an error.
+  Before, the upload left the rest out and the worker failed at runtime on the
+  routes that needed them.
+- **`--skip-build` deploys the local output.** On a clean checkout, a build-cache
+  hit used to deploy the cached build instead. The build log now records
+  `build skipped (--skip-build)` rather than the build command.
+
 ## 0.4.47
 
 Requires `@solcreek/sdk@0.4.20` (`collectMigrations`, `splitSqlStatements`,

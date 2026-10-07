@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.48
+
+- Bundles [`@solcreek/cli@0.4.48`](../cli/CHANGELOG.md#0448) and requires
+  [`@solcreek/sdk@0.4.21`](../sdk/CHANGELOG.md#0421): vinext apps deploy (with
+  `--dry-run`, `creek doctor` and `creek init` support), `.assetsignore` is
+  honoured on every deploy, deploys name the worker's entry file, a worker over
+  500 modules stops the deploy, and `--skip-build` deploys the local output.
+  Publish `sdk@0.4.21` before `cli@0.4.48` / `creek@0.4.48`.
+
 ## 0.4.47
 
 - Bundles [`@solcreek/cli@0.4.47`](../cli/CHANGELOG.md#0447) and requires
