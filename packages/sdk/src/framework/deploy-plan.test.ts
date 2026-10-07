@@ -9,6 +9,7 @@
  *   2. workerEntry: null | TS source outside output | prebundled in output
  *   3. buildOutput: exists | missing
  *   4. astroCF: null | { serverDir, assetsDir }
+ *   5. vinext: null | { serverDir, assetsDir }
  *
  * Combinations that don't appear are either symmetric (e.g. all SPA
  * frameworks behave the same) or genuinely identical to a covered case.
@@ -16,6 +17,11 @@
 
 import { describe, test, expect } from "vitest";
 import { planDeploy, type PlanDeployInput, type DeployPlan } from "./deploy-plan.js";
+
+const VINEXT = {
+  serverDir: ".cloudflare/output/v0/workers/default/bundle",
+  assetsDir: ".cloudflare/output/v0/workers/default/assets",
+};
 
 function input(overrides: Partial<PlanDeployInput> = {}): PlanDeployInput {
   return {
@@ -170,6 +176,29 @@ describe("planDeploy", () => {
           worker: { strategy: "upload-asis", entry: "dist/edge/_worker.mjs" },
         },
       ],
+      [
+        "vinext — Build Output deploys in worker mode (env.ASSETS)",
+        { framework: "vinext", vinext: VINEXT },
+        {
+          renderMode: "worker",
+          assets: { enabled: true, dir: VINEXT.assetsDir, excludeFile: null },
+          worker: { strategy: "ssr-framework", entry: VINEXT.serverDir },
+        },
+      ],
+      [
+        "vinext + legacy wrangler main — the build output wins, main is ignored",
+        {
+          framework: "vinext",
+          workerEntry: "vinext/server/fetch-handler",
+          workerEntryExists: false,
+          vinext: VINEXT,
+        },
+        {
+          renderMode: "worker",
+          assets: { enabled: true, dir: VINEXT.assetsDir, excludeFile: null },
+          worker: { strategy: "ssr-framework", entry: VINEXT.serverDir },
+        },
+      ],
     ];
 
     for (const [name, partialInput, expected] of cases) {
@@ -215,6 +244,15 @@ describe("planDeploy", () => {
           buildOutputExists: false,
         },
         /nothing to deploy/,
+      ],
+      [
+        "vinext without Build Output — not built, or legacy Wrangler setup",
+        {
+          framework: "vinext",
+          workerEntry: "vinext/server/fetch-handler",
+          workerEntryExists: false,
+        },
+        /vinext build output not found.*legacy Wrangler setup is not supported/,
       ],
     ];
 

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { Framework } from "../types/index.js";
 import { BINDING_NAMES, type ResourceRequirements } from "../bindings/index.js";
-import { detectFramework, getDefaultBuildOutput } from "../framework/index.js";
+import { detectFramework, getDefaultBuildOutput, vinextBuildScript } from "../framework/index.js";
 import { parseConfig, detectTarget, validateTargetDrivers, type DeployTarget } from "./index.js";
 import { parseWranglerConfig, type WranglerConfig, type WranglerFormat } from "./wrangler.js";
 
@@ -230,7 +230,7 @@ function fromWranglerConfig(
     target: "cf",
     framework,
     // Pure Worker: no traditional build step — entry IS the app
-    buildCommand: isPureWorker ? "" : "npm run build",
+    buildCommand: isPureWorker ? "" : defaultBuildCommand(framework, cwd),
     buildOutput: framework ? getDefaultBuildOutput(framework, cwd) : isPureWorker ? "." : "dist",
     workerEntry: wrangler.main ?? null,
     bindings,
@@ -268,7 +268,7 @@ function fromPackageJson(framework: Framework, cwd: string): ResolvedConfig {
     projectName,
     target: "cf",
     framework,
-    buildCommand: "npm run build",
+    buildCommand: defaultBuildCommand(framework, cwd),
     buildOutput: getDefaultBuildOutput(framework, cwd),
     workerEntry: null,
     bindings: [],
@@ -314,6 +314,21 @@ function fromStaticSite(cwd: string): ResolvedConfig {
 // --- Utilities ---
 
 /**
+ * The build command for a project with no explicit one. vinext projects
+ * migrated with `vinext init` keep `build` for Next.js and build vinext with
+ * `build:vinext`.
+ */
+function defaultBuildCommand(framework: Framework | null, cwd: string): string {
+  if (framework === "vinext") {
+    try {
+      const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
+      return `npm run ${vinextBuildScript(pkg)}`;
+    } catch {}
+  }
+  return "npm run build";
+}
+
+/**
  * Human-readable one-liner for CLI output.
  * Example: "wrangler.jsonc (Hono + D1 + KV)" or "package.json (React Router)"
  */
@@ -323,6 +338,7 @@ export function formatDetectionSummary(config: ResolvedConfig): string {
   if (config.framework) {
     const frameworkNames: Record<string, string> = {
       nextjs: "Next.js",
+      vinext: "vinext",
       "tanstack-start": "TanStack Start",
       "react-router": "React Router",
       "vite-react": "Vite + React",

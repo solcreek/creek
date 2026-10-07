@@ -86,6 +86,7 @@ export type DeploymentTrigger = "cli" | "github" | "api" | "remote" | "rollback"
 
 export type Framework =
   | "nextjs"
+  | "vinext"
   | "tanstack-start"
   | "react-router"
   | "vite-react"

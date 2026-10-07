@@ -45,7 +45,11 @@ import {
   printSandboxSuccess,
   expiresInMinutes,
 } from "../utils/sandbox.js";
-import { prepareDeployBundle } from "../utils/prepare-bundle.js";
+import {
+  mergeFrameworkBindings,
+  prepareDeployBundle,
+  type PreparedDeployBundle,
+} from "../utils/prepare-bundle.js";
 import { BuildLogEmitter, flushBuildLog } from "../utils/build-log.js";
 import {
   isTTY,
@@ -1757,7 +1761,11 @@ async function deploySandbox(
   if (plan.assets.enabled) {
     progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
   }
-  const sandboxApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled);
+  const sandboxApiHint = sameOriginApiHint(
+    effectiveRenderMode,
+    plan.assets.enabled,
+    prepared.framework,
+  );
   if (sandboxApiHint) progress.info(`  ℹ ${sandboxApiHint}`);
   const sandboxHasDb = !!resolved?.bindings.some((b) => b.type === "d1");
   const ephemeralDbWarning = ephemeralSandboxDbWarning(sandboxHasDb);
@@ -1768,8 +1776,9 @@ async function deploySandbox(
   // An adapter build records the exact compat it was built against in its
   // manifest; deploy with that so the worker validates at upload (e.g.
   // node:http server modules need nodejs_compat + compatibility_date
-  // >= 2025-09-01). Fall back to the resolved config for non-adapter builds.
-  const sandboxAdapterCompat = readAdapterCompat(cwd);
+  // >= 2025-09-01). vinext records it in its Build Output. Fall back to the
+  // resolved config for other builds.
+  const sandboxAdapterCompat = buildOutputCompat(prepared.vinext) ?? readAdapterCompat(cwd);
   const sandboxCompatDate = sandboxAdapterCompat?.compatibilityDate ?? resolved?.compatibilityDate;
   const sandboxCompatFlags =
     sandboxAdapterCompat?.compatibilityFlags ??
@@ -1782,13 +1791,23 @@ async function deploySandbox(
           hasWorker: prepared.serverFiles !== undefined,
           entrypoint: prepared.effectiveEntrypoint,
           renderMode: effectiveRenderMode,
-          ...workerFirstManifest(effectiveRenderMode, resolved?.runWorkerFirst),
+          ...workerFirstManifest(
+            effectiveRenderMode,
+            resolved?.runWorkerFirst ?? prepared.vinext?.runWorkerFirst,
+          ),
         },
         assets: clientAssets,
         serverFiles,
         framework: prepared.framework ?? undefined,
         source: "cli",
-        ...(resolved ? { bindings: resolvedConfigToBindingRequirements(resolved) } : {}),
+        ...(resolved
+          ? {
+              bindings: mergeFrameworkBindings(
+                resolvedConfigToBindingRequirements(resolved),
+                prepared.vinext,
+              ),
+            }
+          : {}),
         // Seed the sandbox's ephemeral D1 with the project's migrations so
         // DB-backed routes work in the preview without `creek db migrate`.
         ...((): { migrations?: ReturnType<typeof collectMigrations> } => {
@@ -2171,7 +2190,7 @@ async function deployAuthenticated(
 
     progress.section("Upload");
     progress.info(`  ${fileList.length} assets (${assetSummary(fileList)})`);
-    const prodApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled);
+    const prodApiHint = sameOriginApiHint(effectiveRenderMode, plan.assets.enabled, framework);
     if (prodApiHint) progress.info(`  ℹ ${prodApiHint}`);
 
     progress.section("Deploy");
@@ -2196,10 +2215,14 @@ async function deployAuthenticated(
     progress.start("  Uploading bundle...");
     const effectiveHasWorker = serverFiles !== undefined;
     // Prefer the compat the adapter built the worker against (recorded in its
-    // manifest) so the deploy matches the build — node:http server modules
-    // need nodejs_compat + compatibility_date >= 2025-09-01. Falls back to the
-    // resolved config + a framework-aware default for non-adapter builds.
-    const prodAdapterCompat = readAdapterCompat(cwd);
+    // manifest, or vinext's Build Output) so the deploy matches the build —
+    // node:http server modules need nodejs_compat + compatibility_date
+    // >= 2025-09-01. Falls back to the resolved config + a framework-aware
+    // default for other builds.
+    const prodAdapterCompat = buildOutputCompat(prepared.vinext) ?? readAdapterCompat(cwd);
+    // Text bindings from vinext's cloudflare.config.ts deploy as vars;
+    // creek.toml / wrangler vars win on a name conflict.
+    const prodVars = { ...prepared.vinext?.vars, ...resolved.vars };
     const prodCompatDate = prodAdapterCompat?.compatibilityDate ?? resolved.compatibilityDate;
     const prodCompatFlags =
       prodAdapterCompat?.compatibilityFlags ??
@@ -2217,15 +2240,21 @@ async function deployAuthenticated(
         entrypoint: effectiveEntrypoint,
         renderMode: effectiveRenderMode,
         framework: framework ?? undefined,
-        ...workerFirstManifest(effectiveRenderMode, resolved.runWorkerFirst),
+        ...workerFirstManifest(
+          effectiveRenderMode,
+          resolved.runWorkerFirst ?? prepared.vinext?.runWorkerFirst,
+        ),
       },
       workerScript: null,
       assets: clientAssets,
       serverFiles,
       // Binding declarations with user-defined names
-      bindings: resolvedConfigToBindingRequirements(resolved),
+      bindings: mergeFrameworkBindings(
+        resolvedConfigToBindingRequirements(resolved),
+        prepared.vinext,
+      ),
       // Pass through wrangler vars and compat settings
-      ...(Object.keys(resolved.vars).length > 0 ? { vars: resolved.vars } : {}),
+      ...(Object.keys(prodVars).length > 0 ? { vars: prodVars } : {}),
       ...(prodCompatDate ? { compatibilityDate: prodCompatDate } : {}),
       compatibilityFlags: prodCompatFlags,
       ...(resolved.cron.length > 0 ? { cron: resolved.cron } : {}),
@@ -2525,6 +2554,23 @@ async function deployAuthenticated(
  * (render mode `worker`) can run before its static assets; for any other
  * mode the setting has nothing to apply to, so say so instead of dropping it.
  */
+/**
+ * Compat settings recorded in a framework's build output (vinext's
+ * `worker.config.json`), in `readAdapterCompat`'s shape. Null when the
+ * build output records none.
+ */
+function buildOutputCompat(
+  vinext: PreparedDeployBundle["vinext"],
+): { compatibilityDate?: string; compatibilityFlags?: string[] } | null {
+  if (!vinext || (!vinext.compatibilityDate && vinext.compatibilityFlags.length === 0)) return null;
+  return {
+    ...(vinext.compatibilityDate ? { compatibilityDate: vinext.compatibilityDate } : {}),
+    ...(vinext.compatibilityFlags.length > 0
+      ? { compatibilityFlags: vinext.compatibilityFlags }
+      : {}),
+  };
+}
+
 export function workerFirstManifest(
   renderMode: string,
   runWorkerFirst: boolean | string[] | null | undefined,
@@ -2540,8 +2586,14 @@ export function workerFirstManifest(
   return { runWorkerFirst };
 }
 
-export function sameOriginApiHint(renderMode: string, assetsEnabled: boolean): string | null {
-  if (renderMode !== "worker" || !assetsEnabled) return null;
+export function sameOriginApiHint(
+  renderMode: string,
+  assetsEnabled: boolean,
+  framework: string | null = null,
+): string | null {
+  // vinext deploys in worker mode, but it is a full-stack framework, not a
+  // Vite SPA beside a hand-written API worker.
+  if (renderMode !== "worker" || !assetsEnabled || framework === "vinext") return null;
   return 'Same-origin: this worker serves your SPA and API together — call the API with relative paths (fetch("/api/...")). The build runs without VITE_API_URL, so a hardcoded localhost fallback breaks in the browser; set VITE_API_URL="" for production if your frontend reads it.';
 }
 

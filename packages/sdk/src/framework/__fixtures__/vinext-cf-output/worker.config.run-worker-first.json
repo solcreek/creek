@@ -1,0 +1,1 @@
+{"name":"demo","compatibilityDate":"2026-10-07","compatibilityFlags":["nodejs_compat"],"assets":{"notFoundHandling":"none","runWorkerFirst":["/_vinext/static-cache/*"]},"env":{"ASSETS":{"type":"assets"},"VINEXT_KV_CACHE":{"type":"kv"}},"manifest":{"type":"partial","mainModule":"index.js","modules":{}}}

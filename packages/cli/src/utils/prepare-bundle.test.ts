@@ -20,7 +20,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
 import type { ResolvedConfig } from "@solcreek/sdk";
-import { prepareDeployBundle, packageScriptName, collectWorkerModules } from "./prepare-bundle.js";
+import {
+  prepareDeployBundle,
+  packageScriptName,
+  collectWorkerModules,
+  mergeFrameworkBindings,
+  isDetectedMainModule,
+} from "./prepare-bundle.js";
+import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
 let cwd: string;
 
@@ -602,5 +609,169 @@ describe("spa-with-resources warning", () => {
     const warned = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(warned).not.toContain("static SPA");
     warnSpy.mockRestore();
+  });
+});
+
+// vinext — the fixture is the Build Output of a real create-vinext-app
+// project (see packages/sdk/src/framework/__fixtures__/vinext-cf-output).
+describe("prepareDeployBundle — vinext Build Output", () => {
+  const VINEXT_CONFIG = {
+    framework: "vinext" as const,
+    buildOutput: ".cloudflare/output/v0/workers/default/assets",
+  };
+  const vinextPkg = JSON.stringify({
+    name: "demo",
+    dependencies: { vinext: "^1.0.1", "@vinext/cloudflare": "^1.0.1" },
+    scripts: { build: "vite build" },
+  });
+
+  function exitSpy() {
+    return vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+  }
+
+  test("deploys bundle/ as the worker in worker mode, assets/ as Static Assets", async () => {
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd);
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig(VINEXT_CONFIG),
+      skipBuild: true,
+    });
+
+    // worker mode is what attaches env.ASSETS, which vinext reads.
+    expect(result.effectiveRenderMode).toBe("worker");
+    expect(result.effectiveEntrypoint).toBe("index.js");
+    expect(result.vinext?.compatibilityDate).toBe("2026-10-07");
+    expect(result.vinext?.compatibilityFlags).toEqual(["nodejs_compat"]);
+
+    const modules = Object.keys(result.serverFiles!);
+    expect(modules).toContain("index.js");
+    expect(modules).toContain("ssr/index.js");
+    expect(modules).toContain("_next/static/page-DTzNL5qX.js");
+    expect(modules.some((m) => m.endsWith(".css"))).toBe(false);
+    // Build metadata JSON is not a module (and the upload API rejects it).
+    expect(modules.some((m) => m.endsWith(".json"))).toBe(false);
+    // Nothing from the assets dir leaks into the worker, and vice versa.
+    expect(modules.some((m) => m.startsWith("assets/"))).toBe(false);
+
+    expect(result.fileList).toContain("_next/static/chunks/index-CnPdVYHA.js");
+    expect(result.fileList).toContain("_headers");
+    expect(result.fileList).toContain("vinext-client-entry-manifest.json");
+  });
+
+  test("honours vinext's .assetsignore: .vite/manifest.json is not published", async () => {
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd);
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig(VINEXT_CONFIG),
+      skipBuild: true,
+    });
+
+    expect(result.fileList).not.toContain(".vite/manifest.json");
+    expect(result.fileList).not.toContain(".assetsignore");
+    expect(result.assets[".vite/manifest.json"]).toBeUndefined();
+  });
+
+  test("a leftover wrangler main (legacy setup) does not override the Build Output", async () => {
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd);
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ ...VINEXT_CONFIG, workerEntry: "vinext/server/fetch-handler" }),
+      skipBuild: true,
+    });
+
+    expect(result.effectiveRenderMode).toBe("worker");
+    expect(result.effectiveEntrypoint).toBe("index.js");
+  });
+
+  test("carries the static-assets cache's runWorkerFirst paths", async () => {
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd, { workerConfig: "run-worker-first" });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig(VINEXT_CONFIG),
+      skipBuild: true,
+    });
+
+    expect(result.vinext?.runWorkerFirst).toEqual(["/_vinext/static-cache/*"]);
+  });
+
+  test("no Build Output → exits with the vinext init hint", async () => {
+    const errSpy = vi.spyOn(consola, "error").mockImplementation(() => undefined);
+    const spy = exitSpy();
+    writeFixture({ "package.json": vinextPkg, "dist/server/BUILD_ID": "x" });
+
+    await expect(
+      prepareDeployBundle({ cwd, resolved: baseConfig(VINEXT_CONFIG), skipBuild: true }),
+    ).rejects.toThrow("process.exit called");
+    expect(spy).toHaveBeenCalledWith(1);
+    expect(String(errSpy.mock.calls[0]?.[0])).toMatch(/vinext init --platform=cloudflare/);
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  test("a binding Creek can't provide (images) stops the deploy", async () => {
+    const errSpy = vi.spyOn(consola, "error").mockImplementation(() => undefined);
+    const spy = exitSpy();
+    writeFixture({ "package.json": vinextPkg });
+    materializeVinextFixture(cwd, { workerConfig: "bindings" });
+
+    await expect(
+      prepareDeployBundle({ cwd, resolved: baseConfig(VINEXT_CONFIG), skipBuild: true }),
+    ).rejects.toThrow("process.exit called");
+    expect(String(errSpy.mock.calls[0]?.[0])).toMatch(/IMAGES \(images\)/);
+    spy.mockRestore();
+    errSpy.mockRestore();
+  });
+});
+
+describe("mergeFrameworkBindings", () => {
+  const vinext = {
+    bindings: [
+      { type: "kv" as const, name: "VINEXT_KV_CACHE" },
+      { type: "d1" as const, name: "DB" },
+    ],
+  } as unknown as Parameters<typeof mergeFrameworkBindings>[1];
+
+  test("adds the Build Output's bindings under their own names", () => {
+    expect(mergeFrameworkBindings([{ type: "kv", bindingName: "CACHE" }], vinext)).toEqual([
+      { type: "kv", bindingName: "CACHE" },
+      { type: "kv", bindingName: "VINEXT_KV_CACHE" },
+      { type: "d1", bindingName: "DB" },
+    ]);
+  });
+
+  test("config wins on a name conflict", () => {
+    expect(mergeFrameworkBindings([{ type: "r2", bindingName: "DB" }], vinext)).toEqual([
+      { type: "r2", bindingName: "DB" },
+      { type: "kv", bindingName: "VINEXT_KV_CACHE" },
+    ]);
+  });
+
+  test("no framework output → unchanged", () => {
+    const base = [{ type: "kv" as const, bindingName: "CACHE" }];
+    expect(mergeFrameworkBindings(base, null)).toBe(base);
+  });
+});
+
+describe("isDetectedMainModule", () => {
+  test("index.js among chunks is picked", () => {
+    expect(isDetectedMainModule(["_next/a.js", "index.js", "ssr/index.js"], "index.js")).toBe(true);
+  });
+
+  test("a preferred name elsewhere in the bundle would shadow the entry", () => {
+    expect(isDetectedMainModule(["index.js", "worker.js"], "index.js")).toBe(false);
+  });
+
+  test("entry missing", () => {
+    expect(isDetectedMainModule(["ssr/index.js"], "index.js")).toBe(false);
   });
 });

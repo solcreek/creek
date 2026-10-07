@@ -105,6 +105,54 @@ describe("resolveConfig detection chain", () => {
 
 // --- creek.toml conversion ---
 
+describe("vinext build command", () => {
+  test("create-vinext-app project builds with `build`", () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        name: "demo",
+        dependencies: { vinext: "^1.0.1" },
+        scripts: { build: "vite build" },
+      }),
+    );
+    const config = resolveConfig(cwd);
+    expect(config.framework).toBe("vinext");
+    expect(config.buildCommand).toBe("npm run build");
+    expect(config.buildOutput).toBe(".cloudflare/output/v0/workers/default/assets");
+  });
+
+  test("project migrated with vinext init builds with `build:vinext`, not next build", () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        name: "app",
+        dependencies: { next: "16.2.3", vinext: "^1.0.1" },
+        scripts: { build: "next build", "build:vinext": "vite build" },
+      }),
+    );
+    const config = resolveConfig(cwd);
+    expect(config.framework).toBe("vinext");
+    expect(config.buildCommand).toBe("npm run build:vinext");
+  });
+
+  test("legacy wrangler setup still gets the vinext build command", () => {
+    writeFileSync(
+      join(cwd, "wrangler.jsonc"),
+      `{ "name": "app", "main": "vinext/server/fetch-handler" }`,
+    );
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        dependencies: { next: "16.2.3", vinext: "^1.0.1" },
+        scripts: { build: "next build", "build:vinext": "vite build" },
+      }),
+    );
+    const config = resolveConfig(cwd);
+    expect(config.framework).toBe("vinext");
+    expect(config.buildCommand).toBe("npm run build:vinext");
+  });
+});
+
 describe("fromCreekConfig", () => {
   test("converts resources booleans to bindings with semantic names (key uppercased)", () => {
     writeFileSync(
