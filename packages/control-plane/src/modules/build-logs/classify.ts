@@ -41,19 +41,19 @@ export function classifyDeployFailure(
     if (/^migration .+ failed: /.test(msg)) {
       return {
         code: "migration_failed",
-        hint: "A [release] migration failed and was rolled back; the previous version is still serving. Fix the migration named above, then redeploy.",
+        hint: "The migration named above failed and was rolled back; migrations before it in this deploy stay applied. The new version was not activated, so whatever was live before keeps serving. Fix that migration, then redeploy.",
       };
     }
     if (/^migration .+ is \d+ kb; a release migration must fit/.test(msg)) {
       return {
         code: "migration_too_large",
-        hint: "Split the migration named above into smaller migration files, then redeploy. Nothing was applied.",
+        hint: "The migration named above was not applied (migrations before it in this deploy were), and the new version was not activated. Split it into smaller migration files, then redeploy.",
       };
     }
     if (msg.startsWith("[release] migrations is on but the project has")) {
       return {
         code: "migration_target",
-        hint: "Bind one database as DATABASE (or declare [resources] database = true), then redeploy. Nothing was applied.",
+        hint: "No migrations were applied and the new version was not activated. Bind one database as DATABASE (or declare [resources] database = true), then redeploy.",
       };
     }
   }

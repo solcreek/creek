@@ -51,6 +51,16 @@ describe("classifyDeployFailure", () => {
     );
     expect(failed.code).toBe("migration_failed");
     expect(failed.hint).toContain("rolled back");
+    // A first production deploy has no previous version: the hint must not
+    // assume one, nor claim the deploy applied nothing.
+    for (const message of [
+      "migration 0003_broken.sql failed: no such table: t",
+      "migration 0001_big.sql is 147 KB; a release migration must fit in 90 KB so it applies as one batch. Split it into smaller migration files.",
+    ]) {
+      const { hint } = classifyDeployFailure("provisioning", message);
+      expect(hint).toContain("new version was not activated");
+      expect(hint).not.toMatch(/previous version is still serving|Nothing was applied/i);
+    }
     expect(
       classifyDeployFailure("provisioning", "migration 0002_seed.sql failed: request timed out")
         .code,
