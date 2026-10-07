@@ -367,7 +367,7 @@ export async function prepareDeployBundle(
       // The adapter records its entry in manifest.json; declare it only when
       // that file was collected, else leave the servers to guess as before.
       const adapterEntry = readAdapterEntrypoint(cwd);
-      if (adapterEntry && adapterEntry in collected) knownEntry = adapterEntry;
+      if (adapterEntry && Object.hasOwn(collected, adapterEntry)) knownEntry = adapterEntry;
       say.success(`  Worker bundled: ${Object.keys(collected).length} files (${kb(collected)}KB)`);
     } else if (framework === "nextjs") {
       // Legacy Next.js: wrangler dry-run produces the bundle.

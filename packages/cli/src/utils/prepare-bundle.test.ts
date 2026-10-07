@@ -425,6 +425,23 @@ describe("prepareDeployBundle", () => {
     expect(result.mainModule).toBe("worker.js");
   });
 
+  test("Next.js adapter entry named like an inherited property is not declared", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "constructor" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "nextjs", buildOutput: ".creek/adapter-output" }),
+      skipBuild: true,
+    });
+
+    expect(result.mainModule).toBeNull();
+  });
+
   test("Next.js adapter output naming a file it didn't emit — leaves the servers to guess", async () => {
     writeFixture({
       "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
