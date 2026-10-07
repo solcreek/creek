@@ -2132,11 +2132,14 @@ async function deployAuthenticated(
     // Read the local git HEAD SHA. If the working tree is clean and the
     // server has a cached bundle for this exact commit, skip the entire
     // local build + upload and let the server deploy from cache.
-    // Not with [release] migrations: a cache hit deploys the cached build
-    // directly, without the deploy job that applies migrations.
-    const turboResult = resolved.releaseMigrations
-      ? false
-      : await tryTurboDeploy(cwd, client, project, noCache, jsonMode);
+    // A cache hit deploys the cached build directly. Not with --skip-build,
+    // which promises to upload the existing local output as-is, nor with
+    // [release] migrations, since that path skips the deploy job that applies
+    // them.
+    const turboResult =
+      skipBuild || resolved.releaseMigrations
+        ? false
+        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode);
     if (turboResult) {
       return; // ⚡ done — server deployed from cache
     }
