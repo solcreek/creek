@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,7 +42,9 @@ beforeAll(async () => {
       return json({ id: "p1", slug: "app", organizationId: "o1", productionBranch: "main" });
     }
     if (req.method === "POST" && p.endsWith("/deployments")) {
-      return json({ deployment: { id: "d1", version: 1, status: "pending" } }, 201);
+      // A Turbo request (it carries the commit) always hits the build cache.
+      const cacheHit = body.includes("commitSha");
+      return json({ deployment: { id: "d1", version: 1, status: "pending" }, cacheHit }, 201);
     }
     if (req.method === "GET" && p.endsWith("/deployments/d1")) {
       return json({ deployment: { id: "d1", status: "active", version: 1 }, url: `${base}/` });
@@ -133,6 +135,64 @@ describe.skipIf(!existsSync(CLI))("creek deploy with [release] migrations (#57)"
       { name: "0001_users.sql", statements: ["CREATE TABLE users (id INTEGER);"] },
       { name: "0002_posts.sql", statements: ["CREATE TABLE posts (id INTEGER);"] },
     ]);
+  });
+
+  describe("with a clean git checkout the build cache would serve", () => {
+    beforeEach(() => {
+      const git = (...args: string[]) =>
+        execFileSync("git", args, {
+          cwd: app,
+          stdio: "pipe",
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "t",
+            GIT_AUTHOR_EMAIL: "t@example.com",
+            GIT_COMMITTER_NAME: "t",
+            GIT_COMMITTER_EMAIL: "t@example.com",
+          },
+        });
+      git("init", "-q", "-b", "main");
+      git("add", "-A");
+      git("commit", "-qm", "init");
+    });
+
+    const turboRequests = () =>
+      requests.filter((q) => q.method === "POST" && q.body.includes("commitSha"));
+    const bundlePuts = () =>
+      requests.filter((q) => q.method === "PUT" && q.path.endsWith("/bundle"));
+
+    test("control: without [release] migrations the deploy is served from the cache", async () => {
+      writeFileSync(
+        join(app, "creek.toml"),
+        '[project]\nname = "app"\n\n[build]\noutput = "dist"\n\n[resources]\ndatabase = true\n',
+      );
+      execFileSync("git", ["commit", "-qam", "off"], {
+        cwd: app,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+
+      const r = await deploy();
+
+      expect(r.code, r.stderr).toBe(0);
+      expect(turboRequests()).toHaveLength(1);
+      expect(bundlePuts()).toEqual([]);
+    });
+
+    test("with [release] migrations the cache is skipped and the bundle staged", async () => {
+      const r = await deploy();
+
+      expect(r.code, r.stderr).toBe(0);
+      expect(turboRequests()).toEqual([]);
+      expect(bundlePuts()).toHaveLength(1);
+      expect(JSON.parse(bundlePuts()[0].body)).toMatchObject({ releaseMigrations: true });
+    });
   });
 
   test("an unreadable migration stops the deploy before anything is created", async () => {
