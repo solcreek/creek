@@ -32,6 +32,16 @@ describe("classifyDeployFailure", () => {
     );
   });
 
+  it("codes Cloudflare's uncompressed size-limit rejection and names the limit", () => {
+    // The exact API error (code 10027), verified 2026-10-07 against a dispatch namespace.
+    const r = classifyDeployFailure(
+      "deploying",
+      "Your Worker exceeded the uncompressed size limit of 64 MiB.",
+    );
+    expect(r.code).toBe("bundle_too_large");
+    expect(r.hint).toMatch(/64 MiB uncompressed/);
+  });
+
   it("codes a resource/binding failure", () => {
     expect(
       classifyDeployFailure("deploying", "D1_ERROR: no such column: main.Notification.category")
