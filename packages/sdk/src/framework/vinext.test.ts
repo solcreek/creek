@@ -178,6 +178,11 @@ describe("collectVinextServerFiles", () => {
     expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/more than 500/);
   });
 
+  test("an inherited property name is not a collected entry", () => {
+    bundle(["index.js"]);
+    expect(() => collectVinextServerFiles(cwd, build("toString"))).toThrow(/entry toString/);
+  });
+
   test("throws when the entry is missing", () => {
     bundle(["ssr/index.js", "chunk.js"]);
     expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/entry index.js/);

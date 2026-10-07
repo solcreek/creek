@@ -152,7 +152,7 @@ export function collectVinextServerFiles(cwd: string, build: VinextBuild): Recor
   const modules = collectServerFiles(join(cwd, build.serverDir), {
     include: (name) => !name.endsWith(".json"),
   });
-  if (!(build.mainModule in modules)) {
+  if (!Object.hasOwn(modules, build.mainModule)) {
     throw new Error(`vinext worker entry ${build.mainModule} is missing from ${build.serverDir}`);
   }
   return modules;
