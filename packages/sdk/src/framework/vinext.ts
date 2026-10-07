@@ -23,7 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BindingDeclaration } from "../config/resolved-config.js";
-import { collectServerFiles } from "./server-files.js";
+import { collectServerFiles, isEntryModuleSelected } from "./server-files.js";
 
 export const VINEXT_OUTPUT_DIR = ".cloudflare/output/v0/workers/default";
 export const VINEXT_SERVER_DIR = `${VINEXT_OUTPUT_DIR}/bundle`;
@@ -139,10 +139,21 @@ export function parseVinextWorkerConfig(raw: unknown): VinextBuild {
  * are build metadata (`.vite/manifest.json`, `vinext-server.json`) that no
  * module imports — the bundler inlines JSON imports — and the Workers
  * upload API rejects a JSON module part (code 10162), so they are left out.
+ *
+ * Throws unless the deploy servers will take `manifest.mainModule` as the
+ * entry: they pick it by file name, not from the manifest.
  */
 export function collectVinextServerFiles(cwd: string, build: VinextBuild): Record<string, Buffer> {
   const files = collectServerFiles(join(cwd, build.serverDir));
-  return Object.fromEntries(Object.entries(files).filter(([name]) => !name.endsWith(".json")));
+  const modules = Object.fromEntries(
+    Object.entries(files).filter(([name]) => !name.endsWith(".json")),
+  );
+  if (!isEntryModuleSelected(Object.keys(modules), build.mainModule)) {
+    throw new Error(
+      `vinext worker entry ${build.mainModule} is missing from ${build.serverDir}, or another module would be picked as the entry`,
+    );
+  }
+  return modules;
 }
 
 /**

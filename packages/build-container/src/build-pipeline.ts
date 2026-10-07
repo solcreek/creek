@@ -410,7 +410,15 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     let serverFiles: Record<string, string> | undefined;
 
     if (vinext) {
-      const collected = collectVinextServerFiles(workDir, vinext);
+      let collected: Record<string, Buffer>;
+      try {
+        collected = collectVinextServerFiles(workDir, vinext);
+      } catch (err) {
+        const message = (err as Error).message;
+        log("bundle", "error", message);
+        cleanup(repoDir);
+        return { error: "invalid_build_output", message, logs };
+      }
       serverFiles = Object.fromEntries(
         Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
       );

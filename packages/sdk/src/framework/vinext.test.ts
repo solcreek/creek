@@ -3,7 +3,12 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectVinextBuild, parseVinextWorkerConfig, vinextBuildScript } from "./vinext.js";
+import {
+  collectVinextServerFiles,
+  detectVinextBuild,
+  parseVinextWorkerConfig,
+  vinextBuildScript,
+} from "./vinext.js";
 import { materializeVinextFixture } from "./__fixtures__/vinext-cf-output/materialize.js";
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__/vinext-cf-output");
@@ -124,6 +129,42 @@ describe("detectVinextBuild", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "worker.config.json"), "{nope");
     expect(() => detectVinextBuild(cwd)).toThrow(/not valid JSON/);
+  });
+});
+
+describe("collectVinextServerFiles", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "creek-vinext-modules-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+  const bundle = (files: string[]) => {
+    const dir = join(cwd, ".cloudflare/output/v0/workers/default/bundle");
+    for (const f of files) {
+      mkdirSync(dirname(join(dir, f)), { recursive: true });
+      writeFileSync(join(dir, f), "export {};");
+    }
+  };
+  const build = (mainModule: string) => parseVinextWorkerConfig({ manifest: { mainModule } });
+
+  test("captured build: every JS module, no JSON metadata, entry index.js", () => {
+    materializeVinextFixture(cwd);
+    const modules = Object.keys(collectVinextServerFiles(cwd, build("index.js")));
+    expect(modules).toContain("index.js");
+    expect(modules).toContain("ssr/index.js");
+    expect(modules.some((m) => m.endsWith(".json"))).toBe(false);
+  });
+
+  test("throws when the entry is missing", () => {
+    bundle(["ssr/index.js", "chunk.js"]);
+    expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/entry index.js/);
+  });
+
+  test("throws when another module would be taken as the entry", () => {
+    bundle(["custom.js", "index.js"]);
+    expect(() => collectVinextServerFiles(cwd, build("custom.js"))).toThrow(/entry custom.js/);
   });
 });
 

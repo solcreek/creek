@@ -46,7 +46,6 @@ import {
   isSSRFramework,
   isPreBundledFramework,
   collectServerFiles,
-  isEntryModuleSelected,
   planDeploy,
   type BindingRequirement,
   type DeployPlan,
@@ -325,12 +324,6 @@ export async function prepareDeployBundle(
       collected = collectVinextServerFiles(cwd, vinext);
     } catch (err) {
       fail("invalid_build_output", (err as Error).message);
-    }
-    if (!isEntryModuleSelected(Object.keys(collected), vinext.mainModule)) {
-      fail(
-        "invalid_build_output",
-        `vinext worker entry ${vinext.mainModule} is missing from ${vinext.serverDir}, or another module would be picked as the entry`,
-      );
     }
     serverFiles = base64ServerFiles(collected);
     say.success(`  vinext worker: ${Object.keys(collected).length} modules (${kb(collected)}KB)`);
