@@ -10,6 +10,7 @@ import {
   detectWorkspaceCascade,
   workerFirst,
 } from "./build-pipeline.js";
+import { materializeVinextFixture } from "../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
 /**
  * These tests verify the build pipeline logic using mock project directories.
@@ -396,5 +397,121 @@ describe("workerFirst", () => {
 
   test("only worker mode runs a worker first", () => {
     expect(workerFirst("ssr", true, vinextPaths)).toEqual({});
+  });
+});
+
+describe("buildAndBundle — vinext Build Output", () => {
+  // A dependency-free project in a local git repo, so clone, install and build
+  // run without network. creek.toml pins the framework (no vinext dependency to
+  // install); the committed Build Output is the captured create-vinext-app
+  // build, and the build script leaves it as is.
+  function makeVinextRepo(
+    output: "plain" | "bindings" | "run-worker-first" | null,
+    workerConfig?: object,
+  ) {
+    writeFileSync(join(tmpDir, "creek.toml"), '[project]\nname = "app"\nframework = "vinext"\n');
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ name: "app", private: true, scripts: { build: 'node -e "0"' } }),
+    );
+    if (output) materializeVinextFixture(tmpDir, { workerConfig: output });
+    if (workerConfig) {
+      writeFileSync(
+        join(tmpDir, ".cloudflare/output/v0/workers/default/worker.config.json"),
+        JSON.stringify(workerConfig),
+      );
+    }
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: tmpDir,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+    git("init", "-q", "-b", "main");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+  }
+
+  async function bundled() {
+    const result = await buildAndBundle({ repoUrl: tmpDir });
+    if ("error" in result) throw new Error(`${result.error}: ${result.message}`);
+    return result;
+  }
+
+  test("deploys bundle/ in worker mode and assets/ as static assets", async () => {
+    makeVinextRepo("plain");
+    const { bundle, config } = await bundled();
+
+    expect(config.renderMode).toBe("worker");
+    expect(bundle.manifest).toMatchObject({
+      hasWorker: true,
+      entrypoint: "index.js",
+      renderMode: "worker",
+    });
+    expect(bundle.manifest.runWorkerFirst).toBeUndefined();
+
+    const modules = Object.keys(bundle.serverFiles ?? {});
+    expect(modules).toContain("index.js");
+    expect(modules).toContain("ssr/index.js");
+    expect(modules.some((m) => m.endsWith(".json") || m.endsWith(".css"))).toBe(false);
+
+    expect(bundle.manifest.assets).toContain("_headers");
+    expect(bundle.manifest.assets).toContain("_next/static/chunks/index-CnPdVYHA.js");
+    expect(bundle.manifest.assets).not.toContain(".assetsignore");
+    expect(bundle.manifest.assets).not.toContain(".vite/manifest.json");
+    expect(bundle.assets[".vite/manifest.json"]).toBeUndefined();
+
+    expect(bundle.bindings).toEqual([{ type: "kv", bindingName: "VINEXT_KV_CACHE" }]);
+    expect(bundle.compatibilityDate).toBe("2026-10-07");
+    expect(bundle.compatibilityFlags).toEqual(["nodejs_compat"]);
+  });
+
+  test("text bindings deploy as vars; D1 / R2 / AI keep their names", async () => {
+    makeVinextRepo("plain", {
+      compatibilityDate: "2026-10-07",
+      compatibilityFlags: ["nodejs_compat"],
+      env: {
+        ASSETS: { type: "assets" },
+        DB: { type: "d1", name: "my-db" },
+        FILES: { type: "r2", name: "my-bucket" },
+        AI: { type: "ai" },
+        GREETING: { type: "text", value: "hello" },
+      },
+      manifest: { type: "partial", mainModule: "index.js", modules: {} },
+    });
+    const { bundle } = await bundled();
+
+    expect(bundle.bindings).toEqual([
+      { type: "d1", bindingName: "DB" },
+      { type: "r2", bindingName: "FILES" },
+      { type: "ai", bindingName: "AI" },
+    ]);
+    expect(bundle.vars).toEqual({ GREETING: "hello" });
+  });
+
+  test("carries the static-assets cache's runWorkerFirst paths", async () => {
+    makeVinextRepo("run-worker-first");
+    const { bundle } = await bundled();
+    expect(bundle.manifest.runWorkerFirst).toEqual(["/_vinext/static-cache/*"]);
+  });
+
+  test("a binding Creek can't provide stops the build", async () => {
+    makeVinextRepo("bindings");
+    const result = await buildAndBundle({ repoUrl: tmpDir });
+    expect(result).toMatchObject({ error: "unsupported_bindings" });
+    if ("error" in result) expect(result.message).toContain("IMAGES (images)");
+  });
+
+  test("no Build Output stops the build with the init command", async () => {
+    makeVinextRepo(null);
+    const result = await buildAndBundle({ repoUrl: tmpDir });
+    expect(result).toMatchObject({ error: "build_output_missing" });
+    if ("error" in result) expect(result.message).toContain("vinext init --platform=cloudflare");
   });
 });
