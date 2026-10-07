@@ -202,6 +202,27 @@ describe("release phase config", () => {
     expect(config.release?.timeout).toBe(120);
   });
 
+  it("parses release migrations without a command", () => {
+    const config = parseConfig(`
+      [project]
+      name = "my-app"
+      [release]
+      migrations = true
+    `);
+    expect(config.release?.migrations).toBe(true);
+    expect(config.release?.command).toBeUndefined();
+  });
+
+  it("release migrations defaults to off", () => {
+    const config = parseConfig(`
+      [project]
+      name = "my-app"
+      [release]
+      command = "bun run db:migrate"
+    `);
+    expect(config.release?.migrations).toBe(false);
+  });
+
   it("release is optional", () => {
     const config = parseConfig(`
       [project]

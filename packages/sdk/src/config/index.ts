@@ -71,8 +71,11 @@ export const CreekConfigSchema = z.object({
     .optional(),
   release: z
     .object({
-      command: z.string(),
+      /** creekd targets: shell command run before traffic swaps. */
+      command: z.string().optional(),
       timeout: z.number().default(60),
+      /** Cloudflare targets: apply pending migrations before the new version goes live. */
+      migrations: z.boolean().default(false),
     })
     .optional(),
   triggers: z

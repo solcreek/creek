@@ -43,8 +43,8 @@ That's it. On deploy Creek:
    binds it as `env.DB`. The adapter redirects `@prisma/adapter-better-sqlite3`
    onto it — your `new PrismaBetterSqlite3(...)` is untouched in source.
 2. Runs `prisma generate` if the client isn't built yet.
-3. Applies `prisma/migrations` to D1 via the `[release]` command
-   (`creek db migrate`) before traffic — this creates Better Auth's tables.
+3. Applies pending `prisma/migrations` to D1 (`[release] migrations = true`)
+   before the new version goes live — this creates Better Auth's tables.
 
 Set a real secret for production (the code falls back to a dev secret so the
 no-env sandbox preview can boot):
