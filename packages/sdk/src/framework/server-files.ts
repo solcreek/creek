@@ -78,10 +78,11 @@ export function detectAstroCloudflareBuild(cwd: string): {
   return null;
 }
 
-// Names the deploy servers take as a worker's main module: deploy-core
-// (sandbox) and the control-plane's copy each pick the FIRST file, in
-// upload order, whose name is one of theirs, else the first file. They do
-// not read the manifest's entrypoint. Only deploy-core knows `entry.mjs`.
+// Servers that predate `manifest.mainModule` pick a worker's main module by
+// name: the FIRST file, in upload order, whose name is one of theirs, else
+// the first file. deploy-core (sandbox) knew `entry.mjs`; the control-plane
+// did not. Current servers run a declared `manifest.mainModule` instead, so
+// this check only matters while those older servers may receive the bundle.
 const CONTROL_PLANE_MAIN_MODULES = ["worker.js", "server.js", "index.js", "index.mjs"];
 const DEPLOY_CORE_MAIN_MODULES = [...CONTROL_PLANE_MAIN_MODULES, "entry.mjs"];
 

@@ -106,8 +106,8 @@ describe("deployWithAssets — main module", () => {
     expect(requests).toBe(0);
   });
 
-  it("an SPA deploy ignores it and uploads the generated worker", async () => {
-    await deploy({ renderMode: "spa", serverFiles: undefined, mainModule: null });
+  it("an SPA deploy ignores a declaration and uploads the generated worker", async () => {
+    await deploy({ renderMode: "spa", serverFiles: undefined, mainModule: "index.js" });
     expect(uploads.every((u) => u.mainModule === "worker.mjs")).toBe(true);
   });
 });

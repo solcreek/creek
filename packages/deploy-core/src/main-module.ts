@@ -8,8 +8,9 @@
  * module as the entry.
  *
  * Bundles without one — from clients that predate the field — keep the
- * name-based guess both deploy paths have always made: the first uploaded
- * file, in upload order, with one of these names, else the first file.
+ * name-based guess: the first uploaded file, in upload order, with one of
+ * these names, else the first file. Both deploy paths share this list; the
+ * control-plane's own copy lacked `entry.mjs` (Astro's adapter entry).
  *
  * `manifest.entrypoint` is not used: clients send the user's source entry
  * there (e.g. `worker/index.ts`), not the name of an uploaded module.

@@ -18,7 +18,7 @@ describe("selectMainModule", () => {
     expect(() => selectMainModule([], "index.js")).toThrow(/not one of the uploaded/);
   });
 
-  describe("without a declaration (older clients): the name-based guess, unchanged", () => {
+  describe("without a declaration (older clients): the name-based guess", () => {
     it("first guessed name in upload order", () => {
       expect(selectMainModule(["chunk.js", "index.js", "worker.js"])).toBe("index.js");
       expect(selectMainModule(["worker.js", "index.js"], null)).toBe("worker.js");
