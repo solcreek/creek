@@ -103,12 +103,14 @@ describe("creek status <id> (sandbox)", () => {
 });
 
 describe("creek ops deployments", () => {
-  it("lists deployments with the auth token and exits 0", async () => {
+  it("lists deployments with the API key in x-api-key and exits 0", async () => {
     process.env.CREEK_TOKEN = "tok-abc";
-    let auth = "";
+    let apiKey = "";
+    let authorization: string | null = null;
     server.use(
       http.get(`${API}/web-deploy/list`, ({ request }) => {
-        auth = request.headers.get("authorization") ?? "";
+        apiKey = request.headers.get("x-api-key") ?? "";
+        authorization = request.headers.get("authorization");
         return HttpResponse.json([
           { environment: "sandbox", buildId: "b1" },
           { environment: "production", buildId: "b2" },
@@ -118,7 +120,41 @@ describe("creek ops deployments", () => {
     const code = await runExit(opsCommand.run!({ args: { sub: "deployments" } } as never));
     expect(code).toBe(0);
     expect(json()).toMatchObject({ ok: true, count: 2 });
-    expect(auth).toBe("Bearer tok-abc");
+    // The control-plane reads keys from x-api-key only; Bearer was ignored.
+    expect(apiKey).toBe("tok-abc");
+    expect(authorization).toBeNull();
+  });
+
+  it("exits 1 (not_authenticated) without a token, before any request", async () => {
+    const code = await runExit(opsCommand.run!({ args: { sub: "deployments" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_authenticated" });
+    expect(json().breadcrumbs[0].command).toContain("creek login --token");
+  });
+
+  it("maps a 401 to not_authenticated", async () => {
+    process.env.CREEK_TOKEN = "tok-revoked";
+    server.use(
+      http.get(`${API}/web-deploy/list`, () =>
+        HttpResponse.json({ error: "unauthorized" }, { status: 401 }),
+      ),
+    );
+    const code = await runExit(opsCommand.run!({ args: { sub: "deployments" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_authenticated" });
+  });
+
+  it("maps a 403 to forbidden for a non-admin account", async () => {
+    process.env.CREEK_TOKEN = "tok-member";
+    server.use(
+      http.get(`${API}/web-deploy/list`, () =>
+        HttpResponse.json({ error: "forbidden" }, { status: 403 }),
+      ),
+    );
+    const code = await runExit(opsCommand.run!({ args: { sub: "deployments" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "forbidden" });
+    expect(json().message).toContain("platform admin");
   });
 
   it("filters by environment", async () => {
