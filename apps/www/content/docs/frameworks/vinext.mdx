@@ -24,6 +24,17 @@ npx creek deploy
 
 `vinext init` keeps your `build` script as `next build` and adds `build:vinext`. Creek runs `build:vinext` when it exists, so the deploy is the vinext build, not the Next.js one.
 
+If the project already has a `creek.toml`, its settings win over detection. Update it before deploying:
+
+```toml title="creek.toml"
+[project]
+framework = "vinext"   # was "nextjs"
+
+[build]
+command = "npm run build:vinext"
+output = ".cloudflare/output/v0/workers/default/assets"
+```
+
 ## Configuration
 
 | Setting | Default |
