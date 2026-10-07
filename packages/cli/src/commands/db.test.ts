@@ -525,7 +525,8 @@ describe("creek storage delete --dry-run", () => {
     expect(code).toBe(0);
     const [effect] = json().sideEffects as string[];
     expect(effect).toContain("deleted within minutes if it is empty");
-    expect(effect).toContain("still holds objects is kept");
+    expect(effect).toContain("still holds objects is not deleted");
+    expect(effect).toContain("empty it before deleting it");
     expect(effect).not.toContain("all its data are permanently deleted");
   });
 });

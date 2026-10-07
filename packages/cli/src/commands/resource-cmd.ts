@@ -79,10 +79,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const { kind, label, defaultBinding } = opts;
   // What deleting does to the data. Cloudflare deletes a D1 database or KV
   // namespace outright, but refuses to delete an R2 bucket that still holds
-  // objects, so a bucket's deletion only goes through once it's empty.
+  // objects, and such a bucket is not deleted at all, later or otherwise.
   const deletionEffect =
     kind === "storage"
-      ? "the bucket is deleted within minutes if it is empty; a bucket that still holds objects is kept, objects included, until it is emptied."
+      ? "the bucket is deleted within minutes if it is empty. A bucket that still holds objects is not deleted and stays, objects included: empty it before deleting it."
       : "the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.";
   const cmdName = kind === "database" ? "db" : kind === "cache" ? "cache" : kind;
 
@@ -273,7 +273,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       name: "delete",
       description:
         kind === "storage"
-          ? `Delete a ${label}; the bucket itself is removed once it is empty. Fails if any project still binds to it — detach first.`
+          ? `Delete a ${label}; only an empty bucket is removed, so empty it first. Fails if any project still binds to it — detach first.`
           : `Delete a ${label} and its data, permanently. Fails if any project still binds to it — detach first.`,
     },
     args: {
