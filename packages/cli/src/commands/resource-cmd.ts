@@ -11,7 +11,14 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  AUTH_BREADCRUMBS,
+  shouldAutoConfirm,
+  isTTY,
+} from "../utils/output.js";
 import { apiCall } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
@@ -70,6 +77,13 @@ async function findByName(
 
 export function createResourceCommand(opts: ResourceCmdOptions) {
   const { kind, label, defaultBinding } = opts;
+  // What deleting does to the data. Cloudflare deletes a D1 database or KV
+  // namespace outright, but refuses to delete an R2 bucket that still holds
+  // objects, and such a bucket is not deleted at all, later or otherwise.
+  const deletionEffect =
+    kind === "storage"
+      ? "the bucket is deleted, normally within minutes, if it is empty. A bucket that still holds objects is not deleted and stays, objects included: empty it before deleting it."
+      : "the Cloudflare resource and all its data are permanently deleted, normally within minutes (a failed attempt is retried). This cannot be undone.";
   const cmdName = kind === "database" ? "db" : kind === "cache" ? "cache" : kind;
 
   const ls = defineCommand({
@@ -257,7 +271,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const del = defineCommand({
     meta: {
       name: "delete",
-      description: `Delete a ${label}. Fails if any project still binds to it — detach first.`,
+      description:
+        kind === "storage"
+          ? `Delete a ${label}; only an empty bucket is removed, so empty it first. Fails if any project still binds to it — detach first.`
+          : `Delete a ${label} and its data, permanently. Fails if any project still binds to it — detach first.`,
     },
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
@@ -292,14 +309,25 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             ? bindings.map(
                 (b) => `Still bound to ${b.projectSlug} as ${b.bindingName} — detach first`,
               )
-            : [
-                `Soft-delete team ${label} "${args.name}" (row marked deleted). Backing Cloudflare resource is not torn down here.`,
-              ],
+            : [`Delete team ${label} "${args.name}": ${deletionEffect}`],
           nextStep: blocked
             ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --as ${bindings[0].bindingName} --json`
             : `creek ${cmdName} delete ${args.name} --json`,
         });
         return;
+      }
+
+      // Destructive and irreversible: confirm in an interactive run unless
+      // --yes. Non-TTY (agents/CI) auto-confirms, as elsewhere in the CLI.
+      if (!shouldAutoConfirm(args) && isTTY) {
+        const ok = (await consola.prompt(
+          `Delete ${label} "${args.name}"? ${deletionEffect.charAt(0).toUpperCase()}${deletionEffect.slice(1)}`,
+          { type: "confirm" },
+        )) as unknown as boolean;
+        if (!ok) {
+          consola.info("Cancelled.");
+          process.exit(0);
+        }
       }
 
       try {

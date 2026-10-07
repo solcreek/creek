@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Env } from "./types.js";
+import { processResourceCleanupQueue } from "./modules/resources/cleanup-queue.js";
 import type { AuthUser } from "./modules/tenant/types.js";
 import {
   createAuth,
@@ -258,73 +259,6 @@ async function sweepStaleDeployments(env: Env): Promise<number> {
     await deleteStagedBundle(env, id);
   }
   return ids.length;
-}
-
-async function processResourceCleanupQueue(env: Env): Promise<number> {
-  const pending = await env.DB.prepare(
-    `SELECT id, resourceType, cfResourceId, cfResourceName
-     FROM resource_cleanup_queue
-     WHERE status = 'pending'
-     LIMIT 10`,
-  ).all<{
-    id: number;
-    resourceType: string;
-    cfResourceId: string;
-    cfResourceName: string;
-  }>();
-
-  let cleaned = 0;
-
-  for (const row of pending.results) {
-    await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'cleaning' WHERE id = ?")
-      .bind(row.id)
-      .run();
-
-    try {
-      const accountPath = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
-      const headers = { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` };
-
-      switch (row.resourceType) {
-        case "d1":
-          await fetch(
-            `https://api.cloudflare.com/client/v4${accountPath}/d1/database/${row.cfResourceId}`,
-            { method: "DELETE", headers },
-          );
-          break;
-        case "r2":
-          await fetch(
-            `https://api.cloudflare.com/client/v4${accountPath}/r2/buckets/${row.cfResourceName}`,
-            { method: "DELETE", headers },
-          );
-          break;
-        case "kv":
-          await fetch(
-            `https://api.cloudflare.com/client/v4${accountPath}/storage/kv/namespaces/${row.cfResourceId}`,
-            { method: "DELETE", headers },
-          );
-          break;
-        case "custom_hostname":
-          if (env.CLOUDFLARE_ZONE_ID) {
-            await fetch(
-              `https://api.cloudflare.com/client/v4/zones/${env.CLOUDFLARE_ZONE_ID}/custom_hostnames/${row.cfResourceId}`,
-              { method: "DELETE", headers },
-            );
-          }
-          break;
-      }
-
-      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'done' WHERE id = ?")
-        .bind(row.id)
-        .run();
-      cleaned++;
-    } catch {
-      await env.DB.prepare("UPDATE resource_cleanup_queue SET status = 'failed' WHERE id = ?")
-        .bind(row.id)
-        .run();
-    }
-  }
-
-  return cleaned;
 }
 
 async function syncPendingDomains(env: Env): Promise<number> {

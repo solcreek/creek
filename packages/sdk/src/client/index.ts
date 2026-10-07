@@ -412,6 +412,14 @@ export class CreekClient {
     return this.request("PATCH", `/resources/${id}`, { name });
   }
 
+  /**
+   * Delete a team-owned resource. The control plane's scheduled cleanup then
+   * deletes the D1 database or KV namespace behind it, with its data,
+   * irreversibly: normally within minutes, with failed attempts retried with
+   * backoff. An R2 bucket is deleted only if it is empty; Cloudflare keeps a
+   * bucket that still holds objects. Refused (409) while any project still
+   * binds the resource.
+   */
   async deleteResource(id: string): Promise<{ id: string; status: string }> {
     return this.request("DELETE", `/resources/${id}`);
   }

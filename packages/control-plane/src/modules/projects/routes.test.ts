@@ -220,6 +220,62 @@ describe("DELETE /projects/:idOrSlug", () => {
     expect(count("SELECT COUNT(*) c FROM resource WHERE id = 'res-del'")).toBe(1);
   });
 
+  test("deletes a project with a registered custom domain and queues the hostname", async () => {
+    // The cleanup insert used to omit the NOT NULL createdAt, so this delete
+    // failed for any project whose custom domain had reached Cloudflare.
+    seedProject(testEnv, "domain-app", { id: "proj-dom" });
+    const db = testEnv.db.db;
+    db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt, cfCustomHostnameId)
+       VALUES ('cd-1', 'proj-dom', 'app.example.com', 'active', ${Date.now()}, 'cfh-1')`,
+    );
+
+    const res = await req("DELETE", "/projects/domain-app");
+
+    expect(res.status).toBe(200);
+    expect(db.prepare("SELECT id FROM project WHERE id = 'proj-dom'").get()).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          "SELECT resourceType, cfResourceId, cfResourceName, status, reason FROM resource_cleanup_queue",
+        )
+        .all(),
+    ).toEqual([
+      {
+        resourceType: "custom_hostname",
+        cfResourceId: "cfh-1",
+        cfResourceName: "app.example.com",
+        status: "pending",
+        reason: "project_deleted",
+      },
+    ]);
+  });
+
+  test("a project delete that fails queues no Cloudflare cleanup", async () => {
+    // The hostname must not be torn down while the project and its domain
+    // stay: queueing is part of the delete's transaction.
+    seedProject(testEnv, "flaky-app", { id: "proj-flaky" });
+    const db = testEnv.db.db;
+    db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, createdAt, cfCustomHostnameId)
+       VALUES ('cd-2', 'proj-flaky', 'flaky.example.com', 'active', ${Date.now()}, 'cfh-2')`,
+    );
+    // Fail the delete transaction after its statements have run.
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = ((stmts: D1PreparedStatement[]) =>
+      batch([
+        ...stmts,
+        env.DB.prepare("INSERT INTO no_such_table VALUES (1)"),
+      ])) as typeof env.DB.batch;
+
+    const res = await req("DELETE", "/projects/flaky-app");
+
+    expect(res.status).toBe(500);
+    expect(db.prepare("SELECT id FROM project WHERE id = 'proj-flaky'").get()).toBeDefined();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM resource_cleanup_queue").get()).toEqual({ n: 0 });
+  });
+
   test("returns 404 for non-existent project", async () => {
     const res = await req("DELETE", "/projects/nonexistent");
     expect(res.status).toBe(404);

@@ -182,19 +182,28 @@ export async function ensureProjectBindings(
     // `creek storage attach --as DB`), and blindly adopting it would silently
     // bind DATABASE to an R2/KV. On a type mismatch, fall through to auto-create.
     if (aliasBinding && aliasBinding.cfResourceId && aliasCfType === req.type) {
-      await env.DB.prepare(
+      // Bind only while the resource is still live, in one statement: the
+      // alias could be detached and the resource deleted (its Cloudflare
+      // resource queued for teardown) since it was read above. If so, fall
+      // through to creating a fresh resource rather than binding the old one.
+      const adopted = await env.DB.prepare(
         `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)
+         SELECT ?, ?, id, ? FROM resource WHERE id = ? AND status != 'deleted'
          ON CONFLICT(projectId, bindingName) DO UPDATE SET resourceId = excluded.resourceId`,
       )
-        .bind(projectId, req.bindingName, aliasBinding.resourceId, Date.now())
+        .bind(projectId, req.bindingName, Date.now(), aliasBinding.resourceId)
         .run();
-      result.set(req.bindingName, {
-        bindingName: req.bindingName,
-        cfResourceId: aliasBinding.cfResourceId,
-        cfType: aliasCfType,
-      });
-      continue;
+      if (adopted.meta.changes) {
+        result.set(req.bindingName, {
+          bindingName: req.bindingName,
+          cfResourceId: aliasBinding.cfResourceId,
+          cfType: aliasCfType,
+        });
+        continue;
+      }
+      // Gone: also drop the alias's own entry, seeded above from the
+      // bindings read earlier, so the worker isn't bound to it either.
+      if (aliasName) result.delete(aliasName);
     }
 
     // No binding exists — auto-create resource + binding
@@ -212,21 +221,25 @@ export async function ensureProjectBindings(
         (await provisionCFResource(env, cfType, cfName));
     }
 
-    // Insert resource row
-    await env.DB.prepare(
-      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-    )
-      .bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now)
-      .run();
-
-    // Insert binding
-    await env.DB.prepare(
-      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-       VALUES (?, ?, ?, ?)`,
-    )
-      .bind(projectId, req.bindingName, resourceId, now)
-      .run();
+    // Insert the resource row and its binding together. Apart, a
+    // DELETE /resources/:id landing between them would find the new resource
+    // unbound, delete it and queue its Cloudflare resource for teardown,
+    // under the binding this deploy then adds.
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        ).bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now),
+        env.DB.prepare(
+          `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES (?, ?, ?, ?)`,
+        ).bind(projectId, req.bindingName, resourceId, now),
+      ]);
+    } catch (err) {
+      if (cfId) await queueRolledBackResource(env, cfType, cfId, cfName);
+      throw err;
+    }
 
     if (cfId) {
       result.set(req.bindingName, {
@@ -277,20 +290,22 @@ export async function ensureQueue(
   }
 
   if (!existing) {
-    // Insert resource + binding
-    await env.DB.prepare(
-      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
-    )
-      .bind(resourceId, teamId, queueName, queueId, now, now)
-      .run();
-
-    await env.DB.prepare(
-      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-       VALUES (?, ?, ?, ?)`,
-    )
-      .bind(projectId, BINDING_NAMES.queue, resourceId, now)
-      .run();
+    // Insert resource + binding, together (see the d1/r2/kv path above).
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
+        ).bind(resourceId, teamId, queueName, queueId, now, now),
+        env.DB.prepare(
+          `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES (?, ?, ?, ?)`,
+        ).bind(projectId, BINDING_NAMES.queue, resourceId, now),
+      ]);
+    } catch (err) {
+      await queueRolledBackResource(env, "queue", queueId, queueName);
+      throw err;
+    }
   } else {
     // Update existing resource with CF ID
     await env.DB.prepare(
@@ -425,7 +440,35 @@ export function buildBindings(
 // --- Cleanup ---
 
 /**
- * Schedule resource deletion when a project is deleted.
+ * Queue a Cloudflare resource this code just provisioned for teardown, when
+ * the transaction that would have recorded it rolled back (for example, a
+ * concurrent deploy bound the same name first). Without this nothing would
+ * reference it, and nothing would ever delete it. Queued under the name it
+ * was provisioned with, which the cleanup checks before deleting.
+ * Best-effort: the caller is already failing with the original error.
+ */
+async function queueRolledBackResource(
+  env: Env,
+  cfType: string,
+  cfId: string,
+  cfName: string,
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+       VALUES (?, ?, ?, 'pending', 'provision_rolled_back', ?)`,
+    )
+      .bind(cfType, cfId, cfName, Math.floor(Date.now() / 1000))
+      .run();
+  } catch (err) {
+    console.error(`[resources] could not queue rolled-back ${cfType} ${cfId} for cleanup:`, err);
+  }
+}
+
+/**
+ * The statement that schedules a deleted project's Cloudflare cleanup, for
+ * the caller to run in the same batch as the project's deletion: queued and
+ * deleted together, or neither.
  *
  * Copies resource info into `resource_cleanup_queue` for async CF
  * resource deletion. The actual `project_resource_binding` rows are
@@ -436,16 +479,15 @@ export function buildBindings(
  * resource has no remaining bindings after project deletion, it becomes
  * "unattached" but stays alive until explicitly deleted via the API.
  */
-export async function scheduleResourceCleanup(env: Env, projectId: string): Promise<void> {
+export function projectCleanupStatement(env: Env, projectId: string): D1PreparedStatement {
   // Queue custom domain hostnames for CF cleanup
-  await env.DB.prepare(
-    `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason)
-     SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted'
+  // createdAt is NOT NULL, in seconds (drizzle `timestamp` mode).
+  return env.DB.prepare(
+    `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+     SELECT 'custom_hostname', cfCustomHostnameId, hostname, 'pending', 'project_deleted', ?
      FROM custom_domain
      WHERE projectId = ? AND cfCustomHostnameId IS NOT NULL`,
-  )
-    .bind(projectId)
-    .run();
+  ).bind(Math.floor(Date.now() / 1000), projectId);
 }
 
 // --- Queue lookup ---

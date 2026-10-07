@@ -105,9 +105,17 @@ resources.post("/", requirePermission("project:create"), async (c) => {
   }
 
   try {
-    await c.env.DB.prepare(
+    // A Cloudflare resource queued for teardown can't be adopted: the cleanup
+    // would delete it under the new row. Checked in the same statement as
+    // the insert, so it can't race the queue's claim (the cleanup also skips
+    // a resource a live row references).
+    const inserted = await c.env.DB.prepare(
       `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM resource_cleanup_queue q
+         WHERE q.cfResourceId = ? AND q.status IN ('pending', 'cleaning')
+       )`,
     )
       .bind(
         id,
@@ -118,8 +126,19 @@ resources.post("/", requirePermission("project:create"), async (c) => {
         cfType ?? body.cfResourceType ?? null,
         now,
         now,
+        cfResourceId,
       )
       .run();
+    if (!inserted.meta.changes) {
+      return c.json(
+        {
+          error: "conflict",
+          message:
+            "That Cloudflare resource is being deleted and can't be attached to a new resource.",
+        },
+        409,
+      );
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("UNIQUE") || msg.includes("constraint")) {
@@ -215,15 +234,69 @@ resources.delete("/:id", requirePermission("project:create"), async (c) => {
     );
   }
 
-  // Soft-delete. Actual CF resource cleanup is a separate concern (reuses
-  // resource_cleanup_queue once provisioning is wired).
+  // Soft-delete the row and queue the Cloudflare resource behind it for
+  // teardown, in one batch so neither happens without the other. The
+  // scheduled cleanup deletes it on its next run; the data is not
+  // recoverable after that. Both statements match the same live row, so a
+  // missing or already-deleted resource queues nothing.
+  //
+  // cfResourceId can come from the caller (POST /resources accepts one), so
+  // it is not proof the resource is this team's. The queue records the name
+  // Creek gives every resource it provisions, `creek-<first 8 of id>`, and
+  // the cleanup deletes only a resource that still carries it. Nothing is
+  // queued while another live row points at the same Cloudflare resource.
+  //
+  // The binding check above only gives the 409 its message: a project can
+  // attach the resource after it. Both statements therefore also require it
+  // to be unbound, and attach inserts only for a live resource, so D1's
+  // serialized writes settle the race one way or the other.
   const now = Date.now();
-  const res = await c.env.DB.prepare(
-    `UPDATE resource SET status = 'deleted', updatedAt = ? WHERE id = ? AND teamId = ? AND status != 'deleted'`,
-  )
-    .bind(now, id, teamId)
-    .run();
-  if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
+  const [, res] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+       SELECT type, cfResourceId, 'creek-' || substr(id, 1, 8), 'pending', 'resource_deleted', ?
+       FROM (
+         -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
+         SELECT cfResourceId, status, id, teamId,
+                COALESCE(cfResourceType, CASE kind WHEN 'database' THEN 'd1'
+                  WHEN 'storage' THEN 'r2' WHEN 'cache' THEN 'kv' END) AS type
+         FROM resource
+       ) r
+       WHERE id = ? AND teamId = ? AND status != 'deleted'
+         AND cfResourceId IS NOT NULL AND type IN ('d1', 'r2', 'kv')
+         AND NOT EXISTS (
+           SELECT 1 FROM resource other
+           WHERE other.cfResourceId = r.cfResourceId AND other.id != r.id
+             AND other.status != 'deleted'
+         )
+         AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = r.id)`,
+    ).bind(Math.floor(now / 1000), id, teamId),
+    c.env.DB.prepare(
+      `UPDATE resource SET status = 'deleted', updatedAt = ?
+       WHERE id = ? AND teamId = ? AND status != 'deleted'
+         AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = resource.id)`,
+    ).bind(now, id, teamId),
+  ]);
+  if (!res.meta.changes) {
+    // Either it's gone, or a project attached it since the check above.
+    const bound = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM project_resource_binding b
+       JOIN resource r ON r.id = b.resourceId
+       WHERE r.id = ? AND r.teamId = ? AND r.status != 'deleted'`,
+    )
+      .bind(id, teamId)
+      .first<{ n: number }>();
+    if ((bound?.n ?? 0) > 0) {
+      return c.json(
+        {
+          error: "has_bindings",
+          message: `Resource is attached to ${bound?.n} project(s). Detach first.`,
+        },
+        409,
+      );
+    }
+    return c.json({ error: "not_found" }, 404);
+  }
   return c.json({ id, status: "deleted" });
 });
 
@@ -455,21 +528,18 @@ resourceBindings.post("/:slug/bindings", requirePermission("project:create"), as
     );
   }
 
-  const resourceRow = await c.env.DB.prepare(
-    `SELECT id FROM resource WHERE id = ? AND teamId = ? AND status != 'deleted'`,
-  )
-    .bind(body.resourceId, teamId)
-    .first();
-  if (!resourceRow) return c.json({ error: "not_found", message: "resource" }, 404);
-
+  // Insert only while the resource is live, in one statement: a separate
+  // check could pass just before a concurrent delete marks it deleted and
+  // queues its Cloudflare resource for teardown.
   const now = Date.now();
   try {
-    await c.env.DB.prepare(
+    const inserted = await c.env.DB.prepare(
       `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-         VALUES (?, ?, ?, ?)`,
+       SELECT ?, ?, id, ? FROM resource WHERE id = ? AND teamId = ? AND status != 'deleted'`,
     )
-      .bind(project.id, body.bindingName, body.resourceId, now)
+      .bind(project.id, body.bindingName, now, body.resourceId, teamId)
       .run();
+    if (!inserted.meta.changes) return c.json({ error: "not_found", message: "resource" }, 404);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("UNIQUE") || msg.includes("constraint")) {

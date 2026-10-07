@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { dbCommand } from "./db.js";
+import { storageCommand } from "./storage.js";
 
 // Drive `creek db migrate` end to end against an in-memory fake D1, exercising
 // the apply loop in db.ts (list resources → ensure tracking table → diff →
@@ -439,7 +440,7 @@ describe("creek db delete --dry-run", () => {
       name: "mydb",
     });
     expect(json().sideEffects).toContain(
-      'Soft-delete team database "mydb" (row marked deleted). Backing Cloudflare resource is not torn down here.',
+      'Delete team database "mydb": the Cloudflare resource and all its data are permanently deleted, normally within minutes (a failed attempt is retried). This cannot be undone.',
     );
   });
 
@@ -488,6 +489,45 @@ describe("creek db delete --dry-run", () => {
     expect(deleted).toBe(false);
     expect(json()).toMatchObject({ wouldExecute: false });
     expect(json().nextStep).toBe("creek db detach mydb --from my-api --as DATABASE --json");
+  });
+});
+
+describe("creek storage delete --dry-run", () => {
+  it("does not promise to delete a bucket's objects", async () => {
+    // Cloudflare refuses to delete an R2 bucket that still holds objects, so
+    // the plan must not say its data is permanently deleted.
+    const BUCKET_ID = "res-bucket-1";
+    const bucket = {
+      id: BUCKET_ID,
+      teamId: "team-1",
+      kind: "storage",
+      name: "media",
+      cfResourceId: "creek-res-buck",
+      cfResourceType: "r2",
+      status: "active",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    server.use(
+      http.get(`${API}/resources`, () => HttpResponse.json({ resources: [bucket] })),
+      http.get(`${API}/resources/${BUCKET_ID}`, () =>
+        HttpResponse.json({ ...bucket, bindings: [] }),
+      ),
+    );
+    const storageDelete = (
+      storageCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>
+    ).delete;
+
+    const code = await runExit(
+      storageDelete.run!({ args: { name: "media", "dry-run": true } } as never),
+    );
+
+    expect(code).toBe(0);
+    const [effect] = json().sideEffects as string[];
+    expect(effect).toContain("deleted, normally within minutes, if it is empty");
+    expect(effect).toContain("still holds objects is not deleted");
+    expect(effect).toContain("empty it before deleting it");
+    expect(effect).not.toContain("all its data are permanently deleted");
   });
 });
 

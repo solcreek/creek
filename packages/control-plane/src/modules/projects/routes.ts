@@ -3,7 +3,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
-import { scheduleResourceCleanup } from "../resources/service.js";
+import { projectCleanupStatement } from "../resources/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 
@@ -165,10 +165,6 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
-  // Mark resources for async cleanup before deleting the project — this reads
-  // custom_domain, so it must run before those rows are removed below.
-  await scheduleResourceCleanup(c.env, project.id);
-
   // Delete the project's child rows before the project itself. D1 enforces the
   // foreign keys (deployment/env/domain/github/binding -> project, build_log ->
   // deployment) and none is ON DELETE CASCADE, so deleting the project directly
@@ -178,6 +174,10 @@ projects.delete("/:idOrSlug", requirePermission("project:delete"), async (c) => 
   // (D1/R2/KV) are intentionally NOT deleted — only the binding rows.
   try {
     await c.env.DB.batch([
+      // Queue the custom hostnames for Cloudflare cleanup in the same
+      // transaction, so a failed delete queues nothing. It reads
+      // custom_domain, so it runs before those rows are removed.
+      projectCleanupStatement(c.env, project.id),
       c.env.DB.prepare(
         "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
       ).bind(project.id),
