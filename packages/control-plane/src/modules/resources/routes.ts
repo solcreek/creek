@@ -215,14 +215,30 @@ resources.delete("/:id", requirePermission("project:create"), async (c) => {
     );
   }
 
-  // Soft-delete. Actual CF resource cleanup is a separate concern (reuses
-  // resource_cleanup_queue once provisioning is wired).
+  // Soft-delete the row and queue the Cloudflare resource behind it for
+  // teardown, in one batch so neither happens without the other. The
+  // scheduled cleanup deletes it on its next run; the data is not
+  // recoverable after that. Both statements match the same live row, so a
+  // missing or already-deleted resource queues nothing.
   const now = Date.now();
-  const res = await c.env.DB.prepare(
-    `UPDATE resource SET status = 'deleted', updatedAt = ? WHERE id = ? AND teamId = ? AND status != 'deleted'`,
-  )
-    .bind(now, id, teamId)
-    .run();
+  const [, res] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+       SELECT type, cfResourceId, cfResourceId, 'pending', 'resource_deleted', ?
+       FROM (
+         -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
+         SELECT cfResourceId, status, id, teamId,
+                COALESCE(cfResourceType, CASE kind WHEN 'database' THEN 'd1'
+                  WHEN 'storage' THEN 'r2' WHEN 'cache' THEN 'kv' END) AS type
+         FROM resource
+       )
+       WHERE id = ? AND teamId = ? AND status != 'deleted'
+         AND cfResourceId IS NOT NULL AND type IN ('d1', 'r2', 'kv')`,
+    ).bind(Math.floor(now / 1000), id, teamId),
+    c.env.DB.prepare(
+      `UPDATE resource SET status = 'deleted', updatedAt = ? WHERE id = ? AND teamId = ? AND status != 'deleted'`,
+    ).bind(now, id, teamId),
+  ]);
   if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
   return c.json({ id, status: "deleted" });
 });

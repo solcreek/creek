@@ -140,6 +140,113 @@ describe("resources input validation", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("has_bindings");
+    expect(cleanupRows()).toEqual([]);
+  });
+});
+
+function cleanupRows() {
+  return testEnv.db.db
+    .prepare(
+      "SELECT resourceType, cfResourceId, cfResourceName, status, reason, createdAt FROM resource_cleanup_queue ORDER BY id",
+    )
+    .all() as Array<{
+    resourceType: string;
+    cfResourceId: string;
+    cfResourceName: string;
+    status: string;
+    reason: string;
+    createdAt: number;
+  }>;
+}
+
+function seedResource(
+  id: string,
+  opts: { kind: string; cfResourceId: string | null; cfResourceType: string | null; team?: string },
+) {
+  const now = Date.now();
+  const q = (v: string | null) => (v === null ? "NULL" : `'${v}'`);
+  testEnv.db.db.exec(
+    `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+     VALUES ('${id}', '${opts.team ?? teamId}', '${opts.kind}', '${id}-name', ${q(opts.cfResourceId)}, ${q(opts.cfResourceType)}, 'active', ${now}, ${now})`,
+  );
+}
+
+describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
+  test("queues the D1 for the scheduled cleanup and marks the row deleted", async () => {
+    seedResource("res-d1", { kind: "database", cfResourceId: "d1-uuid", cfResourceType: "d1" });
+    const before = Math.floor(Date.now() / 1000);
+
+    const res = await req("DELETE", "/resources/res-d1");
+
+    expect(res.status).toBe(200);
+    const row = testEnv.db.db.prepare("SELECT status FROM resource WHERE id = 'res-d1'").get() as {
+      status: string;
+    };
+    expect(row.status).toBe("deleted");
+    const queued = cleanupRows();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      resourceType: "d1",
+      cfResourceId: "d1-uuid",
+      status: "pending",
+      reason: "resource_deleted",
+    });
+    // Seconds, as the column's drizzle `timestamp` mode stores them.
+    expect(queued[0].createdAt).toBeGreaterThanOrEqual(before);
+    expect(queued[0].createdAt).toBeLessThan(before + 60);
+  });
+
+  test("an older row without cfResourceType is queued by its kind (R2 by bucket name)", async () => {
+    seedResource("res-r2", {
+      kind: "storage",
+      cfResourceId: "creek-bucket-1",
+      cfResourceType: null,
+    });
+
+    expect((await req("DELETE", "/resources/res-r2")).status).toBe(200);
+
+    expect(cleanupRows()).toMatchObject([
+      { resourceType: "r2", cfResourceId: "creek-bucket-1", cfResourceName: "creek-bucket-1" },
+    ]);
+  });
+
+  test("deleting twice queues the teardown once", async () => {
+    seedResource("res-kv", { kind: "cache", cfResourceId: "kv-1", cfResourceType: "kv" });
+
+    expect((await req("DELETE", "/resources/res-kv")).status).toBe(200);
+    expect((await req("DELETE", "/resources/res-kv")).status).toBe(404);
+
+    expect(cleanupRows()).toHaveLength(1);
+  });
+
+  test("another team's resource is neither deleted nor queued", async () => {
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES ('team-other', 'Other', 'other', ${Date.now()})`,
+    );
+    seedResource("res-other", {
+      kind: "database",
+      cfResourceId: "d1-other",
+      cfResourceType: "d1",
+      team: "team-other",
+    });
+
+    expect((await req("DELETE", "/resources/res-other")).status).toBe(404);
+
+    expect(cleanupRows()).toEqual([]);
+    const row = testEnv.db.db
+      .prepare("SELECT status FROM resource WHERE id = 'res-other'")
+      .get() as {
+      status: string;
+    };
+    expect(row.status).toBe("active");
+  });
+
+  test("a resource that was never provisioned has nothing to tear down", async () => {
+    seedResource("res-none", { kind: "database", cfResourceId: null, cfResourceType: null });
+
+    expect((await req("DELETE", "/resources/res-none")).status).toBe(200);
+
+    expect(cleanupRows()).toEqual([]);
   });
 });
 
