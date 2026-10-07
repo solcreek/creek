@@ -9,6 +9,9 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { rules, collectFindings } from "./rules.js";
 import { runDoctor } from "./runner.js";
 import type { DoctorContext, PackageJson } from "./types.js";
@@ -941,5 +944,120 @@ describe("collectFindings contract", () => {
     // Sanity: an empty project hits CK-NO-CONFIG at minimum.
     const findings = collectFindings(buildCtx());
     expect(findings.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── vinext ──────────────────────────────────────────────────────────────
+
+describe("vinext rules", () => {
+  const fixtureDir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../framework/__fixtures__/vinext-cf-output",
+  );
+  const WORKER_CONFIG = ".cloudflare/output/v0/workers/default/worker.config.json";
+  const fixture = (name: string) => readFileSync(join(fixtureDir, name), "utf-8");
+
+  function vinextCtx(
+    opts: {
+      files?: Record<string, string>;
+      source?: ResolvedConfig["source"];
+      next?: boolean;
+    } = {},
+  ): DoctorContext {
+    const files = opts.files ?? {};
+    return buildCtx({
+      resolved: resolvedConfig({
+        source: opts.source ?? "package.json",
+        framework: "vinext",
+        buildCommand: opts.next ? "npm run build:vinext" : "npm run build",
+        buildOutput: ".cloudflare/output/v0/workers/default/assets",
+        workerEntry: opts.source?.startsWith("wrangler") ? "vinext/server/fetch-handler" : null,
+        bindings: [{ type: "kv", name: "CACHE" }],
+      }),
+      packageJson: pkg({ vinext: "^1.0.1", ...(opts.next ? { next: "16.2.3" } : {}) }),
+      allDeps: { vinext: "^1.0.1", ...(opts.next ? { next: "16.2.3" } : {}) },
+      fileExists: (p) => p in files || Object.keys(files).some((f) => f.startsWith(p + "/")),
+      readFile: (p) => files[p] ?? null,
+    });
+  }
+
+  test("a legacy wrangler main is not reported as a missing worker or a missing creek dep", () => {
+    const ctx = vinextCtx({ source: "wrangler.jsonc" });
+    expect(rules.CK_WORKER_MISSING(ctx)).toEqual([]);
+    expect(rules.CK_RUNTIME_DEP_MISSING(ctx)).toEqual([]);
+    expect(rules.CK_WORKER_UNRESOLVED_IMPORTS(ctx)).toEqual([]);
+  });
+
+  test("resources with no worker entry are not 'a static SPA' — vinext builds its worker", () => {
+    expect(rules.CK_RESOURCES_NO_WORKER(vinextCtx())).toEqual([]);
+    expect(rules.CK_WORKER_UNDECLARED(vinextCtx({ files: { "worker/index.ts": "" } }))).toEqual([]);
+  });
+
+  test("CK-VINEXT-LEGACY-SETUP fires for a wrangler config without cloudflare.config.ts", () => {
+    const findings = rules.CK_VINEXT_LEGACY_SETUP(vinextCtx({ source: "wrangler.jsonc" }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ code: "CK-VINEXT-LEGACY-SETUP", severity: "error" });
+    expect(findings[0].fix).toContain("vinext init --platform=cloudflare");
+  });
+
+  test("CK-VINEXT-LEGACY-SETUP is silent once cloudflare.config.ts exists, or for package.json-only projects", () => {
+    expect(
+      rules.CK_VINEXT_LEGACY_SETUP(
+        vinextCtx({ source: "wrangler.jsonc", files: { "cloudflare.config.ts": "" } }),
+      ),
+    ).toEqual([]);
+    expect(rules.CK_VINEXT_LEGACY_SETUP(vinextCtx())).toEqual([]);
+  });
+
+  test("CK-NOTHING-TO-DEPLOY: unbuilt vinext gets the vinext note, even with next installed", () => {
+    const findings = rules.CK_NOTHING_TO_DEPLOY(vinextCtx({ next: true }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: "info" });
+    expect(findings[0].title).toContain("vinext");
+    expect(findings[0].detail).toContain("npm run build:vinext");
+    expect(findings[0].detail).not.toContain("adapter-creek");
+  });
+
+  test("CK-NOTHING-TO-DEPLOY: silent once built, and for the legacy setup (its own rule fires)", () => {
+    const built = vinextCtx({ files: { [WORKER_CONFIG]: fixture("worker.config.json") } });
+    expect(rules.CK_NOTHING_TO_DEPLOY(built)).toEqual([]);
+    expect(rules.CK_NOTHING_TO_DEPLOY(vinextCtx({ source: "wrangler.jsonc" }))).toEqual([]);
+  });
+
+  test("CK-VINEXT-UNSUPPORTED-BINDINGS names what the last build declared", () => {
+    const ctx = vinextCtx({ files: { [WORKER_CONFIG]: fixture("worker.config.bindings.json") } });
+    const findings = rules.CK_VINEXT_UNSUPPORTED_BINDINGS(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      code: "CK-VINEXT-UNSUPPORTED-BINDINGS",
+      severity: "error",
+    });
+    expect(findings[0].title).toContain("IMAGES (images)");
+  });
+
+  test("CK-VINEXT-UNSUPPORTED-BINDINGS is silent for the default project and before a build", () => {
+    const ctx = vinextCtx({ files: { [WORKER_CONFIG]: fixture("worker.config.json") } });
+    expect(rules.CK_VINEXT_UNSUPPORTED_BINDINGS(ctx)).toEqual([]);
+    expect(rules.CK_VINEXT_UNSUPPORTED_BINDINGS(vinextCtx())).toEqual([]);
+  });
+
+  test("CK-VINEXT-SECRETS lists the creek env set commands", () => {
+    const config = JSON.stringify({
+      manifest: { mainModule: "index.js" },
+      env: { API_KEY: { type: "secret" } },
+    });
+    const findings = rules.CK_VINEXT_SECRETS(vinextCtx({ files: { [WORKER_CONFIG]: config } }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ code: "CK-VINEXT-SECRETS", severity: "warn" });
+    expect(findings[0].fix).toContain("creek env set API_KEY");
+  });
+
+  test("vinext rules don't fire for other frameworks", () => {
+    const ctx = buildCtx({
+      resolved: resolvedConfig({ source: "wrangler.jsonc", framework: "vite-react" }),
+      readFile: () => fixture("worker.config.bindings.json"),
+    });
+    expect(rules.CK_VINEXT_LEGACY_SETUP(ctx)).toEqual([]);
+    expect(rules.CK_VINEXT_UNSUPPORTED_BINDINGS(ctx)).toEqual([]);
   });
 });

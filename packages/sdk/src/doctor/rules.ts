@@ -14,6 +14,13 @@
 import type { DoctorContext, Finding, Rule } from "./types.js";
 import { isSSRFramework } from "../types/index.js";
 import { isPrebundledWorker } from "../framework/deploy-plan.js";
+import { parseVinextWorkerConfig, VINEXT_OUTPUT_DIR } from "../framework/vinext.js";
+
+// vinext's build writes the whole worker, so a worker entry in config is
+// not a file Creek bundles — a wrangler `main` left by the legacy setup is
+// the package path `vinext/server/fetch-handler`. Rules about the worker
+// entry skip vinext projects.
+const isVinext = (ctx: DoctorContext): boolean => ctx.resolved?.framework === "vinext";
 
 // ─── Rule: no config at all ──────────────────────────────────────────────
 
@@ -72,7 +79,7 @@ const CK_RESOURCES_KEYS: Rule = (ctx) => {
 
 const CK_WORKER_MISSING: Rule = (ctx) => {
   const worker = ctx.resolved?.workerEntry;
-  if (!worker) return [];
+  if (!worker || isVinext(ctx)) return [];
   if (ctx.fileExists(worker)) return [];
   return [
     {
@@ -326,6 +333,24 @@ const CK_CONFIG_OVERLAP: Rule = (ctx) => {
 const CK_NOTHING_TO_DEPLOY: Rule = (ctx) => {
   if (!ctx.resolved) return []; // CK-NO-CONFIG already fires
 
+  // vinext: `creek deploy` runs the build that writes the Build Output, so
+  // a missing output before the first deploy is expected. Checked before
+  // Next.js — a project migrated with `vinext init` still depends on next.
+  // The legacy Wrangler setup never gets one; CK-VINEXT-LEGACY-SETUP says so.
+  if (isVinext(ctx)) {
+    if (ctx.fileExists(VINEXT_WORKER_CONFIG) || isVinextLegacySetup(ctx)) return [];
+    return [
+      {
+        code: "CK-NOTHING-TO-DEPLOY",
+        severity: "info",
+        title: "No vinext build output yet — `creek deploy` builds it",
+        detail: `vinext writes the deployable worker to ${VINEXT_OUTPUT_DIR}/ when it builds. That directory being absent before your first deploy is expected; \`creek deploy\` runs \`${ctx.resolved.buildCommand}\` first.`,
+        fix: "Run `creek deploy` — it builds and deploys in one step. Preview first with `creek deploy --dry-run`.",
+        references: ["package.json"],
+      },
+    ];
+  }
+
   // Next.js: the Workers build output is produced by `creek deploy` itself
   // (the Creek adapter writes to .creek/adapter-output; the legacy path to
   // .open-next), NOT by the user's `next build`. So a missing output before
@@ -562,7 +587,7 @@ function packageNameOf(spec: string): string {
 
 const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
   const worker = ctx.resolved?.workerEntry;
-  if (!worker) return [];
+  if (!worker || isVinext(ctx)) return [];
   // Only scan source files we can read + statically inspect.
   if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(worker)) return [];
   // Pre-bundled worker outputs (e.g. dist/_worker.mjs) are out of scope —
@@ -636,7 +661,7 @@ const CK_WORKER_UNRESOLVED_IMPORTS: Rule = (ctx) => {
 const CK_RUNTIME_DEP_MISSING: Rule = (ctx) => {
   const resolved = ctx.resolved;
   const worker = resolved?.workerEntry;
-  if (!resolved || !worker) return [];
+  if (!resolved || !worker || isVinext(ctx)) return [];
   // Only the esbuild-bundle path injects the wrapper. A worker is uploaded
   // as-is (no wrapper) ONLY when it's a pre-bundled JS file INSIDE the build
   // output — not merely by extension: a `.js` source worker outside the
@@ -730,6 +755,91 @@ const CK_UNDEPLOYED_SERVICES: Rule = (ctx) => {
 
 // ─── Rule registry ──────────────────────────────────────────────────────
 
+// ─── Rules: vinext ──────────────────────────────────────────────────────
+
+const VINEXT_WORKER_CONFIG = `${VINEXT_OUTPUT_DIR}/worker.config.json`;
+const CF_CONFIG_FILES = [
+  "cloudflare.config.ts",
+  "cloudflare.config.mts",
+  "cloudflare.config.js",
+  "cloudflare.config.mjs",
+];
+
+/**
+ * Set up with `vinext init --legacy-wrangler-cloudflare-init`: a wrangler
+ * config and no `cloudflare.config.*`. That setup writes no Build Output,
+ * so there is nothing for Creek to deploy.
+ */
+function isVinextLegacySetup(ctx: DoctorContext): boolean {
+  return (
+    isVinext(ctx) &&
+    !!ctx.resolved?.source.startsWith("wrangler") &&
+    !CF_CONFIG_FILES.some((f) => ctx.fileExists(f)) &&
+    !ctx.fileExists(VINEXT_WORKER_CONFIG)
+  );
+}
+
+const CK_VINEXT_LEGACY_SETUP: Rule = (ctx) => {
+  if (!isVinextLegacySetup(ctx)) return [];
+  const source = ctx.resolved!.source;
+  return [
+    {
+      code: "CK-VINEXT-LEGACY-SETUP",
+      severity: "error",
+      title: "vinext is set up for Wrangler — Creek deploys vinext's Cloudflare build output",
+      detail: `This project configures vinext through ${source} (the legacy Wrangler setup). Its build writes no ${VINEXT_OUTPUT_DIR}/, which is what Creek deploys, so the deploy would stop after the build.`,
+      fix: `Run \`npx vinext init --platform=cloudflare\`. It generates cloudflare.config.ts but does not migrate ${source}: move your bindings into cloudflare.config.ts.`,
+      references: [source],
+    },
+  ];
+};
+
+// Reads the Build Output left by the last build. `creek deploy` rebuilds,
+// but the bindings come from cloudflare.config.ts, so they carry over
+// unless that file changed since.
+function readVinextBuild(ctx: DoctorContext) {
+  if (!isVinext(ctx)) return null;
+  const raw = ctx.readFile(VINEXT_WORKER_CONFIG);
+  if (raw === null) return null;
+  try {
+    return parseVinextWorkerConfig(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+const CK_VINEXT_UNSUPPORTED_BINDINGS: Rule = (ctx) => {
+  const build = readVinextBuild(ctx);
+  if (!build || build.unsupportedBindings.length === 0) return [];
+  const names = build.unsupportedBindings.map((b) => `${b.name} (${b.type})`).join(", ");
+  return [
+    {
+      code: "CK-VINEXT-UNSUPPORTED-BINDINGS",
+      severity: "error",
+      title: `cloudflare.config.ts declares bindings Creek can't provide: ${names}`,
+      detail: `The last vinext build declares ${names}. Creek provides KV, D1, R2, Workers AI, text and secret bindings, plus static assets as ASSETS. The deploy stops on any other binding rather than shipping a worker that fails when it reads it.`,
+      fix: `Remove ${names} from cloudflare.config.ts (and the vinext option that added it, e.g. an image optimizer or a Workers Cache / Response Store cache adapter), then rebuild.`,
+      references: ["cloudflare.config.ts", VINEXT_WORKER_CONFIG],
+    },
+  ];
+};
+
+const CK_VINEXT_SECRETS: Rule = (ctx) => {
+  const build = readVinextBuild(ctx);
+  if (!build || build.secrets.length === 0) return [];
+  return [
+    {
+      code: "CK-VINEXT-SECRETS",
+      severity: "warn",
+      title: `cloudflare.config.ts expects secrets: ${build.secrets.join(", ")}`,
+      detail:
+        "Secrets are not part of the build. Creek can't tell whether they are set on the deployed project, and a missing one fails at runtime, not at deploy.",
+      fix: build.secrets.map((s) => `  creek env set ${s} <value>`).join("\n"),
+      references: ["cloudflare.config.ts"],
+    },
+  ];
+};
+
 export const BUILTIN_RULES: Rule[] = [
   CK_NO_CONFIG,
   CK_RESOURCES_KEYS,
@@ -747,6 +857,9 @@ export const BUILTIN_RULES: Rule[] = [
   CK_NOTHING_TO_DEPLOY,
   CK_DB_DUAL_DRIVER_SPLIT,
   CK_AUTH_SECRET,
+  CK_VINEXT_LEGACY_SETUP,
+  CK_VINEXT_UNSUPPORTED_BINDINGS,
+  CK_VINEXT_SECRETS,
 ];
 
 // Named exports for tests to target individual rules.
@@ -767,6 +880,9 @@ export const rules = {
   CK_NOTHING_TO_DEPLOY,
   CK_DB_DUAL_DRIVER_SPLIT,
   CK_AUTH_SECRET,
+  CK_VINEXT_LEGACY_SETUP,
+  CK_VINEXT_UNSUPPORTED_BINDINGS,
+  CK_VINEXT_SECRETS,
 } satisfies Record<string, Rule>;
 
 // Helper used by the runner so rules don't have to normalize inputs.

@@ -104,6 +104,7 @@ export type RenderMode = "spa" | "ssr" | "worker";
 export function isSSRFramework(framework: Framework | null): boolean {
   return (
     framework === "nextjs" ||
+    framework === "vinext" ||
     framework === "tanstack-start" ||
     framework === "react-router" ||
     framework === "sveltekit" ||

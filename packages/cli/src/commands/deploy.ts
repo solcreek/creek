@@ -23,12 +23,15 @@ import {
   collectServerFiles,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
+  detectVinextBuild,
+  VINEXT_OUTPUT_DIR,
   detectNextjsMode,
   detectMonorepo,
   planDeploy,
   runDoctor,
   type Framework,
   type ResolvedConfig,
+  type VinextBuild,
 } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { getToken, getApiUrl } from "../utils/config.js";
@@ -164,6 +167,63 @@ function staticSiteUploadDir(cwd: string, resolved: ResolvedConfig): string {
     return join(cwd, "public");
   }
   return cwd;
+}
+
+/**
+ * What `--dry-run` reports about a vinext project's Build Output. The dry
+ * run never builds, so this reflects the last build: `cloudflare.config.ts`
+ * bindings are only known once vinext has built.
+ */
+export function dryRunVinextOutput(cwd: string): {
+  build: VinextBuild | null;
+  summary: {
+    buildOutput: string;
+    built: boolean;
+    note: string;
+    compatibilityDate?: string;
+    compatibilityFlags?: string[];
+    vars?: string[];
+    secrets?: string[];
+    unsupportedBindings?: { name: string; type: string }[];
+  };
+} {
+  const buildOutput = VINEXT_OUTPUT_DIR;
+  let build: VinextBuild | null;
+  try {
+    build = detectVinextBuild(cwd);
+  } catch (err) {
+    return {
+      build: null,
+      summary: {
+        buildOutput,
+        built: false,
+        note: `unreadable (${(err as Error).message}); \`creek deploy\` rebuilds it`,
+      },
+    };
+  }
+  if (!build) {
+    return {
+      build: null,
+      summary: {
+        buildOutput,
+        built: false,
+        note: "not built yet — bindings from cloudflare.config.ts are known after the build `creek deploy` runs",
+      },
+    };
+  }
+  return {
+    build,
+    summary: {
+      buildOutput,
+      built: true,
+      note: "from the last build — `creek deploy` rebuilds before uploading",
+      ...(build.compatibilityDate ? { compatibilityDate: build.compatibilityDate } : {}),
+      compatibilityFlags: build.compatibilityFlags,
+      vars: Object.keys(build.vars),
+      secrets: build.secrets,
+      unsupportedBindings: build.unsupportedBindings,
+    },
+  };
 }
 
 /**
@@ -390,8 +450,14 @@ async function dryRunPlan(
   // a non-interactive run is refused unless --prod/--sandbox/--yes is given
   // (--yes deploys with a deprecation warning).
   const implicitProduction = targetType === "production" && !explicitProd;
+  // vinext declares bindings in cloudflare.config.ts, which only the build
+  // resolves; read them from the Build Output the last build left, if any.
+  const vinext = resolved?.framework === "vinext" ? dryRunVinextOutput(cwd) : null;
   const bindings = resolved
-    ? resolvedConfigToBindingRequirements(resolved).map((b) => ({
+    ? mergeFrameworkBindings(
+        resolvedConfigToBindingRequirements(resolved),
+        vinext?.build ?? null,
+      ).map((b) => ({
         name: b.bindingName,
         type: b.type,
       }))
@@ -441,6 +507,7 @@ async function dryRunPlan(
       : null,
     buildOutputFallback,
     bindings,
+    ...(vinext ? { vinext: vinext.summary } : {}),
     findings: doctorReport.findings,
     wouldDeploy,
     sideEffects: {
@@ -478,6 +545,9 @@ async function dryRunPlan(
     consola.log(`  Build output:     ${resolved.buildOutput}`);
     if (bindings.length > 0) {
       consola.log(`  Bindings:         ${bindings.map((b) => `${b.name} (${b.type})`).join(", ")}`);
+    }
+    if (vinext) {
+      consola.log(`  vinext output:    ${vinext.summary.note}`);
     }
     if (resolved.cron.length > 0) {
       consola.log(`  Cron triggers:    ${resolved.cron.join(", ")}`);
