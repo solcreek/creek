@@ -177,8 +177,10 @@ export async function prepareDeployBundle(
   const monorepo = framework === "nextjs" ? detectMonorepo(cwd) : { isMonorepo: false, root: null };
 
   // 2. Build (when not skipped). Framework-specific build for Next.js
-  // adapter; otherwise the user's build script.
-  if (!skipBuild && resolved.buildCommand) {
+  // adapter; otherwise the user's build script. The Next.js build ignores
+  // `[build] command`, so an empty one must not skip it: that would deploy
+  // whatever .creek/adapter-output a previous build left.
+  if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand)) {
     if (nextjsMode === "opennext") {
       try {
         buildNextjs(cwd, monorepo.isMonorepo);

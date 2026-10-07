@@ -2235,7 +2235,7 @@ async function deployAuthenticated(
     // Single source of truth for build → plan → collect → bundle. Both
     // sandbox and authenticated paths call the same function; they
     // diverge only in where the bundle gets POSTed.
-    if (!skipBuild && resolved.buildCommand) progress.section("Build");
+    if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand)) progress.section("Build");
     const prepared = await prepareDeployBundle({ cwd, resolved, skipBuild, jsonMode });
     const {
       plan,

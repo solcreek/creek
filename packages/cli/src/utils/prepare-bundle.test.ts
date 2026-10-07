@@ -27,6 +27,14 @@ import {
   mergeFrameworkBindings,
 } from "./prepare-bundle.js";
 import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
+import { buildNextjs } from "./nextjs.js";
+
+// A real `next build` can't run here; tests that reach the Next.js build
+// assert that it was called.
+vi.mock("./nextjs.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nextjs.js")>()),
+  buildNextjs: vi.fn(() => "next build --webpack"),
+}));
 
 let cwd: string;
 
@@ -423,6 +431,26 @@ describe("prepareDeployBundle", () => {
 
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
     expect(result.mainModule).toBe("worker.js");
+  });
+
+  test("an empty [build] command does not skip the Next.js build", async () => {
+    // The Next.js build ignores [build] command; skipping it would deploy
+    // whatever adapter output a previous build left behind.
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    vi.mocked(buildNextjs).mockClear();
+
+    await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "nextjs", buildCommand: "", buildOutput: ".creek/adapter-output" }),
+      skipBuild: false,
+    });
+
+    expect(buildNextjs).toHaveBeenCalledTimes(1);
   });
 
   test("--skip-build says when the Next.js adapter output it deploys was built", async () => {
