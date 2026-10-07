@@ -283,6 +283,51 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(cleanupRows()[0].status).toBe("failed");
   });
 
+  test("a project attaching the resource during the delete wins: nothing is torn down", async () => {
+    seedResource("res-race", { kind: "database", cfResourceId: "d1-race", cfResourceType: "d1" });
+    const projId = seedProject(testEnv, "racer");
+    // The attach lands after the delete's binding check, before its batch.
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = (async (stmts: D1PreparedStatement[]) => {
+      testEnv.db.db.exec(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES ('${projId}', 'DATABASE', 'res-race', ${Date.now()})`,
+      );
+      return batch(stmts);
+    }) as typeof env.DB.batch;
+
+    const res = await req("DELETE", "/resources/res-race");
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("has_bindings");
+    expect(cleanupRows()).toEqual([]);
+    const row = testEnv.db.db
+      .prepare("SELECT status FROM resource WHERE id = 'res-race'")
+      .get() as {
+      status: string;
+    };
+    expect(row.status).toBe("active");
+  });
+
+  test("a deleted resource can't be attached, so it can't be torn down under a project", async () => {
+    seedResource("res-gone", { kind: "database", cfResourceId: "d1-gone", cfResourceType: "d1" });
+    seedProject(testEnv, "late-app");
+    expect((await req("DELETE", "/resources/res-gone")).status).toBe(200);
+
+    const res = await req("POST", "/projects/late-app/bindings", {
+      resourceId: "res-gone",
+      bindingName: "DATABASE",
+    });
+
+    expect(res.status).toBe(404);
+    expect(
+      testEnv.db.db
+        .prepare("SELECT COUNT(*) AS n FROM project_resource_binding WHERE resourceId = 'res-gone'")
+        .get(),
+    ).toEqual({ n: 0 });
+  });
+
   test("a resource that was never provisioned has nothing to tear down", async () => {
     seedResource("res-none", { kind: "database", cfResourceId: null, cfResourceType: null });
 
