@@ -97,6 +97,12 @@ export interface PreparedDeployBundle {
   effectiveRenderMode: "spa" | "ssr" | "worker";
   /** Main module name the deploy API should treat as the worker entry. */
   effectiveEntrypoint: string | null;
+  /**
+   * The uploaded server file that is the worker's main module, when known
+   * (sent as `manifest.mainModule`; the deploy servers run it as the entry).
+   * Null leaves the servers to guess by file name, as older clients do.
+   */
+  mainModule: string | null;
   /** Asset list (paths relative to root, with leading `/`). */
   fileList: string[];
   /** Asset bytes, base64-encoded, keyed by path. */
@@ -457,6 +463,16 @@ export async function prepareDeployBundle(
     : astroAdapter
       ? "entry.mjs"
       : (plan.worker.entry ?? null);
+  // Known entry module names: the build output's own (vinext, Astro), or
+  // worker.js, the name Creek gives a worker it bundles or uploads as-is.
+  const mainModule = vinext
+    ? vinext.mainModule
+    : astroAdapter
+      ? "entry.mjs"
+      : serverFiles &&
+          (plan.worker.strategy === "esbuild-bundle" || plan.worker.strategy === "upload-asis")
+        ? "worker.js"
+        : null;
 
   // Resources declared but the deploy carries no server code: the
   // bindings get provisioned with nothing able to read them, and
@@ -479,6 +495,7 @@ export async function prepareDeployBundle(
     vinext,
     effectiveRenderMode,
     effectiveEntrypoint,
+    mainModule,
     fileList,
     assets: clientAssets,
     serverFiles,

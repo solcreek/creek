@@ -31,6 +31,11 @@ export interface StagedBundle {
     assets: string[];
     hasWorker: boolean;
     entrypoint: string | null;
+    /**
+     * The server file to run as the worker's main module. Sent by clients
+     * that know it; older bundles omit it and the deploy guesses by name.
+     */
+    mainModule?: string | null;
     renderMode?: "spa" | "ssr" | "worker";
     /** `[build] run_worker_first` from creek.toml (render mode `worker` only). */
     runWorkerFirst?: boolean | string[] | null;
@@ -348,6 +353,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
           {
             clientAssets: decodedClientAssets,
             serverFiles: decodedServerFiles,
+            mainModule: bundle.manifest.mainModule ?? null,
             renderMode,
             runWorkerFirst: bundle.manifest.runWorkerFirst ?? null,
             teamId,

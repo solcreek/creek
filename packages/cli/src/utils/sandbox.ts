@@ -40,6 +40,8 @@ export async function sandboxDeploy(
       assets: string[];
       hasWorker: boolean;
       entrypoint: string | null;
+      /** The uploaded server file to run as the worker's main module. */
+      mainModule?: string;
       renderMode: string;
     };
     assets: Record<string, string>;

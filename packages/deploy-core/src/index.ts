@@ -12,6 +12,12 @@ export {
 } from "./deploy.js";
 export { SPA_WORKER_SCRIPT } from "./spa-worker.js";
 export {
+  selectMainModule,
+  mainModuleProblem,
+  MainModuleError,
+  GUESSED_MAIN_MODULES,
+} from "./main-module.js";
+export {
   createD1Database,
   getD1DatabaseByName,
   deleteD1Database,

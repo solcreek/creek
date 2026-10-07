@@ -4,6 +4,7 @@ import { hashAsset, createAssetUploadSession, uploadAssetFiles } from "./assets.
 import { extractAssetMetafiles } from "./asset-metafiles.js";
 import { SPA_WORKER_SCRIPT } from "./spa-worker.js";
 import { workerAssetsOptions } from "./worker-assets.js";
+import { selectMainModule } from "./main-module.js";
 
 /**
  * Map file extension to Workers module type.
@@ -248,19 +249,8 @@ export async function deployWithAssets(
     workerFiles = Object.entries(input.serverFiles).map(
       ([name, content]) => new File([content], name, { type: workerFileType(name) }),
     );
-    // Prefer the framework's canonical entrypoint name. `entry.mjs` is
-    // emitted by `@astrojs/cloudflare`; the others cover our older
-    // SSR paths (Nuxt/SolidStart nitro, custom workers). Fallback to
-    // the first file only if none match.
-    mainModule =
-      Object.keys(input.serverFiles).find(
-        (n) =>
-          n === "worker.js" ||
-          n === "server.js" ||
-          n === "index.js" ||
-          n === "index.mjs" ||
-          n === "entry.mjs",
-      ) ?? Object.keys(input.serverFiles)[0];
+    // The bundle's declared main module, else the name-based guess.
+    mainModule = selectMainModule(Object.keys(input.serverFiles), input.mainModule);
   } else {
     const indexHtml = input.clientAssets["/index.html"] ?? input.clientAssets["index.html"];
     const spa = buildSpaWorker(indexHtml);

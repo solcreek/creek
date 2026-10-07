@@ -84,6 +84,7 @@ describe("prepareDeployBundle", () => {
 
     expect(result.effectiveRenderMode).toBe("spa");
     expect(result.serverFiles).toBeUndefined();
+    expect(result.mainModule).toBeNull();
     expect(result.fileList.sort()).toEqual(["assets/app.js", "index.html"]);
     expect(result.plan.worker.strategy).toBe("none");
   });
@@ -113,6 +114,8 @@ describe("prepareDeployBundle", () => {
     expect(result.plan.worker.strategy).toBe("upload-asis");
     expect(result.serverFiles).toBeDefined();
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
+    // The uploaded entry name, sent as manifest.mainModule.
+    expect(result.mainModule).toBe("worker.js");
 
     // The critical regression — _worker.mjs MUST NOT show up as a
     // public static asset. If this fails, the worker bundle is
@@ -153,6 +156,8 @@ describe("prepareDeployBundle", () => {
     expect(result.plan.worker.strategy).toBe("esbuild-bundle");
     expect(result.serverFiles).toBeDefined();
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
+    // The uploaded entry name, sent as manifest.mainModule.
+    expect(result.mainModule).toBe("worker.js");
     expect(result.fileList).toEqual([]);
     expect(result.assets).toEqual({});
   });
@@ -189,6 +194,8 @@ describe("prepareDeployBundle", () => {
 
     expect(result.effectiveRenderMode).toBe("worker");
     expect(Object.keys(result.serverFiles!)).toEqual(["worker.js"]);
+    // The uploaded entry name, sent as manifest.mainModule.
+    expect(result.mainModule).toBe("worker.js");
     const info = infoSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(info).toContain('No "build" script');
     infoSpy.mockRestore();
@@ -354,6 +361,47 @@ describe("prepareDeployBundle", () => {
     startSpy.mockRestore();
     successSpy.mockRestore();
     infoSpy.mockRestore();
+  });
+
+  test("Astro CF adapter — entry.mjs is sent as the main module", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "astro-app", dependencies: { astro: "*" } }),
+      "dist/server/entry.mjs": "export default { fetch() {} };",
+      "dist/server/wrangler.json": "{}",
+      "dist/server/_@astrojs-ssr-adapter.mjs": "export {};",
+      "dist/client/favicon.svg": "<svg/>",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "astro" }),
+      skipBuild: true,
+    });
+
+    expect(result.effectiveRenderMode).toBe("ssr");
+    expect(Object.keys(result.serverFiles!).sort()).toEqual([
+      "_@astrojs-ssr-adapter.mjs",
+      "entry.mjs",
+    ]);
+    expect(result.mainModule).toBe("entry.mjs");
+  });
+
+  test("SSR framework output — no main module is declared, the servers keep guessing", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "nuxt-app", dependencies: { nuxt: "*" } }),
+      ".output/server/index.mjs": "export default {};",
+      ".output/server/chunks/a.mjs": "export {};",
+      ".output/public/index.html": "<html></html>",
+    });
+
+    const result = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "nuxt", buildOutput: ".output/public" }),
+      skipBuild: true,
+    });
+
+    expect(result.serverFiles).toBeDefined();
+    expect(result.mainModule).toBeNull();
   });
 
   test("framework auto-detection from package.json — no resolved.framework", async () => {
@@ -643,6 +691,7 @@ describe("prepareDeployBundle — vinext Build Output", () => {
     // worker mode is what attaches env.ASSETS, which vinext reads.
     expect(result.effectiveRenderMode).toBe("worker");
     expect(result.effectiveEntrypoint).toBe("index.js");
+    expect(result.mainModule).toBe("index.js");
     expect(result.vinext?.compatibilityDate).toBe("2026-10-07");
     expect(result.vinext?.compatibilityFlags).toEqual(["nodejs_compat"]);
 

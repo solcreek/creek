@@ -8,7 +8,12 @@ import {
   seedProject,
   type LocalTestEnv,
 } from "../../local/test-env.js";
-import { runDeployJob, withDeployHeartbeat, consumeDeployJobBatch } from "./deploy-job.js";
+import {
+  runDeployJob,
+  withDeployHeartbeat,
+  consumeDeployJobBatch,
+  serverFileKey,
+} from "./deploy-job.js";
 import {
   buildR2Key,
   deployStageLogKey,
@@ -270,6 +275,117 @@ describe("runDeployJob (integration via MSW)", () => {
       expect(meta.bindings).toContainEqual({ type: "assets", name: "ASSETS" });
       expect(meta.assets.config.run_worker_first).toEqual(["/", "/api/*"]);
     }
+  });
+
+  describe("main module", () => {
+    const worker = "export default { fetch() { return new Response('w'); } };";
+    let uploads: Array<{ mainModule: string; parts: string[] }>;
+
+    beforeEach(() => {
+      uploads = [];
+      server.use(
+        http.post(`${NS}/assets-upload-session`, () =>
+          HttpResponse.json({ success: true, result: { jwt: "j", buckets: [] }, errors: [] }),
+        ),
+        http.put(NS, async ({ request }) => {
+          const fd = await (request as unknown as { formData(): Promise<FormData> }).formData();
+          const meta = JSON.parse(await (fd.get("metadata") as unknown as File).text());
+          uploads.push({
+            mainModule: meta.main_module,
+            parts: [...fd.keys()].filter((k) => k !== "metadata"),
+          });
+          return HttpResponse.json({ success: true, result: { id: "s" }, errors: [] });
+        }),
+      );
+    });
+
+    function manifest(extra: Record<string, unknown>) {
+      return {
+        assets: ["index.html"],
+        hasWorker: true,
+        entrypoint: null,
+        renderMode: "worker",
+        ...extra,
+      };
+    }
+
+    it("runs the declared module from separately staged server files", async () => {
+      // The current CLI stages server files as binary R2 objects.
+      for (const name of ["worker.js", "index.js"]) {
+        await testEnv.env.ASSETS.put(serverFileKey("dep-1", name), worker);
+      }
+      await testEnv.env.ASSETS.put(
+        "bundles/dep-1.json",
+        JSON.stringify({
+          manifest: manifest({ mainModule: "index.js" }),
+          assets: { "index.html": btoa("<html>hi</html>") },
+          serverFileNames: ["worker.js", "index.js"],
+        }),
+      );
+
+      await runDeployJob(testEnv.env, input);
+
+      expect(deploymentRow().status).toBe("active");
+      expect(uploads.length).toBeGreaterThan(0);
+      for (const u of uploads) {
+        expect(u.mainModule).toBe("index.js");
+        expect(u.parts.sort()).toEqual(["index.js", "worker.js"]);
+      }
+    });
+
+    it("runs the declared module from inline server files", async () => {
+      await testEnv.env.ASSETS.put(
+        "bundles/dep-1.json",
+        JSON.stringify({
+          manifest: manifest({ mainModule: "app.mjs" }),
+          assets: { "index.html": btoa("<html>hi</html>") },
+          serverFiles: { "chunk.js": btoa("export {}"), "app.mjs": btoa(worker) },
+        }),
+      );
+
+      await runDeployJob(testEnv.env, input);
+
+      expect(deploymentRow().status).toBe("active");
+      expect(uploads.every((u) => u.mainModule === "app.mjs")).toBe(true);
+    });
+
+    it("without one, guesses like the sandbox path — entry.mjs included", async () => {
+      // An Astro adapter bundle from an older client: the adapter entry is
+      // entry.mjs, and it is not the first file.
+      await testEnv.env.ASSETS.put(
+        "bundles/dep-1.json",
+        JSON.stringify({
+          manifest: manifest({ entrypoint: "entry.mjs" }),
+          assets: { "index.html": btoa("<html>hi</html>") },
+          serverFiles: {
+            "_@astrojs-ssr-adapter.mjs": btoa("export {}"),
+            "entry.mjs": btoa(worker),
+          },
+        }),
+      );
+
+      await runDeployJob(testEnv.env, input);
+
+      expect(uploads.every((u) => u.mainModule === "entry.mjs")).toBe(true);
+    });
+
+    it("a declared module that was not staged fails the deploy before any upload", async () => {
+      await testEnv.env.ASSETS.put(
+        "bundles/dep-1.json",
+        JSON.stringify({
+          manifest: manifest({ mainModule: "index.js" }),
+          assets: { "index.html": btoa("<html>hi</html>") },
+          serverFiles: { "worker.js": btoa(worker) },
+        }),
+      );
+
+      await runDeployJob(testEnv.env, input);
+
+      const row = deploymentRow();
+      expect(row.status).toBe("failed");
+      expect(row.errorMessage).toContain("not one of the uploaded server files");
+      expect(uploads).toEqual([]);
+    });
   });
 
   it("fails at the uploading step when the bundle is missing from staging", async () => {

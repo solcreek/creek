@@ -22,6 +22,12 @@ export interface AssetManifestEntry {
 export interface DeployAssetsInput {
   clientAssets: Record<string, ArrayBuffer>;
   serverFiles?: Record<string, ArrayBuffer>;
+  /**
+   * The server file to run as the worker's main module, from the bundle's
+   * `manifest.mainModule`. Must be a key of `serverFiles`. When absent, the
+   * main module is guessed by file name (see `selectMainModule`).
+   */
+  mainModule?: string | null;
   renderMode: "spa" | "ssr" | "worker";
   /** `run_worker_first` for a user-declared worker (render mode `worker`). */
   runWorkerFirst?: boolean | string[] | null;

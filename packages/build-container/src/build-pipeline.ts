@@ -84,6 +84,8 @@ export interface BuildResult {
       assets: string[];
       hasWorker: boolean;
       entrypoint: string | null;
+      /** The uploaded server file to run as the worker's main module. */
+      mainModule?: string;
       renderMode: string;
       runWorkerFirst?: boolean | string[];
     };
@@ -478,6 +480,17 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       : astroCF
         ? "entry.mjs"
         : resolved.workerEntry;
+    // The entry module's uploaded name, when known: the build output's own
+    // (vinext, Astro), or worker.js for a worker bundled here.
+    const mainModule = !serverFiles
+      ? undefined
+      : vinext
+        ? vinext.mainModule
+        : astroCF
+          ? "entry.mjs"
+          : isWorker
+            ? "worker.js"
+            : undefined;
 
     // Merge adapter-emitted bindings on top of user-declared ones.
     // `@astrojs/cloudflare` injects bindings the user's root
@@ -564,6 +577,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
           assets: isWorker ? [] : fileList,
           hasWorker: effectiveHasWorker,
           entrypoint: effectiveEntrypoint,
+          ...(mainModule ? { mainModule } : {}),
           renderMode: effectiveRenderMode,
           ...workerFirst(
             effectiveRenderMode,

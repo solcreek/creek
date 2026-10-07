@@ -145,7 +145,8 @@ export function parseVinextWorkerConfig(raw: unknown): VinextBuild {
  * upload API rejects a JSON module part (code 10162), so they are left out.
  *
  * Throws unless the deploy servers will take `manifest.mainModule` as the
- * entry: they pick it by file name, not from the manifest.
+ * entry. The bundle declares it, but servers that predate that field pick
+ * the entry by file name, so the name must leave them no other choice.
  */
 export function collectVinextServerFiles(cwd: string, build: VinextBuild): Record<string, Buffer> {
   const modules = collectServerFiles(join(cwd, build.serverDir), {
