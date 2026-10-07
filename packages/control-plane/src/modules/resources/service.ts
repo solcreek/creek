@@ -201,6 +201,9 @@ export async function ensureProjectBindings(
         });
         continue;
       }
+      // Gone: also drop the alias's own entry, seeded above from the
+      // bindings read earlier, so the worker isn't bound to it either.
+      if (aliasName) result.delete(aliasName);
     }
 
     // No binding exists — auto-create resource + binding

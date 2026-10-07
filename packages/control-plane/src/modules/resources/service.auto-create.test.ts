@@ -87,8 +87,10 @@ describe("ensureProjectBindings — alias adoption", () => {
       { type: "d1", bindingName: "DATABASE" },
     ]);
 
-    // A fresh database instead of the one being torn down.
+    // A fresh database instead of the one being torn down, and no binding
+    // left to the old one under the alias name either.
     expect(result.get("DATABASE")?.cfResourceId).toBe("new-d1-id");
+    expect(result.has("DB")).toBe(false);
     expect(
       count("SELECT COUNT(*) AS n FROM project_resource_binding WHERE resourceId = 'res-alias'"),
     ).toBe(0);
