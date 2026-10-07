@@ -16,6 +16,9 @@ export type DeployFailureCode =
   | "activation_timeout"
   | "bundle_too_large"
   | "binding_error"
+  | "migration_failed"
+  | "migration_too_large"
+  | "migration_target"
   | "deploy_error";
 
 export interface DeployFailureReason {
@@ -29,6 +32,31 @@ export function classifyDeployFailure(
   errorMessage: string | null,
 ): DeployFailureReason {
   const msg = (errorMessage ?? "").toLowerCase();
+
+  // `[release] migrations` failures (deploy-job, provisioning step). Checked
+  // first: their wrapped D1 error can contain words the generic rules below
+  // match ("no such table", "timed out"), but the actionable fix is the
+  // migration, and nothing from it was applied.
+  if (failedStep === "provisioning") {
+    if (/^migration .+ failed: /.test(msg)) {
+      return {
+        code: "migration_failed",
+        hint: "A [release] migration failed and was rolled back; the previous version is still serving. Fix the migration named above, then redeploy.",
+      };
+    }
+    if (/^migration .+ is \d+ kb; a release migration must fit/.test(msg)) {
+      return {
+        code: "migration_too_large",
+        hint: "Split the migration named above into smaller migration files, then redeploy. Nothing was applied.",
+      };
+    }
+    if (msg.startsWith("[release] migrations is on but the project has")) {
+      return {
+        code: "migration_target",
+        hint: "Bind one database as DATABASE (or declare [resources] database = true), then redeploy. Nothing was applied.",
+      };
+    }
+  }
 
   // The reaper writes "...exceeded the N-minute deploy window..."; older rows
   // (and the bare path) say "timed out". Both mean the stage ran past its

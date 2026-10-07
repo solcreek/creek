@@ -658,6 +658,8 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(row.failedStep).toBe("provisioning");
     expect(row.errorMessage).toContain("migration 0002_it's.sql failed");
     expect(calls).not.toContain("script-upload");
+    // The real message classifies as a migration failure, not a binding error.
+    expect(buildLogRow()?.errorCode).toBe("migration_failed");
   });
 
   it("refuses when several databases are bound and none is DATABASE or DB", async () => {
@@ -675,6 +677,7 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("provisioning");
     expect(row.errorMessage).toContain("none is bound as DATABASE or DB");
+    expect(buildLogRow()?.errorCode).toBe("migration_target");
     expect(d1Calls()).toEqual([]);
     expect(calls).not.toContain("script-upload");
   });
