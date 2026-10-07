@@ -77,6 +77,13 @@ async function findByName(
 
 export function createResourceCommand(opts: ResourceCmdOptions) {
   const { kind, label, defaultBinding } = opts;
+  // What deleting does to the data. Cloudflare deletes a D1 database or KV
+  // namespace outright, but refuses to delete an R2 bucket that still holds
+  // objects, so a bucket's deletion only goes through once it's empty.
+  const deletionEffect =
+    kind === "storage"
+      ? "the bucket is deleted within minutes if it is empty; a bucket that still holds objects is kept, objects included, until it is emptied."
+      : "the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.";
   const cmdName = kind === "database" ? "db" : kind === "cache" ? "cache" : kind;
 
   const ls = defineCommand({
@@ -264,7 +271,10 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const del = defineCommand({
     meta: {
       name: "delete",
-      description: `Delete a ${label} and its data, permanently. Fails if any project still binds to it — detach first.`,
+      description:
+        kind === "storage"
+          ? `Delete a ${label}; the bucket itself is removed once it is empty. Fails if any project still binds to it — detach first.`
+          : `Delete a ${label} and its data, permanently. Fails if any project still binds to it — detach first.`,
     },
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
@@ -299,9 +309,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             ? bindings.map(
                 (b) => `Still bound to ${b.projectSlug} as ${b.bindingName} — detach first`,
               )
-            : [
-                `Delete team ${label} "${args.name}": the Cloudflare resource and all its data are permanently deleted within minutes. This cannot be undone.`,
-              ],
+            : [`Delete team ${label} "${args.name}": ${deletionEffect}`],
           nextStep: blocked
             ? `creek ${cmdName} detach ${args.name} --from ${bindings[0].projectSlug} --as ${bindings[0].bindingName} --json`
             : `creek ${cmdName} delete ${args.name} --json`,
@@ -313,7 +321,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       // --yes. Non-TTY (agents/CI) auto-confirms, as elsewhere in the CLI.
       if (!shouldAutoConfirm(args) && isTTY) {
         const ok = (await consola.prompt(
-          `Delete ${label} "${args.name}" and all its data? This cannot be undone.`,
+          `Delete ${label} "${args.name}"? ${deletionEffect.charAt(0).toUpperCase()}${deletionEffect.slice(1)}`,
           { type: "confirm" },
         )) as unknown as boolean;
         if (!ok) {
