@@ -15,7 +15,7 @@
  *   1. Reads framework from package.json (or accepts pre-resolved one)
  *   2. Runs the build script (skip with skipBuild: true)
  *   3. Calls SDK's planDeploy() to decide spa/ssr/worker shape
- *   4. Detects post-build framework adapters (Astro CF) and refines
+ *   4. Detects post-build framework output (Astro CF, vinext) and refines
  *   5. Collects static assets per the plan
  *   6. Bundles the worker per the plan (5 framework-aware strategies)
  *   7. Filters worker file out of clientAssets when it lives inside
@@ -33,6 +33,8 @@ import consola from "consola";
 import {
   detectFramework,
   detectAstroCloudflareBuild,
+  detectVinextBuild,
+  collectVinextServerFiles,
   detectMonorepo,
   detectNextjsMode,
   getSSRServerDir,
@@ -43,9 +45,11 @@ import {
   isPreBundledFramework,
   collectServerFiles,
   planDeploy,
+  type BindingRequirement,
   type DeployPlan,
   type Framework,
   type ResolvedConfig,
+  type VinextBuild,
 } from "@solcreek/sdk";
 import { collectAssets } from "./bundle.js";
 import { bundleSSRServer } from "./ssr-bundle.js";
@@ -79,6 +83,12 @@ export interface PreparedDeployBundle {
   framework: Framework | null;
   /** Whether Astro `@astrojs/cloudflare` adapter fired post-build. */
   astroAdapter: { serverDir: string; assetsDir: string } | null;
+  /**
+   * vinext Cloudflare Build Output, when the framework is vinext. Carries
+   * the compat settings, bindings and vars the worker was built for — the
+   * deploy must use them (see `mergeFrameworkBindings`).
+   */
+  vinext: VinextBuild | null;
   /**
    * Render mode after post-build refinement. Equal to plan.renderMode
    * unless an adapter (e.g. Astro CF) upgraded an SPA-classified
@@ -134,6 +144,11 @@ export async function prepareDeployBundle(
     success: (m: string) => {
       if (!jsonMode) consola.success(m);
     },
+  };
+  const fail = (error: string, message: string): never => {
+    if (jsonMode) jsonOutput({ ok: false, error, message }, 1);
+    consola.error(message);
+    process.exit(1);
   };
 
   // 1. Framework detection. Trust the resolved config if it carries
@@ -214,8 +229,17 @@ export async function prepareDeployBundle(
     : resolve(cwd, resolved.buildOutput || getDefaultBuildOutput(framework, cwd));
 
   // 4. Post-build framework adapter detection. Astro can be either SSG
-  // or CF-adapter-SSR; we only know which after build.
+  // or CF-adapter-SSR; we only know which after build. vinext's Build
+  // Output only exists once `vite build` has run.
   const astroAdapter = framework === "astro" ? detectAstroCloudflareBuild(cwd) : null;
+  let vinext: VinextBuild | null = null;
+  if (framework === "vinext") {
+    try {
+      vinext = detectVinextBuild(cwd);
+    } catch (err) {
+      fail("invalid_build_output", (err as Error).message);
+    }
+  }
 
   // 5. Plan the deploy shape. planDeploy is a pure function — pass in
   // detection results, get out a structured plan with explicit error
@@ -228,6 +252,7 @@ export async function prepareDeployBundle(
     buildOutput: resolved.buildOutput || "dist",
     buildOutputExists: existsSync(outputDir),
     astroCF: astroAdapter,
+    vinext,
   });
   if (!planResult.ok) {
     if (jsonMode)
@@ -236,6 +261,20 @@ export async function prepareDeployBundle(
     process.exit(1);
   }
   const plan = planResult.plan;
+
+  if (vinext && vinext.unsupportedBindings.length > 0) {
+    fail(
+      "unsupported_bindings",
+      `Creek can't provide these bindings from cloudflare.config.ts: ${vinext.unsupportedBindings
+        .map((b) => `${b.name} (${b.type})`)
+        .join(", ")}. Remove them, or the worker fails when it reads them.`,
+    );
+  }
+  if (vinext && vinext.secrets.length > 0) {
+    say.info(
+      `  Secrets expected by the worker: ${vinext.secrets.join(", ")} — set them with \`creek env set <NAME> <value>\``,
+    );
+  }
 
   // 6. Collect client assets. The dir depends on framework (Next.js
   // adapter, Astro CF split output) but the inclusion decision is the
@@ -256,6 +295,8 @@ export async function prepareDeployBundle(
         if (subdir) clientAssetsDir = resolve(clientAssetsDir, subdir);
       }
     }
+    // collectAssets honours the dir's `.assetsignore`, where build tools
+    // list their metadata (vinext: `.vite/manifest.json`).
     const collected = collectAssets(clientAssetsDir);
     clientAssets = collected.assets;
     fileList = collected.fileList;
@@ -267,7 +308,18 @@ export async function prepareDeployBundle(
   let serverFiles: Record<string, string> | undefined;
   let workerModulePaths: string[] = [];
 
-  if (astroAdapter) {
+  if (vinext) {
+    // vinext's Build Output is a complete, pre-bundled worker.
+    say.start("  Collecting vinext worker...");
+    let collected: Record<string, Buffer> = {};
+    try {
+      collected = collectVinextServerFiles(cwd, vinext);
+    } catch (err) {
+      fail("invalid_build_output", (err as Error).message);
+    }
+    serverFiles = base64ServerFiles(collected);
+    say.success(`  vinext worker: ${Object.keys(collected).length} modules (${kb(collected)}KB)`);
+  } else if (astroAdapter) {
     // Astro CF adapter writes a pre-bundled worker we just upload.
     const serverDir = resolve(cwd, astroAdapter.serverDir);
     if (existsSync(serverDir)) {
@@ -400,7 +452,11 @@ export async function prepareDeployBundle(
   // 9. Resolve effective render mode + entrypoint. Astro CF post-build
   // detection upgrades a pre-build "spa" classification to true SSR.
   const effectiveRenderMode: "spa" | "ssr" | "worker" = astroAdapter ? "ssr" : plan.renderMode;
-  const effectiveEntrypoint = astroAdapter ? "entry.mjs" : (plan.worker.entry ?? null);
+  const effectiveEntrypoint = vinext
+    ? vinext.mainModule
+    : astroAdapter
+      ? "entry.mjs"
+      : (plan.worker.entry ?? null);
 
   // Resources declared but the deploy carries no server code: the
   // bindings get provisioned with nothing able to read them, and
@@ -420,6 +476,7 @@ export async function prepareDeployBundle(
     plan,
     framework,
     astroAdapter,
+    vinext,
     effectiveRenderMode,
     effectiveEntrypoint,
     fileList,
@@ -515,6 +572,27 @@ async function relativeImports(file: string): Promise<string[]> {
   return (input?.imports ?? [])
     .map((i) => i.path)
     .filter((p) => p.startsWith("./") || p.startsWith("../"));
+}
+
+/**
+ * Add the bindings a framework's build output declares (vinext:
+ * `cloudflare.config.ts`) to those from creek.toml / wrangler.*. Config
+ * wins on a binding-name conflict, so an explicit declaration is never
+ * overridden.
+ */
+export function mergeFrameworkBindings(
+  base: BindingRequirement[],
+  vinext: VinextBuild | null,
+): BindingRequirement[] {
+  if (!vinext) return base;
+  const taken = new Set(base.map((b) => b.bindingName));
+  const extra = vinext.bindings
+    .filter(
+      (b): b is typeof b & { type: BindingRequirement["type"] } =>
+        ["d1", "r2", "kv", "ai"].includes(b.type) && !taken.has(b.name),
+    )
+    .map((b) => ({ type: b.type, bindingName: b.name }));
+  return [...base, ...extra];
 }
 
 function base64ServerFiles(collected: Record<string, Buffer>): Record<string, string> {

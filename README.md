@@ -39,7 +39,7 @@ npx creek deploy
 
 Creek detects your framework, provisions resources, builds, and deploys.
 
-**Supported:** React · Vue · Svelte · Solid · Astro · VitePress · Hono · TanStack Start · React Router · Next.js · static HTML
+**Supported:** React · Vue · Svelte · Solid · Astro · VitePress · Hono · TanStack Start · React Router · Next.js · vinext · static HTML
 **WIP:** Nuxt · SvelteKit
 
 ---

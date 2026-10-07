@@ -11,6 +11,24 @@ describe("detectFramework", () => {
     expect(detectFramework({ dependencies: { next: "14.0.0" } })).toBe("nextjs");
   });
 
+  test("detects vinext in a create-vinext-app project (no next dependency)", () => {
+    expect(
+      detectFramework({
+        dependencies: { vinext: "^1.0.1", "@vinext/cloudflare": "^1.0.1", react: "latest" },
+        devDependencies: { vite: "^8.3.0" },
+      }),
+    ).toBe("vinext");
+  });
+
+  test("detects vinext before Next.js in a project migrated with vinext init", () => {
+    expect(
+      detectFramework({
+        dependencies: { next: "16.2.3", vinext: "^1.0.1", react: "19.2.6" },
+        devDependencies: { vite: "^8.3.0" },
+      }),
+    ).toBe("vinext");
+  });
+
   test("detects TanStack Start", () => {
     expect(detectFramework({ dependencies: { "@tanstack/react-start": "1.0.0" } })).toBe(
       "tanstack-start",
@@ -103,6 +121,10 @@ describe("detectFramework", () => {
 });
 
 describe("getDefaultBuildOutput", () => {
+  test("vinext → Build Output assets dir", () => {
+    expect(getDefaultBuildOutput("vinext")).toBe(".cloudflare/output/v0/workers/default/assets");
+  });
+
   test("nextjs (no cwd) -> .creek/adapter-output (modern adapter default)", () => {
     expect(getDefaultBuildOutput("nextjs")).toBe(".creek/adapter-output");
   });

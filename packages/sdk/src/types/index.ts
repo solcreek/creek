@@ -86,6 +86,7 @@ export type DeploymentTrigger = "cli" | "github" | "api" | "remote" | "rollback"
 
 export type Framework =
   | "nextjs"
+  | "vinext"
   | "tanstack-start"
   | "react-router"
   | "vite-react"
@@ -103,6 +104,7 @@ export type RenderMode = "spa" | "ssr" | "worker";
 export function isSSRFramework(framework: Framework | null): boolean {
   return (
     framework === "nextjs" ||
+    framework === "vinext" ||
     framework === "tanstack-start" ||
     framework === "react-router" ||
     framework === "sveltekit" ||

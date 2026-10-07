@@ -20,6 +20,7 @@
  */
 
 import { isSSRFramework, type Framework } from "../types/index.js";
+import { VINEXT_OUTPUT_DIR } from "./vinext.js";
 
 export interface PlanDeployInput {
   /** Detected framework, or null for "no framework / vanilla Worker / static". */
@@ -40,6 +41,11 @@ export interface PlanDeployInput {
    * the framework isn't Astro or the adapter wasn't used.
    */
   astroCF: { serverDir: string; assetsDir: string } | null;
+  /**
+   * vinext Cloudflare Build Output (`detectVinextBuild`). Null when the
+   * framework isn't vinext or the build output is missing.
+   */
+  vinext?: { serverDir: string; assetsDir: string } | null;
 }
 
 /**
@@ -141,6 +147,31 @@ export function planDeploy(input: PlanDeployInput): PlanDeployResult {
     input;
   const isSSR = isSSRFramework(framework);
   const hasWorker = !!workerEntry;
+
+  // 0. vinext — its build writes the whole Worker (modules + assets), so a
+  //    worker entry from config is not ours to bundle: a wrangler `main`
+  //    left over from the legacy setup is a package path, not a file. The
+  //    worker reads env.ASSETS, which only `worker` render mode attaches.
+  if (framework === "vinext") {
+    const vinext = input.vinext;
+    if (!vinext) {
+      return {
+        ok: false,
+        reason:
+          `vinext build output not found: ${VINEXT_OUTPUT_DIR}/worker.config.json. ` +
+          "Creek deploys vinext's Cloudflare Build Output: set the project up with " +
+          "`vinext init --platform=cloudflare` (the legacy Wrangler setup is not supported), then build with `vite build`.",
+      };
+    }
+    return {
+      ok: true,
+      plan: {
+        renderMode: "worker",
+        assets: { enabled: true, dir: vinext.assetsDir, excludeFile: null },
+        worker: { strategy: "ssr-framework", entry: vinext.serverDir },
+      },
+    };
+  }
 
   // 1. Worker entry declared but file missing → hard fail. The user
   //    explicitly pointed at it; don't silently fall back to SPA.

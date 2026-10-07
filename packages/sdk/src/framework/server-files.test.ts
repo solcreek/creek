@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   getSSRServerDir,
   collectServerFiles,
+  isEntryModuleSelected,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
 } from "./server-files.js";
@@ -181,13 +182,31 @@ describe("collectServerFiles", () => {
     expect(Object.keys(files).sort()).toEqual(["entry.mjs"]);
   });
 
-  test("respects maxFiles limit", () => {
+  test("throws past maxFiles instead of returning a partial worker", () => {
     for (let i = 0; i < 10; i++) {
       writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
     }
 
-    const files = collectServerFiles(tmpDir, { maxFiles: 3 });
-    expect(Object.keys(files).length).toBeLessThanOrEqual(3);
+    expect(() => collectServerFiles(tmpDir, { maxFiles: 3 })).toThrow(/more than 3 worker modules/);
+  });
+
+  test("include filters before counting toward maxFiles", () => {
+    for (let i = 0; i < 3; i++) writeFileSync(join(tmpDir, `file-${i}.mjs`), "x");
+    writeFileSync(join(tmpDir, "meta.json"), "{}");
+
+    const files = collectServerFiles(tmpDir, {
+      maxFiles: 3,
+      include: (p) => !p.endsWith(".json"),
+    });
+    expect(Object.keys(files).sort()).toEqual(["file-0.mjs", "file-1.mjs", "file-2.mjs"]);
+  });
+
+  test("collects exactly maxFiles modules", () => {
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
+    }
+
+    expect(Object.keys(collectServerFiles(tmpDir, { maxFiles: 3 }))).toHaveLength(3);
   });
 
   test("returns empty object for non-existent directory", () => {
@@ -219,5 +238,36 @@ describe("collectServerFiles", () => {
     expect(Object.keys(files)).toContain(join("chunks", "_", "locales", "en.mjs"));
     // .map file should be skipped
     expect(Object.keys(files)).not.toContain(join("chunks", "_", "locales", "en.mjs.map"));
+  });
+});
+
+// --- isEntryModuleSelected ---
+
+describe("isEntryModuleSelected", () => {
+  test("the only main-module name among chunks is selected", () => {
+    expect(isEntryModuleSelected(["_next/a.js", "index.js", "ssr/index.js"], "index.js")).toBe(
+      true,
+    );
+  });
+
+  test("entry.mjs alongside index.js: deploy-core would take entry.mjs when it comes first", () => {
+    expect(isEntryModuleSelected(["entry.mjs", "index.js"], "index.js")).toBe(false);
+  });
+
+  test("two main-module names are ambiguous in either upload order", () => {
+    expect(isEntryModuleSelected(["index.js", "worker.js"], "index.js")).toBe(false);
+    expect(isEntryModuleSelected(["worker.js", "index.js"], "index.js")).toBe(false);
+  });
+
+  test("entry.mjs alone is not enough: the control-plane doesn't know the name", () => {
+    expect(isEntryModuleSelected(["chunks/a.js", "entry.mjs"], "entry.mjs")).toBe(false);
+  });
+
+  test("an entry the servers don't recognise by name is not selected", () => {
+    expect(isEntryModuleSelected(["custom.js", "chunk.js"], "custom.js")).toBe(false);
+  });
+
+  test("missing entry", () => {
+    expect(isEntryModuleSelected(["ssr/index.js"], "index.js")).toBe(false);
   });
 });

@@ -78,6 +78,25 @@ export function detectAstroCloudflareBuild(cwd: string): {
   return null;
 }
 
+// Names the deploy servers take as a worker's main module: deploy-core
+// (sandbox) and the control-plane's copy each pick the FIRST file, in
+// upload order, whose name is one of theirs, else the first file. They do
+// not read the manifest's entrypoint. Only deploy-core knows `entry.mjs`.
+const CONTROL_PLANE_MAIN_MODULES = ["worker.js", "server.js", "index.js", "index.mjs"];
+const DEPLOY_CORE_MAIN_MODULES = [...CONTROL_PLANE_MAIN_MODULES, "entry.mjs"];
+
+/**
+ * Whether both deploy servers will take `mainModule` as the entry of a
+ * worker made of `names`, whatever order the files arrive in: both must
+ * know its name, and no other name either of them knows may be present.
+ */
+export function isEntryModuleSelected(names: string[], mainModule: string): boolean {
+  if (!names.includes(mainModule) || !CONTROL_PLANE_MAIN_MODULES.includes(mainModule)) {
+    return false;
+  }
+  return names.every((n) => n === mainModule || !DEPLOY_CORE_MAIN_MODULES.includes(n));
+}
+
 // Files to skip when collecting server output
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
@@ -123,18 +142,26 @@ function shouldSkipFile(name: string): boolean {
  * - .map files (source maps break WfP module parsing)
  * - node_modules/ (too large, not needed)
  *
+ * Throws when the directory holds more than `maxFiles` modules: a worker
+ * uploaded with some of its chunks missing fails at runtime, on whichever
+ * route imports them, so a partial collection is never usable.
+ *
+ * `include` drops files by their relative path before they count toward
+ * `maxFiles`.
+ *
  * The caller is responsible for base64 encoding if needed.
  */
 export function collectServerFiles(
   dir: string,
-  options?: { maxFiles?: number },
+  options?: { maxFiles?: number; include?: (relPath: string) => boolean },
 ): Record<string, Buffer> {
   const maxFiles = options?.maxFiles ?? 500;
+  const include = options?.include ?? (() => true);
   const result: Record<string, Buffer> = {};
 
   if (!existsSync(dir)) return result;
 
-  _collectRecursive(dir, dir, result, maxFiles);
+  _collectRecursive(dir, dir, result, maxFiles, include);
   return result;
 }
 
@@ -143,9 +170,8 @@ function _collectRecursive(
   base: string,
   out: Record<string, Buffer>,
   maxFiles: number,
+  include: (relPath: string) => boolean,
 ): void {
-  if (Object.keys(out).length >= maxFiles) return;
-
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -154,15 +180,20 @@ function _collectRecursive(
   }
 
   for (const entry of entries) {
-    if (Object.keys(out).length >= maxFiles) return;
     if (SKIP_DIRS.has(entry.name)) continue;
 
     const full = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      _collectRecursive(full, base, out, maxFiles);
+      _collectRecursive(full, base, out, maxFiles, include);
     } else if (entry.isFile() && !shouldSkipFile(entry.name)) {
       const rel = relative(base, full);
+      if (!include(rel)) continue;
+      if (Object.keys(out).length >= maxFiles) {
+        throw new Error(
+          `${base} has more than ${maxFiles} worker modules; refusing to upload a partial worker`,
+        );
+      }
       out[rel] = readFileSync(full);
     }
   }

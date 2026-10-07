@@ -20,11 +20,17 @@ import {
   getDefaultBuildOutput,
   collectServerFiles,
   detectAstroCloudflareBuild,
+  detectVinextBuild,
+  collectVinextServerFiles,
+  vinextBuildScript,
+  applyAssetsIgnore,
+  ASSETS_IGNORE_FILE,
   resolveDeployHint,
   collectMigrations,
   type DeployHint,
   type MigrationBundle,
   type ResolvedConfig,
+  type VinextBuild,
 } from "@solcreek/sdk";
 
 // --- Types ---
@@ -79,6 +85,7 @@ export interface BuildResult {
       hasWorker: boolean;
       entrypoint: string | null;
       renderMode: string;
+      runWorkerFirst?: boolean | string[];
     };
     assets: Record<string, string>;
     serverFiles: Record<string, string> | undefined;
@@ -217,11 +224,16 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // the target's package.json deps so it works for any framework
     // whether or not we specialise the build for it.
     let deployHint: DeployHint | null = null;
+    // The package.json script that builds the project. A project migrated
+    // with `vinext init` keeps `build` for Next.js and builds vinext with
+    // `build:vinext`.
+    let buildScript = "build";
     const pkgPathForHint = join(workDir, "package.json");
     if (existsSync(pkgPathForHint)) {
       try {
         const pkg = JSON.parse(readFileSync(pkgPathForHint, "utf-8"));
         deployHint = resolveDeployHint(pkg);
+        if (framework === "vinext") buildScript = vinextBuildScript(pkg);
       } catch {
         // ignore — malformed package.json isn't fatal for hint resolution
       }
@@ -287,22 +299,15 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     if (resolved.buildCommand) {
       const { useCascade, targetName } = detectWorkspaceCascade(workDir, pm);
 
-      const buildCmdLabel =
-        useCascade && targetName ? `pnpm --filter ${targetName}... build` : `${pm} run build`;
-      log("build", "info", buildCmdLabel);
+      const steps = buildSteps(pm, useCascade ? targetName : null, buildScript);
+      log("build", "info", steps.map((st) => [st.cmd, ...st.args].join(" ")).join(" && "));
       t0 = t();
       try {
-        if (useCascade && targetName) {
-          execFileSync("pnpm", ["--filter", `${targetName}...`, "build"], {
-            cwd: repoDir,
+        for (const st of steps) {
+          execFileSync(st.cmd, st.args, {
+            cwd: st.at === "repo" ? repoDir : workDir,
             stdio: "pipe",
-            timeout: 300_000,
-          });
-        } else {
-          execFileSync(pm, ["run", "build"], {
-            cwd: workDir,
-            stdio: "pipe",
-            timeout: 180_000,
+            timeout: st.timeoutMs,
           });
         }
         buildResult = { success: true };
@@ -316,7 +321,7 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
       if (!buildResult.success) {
         log("build", "error", buildResult.stderr ?? "build failed", { stream: "stderr" });
         cleanup(repoDir);
-        const label = useCascade ? "workspace cascade build" : `${pm} run build`;
+        const label = useCascade ? "workspace cascade build" : `${pm} run ${buildScript}`;
         return {
           error: useCascade ? "workspace_build_failed" : "build_failed",
           message: `${label} failed: ${buildResult.stderr?.slice(0, 800) || "unknown error"}`,
@@ -334,25 +339,81 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // for the detection fingerprint.
     const astroCF = framework === "astro" ? detectAstroCloudflareBuild(workDir) : null;
 
+    // 4d. vinext's Cloudflare Build Output: a complete worker (modules +
+    // assets) that reads env.ASSETS, so it deploys in worker mode. Without
+    // it there is nothing deployable — the legacy Wrangler setup writes no
+    // Build Output.
+    let vinext: VinextBuild | null = null;
+    if (framework === "vinext") {
+      const fail = (error: string, message: string): BuildError => {
+        log("bundle", "error", message);
+        cleanup(repoDir);
+        return { error, message, logs };
+      };
+      try {
+        vinext = detectVinextBuild(workDir);
+      } catch (err) {
+        return fail("invalid_build_output", (err as Error).message);
+      }
+      if (!vinext) {
+        return fail(
+          "build_output_missing",
+          "vinext build output not found: .cloudflare/output/v0/workers/default/worker.config.json. " +
+            "Creek deploys vinext's Cloudflare Build Output: set the project up with " +
+            "`vinext init --platform=cloudflare` (the legacy Wrangler setup is not supported).",
+        );
+      }
+      if (vinext.unsupportedBindings.length > 0) {
+        return fail(
+          "unsupported_bindings",
+          `Creek can't provide these bindings from cloudflare.config.ts: ${vinext.unsupportedBindings
+            .map((b) => `${b.name} (${b.type})`)
+            .join(", ")}`,
+        );
+      }
+    }
+
     // 5. Collect client assets
     let assets: Record<string, string> = {};
     let fileList: string[] = [];
 
     if (!isWorker) {
-      const outputDir = astroCF
-        ? join(workDir, astroCF.assetsDir)
-        : join(workDir, resolved.buildOutput);
+      const outputDir = vinext
+        ? join(workDir, vinext.assetsDir)
+        : astroCF
+          ? join(workDir, astroCF.assetsDir)
+          : join(workDir, resolved.buildOutput);
       if (existsSync(outputDir)) {
         const collected = collectAssetsBase64(outputDir);
-        assets = collected.assets;
-        fileList = collected.fileList;
+        // Honour the assets dir's `.assetsignore`, as Wrangler does.
+        const ignorePath = join(outputDir, ASSETS_IGNORE_FILE);
+        const kept = applyAssetsIgnore(
+          existsSync(ignorePath) ? readFileSync(ignorePath, "utf-8") : null,
+          collected.assets,
+          collected.fileList,
+        );
+        assets = kept.assets;
+        fileList = kept.fileList;
       }
     }
 
     // 6. Collect server files
     let serverFiles: Record<string, string> | undefined;
 
-    if (astroCF) {
+    if (vinext) {
+      let collected: Record<string, Buffer>;
+      try {
+        collected = collectVinextServerFiles(workDir, vinext);
+      } catch (err) {
+        const message = (err as Error).message;
+        log("bundle", "error", message);
+        cleanup(repoDir);
+        return { error: "invalid_build_output", message, logs };
+      }
+      serverFiles = Object.fromEntries(
+        Object.entries(collected).map(([p, buf]) => [p, buf.toString("base64")]),
+      );
+    } else if (astroCF) {
       // Pre-bundled Astro CF adapter output: upload dist/server/ as worker modules.
       const serverDir = join(workDir, astroCF.serverDir);
       const collected = collectServerFiles(serverDir);
@@ -410,9 +471,13 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
     // The adapter also generates its own wrangler.json inside
     // dist/server/ whose "main" field points to entry.mjs — that's
     // the real Worker entrypoint, not the user-level wrangler.main.
-    const effectiveRenderMode = astroCF ? "ssr" : renderMode;
-    const effectiveHasWorker = astroCF ? true : isSSR || isWorker;
-    const effectiveEntrypoint = astroCF ? "entry.mjs" : resolved.workerEntry;
+    const effectiveRenderMode = vinext ? "worker" : astroCF ? "ssr" : renderMode;
+    const effectiveHasWorker = vinext || astroCF ? true : isSSR || isWorker;
+    const effectiveEntrypoint = vinext
+      ? vinext.mainModule
+      : astroCF
+        ? "entry.mjs"
+        : resolved.workerEntry;
 
     // Merge adapter-emitted bindings on top of user-declared ones.
     // `@astrojs/cloudflare` injects bindings the user's root
@@ -436,6 +501,22 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
         }
       }
     }
+
+    // vinext's cloudflare.config.ts bindings, under their own names; the
+    // user's config wins on a name conflict.
+    if (vinext) {
+      const taken = new Set(effectiveBindings.map((b) => b.bindingName));
+      for (const b of vinext.bindings) {
+        if (!taken.has(b.name)) effectiveBindings.push({ type: b.type, bindingName: b.name });
+      }
+    }
+    const effectiveVars = { ...vinext?.vars, ...resolved.vars };
+    const compatibilityDate = vinext?.compatibilityDate ?? resolved.compatibilityDate ?? undefined;
+    const compatibilityFlags = vinext?.compatibilityFlags.length
+      ? vinext.compatibilityFlags
+      : resolved.compatibilityFlags.length > 0
+        ? resolved.compatibilityFlags
+        : undefined;
 
     log(
       "bundle",
@@ -484,15 +565,19 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
           hasWorker: effectiveHasWorker,
           entrypoint: effectiveEntrypoint,
           renderMode: effectiveRenderMode,
+          ...workerFirst(
+            effectiveRenderMode,
+            resolved.runWorkerFirst,
+            vinext?.runWorkerFirst ?? null,
+          ),
         },
         assets: isWorker ? {} : assets,
         serverFiles,
         resources: resolvedConfigToResources(resolved),
         bindings: effectiveBindings,
-        vars: Object.keys(resolved.vars).length > 0 ? resolved.vars : {},
-        compatibilityDate: resolved.compatibilityDate ?? undefined,
-        compatibilityFlags:
-          resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined,
+        vars: effectiveVars,
+        compatibilityDate,
+        compatibilityFlags,
         cron: resolved.cron.length > 0 ? resolved.cron : undefined,
         queue: resolved.queue || undefined,
         hint: deployHint ?? undefined,
@@ -576,17 +661,66 @@ export function mergeAdapterBindings(
 }
 
 /**
- * Detect package manager by walking up the directory tree from `cwd`
- * until a lockfile or workspace root is found, or we reach `stopAt`
- * (the repo root, so we never escape the cloned project).
- *
- * Walking up matters for monorepos: the lockfile lives at the
- * workspace root, not inside `templates/starter/` or `apps/web/`.
- * Without this, a pnpm workspace subdir looks like `npm` to us,
- * `npm install` runs, and fails on `catalog:` / `workspace:*`
- * references — producing a misleading "no output files" error
- * three steps later.
+ * `run_worker_first` for the manifest, with the CLI's precedence: the
+ * project's config (`[build].run_worker_first`, including an explicit
+ * false) over the build output's (vinext's static-assets cache). Only a
+ * worker-mode deploy runs a worker before its assets.
  */
+export function workerFirst(
+  renderMode: string,
+  configured: boolean | string[] | null | undefined,
+  fromOutput: boolean | string[] | null,
+): { runWorkerFirst?: boolean | string[] } {
+  if (renderMode !== "worker") return {};
+  const value = configured ?? fromOutput;
+  return value ? { runWorkerFirst: value } : {};
+}
+
+export interface BuildStep {
+  cmd: string;
+  args: string[];
+  /** Run at the repo root (a workspace filter) or in the project dir. */
+  at: "repo" | "project";
+  timeoutMs: number;
+}
+
+/**
+ * The commands that build the project. With a pnpm workspace cascade
+ * (`cascadeTarget` set), workspace dependencies build with their own
+ * `build` scripts first; the target builds with `buildScript`. A target
+ * whose script is `build` builds in the same filter run, as before. Any
+ * other script (vinext's `build:vinext`, where `build` is still
+ * `next build`) runs on its own after its dependencies.
+ */
+export function buildSteps(
+  pm: string,
+  cascadeTarget: string | null,
+  buildScript: string,
+): BuildStep[] {
+  if (!cascadeTarget) {
+    return [{ cmd: pm, args: ["run", buildScript], at: "project", timeoutMs: 180_000 }];
+  }
+  if (buildScript === "build") {
+    return [
+      {
+        cmd: "pnpm",
+        args: ["--filter", `${cascadeTarget}...`, "build"],
+        at: "repo",
+        timeoutMs: 300_000,
+      },
+    ];
+  }
+  return [
+    {
+      cmd: "pnpm",
+      args: ["--filter", `${cascadeTarget}^...`, "build"],
+      at: "repo",
+      timeoutMs: 300_000,
+    },
+    { cmd: "pnpm", args: ["run", buildScript], at: "project", timeoutMs: 180_000 },
+  ];
+}
+
 /**
  * Detect whether the target should be built via `pnpm --filter` cascade
  * instead of a plain `pnpm run build` in the subdirectory.
@@ -628,6 +762,18 @@ export function detectWorkspaceCascade(
   }
 }
 
+/**
+ * Detect package manager by walking up the directory tree from `cwd`
+ * until a lockfile or workspace root is found, or we reach `stopAt`
+ * (the repo root, so we never escape the cloned project).
+ *
+ * Walking up matters for monorepos: the lockfile lives at the
+ * workspace root, not inside `templates/starter/` or `apps/web/`.
+ * Without this, a pnpm workspace subdir looks like `npm` to us,
+ * `npm install` runs, and fails on `catalog:` / `workspace:*`
+ * references — producing a misleading "no output files" error
+ * three steps later.
+ */
 export function detectPM(cwd: string, stopAt: string): string {
   let dir = cwd;
   while (true) {

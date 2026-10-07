@@ -9,6 +9,7 @@ import {
   productionSuccessBreadcrumbs,
 } from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
+import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
@@ -171,5 +172,93 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.wouldDeploy).toBe(false);
     expect(String(plan.nextStep)).toMatch(/creek doctor --json/);
     expect(String(plan.nextStep)).not.toContain("npx creek deploy");
+  });
+});
+
+describe("creek deploy --dry-run (vinext)", () => {
+  let dir: string;
+  let prevCwd: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "creek-dry-run-vinext-"));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "demo",
+        dependencies: { vinext: "^1.0.1", "@vinext/cloudflare": "^1.0.1" },
+        scripts: { build: "vite build" },
+      }),
+    );
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+    exitSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  async function dryRunJson(): Promise<Record<string, any>> {
+    await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: { "dry-run": true, json: true, sandbox: true },
+    });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    return JSON.parse(out.slice(out.indexOf("{")));
+  }
+
+  it("built: reports the Build Output's bindings and compat", async () => {
+    materializeVinextFixture(dir);
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(true);
+    expect(plan.config.framework).toBe("vinext");
+    expect(plan.bindings).toEqual([{ name: "VINEXT_KV_CACHE", type: "kv" }]);
+    expect(plan.vinext).toMatchObject({
+      built: true,
+      compatibilityDate: "2026-10-07",
+      compatibilityFlags: ["nodejs_compat"],
+      unsupportedBindings: [],
+    });
+  });
+
+  it("not built yet: still deployable, says bindings are known after the build", async () => {
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(true);
+    expect(plan.vinext.built).toBe(false);
+    expect(plan.vinext.note).toContain("not built yet");
+    expect(plan.findings.map((f: { code: string }) => f.code)).toContain("CK-NOTHING-TO-DEPLOY");
+  });
+
+  it("unsupported binding in the last build blocks the deploy", async () => {
+    materializeVinextFixture(dir, { workerConfig: "bindings" });
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(false);
+    expect(plan.vinext.unsupportedBindings).toEqual([{ type: "images", name: "IMAGES" }]);
+    expect(plan.findings.map((f: { code: string }) => f.code)).toContain(
+      "CK-VINEXT-UNSUPPORTED-BINDINGS",
+    );
+    expect(plan.bindings.map((b: { name: string }) => b.name)).toEqual([
+      "VINEXT_KV_CACHE",
+      "DB",
+      "FILES",
+      "AI",
+    ]);
+  });
+
+  it("legacy wrangler setup blocks the deploy before any build", async () => {
+    writeFileSync(
+      join(dir, "wrangler.jsonc"),
+      '{ "name": "demo", "main": "vinext/server/fetch-handler" }',
+    );
+    const plan = await dryRunJson();
+    expect(plan.wouldDeploy).toBe(false);
+    const codes = plan.findings.map((f: { code: string }) => f.code);
+    expect(codes).toContain("CK-VINEXT-LEGACY-SETUP");
+    expect(codes).not.toContain("CK-WORKER-MISSING");
   });
 });

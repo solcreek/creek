@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveConfig } from "@solcreek/sdk";
 import { initCommand } from "./init.js";
 
 // init is non-interactive in tests (no TTY) — jsonMode auto-enables and
@@ -133,5 +134,49 @@ describe("creek init --db (non-interactive)", () => {
     expect(payload.gitignoreAdded).toContain(".creek");
     expect(payload.gitignoreAdded).toContain(".claude");
     expect(existsSync(join(dir, ".gitignore"))).toBe(true);
+  });
+});
+
+describe("creek init (vinext)", () => {
+  let dir: string;
+  let prevCwd: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "creek-init-vinext-"));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+    exitSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  it("a project migrated with vinext init round-trips through resolveConfig", async () => {
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "app",
+        dependencies: { next: "16.2.3", vinext: "^1.0.1" },
+        scripts: { build: "next build", "build:vinext": "vite build" },
+      }),
+    );
+    await runInit({ name: "app", yes: true });
+
+    const toml = readFileSync(join(dir, "creek.toml"), "utf-8");
+    expect(toml).toContain('framework = "vinext"');
+    expect(toml).toContain('command = "npm run build:vinext"');
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.source).toBe("creek.toml");
+    expect(resolved.framework).toBe("vinext");
+    expect(resolved.buildCommand).toBe("npm run build:vinext");
+    expect(resolved.buildOutput).toBe(".cloudflare/output/v0/workers/default/assets");
   });
 });

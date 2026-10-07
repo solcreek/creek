@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const FRAMEWORKS = [
   "nextjs",
+  "vinext",
   "tanstack-start",
   "react-router",
   "vite-react",

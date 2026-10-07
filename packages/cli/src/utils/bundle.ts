@@ -1,5 +1,6 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { applyAssetsIgnore, ASSETS_IGNORE_FILE } from "@solcreek/sdk";
 
 export interface BundleAssets {
   assets: Record<string, string>; // path -> base64
@@ -32,8 +33,20 @@ function isIgnored(name: string): boolean {
   );
 }
 
-export function collectAssets(dir: string, baseDir?: string): BundleAssets {
-  const base = baseDir ?? dir;
+/**
+ * Collect every asset under `dir`, minus what the `.assetsignore` at its
+ * root excludes (Wrangler's asset exclusion file). Every asset upload —
+ * framework builds and `creek deploy <dir>` alike — goes through here, so
+ * the exclusions hold on all of them.
+ */
+export function collectAssets(dir: string): BundleAssets {
+  const collected = collectTree(dir, dir);
+  const ignorePath = join(dir, ASSETS_IGNORE_FILE);
+  const ignoreContent = existsSync(ignorePath) ? readFileSync(ignorePath, "utf-8") : null;
+  return applyAssetsIgnore(ignoreContent, collected.assets, collected.fileList);
+}
+
+function collectTree(dir: string, base: string): BundleAssets {
   const assets: Record<string, string> = {};
   const fileList: string[] = [];
 
@@ -43,7 +56,7 @@ export function collectAssets(dir: string, baseDir?: string): BundleAssets {
 
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      const sub = collectAssets(fullPath, base);
+      const sub = collectTree(fullPath, base);
       Object.assign(assets, sub.assets);
       fileList.push(...sub.fileList);
     } else if (entry.isFile() && !isIgnored(entry.name)) {

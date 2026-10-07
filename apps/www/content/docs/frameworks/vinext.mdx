@@ -1,0 +1,71 @@
+---
+title: vinext
+description: Deploy a vinext app (the Next.js API on Vite) to Creek.
+---
+
+## Quick Start
+
+```bash
+npm create vinext-app@latest my-app -- --platform=cloudflare
+cd my-app
+npx creek deploy
+```
+
+Creek auto-detects vinext, runs the build, and deploys the result. No configuration needed.
+
+## Migrating an existing Next.js app
+
+Set the app up for vinext's Cloudflare target, then deploy:
+
+```bash
+npx vinext init --platform=cloudflare
+npx creek deploy
+```
+
+`vinext init` keeps your `build` script as `next build` and adds `build:vinext`. Creek runs `build:vinext` when it exists, so the deploy is the vinext build, not the Next.js one.
+
+If the project already has a `creek.toml`, its settings win over detection. Update it before deploying:
+
+```toml title="creek.toml"
+[project]
+framework = "vinext"   # was "nextjs"
+
+[build]
+command = "npm run build:vinext"
+output = ".cloudflare/output/v0/workers/default/assets"
+```
+
+## Configuration
+
+| Setting | Default |
+|---------|---------|
+| Build command | `npm run build:vinext` if present, else `npm run build` |
+| Output | `.cloudflare/output/v0/workers/default/` (vinext's Cloudflare build output) |
+| Render mode | Server (worker + static assets) |
+
+Compatibility date and flags come from your `cloudflare.config.ts`.
+
+## Bindings
+
+Bindings you declare in `cloudflare.config.ts` are provisioned on deploy, under the names you gave them:
+
+| Binding | On Creek |
+|---------|----------|
+| `bindings.kv()` | KV namespace |
+| `bindings.d1()` | D1 database |
+| `bindings.r2()` | R2 bucket |
+| `bindings.ai()` | Workers AI, named `AI` (production deploys; sandboxes don't bind AI) |
+| `bindings.text()` | Environment variable |
+| `bindings.secret()` | Not created — set it with `creek env set <NAME> <value>` |
+| `bindings.assets()` | Static assets, as `ASSETS` |
+
+Any other binding stops the deploy with a message naming it, rather than deploying a worker that fails when it reads it.
+
+## Caching
+
+The data cache works with `kvDataAdapter()`, which `create-vinext-app --data-cache=kv` sets up: Creek provisions its `VINEXT_KV_CACHE` namespace. Without a cache adapter, vinext caches in memory.
+
+## Known Limitations
+
+- **Cloudflare target only.** Projects set up with `--legacy-wrangler-cloudflare-init` don't produce the build output Creek deploys; re-run `vinext init --platform=cloudflare`.
+- **Not supported yet:** the Workers Cache and Response Store cache adapters, and image optimization through the Images binding.

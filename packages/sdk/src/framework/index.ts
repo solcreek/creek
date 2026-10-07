@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Framework } from "../types/index.js";
+import { VINEXT_ASSETS_DIR } from "./vinext.js";
 
 interface PackageJson {
   dependencies?: Record<string, string>;
@@ -14,6 +15,9 @@ export function detectFramework(packageJson: PackageJson): Framework | null {
   };
 
   // SSR / meta frameworks (order matters — check specific before generic)
+  // vinext before next: `vinext init` keeps the `next` dependency, so a
+  // migrated project has both and must build with vinext, not Next.js.
+  if (allDeps["vinext"]) return "vinext";
   if (allDeps["next"]) return "nextjs";
   if (allDeps["@tanstack/react-start"]) return "tanstack-start";
   if (allDeps["react-router"]) return "react-router";
@@ -84,6 +88,8 @@ export function getDefaultBuildOutput(framework: Framework | null, cwd?: string)
   switch (framework) {
     case "nextjs":
       return getNextjsBuildOutput(cwd);
+    case "vinext":
+      return VINEXT_ASSETS_DIR;
     case "react-router":
       return "build/client";
     case "sveltekit":
@@ -211,9 +217,25 @@ export function getClientAssetsDir(framework: Framework | null): string | null {
 export {
   getSSRServerDir,
   collectServerFiles,
+  isEntryModuleSelected,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
 } from "./server-files.js";
+
+// `.assetsignore` (Wrangler's asset exclusion file)
+export { parseAssetsIgnore, applyAssetsIgnore, ASSETS_IGNORE_FILE } from "./assets-ignore.js";
+
+// vinext Cloudflare Build Output
+export {
+  detectVinextBuild,
+  collectVinextServerFiles,
+  parseVinextWorkerConfig,
+  vinextBuildScript,
+  VINEXT_OUTPUT_DIR,
+  VINEXT_SERVER_DIR,
+  VINEXT_ASSETS_DIR,
+  type VinextBuild,
+} from "./vinext.js";
 
 // Pure deploy-shape resolver (input: detection results; output: plan)
 export {

@@ -242,6 +242,10 @@ describe("sameOriginApiHint", () => {
     // worker with no static assets isn't the SPA-same-origin footgun
     expect(sameOriginApiHint("worker", false)).toBeNull();
   });
+
+  test("is silent for vinext, a full-stack framework that deploys in worker mode", () => {
+    expect(sameOriginApiHint("worker", true, "vinext")).toBeNull();
+  });
 });
 
 describe("ephemeralSandboxDbWarning", () => {
