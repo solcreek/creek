@@ -964,7 +964,11 @@ describe("vinext rules", () => {
       next?: boolean;
     } = {},
   ): DoctorContext {
-    const files = opts.files ?? {};
+    const files = {
+      // A wrangler-sourced config implies the wrangler file is on disk.
+      ...(opts.source?.startsWith("wrangler") ? { [opts.source]: "{}" } : {}),
+      ...opts.files,
+    };
     return buildCtx({
       resolved: resolvedConfig({
         source: opts.source ?? "package.json",
@@ -998,6 +1002,16 @@ describe("vinext rules", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ code: "CK-VINEXT-LEGACY-SETUP", severity: "error" });
     expect(findings[0].fix).toContain("vinext init --platform=cloudflare");
+  });
+
+  test("CK-VINEXT-LEGACY-SETUP fires when creek.toml takes precedence over the wrangler file", () => {
+    const ctx = vinextCtx({ source: "creek.toml", files: { "wrangler.toml": "" } });
+    const findings = rules.CK_VINEXT_LEGACY_SETUP(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].references).toEqual(["wrangler.toml"]);
+    expect(findings[0].detail).toContain("wrangler.toml");
+    // ...and the missing output is not described as an expected first build.
+    expect(rules.CK_NOTHING_TO_DEPLOY(ctx)).toEqual([]);
   });
 
   test("CK-VINEXT-LEGACY-SETUP is silent once cloudflare.config.ts exists, or for package.json-only projects", () => {

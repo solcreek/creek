@@ -765,23 +765,29 @@ const CF_CONFIG_FILES = [
   "cloudflare.config.mjs",
 ];
 
+const WRANGLER_CONFIG_FILES = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"];
+
 /**
- * Set up with `vinext init --legacy-wrangler-cloudflare-init`: a wrangler
- * config and no `cloudflare.config.*`. That setup writes no Build Output,
- * so there is nothing for Creek to deploy.
+ * The wrangler config of a project set up with `vinext init
+ * --legacy-wrangler-cloudflare-init`: a wrangler config and no
+ * `cloudflare.config.*`. That setup writes no Build Output, so there is
+ * nothing for Creek to deploy. Checked by file, whatever config the
+ * project resolved from — a creek.toml beside it changes nothing.
  */
+function vinextLegacyConfig(ctx: DoctorContext): string | null {
+  if (!isVinext(ctx)) return null;
+  if (CF_CONFIG_FILES.some((f) => ctx.fileExists(f))) return null;
+  if (ctx.fileExists(VINEXT_WORKER_CONFIG)) return null;
+  return WRANGLER_CONFIG_FILES.find((f) => ctx.fileExists(f)) ?? null;
+}
+
 function isVinextLegacySetup(ctx: DoctorContext): boolean {
-  return (
-    isVinext(ctx) &&
-    !!ctx.resolved?.source.startsWith("wrangler") &&
-    !CF_CONFIG_FILES.some((f) => ctx.fileExists(f)) &&
-    !ctx.fileExists(VINEXT_WORKER_CONFIG)
-  );
+  return vinextLegacyConfig(ctx) !== null;
 }
 
 const CK_VINEXT_LEGACY_SETUP: Rule = (ctx) => {
-  if (!isVinextLegacySetup(ctx)) return [];
-  const source = ctx.resolved!.source;
+  const source = vinextLegacyConfig(ctx);
+  if (!source) return [];
   return [
     {
       code: "CK-VINEXT-LEGACY-SETUP",
