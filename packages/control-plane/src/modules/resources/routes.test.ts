@@ -328,6 +328,26 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     ).toEqual({ n: 0 });
   });
 
+  test("a Cloudflare resource queued for teardown can't be re-registered", async () => {
+    seedResource("res-old", { kind: "database", cfResourceId: "d1-queued", cfResourceType: "d1" });
+    expect((await req("DELETE", "/resources/res-old")).status).toBe(200);
+
+    const res = await req("POST", "/resources", {
+      kind: "database",
+      name: "readopt",
+      cfResourceId: "d1-queued",
+    });
+
+    expect(res.status).toBe(409);
+    expect(
+      testEnv.db.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM resource WHERE cfResourceId = 'd1-queued' AND status != 'deleted'",
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+  });
+
   test("a resource that was never provisioned has nothing to tear down", async () => {
     seedResource("res-none", { kind: "database", cfResourceId: null, cfResourceType: null });
 

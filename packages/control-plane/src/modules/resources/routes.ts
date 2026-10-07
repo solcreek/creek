@@ -105,9 +105,17 @@ resources.post("/", requirePermission("project:create"), async (c) => {
   }
 
   try {
-    await c.env.DB.prepare(
+    // A Cloudflare resource queued for teardown can't be adopted: the cleanup
+    // would delete it under the new row. Checked in the same statement as
+    // the insert, so it can't race the queue's claim (the cleanup also skips
+    // a resource a live row references).
+    const inserted = await c.env.DB.prepare(
       `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM resource_cleanup_queue q
+         WHERE q.cfResourceId = ? AND q.status IN ('pending', 'cleaning')
+       )`,
     )
       .bind(
         id,
@@ -118,8 +126,19 @@ resources.post("/", requirePermission("project:create"), async (c) => {
         cfType ?? body.cfResourceType ?? null,
         now,
         now,
+        cfResourceId,
       )
       .run();
+    if (!inserted.meta.changes) {
+      return c.json(
+        {
+          error: "conflict",
+          message:
+            "That Cloudflare resource is being deleted and can't be attached to a new resource.",
+        },
+        409,
+      );
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("UNIQUE") || msg.includes("constraint")) {
