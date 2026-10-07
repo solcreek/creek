@@ -17,7 +17,7 @@ import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
 import { requirePermission } from "../tenant/permissions.js";
-import { storeBuildLog } from "./storage.js";
+import { deployStageLogKey, readLogLines, storeBuildLog } from "./storage.js";
 import { classifyDeployFailure } from "./classify.js";
 import type { BuildLogLine, BuildLogStatus, BuildLogStep } from "./types.js";
 
@@ -214,8 +214,8 @@ buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read
     return c.json({ error: "logs_unavailable" }, 503);
   }
 
-  const object = await c.env.LOGS_BUCKET.get(meta.r2Key);
-  if (!object) {
+  const mainLines = await readLogLines(c.env.LOGS_BUCKET, meta.r2Key);
+  if (!mainLines) {
     // D1 row exists but R2 object missing — consistency issue.
     return c.json(
       {
@@ -226,22 +226,11 @@ buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read
       200,
     );
   }
-
-  // Decompress the gzipped ndjson in-worker. R2 does NOT auto-decode
-  // contentEncoding on .get() — it returns raw bytes.
-  const decoded = await new Response(
-    object.body!.pipeThrough(new DecompressionStream("gzip")),
-  ).text();
-
-  const entries: BuildLogLine[] = [];
-  for (const line of decoded.split("\n")) {
-    if (!line) continue;
-    try {
-      entries.push(JSON.parse(line));
-    } catch {
-      // Non-JSON residue from scrubNdjson fallback path — skip.
-    }
-  }
+  // Merge in the deploy job's stage log (provisioning, release migrations,
+  // activation), which a client upload doesn't carry. Identical lines (the
+  // job's own log when it also wrote the main object) appear once.
+  const stageLines = (await readLogLines(c.env.LOGS_BUCKET, deployStageLogKey(meta.r2Key))) ?? [];
+  const entries = mergeLogLines(mainLines, stageLines);
 
   // A persisted build_log can still carry a null errorCode: the stale-deploy
   // reaper fails the deployment out from under a job that's still running (a
@@ -274,6 +263,33 @@ buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read
     },
   });
 });
+
+/**
+ * Merge the main log with the deploy job's stage log into one timeline,
+ * ordered by timestamp (stable, so equal timestamps keep their order, main
+ * log first). Every main line is kept, repeats included. A stage line is
+ * dropped only as many times as the same line occurs in the main log, which
+ * happens when the job also wrote the main log. Non-JSON residue is skipped.
+ */
+export function mergeLogLines(main: string[], stage: string[]): BuildLogLine[] {
+  const inMain = new Map<string, number>();
+  for (const line of main) inMain.set(line, (inMain.get(line) ?? 0) + 1);
+  const stageOnly = stage.filter((line) => {
+    const n = inMain.get(line) ?? 0;
+    if (n === 0) return true;
+    inMain.set(line, n - 1);
+    return false;
+  });
+  const merged: BuildLogLine[] = [];
+  for (const line of [...main, ...stageOnly]) {
+    try {
+      merged.push(JSON.parse(line) as BuildLogLine);
+    } catch {
+      // Non-JSON residue from scrubNdjson fallback path — skip.
+    }
+  }
+  return merged.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+}
 
 async function ingestHandler(
   c: {

@@ -47,6 +47,8 @@ describe("purgeExpiredBuildLogs", () => {
 
     // Put files in R2
     await testEnv.env.LOGS_BUCKET!.put("builds/acme/app/dep-1.ndjson.gz", "log1");
+    // The deploy job's stage log sits next to the main log and goes with it.
+    await testEnv.env.LOGS_BUCKET!.put("builds/acme/app/dep-1.deploy.ndjson.gz", "stage1");
     await testEnv.env.LOGS_BUCKET!.put("builds/acme/app/dep-2.ndjson.gz", "log2");
 
     const deleted = await purgeExpiredBuildLogs(testEnv.env);
@@ -54,6 +56,7 @@ describe("purgeExpiredBuildLogs", () => {
 
     // R2 objects deleted
     expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-1.ndjson.gz")).toBeNull();
+    expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-1.deploy.ndjson.gz")).toBeNull();
     expect(await testEnv.env.LOGS_BUCKET!.get("builds/acme/app/dep-2.ndjson.gz")).toBeNull();
 
     // D1 rows deleted

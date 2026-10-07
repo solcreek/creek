@@ -106,6 +106,38 @@ export function buildR2Key(team: string, project: string, deploymentId: string):
   return `builds/${team}/${project}/${deploymentId}.ndjson.gz`;
 }
 
+/**
+ * The deploy job's own stage log (provisioning, release migrations,
+ * activation) lives in a second object next to the main log. The main object
+ * belongs to whoever uploads the build log, and a CLI upload replaces it
+ * after the job has finished, so the job's lines are kept here, where no
+ * other writer touches them, and merged in when the log is read.
+ */
+export function deployStageLogKey(r2Key: string): string {
+  return r2Key.replace(/\.ndjson\.gz$/, ".deploy.ndjson.gz");
+}
+
+/** Write the deploy job's stage log (see {@link deployStageLogKey}). */
+export async function storeDeployStageLog(env: StoreEnv, input: StoreInput): Promise<void> {
+  if (!env.LOGS_BUCKET) {
+    throw new Error("LOGS_BUCKET binding not configured");
+  }
+  const { compressed } = await compressLog(input.body);
+  const r2Key = deployStageLogKey(buildR2Key(input.team, input.project, input.deploymentId));
+  await putLogObject(env.LOGS_BUCKET, r2Key, compressed, input);
+}
+
+/** Read and decompress a stored log object into its ndjson lines ([] if absent). */
+export async function readLogLines(bucket: R2Bucket, r2Key: string): Promise<string[] | null> {
+  const object = await bucket.get(r2Key);
+  if (!object) return null;
+  // R2 does NOT auto-decode contentEncoding on .get() — it returns raw bytes.
+  const decoded = await new Response(
+    object.body!.pipeThrough(new DecompressionStream("gzip")),
+  ).text();
+  return decoded.split("\n").filter(Boolean);
+}
+
 /** Truncate → scrub → gzip the body into the bytes we persist. */
 async function compressLog(
   body: string,

@@ -1,5 +1,29 @@
 # @solcreek/sdk
 
+## 0.4.20
+
+- **`[release] migrations`** in `creek.toml`: `true` resolves to
+  `ResolvedConfig.releaseMigrations` (default `false`). `[release] command` is
+  now optional, so a project can turn on migrations without a command.
+- **Migration discovery lives in the SDK.** Directory detection, file parsing
+  and statement splitting moved here from the CLI, so remote builds collect
+  migrations the same way. `collectMigrations(cwd, { strict })` throws, naming
+  the file, when a migration cannot be read instead of skipping it.
+- **`splitSqlStatements`**, a comment- and string-aware SQL splitter. It splits
+  only on semicolons that end a statement — not inside `--` or `/* */`
+  comments, quoted strings (with `''` escapes) or identifiers (`"…"`, backtick,
+  `[…]`), or a `CREATE TRIGGER … BEGIN … END` body. Leading comments are
+  dropped and comment-only fragments skipped.
+- **SQLite dumps split correctly.** The dump splitter used to cut on any `;`
+  before a newline, including one inside dumped string data or a comment. It
+  now uses `splitSqlStatements` and strips comments anywhere in a statement,
+  keeping its contract: bare statements, no comments.
+- **`deprecatedAliasBindings`** returns, for a list of Worker bindings, a copy
+  of each binding under its deprecated alias (`DATABASE` → `DB`, `CACHE` →
+  `KV`), skipping alias names already taken. The new `@solcreek/sdk/bindings`
+  subpath exports the binding names and this helper without the config module,
+  so a Worker can import it without bundling zod or smol-toml.
+
 ## 0.4.19
 
 - **Pre-bundled workers beside their assets.** `planDeploy` treats a built

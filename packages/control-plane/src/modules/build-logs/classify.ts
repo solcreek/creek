@@ -16,6 +16,9 @@ export type DeployFailureCode =
   | "activation_timeout"
   | "bundle_too_large"
   | "binding_error"
+  | "migration_failed"
+  | "migration_too_large"
+  | "migration_target"
   | "deploy_error";
 
 export interface DeployFailureReason {
@@ -29,6 +32,31 @@ export function classifyDeployFailure(
   errorMessage: string | null,
 ): DeployFailureReason {
   const msg = (errorMessage ?? "").toLowerCase();
+
+  // `[release] migrations` failures (deploy-job, provisioning step). Checked
+  // first: their wrapped D1 error can contain words the generic rules below
+  // match ("no such table", "timed out"), but the actionable fix is the
+  // migration, and nothing from it was applied.
+  if (failedStep === "provisioning") {
+    if (/^migration .+ failed: /.test(msg)) {
+      return {
+        code: "migration_failed",
+        hint: "The migration named above failed and was rolled back; migrations before it in this deploy stay applied. The new version was not activated, so whatever was live before keeps serving. Fix that migration, then redeploy.",
+      };
+    }
+    if (/^migration .+ is \d+ kb; a release migration must fit/.test(msg)) {
+      return {
+        code: "migration_too_large",
+        hint: "The migration named above was not applied (migrations before it in this deploy were), and the new version was not activated. Split it into smaller migration files, then redeploy.",
+      };
+    }
+    if (msg.startsWith("[release] migrations is on but the project has")) {
+      return {
+        code: "migration_target",
+        hint: "No migrations were applied and the new version was not activated. Bind one database as DATABASE (or declare [resources] database = true), then redeploy.",
+      };
+    }
+  }
 
   // The reaper writes "...exceeded the N-minute deploy window..."; older rows
   // (and the bare path) say "timed out". Both mean the stage ran past its
@@ -57,7 +85,7 @@ export function classifyDeployFailure(
   if (/payload too large|too large|size limit|over the .* limit/.test(msg)) {
     return {
       code: "bundle_too_large",
-      hint: "The worker bundle is over the Workers size limit. Clear a stale .next/dev build or large inlined assets, then redeploy.",
+      hint: "The worker bundle was rejected as too large (the current Workers limit is 64 MiB uncompressed). Clear a stale .next/dev build or large inlined assets, then redeploy.",
     };
   }
 

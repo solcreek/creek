@@ -14,7 +14,12 @@ import {
   consumeDeployJobBatch,
   serverFileKey,
 } from "./deploy-job.js";
-import { buildR2Key } from "../build-logs/storage.js";
+import {
+  buildR2Key,
+  deployStageLogKey,
+  readLogLines,
+  storeBuildLog,
+} from "../build-logs/storage.js";
 import type { BuildLogLine } from "../build-logs/types.js";
 
 // Integration: drives the full async deploy pipeline (read R2 bundle ->
@@ -738,6 +743,31 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     );
   });
 
+  it("keeps the applied-migration lines after the CLI's log replaces the main one", async () => {
+    server.use(...handlers());
+    await stageWithMigrations();
+    await runDeployJob(testEnv.env, input);
+
+    // The CLI uploads its own log after the deploy turns active.
+    await storeBuildLog(testEnv.env, {
+      team: "team",
+      project: "myapp",
+      deploymentId: "dep-1",
+      status: "success",
+      startedAt: 1,
+      endedAt: 2,
+      body:
+        JSON.stringify({ ts: 1, step: "build", stream: "creek", level: "info", msg: "cli" }) + "\n",
+    });
+
+    const mainKey = buildR2Key("team", "myapp", "dep-1");
+    const main = (await readLogLines(testEnv.env.LOGS_BUCKET!, mainKey)) ?? [];
+    expect(main.join("\n")).not.toContain("Applied migration");
+    const stage = (await readLogLines(testEnv.env.LOGS_BUCKET!, deployStageLogKey(mainKey))) ?? [];
+    expect(stage.join("\n")).toContain("Applied migration 0001_init.sql");
+    expect(stage.join("\n")).toContain("Applied migration 0002_it's.sql");
+  });
+
   it("skips migrations the database already recorded", async () => {
     applied = ["0001_init.sql"];
     server.use(...handlers());
@@ -774,6 +804,8 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(row.failedStep).toBe("provisioning");
     expect(row.errorMessage).toContain("migration 0002_it's.sql failed");
     expect(calls).not.toContain("script-upload");
+    // The real message classifies as a migration failure, not a binding error.
+    expect(buildLogRow()?.errorCode).toBe("migration_failed");
   });
 
   it("refuses when several databases are bound and none is DATABASE or DB", async () => {
@@ -791,6 +823,7 @@ describe("runDeployJob release migrations ([release] migrations, #57)", () => {
     expect(row.status).toBe("failed");
     expect(row.failedStep).toBe("provisioning");
     expect(row.errorMessage).toContain("none is bound as DATABASE or DB");
+    expect(buildLogRow()?.errorCode).toBe("migration_target");
     expect(d1Calls()).toEqual([]);
     expect(calls).not.toContain("script-upload");
   });
