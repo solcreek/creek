@@ -19,7 +19,7 @@ export interface WorkerLimits {
 
 /**
  * Plans in upgrade order. Must match the tiers on the pricing page
- * (apps/www/src/app/pricing/page.tsx); parse.test.ts reads the page to check.
+ * (apps/www/src/app/pricing/page.tsx); pricing-page.test.ts reads the page to check.
  */
 export const PLANS = ["free", "starter", "pro", "enterprise"] as const;
 export type Plan = (typeof PLANS)[number];
