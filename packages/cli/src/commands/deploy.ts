@@ -1837,7 +1837,12 @@ async function deploySandbox(
     prepared.framework,
   );
   if (sandboxApiHint) progress.info(`  ℹ ${sandboxApiHint}`);
-  const sandboxHasDb = !!resolved?.bindings.some((b) => b.type === "d1");
+  // One list for provisioning and for the ephemeral-database notice, so a
+  // D1 declared only in vinext's cloudflare.config.ts counts for both.
+  const sandboxBindings = resolved
+    ? mergeFrameworkBindings(resolvedConfigToBindingRequirements(resolved), prepared.vinext)
+    : undefined;
+  const sandboxHasDb = !!sandboxBindings?.some((b) => b.type === "d1");
   const ephemeralDbWarning = ephemeralSandboxDbWarning(sandboxHasDb);
 
   // Deploy to sandbox
@@ -1870,14 +1875,7 @@ async function deploySandbox(
         serverFiles,
         framework: prepared.framework ?? undefined,
         source: "cli",
-        ...(resolved
-          ? {
-              bindings: mergeFrameworkBindings(
-                resolvedConfigToBindingRequirements(resolved),
-                prepared.vinext,
-              ),
-            }
-          : {}),
+        ...(sandboxBindings ? { bindings: sandboxBindings } : {}),
         // Seed the sandbox's ephemeral D1 with the project's migrations so
         // DB-backed routes work in the preview without `creek db migrate`.
         ...((): { migrations?: ReturnType<typeof collectMigrations> } => {
