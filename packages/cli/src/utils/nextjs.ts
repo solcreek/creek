@@ -133,6 +133,9 @@ export function resolveAdapterPath(cwd?: string, minVersion?: string): string | 
  */
 export const NEXT_ADAPTER_BUILD = "next build --webpack";
 
+/** What the legacy path (Next.js < 16.2.3, or no adapter) runs, for logs. */
+export const NEXT_LEGACY_BUILD = "next build + opennext (legacy)";
+
 /**
  * Build a Next.js app using the Creek adapter (>= 16.2.3).
  *
@@ -158,8 +161,10 @@ function buildWithAdapter(cwd: string, adapterPath: string): void {
  *
  * Min version for the adapter path matches @solcreek/adapter-creek's
  * peerDependency, which pins Next.js >= 16.2.3 to fix CVE-2026-23869.
+ *
+ * Returns what it ran, for the deploy's build log.
  */
-export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: string): void {
+export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: string): string {
   const version = getNextVersion(cwd);
 
   if (version && semverGte(version, "16.2.3")) {
@@ -168,7 +173,7 @@ export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: stri
       ensurePrismaClient(cwd);
       ensurePrismaD1(cwd);
       buildWithAdapter(cwd, adapterPath);
-      return;
+      return NEXT_ADAPTER_BUILD;
     }
     consola.warn(`  Falling back to legacy build path for Next.js ${version}`);
   } else if (version) {
@@ -176,6 +181,7 @@ export function buildNextjs(cwd: string, isMonorepo: boolean, projectName?: stri
   }
 
   buildNextjsForWorkers(cwd, isMonorepo, projectName);
+  return NEXT_LEGACY_BUILD;
 }
 
 /** Check if the adapter output exists (vs legacy opennext output). */

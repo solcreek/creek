@@ -446,11 +446,65 @@ describe("prepareDeployBundle", () => {
 
     await prepareDeployBundle({
       cwd,
-      resolved: baseConfig({ framework: "nextjs", buildCommand: "", buildOutput: ".creek/adapter-output" }),
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "",
+        buildOutput: ".creek/adapter-output",
+      }),
       skipBuild: false,
     });
 
     expect(buildNextjs).toHaveBeenCalledTimes(1);
+  });
+
+  test("buildRan names the build that ran, not [build] command", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "next-app", dependencies: { next: "16.2.3" } }),
+      ".creek/adapter-output/manifest.json": JSON.stringify({ entrypoint: "worker.js" }),
+      ".creek/adapter-output/server/worker.js": "export default { fetch() {} };",
+      ".creek/adapter-output/assets/favicon.ico": "x",
+    });
+    const next = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "npm run build",
+        buildOutput: ".creek/adapter-output",
+      }),
+      skipBuild: false,
+    });
+    expect(next.buildRan).toBe("next build --webpack");
+
+    const skipped = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({
+        framework: "nextjs",
+        buildCommand: "npm run build",
+        buildOutput: ".creek/adapter-output",
+      }),
+      skipBuild: true,
+    });
+    expect(skipped.buildRan).toBeNull();
+  });
+
+  test("buildRan is the configured command when it runs, and null without a build script", async () => {
+    writeFixture({
+      "package.json": JSON.stringify({ name: "spa", dependencies: { vite: "*" } }),
+      "dist/index.html": "<!doctype html>",
+    });
+    const ran = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", buildCommand: "true" }),
+      skipBuild: false,
+    });
+    expect(ran.buildRan).toBe("true");
+
+    const missing = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", buildCommand: "npm run build" }),
+      skipBuild: false,
+    });
+    expect(missing.buildRan).toBeNull();
   });
 
   test("--skip-build says when the Next.js adapter output it deploys was built", async () => {

@@ -116,6 +116,12 @@ export interface PreparedDeployBundle {
   assets: Record<string, string>;
   /** Server / worker files, base64-encoded. Undefined for pure SPA. */
   serverFiles?: Record<string, string>;
+  /**
+   * The build that ran: the Next.js build (which ignores `[build] command`)
+   * or the configured command. Null when the build was skipped or there was
+   * no build script to run.
+   */
+  buildRan: string | null;
 }
 
 /**
@@ -180,10 +186,11 @@ export async function prepareDeployBundle(
   // adapter; otherwise the user's build script. The Next.js build ignores
   // `[build] command`, so an empty one must not skip it: that would deploy
   // whatever .creek/adapter-output a previous build left.
+  let buildRan: string | null = null;
   if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand)) {
     if (nextjsMode === "opennext") {
       try {
-        buildNextjs(cwd, monorepo.isMonorepo);
+        buildRan = buildNextjs(cwd, monorepo.isMonorepo);
       } catch {
         if (jsonMode)
           jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
@@ -222,6 +229,7 @@ export async function prepareDeployBundle(
         say.start(`  ${buildCmd}`);
         try {
           execSync(buildCmd, { cwd, stdio: childStdio() });
+          buildRan = buildCmd;
         } catch {
           if (jsonMode)
             jsonOutput(
@@ -519,6 +527,7 @@ export async function prepareDeployBundle(
     fileList,
     assets: clientAssets,
     serverFiles,
+    buildRan,
   };
 }
 
