@@ -28,6 +28,7 @@ type Row = {
 function envWithBindings(rows: Row[]): any {
   return {
     DB: {
+      batch: async () => [],
       prepare() {
         return {
           bind() {

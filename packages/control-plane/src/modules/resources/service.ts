@@ -212,21 +212,20 @@ export async function ensureProjectBindings(
         (await provisionCFResource(env, cfType, cfName));
     }
 
-    // Insert resource row
-    await env.DB.prepare(
-      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-    )
-      .bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now)
-      .run();
-
-    // Insert binding
-    await env.DB.prepare(
-      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-       VALUES (?, ?, ?, ?)`,
-    )
-      .bind(projectId, req.bindingName, resourceId, now)
-      .run();
+    // Insert the resource row and its binding together. Apart, a
+    // DELETE /resources/:id landing between them would find the new resource
+    // unbound, delete it and queue its Cloudflare resource for teardown,
+    // under the binding this deploy then adds.
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      ).bind(resourceId, teamId, kind, cfName, cfId, cfType, now, now),
+      env.DB.prepare(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES (?, ?, ?, ?)`,
+      ).bind(projectId, req.bindingName, resourceId, now),
+    ]);
 
     if (cfId) {
       result.set(req.bindingName, {
@@ -277,20 +276,17 @@ export async function ensureQueue(
   }
 
   if (!existing) {
-    // Insert resource + binding
-    await env.DB.prepare(
-      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
-    )
-      .bind(resourceId, teamId, queueName, queueId, now, now)
-      .run();
-
-    await env.DB.prepare(
-      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
-       VALUES (?, ?, ?, ?)`,
-    )
-      .bind(projectId, BINDING_NAMES.queue, resourceId, now)
-      .run();
+    // Insert resource + binding, together (see the d1/r2/kv path above).
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+         VALUES (?, ?, 'queue', ?, ?, 'queue', 'active', ?, ?)`,
+      ).bind(resourceId, teamId, queueName, queueId, now, now),
+      env.DB.prepare(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES (?, ?, ?, ?)`,
+      ).bind(projectId, BINDING_NAMES.queue, resourceId, now),
+    ]);
   } else {
     // Update existing resource with CF ID
     await env.DB.prepare(
