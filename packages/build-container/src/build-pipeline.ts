@@ -657,18 +657,6 @@ export function mergeAdapterBindings(
   return out;
 }
 
-/**
- * Detect package manager by walking up the directory tree from `cwd`
- * until a lockfile or workspace root is found, or we reach `stopAt`
- * (the repo root, so we never escape the cloned project).
- *
- * Walking up matters for monorepos: the lockfile lives at the
- * workspace root, not inside `templates/starter/` or `apps/web/`.
- * Without this, a pnpm workspace subdir looks like `npm` to us,
- * `npm install` runs, and fails on `catalog:` / `workspace:*`
- * references — producing a misleading "no output files" error
- * three steps later.
- */
 export interface BuildStep {
   cmd: string;
   args: string[];
@@ -755,6 +743,18 @@ export function detectWorkspaceCascade(
   }
 }
 
+/**
+ * Detect package manager by walking up the directory tree from `cwd`
+ * until a lockfile or workspace root is found, or we reach `stopAt`
+ * (the repo root, so we never escape the cloned project).
+ *
+ * Walking up matters for monorepos: the lockfile lives at the
+ * workspace root, not inside `templates/starter/` or `apps/web/`.
+ * Without this, a pnpm workspace subdir looks like `npm` to us,
+ * `npm install` runs, and fails on `catalog:` / `workspace:*`
+ * references — producing a misleading "no output files" error
+ * three steps later.
+ */
 export function detectPM(cwd: string, stopAt: string): string {
   let dir = cwd;
   while (true) {
