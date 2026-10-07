@@ -123,6 +123,10 @@ function shouldSkipFile(name: string): boolean {
  * - .map files (source maps break WfP module parsing)
  * - node_modules/ (too large, not needed)
  *
+ * Throws when the directory holds more than `maxFiles` modules: a worker
+ * uploaded with some of its chunks missing fails at runtime, on whichever
+ * route imports them, so a partial collection is never usable.
+ *
  * The caller is responsible for base64 encoding if needed.
  */
 export function collectServerFiles(
@@ -144,8 +148,6 @@ function _collectRecursive(
   out: Record<string, Buffer>,
   maxFiles: number,
 ): void {
-  if (Object.keys(out).length >= maxFiles) return;
-
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -154,7 +156,6 @@ function _collectRecursive(
   }
 
   for (const entry of entries) {
-    if (Object.keys(out).length >= maxFiles) return;
     if (SKIP_DIRS.has(entry.name)) continue;
 
     const full = join(dir, entry.name);
@@ -163,6 +164,11 @@ function _collectRecursive(
       _collectRecursive(full, base, out, maxFiles);
     } else if (entry.isFile() && !shouldSkipFile(entry.name)) {
       const rel = relative(base, full);
+      if (Object.keys(out).length >= maxFiles) {
+        throw new Error(
+          `${base} has more than ${maxFiles} worker modules; refusing to upload a partial worker`,
+        );
+      }
       out[rel] = readFileSync(full);
     }
   }

@@ -181,13 +181,20 @@ describe("collectServerFiles", () => {
     expect(Object.keys(files).sort()).toEqual(["entry.mjs"]);
   });
 
-  test("respects maxFiles limit", () => {
+  test("throws past maxFiles instead of returning a partial worker", () => {
     for (let i = 0; i < 10; i++) {
       writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
     }
 
-    const files = collectServerFiles(tmpDir, { maxFiles: 3 });
-    expect(Object.keys(files).length).toBeLessThanOrEqual(3);
+    expect(() => collectServerFiles(tmpDir, { maxFiles: 3 })).toThrow(/more than 3 worker modules/);
+  });
+
+  test("collects exactly maxFiles modules", () => {
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(tmpDir, `file-${i}.mjs`), `content-${i}`);
+    }
+
+    expect(Object.keys(collectServerFiles(tmpDir, { maxFiles: 3 }))).toHaveLength(3);
   });
 
   test("returns empty object for non-existent directory", () => {
