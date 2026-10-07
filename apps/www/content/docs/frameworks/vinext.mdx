@@ -43,7 +43,7 @@ Bindings you declare in `cloudflare.config.ts` are provisioned on deploy, under 
 | `bindings.kv()` | KV namespace |
 | `bindings.d1()` | D1 database |
 | `bindings.r2()` | R2 bucket |
-| `bindings.ai()` | Workers AI |
+| `bindings.ai()` | Workers AI, named `AI` (production deploys; sandboxes don't bind AI) |
 | `bindings.text()` | Environment variable |
 | `bindings.secret()` | Not created — set it with `creek env set <NAME> <value>` |
 | `bindings.assets()` | Static assets, as `ASSETS` |

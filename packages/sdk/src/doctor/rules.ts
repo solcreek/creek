@@ -817,7 +817,7 @@ const CK_VINEXT_UNSUPPORTED_BINDINGS: Rule = (ctx) => {
       code: "CK-VINEXT-UNSUPPORTED-BINDINGS",
       severity: "error",
       title: `cloudflare.config.ts declares bindings Creek can't provide: ${names}`,
-      detail: `The last vinext build declares ${names}. Creek provides KV, D1, R2, Workers AI, text and secret bindings, plus static assets as ASSETS. The deploy stops on any other binding rather than shipping a worker that fails when it reads it.`,
+      detail: `The last vinext build declares ${names}. Creek provides KV, D1, R2, text and secret bindings, Workers AI as AI, and static assets as ASSETS. The deploy stops on any other binding rather than shipping a worker that fails when it reads it.`,
       fix: `Remove ${names} from cloudflare.config.ts (and the vinext option that added it, e.g. an image optimizer or a Workers Cache / Response Store cache adapter), then rebuild.`,
       references: ["cloudflare.config.ts", VINEXT_WORKER_CONFIG],
     },

@@ -70,6 +70,12 @@ describe("parseVinextWorkerConfig — edge cases", () => {
     expect(build.bindings).toEqual([]);
   });
 
+  test("Workers AI under a name other than AI is unsupported", () => {
+    const build = parseVinextWorkerConfig({ ...base, env: { MODEL: { type: "ai" } } });
+    expect(build.bindings).toEqual([]);
+    expect(build.unsupportedBindings).toEqual([{ type: "ai", name: "MODEL" }]);
+  });
+
   test("an assets binding not named ASSETS is unsupported", () => {
     const build = parseVinextWorkerConfig({ ...base, env: { STATIC: { type: "assets" } } });
     expect(build.unsupportedBindings).toEqual([{ type: "assets", name: "STATIC" }]);

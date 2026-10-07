@@ -111,8 +111,12 @@ export function parseVinextWorkerConfig(raw: unknown): VinextBuild {
       case "kv":
       case "d1":
       case "r2":
-      case "ai":
         build.bindings.push({ type, name });
+        break;
+      case "ai":
+        // Creek binds Workers AI under the fixed name AI only.
+        if (name === "AI") build.bindings.push({ type, name });
+        else build.unsupportedBindings.push({ type, name });
         break;
       case "assets":
         // Creek attaches Static Assets as `ASSETS` in worker mode, which is
