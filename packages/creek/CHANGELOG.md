@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.50
+
+- Bundles [`@solcreek/cli@0.4.50`](../cli/CHANGELOG.md#0450): `creek db delete`
+  and `creek cache delete` say the data is deleted permanently and ask for
+  confirmation, `creek storage delete` says only an empty bucket is deleted,
+  and Next.js deploys log the build they run, build even with an empty
+  `[build] command`, and say how old a `--skip-build` deploy's build is.
+  Requires `@solcreek/sdk@0.4.21` (unchanged).
+
 ## 0.4.49
 
 - Bundles [`@solcreek/cli@0.4.49`](../cli/CHANGELOG.md#0449): Next.js deploys

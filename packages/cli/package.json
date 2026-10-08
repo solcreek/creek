@@ -1,6 +1,6 @@
 {
   "name": "@solcreek/cli",
-  "version": "0.4.49",
+  "version": "0.4.50",
   "description": "CLI for the Creek deployment platform",
   "type": "module",
   "main": "./dist/index.js",
