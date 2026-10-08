@@ -43,10 +43,15 @@ export const tenantMiddleware = createMiddleware<TenantEnv>(async (c, next) => {
   }
 
   // --- API key grant ---
-  // An API-key session's id is the apikey row id. Look it up on every
-  // request so a key's scopes (and its revocation) apply immediately.
-  const grant = await loadApiKeyGrant(c.env.DB, session.session.id, session.user.id);
-  if (isApiKeyRequest(c) && !grant) {
+  // An API-key session's id is the apikey row id. Look it up on every key
+  // request so a key's scopes (and its revocation) apply immediately. Better
+  // Auth only makes a key session from the x-api-key header, so a request
+  // without one (the dashboard's cookie) has no grant to load.
+  const keyRequest = isApiKeyRequest(c);
+  const grant = keyRequest
+    ? await loadApiKeyGrant(c.env.DB, session.session.id, session.user.id)
+    : null;
+  if (keyRequest && !grant) {
     // The header is there but the session isn't that key's — refuse rather
     // than fall back to whatever else authenticated the request.
     return c.json({ error: "unauthorized", message: "Missing or invalid authentication" }, 401);

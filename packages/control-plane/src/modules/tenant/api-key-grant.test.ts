@@ -42,4 +42,19 @@ describe("tenantMiddleware with an API key but no apikey row behind the session"
     // A cookie session has no apikey row and is unaffected.
     expect((await f.call("GET", "/projects", { cookie: owner.cookie })).status).toBe(200);
   });
+
+  it("looks up a grant only for key requests, not for the dashboard's cookie", async () => {
+    f = createFixture();
+    const owner = await f.signUp("owner@example.com");
+    const key = await f.legacyKey(owner.cookie);
+    const lookup = vi.spyOn(grantModule, "loadApiKeyGrant");
+
+    expect((await f.call("GET", "/projects", { cookie: owner.cookie })).status).toBe(200);
+    expect(lookup).not.toHaveBeenCalled();
+
+    expect(
+      (await f.call("GET", "/projects", { "x-api-key": key, cookie: owner.cookie })).status,
+    ).toBe(200);
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
 });
