@@ -1,5 +1,35 @@
 # @solcreek/cli
 
+## 0.4.50
+
+Requires `@solcreek/sdk@0.4.21` (unchanged).
+
+### Resources
+
+- **Deleting a database or cache deletes its data, permanently.**
+  `creek db delete` and `creek cache delete` now say that the Cloudflare
+  database or namespace and all its data are deleted, normally within minutes,
+  and that this cannot be undone. In an interactive terminal they ask for
+  confirmation first; `--yes`, or a non-interactive run, skips the prompt.
+- **`creek storage delete` says what happens to the bucket's objects.** Only an
+  empty bucket is deleted. A bucket that still holds objects is not deleted and
+  keeps them, so empty it first.
+
+### Next.js
+
+- **The build log names the build that runs:** `next build --webpack` with the
+  Creek adapter. A Next.js deploy runs that in place of `[build] command` and
+  the project's build script, and the dashboard build log now records it too.
+- **An empty `[build] command` no longer skips the Next.js build.** Before, the
+  deploy uploaded whatever a previous build had left in `.creek/adapter-output`.
+- **`creek deploy --skip-build` says when the Next.js build it deploys was made**,
+  for example `built 3 hours ago`.
+
+### Admin
+
+- **`creek ops deployments`** sends the API key the control plane reads, and
+  reports a missing platform-admin role instead of a generic error.
+
 ## 0.4.49
 
 Requires `@solcreek/sdk@0.4.21` (unchanged).
