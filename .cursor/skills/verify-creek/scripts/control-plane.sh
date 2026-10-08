@@ -42,6 +42,10 @@ start)
   }
   mkdir -p "$CP_DIR/data"
   port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  # The server listens on 127.0.0.1 only (CREEK_LOCAL_HOSTNAME below): it
+  # takes unauthenticated sign-ups. The URL still says localhost, because the
+  # control-plane's origin guard trusts http://localhost:* in development and
+  # nothing else over http; localhost resolves to the loopback it listens on.
   url="http://localhost:$port"
   # The server's only settings: throwaway secrets, no Cloudflare credentials,
   # and never packages/control-plane/.dev.vars (which may hold real ones).
@@ -55,6 +59,7 @@ EOF
     cd "$VERIFY_CREEK_REPO/packages/control-plane"
     env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID \
       CREEK_LOCAL_ENV_FILE="$CP_DIR/dev.vars" CREEK_DATA_DIR="$CP_DIR/data" PORT="$port" \
+      CREEK_LOCAL_HOSTNAME=127.0.0.1 \
       nohup bun run src/local/serve.ts >"$CP_DIR/server.log" 2>&1 &
     echo $! >"$CP_DIR/pid"
   )
