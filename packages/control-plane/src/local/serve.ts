@@ -24,8 +24,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.CREEK_DATA_DIR || join(__dirname, "../../.creek-local");
 const PORT = parseInt(process.env.PORT || "8787", 10);
 
+// Settings come from one file: CREEK_LOCAL_ENV_FILE when set (a disposable
+// run uses its own), else packages/control-plane/.dev.vars. Never from the
+// shell environment, which may hold real credentials.
 function loadEnvFile(): Record<string, string> {
-  const devVars = join(__dirname, "../../.dev.vars");
+  const devVars = process.env.CREEK_LOCAL_ENV_FILE || join(__dirname, "../../.dev.vars");
   if (!existsSync(devVars)) return {};
   const content = readFileSync(devVars, "utf-8");
   const vars: Record<string, string> = {};
