@@ -42,6 +42,7 @@ import {
   apiKeyRouteGate,
   publicRoute,
 } from "./modules/tenant/scope-guard.js";
+import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -82,6 +83,10 @@ app.get("/health", publicRoute, (c) => c.json({ status: "ok" }));
 
 // Better Auth routes (signup, login, OAuth callbacks, session, API key management)
 app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
+  // The guard let a key through to get-session only; refuse a key that every
+  // other route refuses, so whoami doesn't report a session it can't use.
+  const refused = await refuseUnusableKeySession(c);
+  if (refused) return refused;
   try {
     const auth = createAuth(c.env);
     return await auth.handler(c.req.raw);

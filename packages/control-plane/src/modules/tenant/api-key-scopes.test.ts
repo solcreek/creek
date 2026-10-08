@@ -425,6 +425,26 @@ describe("Better Auth endpoints with an API key", () => {
     }
   });
 
+  it("refuses the session to a key every other route refuses", async () => {
+    const session = (key: string) => f.call("GET", "/api/auth/get-session", { "x-api-key": key });
+
+    const unreadable = await f.scopedKey(owner.userId, owner.orgId, ["project:read"]);
+    await f.sql(
+      "UPDATE apikey SET permissions = '{\"creek\":1}' WHERE id = (SELECT max(id) FROM apikey)",
+    );
+    const [row] = await f.sql<{ permissions: string }>("SELECT permissions FROM apikey");
+    expect(row.permissions).toBe('{"creek":1}');
+    const bad = await session(unreadable);
+    expect([bad.status, await errorOf(bad)]).toEqual([403, "invalid_key_scopes"]);
+
+    await f.sql("DELETE FROM apikey");
+    const pinned = await f.scopedKey(owner.userId, owner.orgId, ["project:read"]);
+    expect((await session(pinned)).status).toBe(200);
+    await f.sql("DELETE FROM member WHERE organizationId = ?", owner.orgId);
+    const left = await session(pinned);
+    expect([left.status, await errorOf(left)]).toEqual([403, "team_mismatch"]);
+  });
+
   it("cannot mint, list or change keys, or touch organizations — scoped or legacy", async () => {
     for (const key of [
       await f.scopedKey(owner.userId, owner.orgId, ALL_SCOPES),
