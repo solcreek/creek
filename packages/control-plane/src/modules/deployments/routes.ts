@@ -1212,7 +1212,7 @@ async function getProjectRepoUrl(db: D1Database, projectId: string): Promise<str
  */
 async function deployFromBundleCache(
   env: any,
-  project: { id: string; slug: string },
+  project: { id: string; slug: string; productionBranch: string },
   deployment: {
     id: string;
     teamId: string;
@@ -1283,7 +1283,9 @@ async function deployFromBundleCache(
         bindings: [],
       },
       deployment.branch,
-      "main",
+      // The project's own production branch: the same one the create route's
+      // scope check used to decide this deployment is preview or production.
+      project.productionBranch,
     );
 
     await env.DB.prepare("UPDATE deployment SET status = 'active', updatedAt = ? WHERE id = ?")
