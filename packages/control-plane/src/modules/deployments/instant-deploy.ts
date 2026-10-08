@@ -4,6 +4,7 @@ import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
 import { resolveDeployTarget } from "./target.js";
 import { recordAudit } from "../audit/service.js";
+import { requireScopes } from "../tenant/scope-guard.js";
 
 type InstantDeployEnv = {
   Bindings: Env;
@@ -31,7 +32,7 @@ const instantDeploy = new Hono<InstantDeployEnv>();
  *
  * → 201 { url, previewUrl, deploymentId }
  */
-instantDeploy.post("/", async (c) => {
+instantDeploy.post("/", requireScopes("project:write", "deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
 
@@ -169,7 +170,7 @@ instantDeploy.post("/", async (c) => {
  *   "files": { "index.html": "..." }
  * }
  */
-instantDeploy.put("/:slug", async (c) => {
+instantDeploy.put("/:slug", requireScopes("deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const slug = c.req.param("slug");

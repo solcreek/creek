@@ -13,6 +13,12 @@ import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
+import {
+  assertScope,
+  deployScopeFor,
+  requireAnyScope,
+  requireScopes,
+} from "../tenant/scope-guard.js";
 
 type DeployEnv = {
   Bindings: Env;
@@ -28,125 +34,137 @@ type DeployEnv = {
 const deployments = new Hono<DeployEnv>();
 
 // Create a new deployment
-deployments.post("/:projectId/deployments", requirePermission("deploy:create"), async (c) => {
-  const teamId = c.get("teamId");
-  const projectId = c.req.param("projectId");
+deployments.post(
+  "/:projectId/deployments",
+  requireAnyScope("deploy:preview", "deploy:production"),
+  requirePermission("deploy:create"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const body = await c.req
-    .json<{
-      branch?: string;
-      commitSha?: string;
-      commitMessage?: string;
-      triggerType?: string;
-    }>()
-    .catch(
-      (): {
+    const body = await c.req
+      .json<{
         branch?: string;
         commitSha?: string;
         commitMessage?: string;
         triggerType?: string;
-      } => ({}),
+      }>()
+      .catch(
+        (): {
+          branch?: string;
+          commitSha?: string;
+          commitMessage?: string;
+          triggerType?: string;
+        } => ({}),
+      );
+
+    // A deployment on the production branch (or with no branch) can go live
+    // straight from the build cache below, so a key needs the production scope
+    // before the record exists.
+    const scopeDenied = assertScope(c, deployScopeFor(body.branch, project.productionBranch));
+    if (scopeDenied) return scopeDenied;
+
+    const lastDeployment = await c.env.DB.prepare(
+      "SELECT MAX(version) as max_version FROM deployment WHERE projectId = ?",
+    )
+      .bind(project.id)
+      .first<{ max_version: number | null }>();
+
+    const version = (lastDeployment?.max_version ?? 0) + 1;
+    const id = crypto.randomUUID();
+
+    const now = Date.now();
+    await c.env.DB.prepare(
+      `INSERT INTO deployment (id, projectId, version, status, branch, commitSha, commitMessage, triggerType, createdAt, updatedAt)
+     VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        id,
+        project.id,
+        version,
+        body.branch ?? null,
+        body.commitSha ?? null,
+        body.commitMessage ?? null,
+        body.triggerType ?? "cli",
+        now,
+        now,
+      )
+      .run();
+
+    const deployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")
+      .bind(id)
+      .first();
+
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "deployment.create",
+        resourceType: "deployment",
+        resourceId: id,
+        metadata: { projectId: project.id, version },
+      },
+      c.get("auditCtx"),
     );
 
-  const lastDeployment = await c.env.DB.prepare(
-    "SELECT MAX(version) as max_version FROM deployment WHERE projectId = ?",
-  )
-    .bind(project.id)
-    .first<{ max_version: number | null }>();
-
-  const version = (lastDeployment?.max_version ?? 0) + 1;
-  const id = crypto.randomUUID();
-
-  const now = Date.now();
-  await c.env.DB.prepare(
-    `INSERT INTO deployment (id, projectId, version, status, branch, commitSha, commitMessage, triggerType, createdAt, updatedAt)
-     VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      id,
-      project.id,
-      version,
-      body.branch ?? null,
-      body.commitSha ?? null,
-      body.commitMessage ?? null,
-      body.triggerType ?? "cli",
-      now,
-      now,
-    )
-    .run();
-
-  const deployment = await c.env.DB.prepare("SELECT * FROM deployment WHERE id = ?")
-    .bind(id)
-    .first();
-
-  await recordAudit(
-    c.env.DB,
-    c.get("user"),
-    c.get("teamId"),
-    {
-      action: "deployment.create",
-      resourceType: "deployment",
-      resourceId: id,
-      metadata: { projectId: project.id, version },
-    },
-    c.get("auditCtx"),
-  );
-
-  // --- Build cache check (⚡ Turbo deploy) ---
-  // If the CLI sent a commitSha, check if the remote-builder's
-  // KV cache has a pre-built bundle for this exact commit. If so,
-  // kick off a deploy from cache asynchronously — the CLI sees
-  // cacheHit=true and skips its local build + upload entirely.
-  let cacheHit = false;
-  if (body.commitSha && c.env.BUILD_STATUS) {
-    try {
-      // Try multiple cache key patterns (with and without branch)
-      const repoUrl = await getProjectRepoUrl(c.env.DB, project.id);
-      if (repoUrl) {
-        const branch = body.branch || "main";
-        const cacheKey = `bundlecache:${repoUrl}:${branch}:${body.commitSha}`;
-        const cached = await c.env.BUILD_STATUS.get(cacheKey);
-        if (cached) {
-          cacheHit = true;
-          console.log(`[turbo-deploy] HIT ${cacheKey.slice(0, 80)} for deployment ${id}`);
-          // Deploy from cache asynchronously — same path as PUT /bundle
-          // but using the cached bundle instead of CLI upload
-          c.executionCtx.waitUntil(
-            deployFromBundleCache(
-              c.env,
-              project,
-              {
-                id,
-                teamId,
-                teamSlug: c.get("teamSlug"),
-                branch: body.branch,
-                commitSha: body.commitSha,
-              },
-              cached,
-            ),
-          );
-        } else {
-          console.log(`[turbo-deploy] MISS ${cacheKey.slice(0, 80)}`);
+    // --- Build cache check (⚡ Turbo deploy) ---
+    // If the CLI sent a commitSha, check if the remote-builder's
+    // KV cache has a pre-built bundle for this exact commit. If so,
+    // kick off a deploy from cache asynchronously — the CLI sees
+    // cacheHit=true and skips its local build + upload entirely.
+    let cacheHit = false;
+    if (body.commitSha && c.env.BUILD_STATUS) {
+      try {
+        // Try multiple cache key patterns (with and without branch)
+        const repoUrl = await getProjectRepoUrl(c.env.DB, project.id);
+        if (repoUrl) {
+          const branch = body.branch || "main";
+          const cacheKey = `bundlecache:${repoUrl}:${branch}:${body.commitSha}`;
+          const cached = await c.env.BUILD_STATUS.get(cacheKey);
+          if (cached) {
+            cacheHit = true;
+            console.log(`[turbo-deploy] HIT ${cacheKey.slice(0, 80)} for deployment ${id}`);
+            // Deploy from cache asynchronously — same path as PUT /bundle
+            // but using the cached bundle instead of CLI upload
+            c.executionCtx.waitUntil(
+              deployFromBundleCache(
+                c.env,
+                project,
+                {
+                  id,
+                  teamId,
+                  teamSlug: c.get("teamSlug"),
+                  branch: body.branch,
+                  commitSha: body.commitSha,
+                },
+                cached,
+              ),
+            );
+          } else {
+            console.log(`[turbo-deploy] MISS ${cacheKey.slice(0, 80)}`);
+          }
         }
+      } catch (err) {
+        console.error("[turbo-deploy] cache check error:", err);
+        // Fall through — CLI will build + upload normally
       }
-    } catch (err) {
-      console.error("[turbo-deploy] cache check error:", err);
-      // Fall through — CLI will build + upload normally
     }
-  }
 
-  return c.json({ deployment, cacheHit }, 201);
-});
+    return c.json({ deployment, cacheHit }, 201);
+  },
+);
 
 // Upload deployment bundle (async — returns 202, deploy runs via waitUntil)
 deployments.put(
   "/:projectId/deployments/:deploymentId/bundle",
+  requireAnyScope("deploy:preview", "deploy:production"),
   requirePermission("deploy:create"),
   async (c) => {
     // Non-null: the auth middleware always sets team{Id,Slug} and these are
@@ -172,6 +190,9 @@ deployments.put(
     if (!deployment) {
       return c.json({ error: "not_found", message: "Deployment not found" }, 404);
     }
+
+    const scopeDenied = assertScope(c, deployScopeFor(deployment.branch, project.productionBranch));
+    if (scopeDenied) return scopeDenied;
 
     // Idempotency guards
     const IN_PROGRESS = new Set(["uploading", "provisioning", "deploying"]);
@@ -373,6 +394,7 @@ deployments.put(
 // safe (unlike the whole bundle).
 deployments.put(
   "/:projectId/deployments/:deploymentId/serverfile",
+  requireAnyScope("deploy:preview", "deploy:production"),
   requirePermission("deploy:create"),
   async (c) => {
     // requirePermission()'s generic widens c.get/param to `| undefined`; the auth
@@ -393,13 +415,17 @@ deployments.put(
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status, branch FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
-      .first<{ id: string; status: string }>();
+      .first<{ id: string; status: string; branch: string | null }>();
     if (!deployment) {
       return c.json({ error: "not_found", message: "Deployment not found" }, 404);
     }
+    // A server file becomes part of what the bundle upload activates, so a
+    // preview-only key must not stage one into a production deployment.
+    const scopeDenied = assertScope(c, deployScopeFor(deployment.branch, project.productionBranch));
+    if (scopeDenied) return scopeDenied;
     // Only before the deploy runs — same window as the bundle upload.
     if (deployment.status !== "queued" && deployment.status !== "failed") {
       return c.json(
@@ -463,58 +489,62 @@ deployments.put(
 );
 
 // Get deployment status
-deployments.get("/:projectId/deployments/:deploymentId", async (c) => {
-  const teamId = c.get("teamId");
-  const teamSlug = c.get("teamSlug");
-  const projectId = c.req.param("projectId");
-  const deploymentId = c.req.param("deploymentId");
+deployments.get(
+  "/:projectId/deployments/:deploymentId",
+  requireScopes("project:read"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const teamSlug = c.get("teamSlug");
+    const projectId = c.req.param("projectId");
+    const deploymentId = c.req.param("deploymentId");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const deployment = await c.env.DB.prepare(
-    "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
-  )
-    .bind(deploymentId, project.id)
-    .first();
+    const deployment = await c.env.DB.prepare(
+      "SELECT * FROM deployment WHERE id = ? AND projectId = ?",
+    )
+      .bind(deploymentId, project.id)
+      .first();
 
-  if (!deployment) {
-    return c.json({ error: "not_found", message: "Deployment not found" }, 404);
-  }
+    if (!deployment) {
+      return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+    }
 
-  const domain = c.env.CREEK_DOMAIN;
-  const shortId = shortDeployId(deploymentId);
-  const isProduction = project.productionDeploymentId === deploymentId;
+    const domain = c.env.CREEK_DOMAIN;
+    const shortId = shortDeployId(deploymentId);
+    const isProduction = project.productionDeploymentId === deploymentId;
 
-  // On failure, attach a stable machine-readable reason code + actionable hint
-  // so a polling client (and an AI agent) can decide retry-vs-give-up without
-  // scraping the free-text message. The deploying/activation stages upload no
-  // build log, so for those failures this status response is the only place the
-  // reason surfaces during a poll. Derived from the recorded (failedStep,
-  // errorMessage) — the same classifier the logs route uses.
-  const dep = deployment as {
-    status?: string;
-    failedStep?: string | null;
-    errorMessage?: string | null;
-  };
-  const reason =
-    dep.status === "failed"
-      ? classifyDeployFailure(dep.failedStep ?? null, dep.errorMessage ?? null)
-      : null;
+    // On failure, attach a stable machine-readable reason code + actionable hint
+    // so a polling client (and an AI agent) can decide retry-vs-give-up without
+    // scraping the free-text message. The deploying/activation stages upload no
+    // build log, so for those failures this status response is the only place the
+    // reason surfaces during a poll. Derived from the recorded (failedStep,
+    // errorMessage) — the same classifier the logs route uses.
+    const dep = deployment as {
+      status?: string;
+      failedStep?: string | null;
+      errorMessage?: string | null;
+    };
+    const reason =
+      dep.status === "failed"
+        ? classifyDeployFailure(dep.failedStep ?? null, dep.errorMessage ?? null)
+        : null;
 
-  return c.json({
-    deployment,
-    url: isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null,
-    previewUrl: `https://${project.slug}-${shortId}-${teamSlug}.${domain}`,
-    ...(reason ? { errorCode: reason.code, errorHint: reason.hint } : {}),
-  });
-});
+    return c.json({
+      deployment,
+      url: isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null,
+      previewUrl: `https://${project.slug}-${shortId}-${teamSlug}.${domain}`,
+      ...(reason ? { errorCode: reason.code, errorHint: reason.hint } : {}),
+    });
+  },
+);
 
 // List deployments for a project
-deployments.get("/:projectId/deployments", async (c) => {
+deployments.get("/:projectId/deployments", requireScopes("project:read"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
@@ -551,6 +581,7 @@ deployments.get("/:projectId/deployments", async (c) => {
 // Promote a deployment to production
 deployments.post(
   "/:projectId/deployments/:deploymentId/promote",
+  requireScopes("deploy:production"),
   requirePermission("deploy:create"),
   async (c) => {
     const teamId = c.get("teamId");
@@ -613,7 +644,7 @@ const IMPLICIT_PREVIOUS_SQL = `SELECT id, status FROM deployment WHERE projectId
        AND id != ? AND triggerType != 'rollback' ORDER BY version DESC LIMIT 1`;
 
 // Preview the rollback target without mutating. Same implicit contract as POST.
-deployments.get("/:projectId/rollback", async (c) => {
+deployments.get("/:projectId/rollback", requireScopes("project:read"), async (c) => {
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
   const requestedId = c.req.query("deploymentId") || undefined;
@@ -657,122 +688,127 @@ deployments.get("/:projectId/rollback", async (c) => {
 });
 
 // Rollback production to a previous deployment
-deployments.post("/:projectId/rollback", requirePermission("deploy:create"), async (c) => {
-  const teamId = c.get("teamId");
-  const teamSlug = c.get("teamSlug");
-  const projectId = c.req.param("projectId");
-  const body = await c.req
-    .json<{ deploymentId?: string; message?: string }>()
-    .catch(() => ({}) as { deploymentId?: string; message?: string });
+deployments.post(
+  "/:projectId/rollback",
+  requireScopes("deploy:production"),
+  requirePermission("deploy:create"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const teamSlug = c.get("teamSlug");
+    const projectId = c.req.param("projectId");
+    const body = await c.req
+      .json<{ deploymentId?: string; message?: string }>()
+      .catch(() => ({}) as { deploymentId?: string; message?: string });
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  if (!project.productionDeploymentId) {
-    return c.json(
-      { error: "no_production", message: "No production deployment to rollback from" },
-      400,
-    );
-  }
-
-  // Find target deployment
-  let targetId = body.deploymentId;
-  if (!targetId) {
-    // No ID specified → previous active *real* production deploy.
-    // Rollback inserts a new active row with triggerType=rollback and the
-    // highest version; including those here makes the second implicit
-    // rollback land on the synthetic row instead of the prior CLI/GitHub
-    // deploy (agents following `creek rollback --json` hit this).
-    const prev = await c.env.DB.prepare(IMPLICIT_PREVIOUS_SQL)
-      .bind(project.id, project.productionDeploymentId)
-      .first<{ id: string }>();
-
-    if (!prev) {
+    if (!project.productionDeploymentId) {
       return c.json(
-        { error: "no_previous", message: "No previous deployment to rollback to" },
+        { error: "no_production", message: "No production deployment to rollback from" },
         400,
       );
     }
-    targetId = prev.id;
-  }
 
-  // Validate target
-  const target = await c.env.DB.prepare(
-    "SELECT id, version FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
-  )
-    .bind(targetId, project.id)
-    .first<{ id: string; version: number }>();
+    // Find target deployment
+    let targetId = body.deploymentId;
+    if (!targetId) {
+      // No ID specified → previous active *real* production deploy.
+      // Rollback inserts a new active row with triggerType=rollback and the
+      // highest version; including those here makes the second implicit
+      // rollback land on the synthetic row instead of the prior CLI/GitHub
+      // deploy (agents following `creek rollback --json` hit this).
+      const prev = await c.env.DB.prepare(IMPLICIT_PREVIOUS_SQL)
+        .bind(project.id, project.productionDeploymentId)
+        .first<{ id: string }>();
 
-  if (!target) {
-    return c.json(
-      { error: "invalid_target", message: "Target deployment not found or not active" },
-      400,
-    );
-  }
+      if (!prev) {
+        return c.json(
+          { error: "no_previous", message: "No previous deployment to rollback to" },
+          400,
+        );
+      }
+      targetId = prev.id;
+    }
 
-  if (targetId === project.productionDeploymentId) {
-    return c.json(
-      { error: "already_production", message: "Already the production deployment" },
-      400,
-    );
-  }
+    // Validate target
+    const target = await c.env.DB.prepare(
+      "SELECT id, version FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
+    )
+      .bind(targetId, project.id)
+      .first<{ id: string; version: number }>();
 
-  // Create rollback deployment record + switch production pointer
-  const rollbackId = crypto.randomUUID();
-  const lastDeploy = await c.env.DB.prepare(
-    "SELECT MAX(version) as v FROM deployment WHERE projectId = ?",
-  )
-    .bind(project.id)
-    .first<{ v: number | null }>();
-  const version = (lastDeploy?.v ?? 0) + 1;
-  const now = Date.now();
+    if (!target) {
+      return c.json(
+        { error: "invalid_target", message: "Target deployment not found or not active" },
+        400,
+      );
+    }
 
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO deployment (id, projectId, version, status, triggerType, commitMessage, createdAt, updatedAt)
+    if (targetId === project.productionDeploymentId) {
+      return c.json(
+        { error: "already_production", message: "Already the production deployment" },
+        400,
+      );
+    }
+
+    // Create rollback deployment record + switch production pointer
+    const rollbackId = crypto.randomUUID();
+    const lastDeploy = await c.env.DB.prepare(
+      "SELECT MAX(version) as v FROM deployment WHERE projectId = ?",
+    )
+      .bind(project.id)
+      .first<{ v: number | null }>();
+    const version = (lastDeploy?.v ?? 0) + 1;
+    const now = Date.now();
+
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO deployment (id, projectId, version, status, triggerType, commitMessage, createdAt, updatedAt)
        VALUES (?, ?, ?, 'active', 'rollback', ?, ?, ?)`,
-    ).bind(rollbackId, project.id, version, body.message ?? null, now, now),
-    c.env.DB.prepare(
-      "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
-    ).bind(targetId, now, project.id),
-  ]);
+      ).bind(rollbackId, project.id, version, body.message ?? null, now, now),
+      c.env.DB.prepare(
+        "UPDATE project SET productionDeploymentId = ?, updatedAt = ? WHERE id = ?",
+      ).bind(targetId, now, project.id),
+    ]);
 
-  await recordAudit(
-    c.env.DB,
-    c.get("user"),
-    teamId,
-    {
-      action: "deployment.rollback",
-      resourceType: "deployment",
-      resourceId: rollbackId,
-      metadata: {
-        projectId: project.id,
-        targetDeploymentId: targetId,
-        previousDeploymentId: project.productionDeploymentId,
-        message: body.message,
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      teamId,
+      {
+        action: "deployment.rollback",
+        resourceType: "deployment",
+        resourceId: rollbackId,
+        metadata: {
+          projectId: project.id,
+          targetDeploymentId: targetId,
+          previousDeploymentId: project.productionDeploymentId,
+          message: body.message,
+        },
       },
-    },
-    c.get("auditCtx"),
-  );
+      c.get("auditCtx"),
+    );
 
-  const domain = c.env.CREEK_DOMAIN;
-  return c.json({
-    ok: true,
-    deploymentId: rollbackId,
-    rolledBackTo: targetId,
-    previousDeploymentId: project.productionDeploymentId,
-    url: `https://${project.slug}-${teamSlug}.${domain}`,
-  });
-});
+    const domain = c.env.CREEK_DOMAIN;
+    return c.json({
+      ok: true,
+      deploymentId: rollbackId,
+      rolledBackTo: targetId,
+      previousDeploymentId: project.productionDeploymentId,
+      url: `https://${project.slug}-${teamSlug}.${domain}`,
+    });
+  },
+);
 
 /**
  * GET /projects/:id/cron-logs
  * Query CF Workers analytics for cron invocation history.
  */
-deployments.get("/:projectId/cron-logs", async (c) => {
+deployments.get("/:projectId/cron-logs", requireScopes("logs:read"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
@@ -849,7 +885,7 @@ deployments.get("/:projectId/cron-logs", async (c) => {
  * GET /projects/:id/analytics?period=24h|7d|30d
  * Per-tenant analytics: requests, errors, latency time-series.
  */
-deployments.get("/:projectId/analytics", async (c) => {
+deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const projectId = c.req.param("projectId");
@@ -982,163 +1018,178 @@ deployments.get("/:projectId/analytics", async (c) => {
  *
  * Both fields are optional; you can update either or both.
  */
-deployments.patch("/:projectId/triggers", requirePermission("deploy:create"), async (c) => {
-  const teamId = c.get("teamId");
-  const teamSlug = c.get("teamSlug");
-  const projectId = c.req.param("projectId");
+deployments.patch(
+  "/:projectId/triggers",
+  requireScopes("deploy:production"),
+  requirePermission("deploy:create"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const teamSlug = c.get("teamSlug");
+    const projectId = c.req.param("projectId");
 
-  // Not resolveProject(): this is the one route that reads `triggers`, and that
-  // column is not in the checked-in migrations, so keep the dependency local.
-  const project = await c.env.DB.prepare(
-    "SELECT id, slug, triggers FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
-  )
-    .bind(projectId, projectId, teamId)
-    .first<{ id: string; slug: string; triggers: string | null }>();
+    // Not resolveProject(): this is the one route that reads `triggers`, and that
+    // column is not in the checked-in migrations, so keep the dependency local.
+    const project = await c.env.DB.prepare(
+      "SELECT id, slug, triggers FROM project WHERE (id = ? OR slug = ?) AND organizationId = ?",
+    )
+      .bind(projectId, projectId, teamId)
+      .first<{ id: string; slug: string; triggers: string | null }>();
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const body = await c.req
-    .json<{ cron?: unknown; queue?: unknown }>()
-    .catch(() => ({}) as { cron?: unknown; queue?: unknown });
-  const cronInput = (body as { cron?: unknown }).cron;
-  const queueInput = (body as { queue?: unknown }).queue;
+    const body = await c.req
+      .json<{ cron?: unknown; queue?: unknown }>()
+      .catch(() => ({}) as { cron?: unknown; queue?: unknown });
+    const cronInput = (body as { cron?: unknown }).cron;
+    const queueInput = (body as { queue?: unknown }).queue;
 
-  const updateCron = cronInput !== undefined;
-  const updateQueue = queueInput !== undefined;
+    const updateCron = cronInput !== undefined;
+    const updateQueue = queueInput !== undefined;
 
-  if (!updateCron && !updateQueue) {
-    return c.json({ error: "validation", message: "Provide at least one of: cron, queue" }, 400);
-  }
+    if (!updateCron && !updateQueue) {
+      return c.json({ error: "validation", message: "Provide at least one of: cron, queue" }, 400);
+    }
 
-  if (updateCron && (!Array.isArray(cronInput) || !cronInput.every((s) => typeof s === "string"))) {
-    return c.json({ error: "validation", message: "Field 'cron' must be a string array" }, 400);
-  }
+    if (
+      updateCron &&
+      (!Array.isArray(cronInput) || !cronInput.every((s) => typeof s === "string"))
+    ) {
+      return c.json({ error: "validation", message: "Field 'cron' must be a string array" }, 400);
+    }
 
-  if (updateQueue && typeof queueInput !== "boolean") {
-    return c.json({ error: "validation", message: "Field 'queue' must be a boolean" }, 400);
-  }
+    if (updateQueue && typeof queueInput !== "boolean") {
+      return c.json({ error: "validation", message: "Field 'queue' must be a boolean" }, 400);
+    }
 
-  // Read existing triggers (preserve fields not being updated)
-  let existing: { cron: string[]; queue: boolean } = { cron: [], queue: false };
-  try {
-    if (project.triggers) existing = JSON.parse(project.triggers);
-  } catch {}
-
-  const newCron = updateCron ? (cronInput as string[]) : existing.cron;
-  const newQueue = updateQueue ? (queueInput as boolean) : existing.queue;
-  const scriptName = `${project.slug}-${teamSlug}`;
-
-  // Cron applies immediately via CF schedules API
-  if (updateCron) {
+    // Read existing triggers (preserve fields not being updated)
+    let existing: { cron: string[]; queue: boolean } = { cron: [], queue: false };
     try {
-      const { updateScriptSchedules } = await import("../resources/cloudflare.js");
-      await updateScriptSchedules(c.env, scriptName, newCron);
-    } catch (err) {
-      return c.json(
+      if (project.triggers) existing = JSON.parse(project.triggers);
+    } catch {}
+
+    const newCron = updateCron ? (cronInput as string[]) : existing.cron;
+    const newQueue = updateQueue ? (queueInput as boolean) : existing.queue;
+    const scriptName = `${project.slug}-${teamSlug}`;
+
+    // Cron applies immediately via CF schedules API
+    if (updateCron) {
+      try {
+        const { updateScriptSchedules } = await import("../resources/cloudflare.js");
+        await updateScriptSchedules(c.env, scriptName, newCron);
+      } catch (err) {
+        return c.json(
+          {
+            error: "update_failed",
+            message: err instanceof Error ? err.message : String(err),
+          },
+          500,
+        );
+      }
+    }
+
+    // Persist to DB
+    const newTriggers = JSON.stringify({ cron: newCron, queue: newQueue });
+    await c.env.DB.prepare("UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?")
+      .bind(newTriggers, Date.now(), project.id)
+      .run();
+
+    // Audit log
+    if (updateCron) {
+      await recordAudit(
+        c.env.DB,
+        c.get("user"),
+        c.get("teamId"),
         {
-          error: "update_failed",
-          message: err instanceof Error ? err.message : String(err),
+          action: "trigger.cron.update",
+          resourceType: "trigger",
+          resourceId: project.id,
+          metadata: { projectSlug: project.slug, cron: newCron },
         },
-        500,
+        c.get("auditCtx"),
       );
     }
-  }
+    if (updateQueue && existing.queue !== newQueue) {
+      await recordAudit(
+        c.env.DB,
+        c.get("user"),
+        c.get("teamId"),
+        {
+          action: "trigger.queue.update",
+          resourceType: "trigger",
+          resourceId: project.id,
+          metadata: { projectSlug: project.slug, queue: newQueue },
+        },
+        c.get("auditCtx"),
+      );
+    }
 
-  // Persist to DB
-  const newTriggers = JSON.stringify({ cron: newCron, queue: newQueue });
-  await c.env.DB.prepare("UPDATE project SET triggers = ?, updatedAt = ? WHERE id = ?")
-    .bind(newTriggers, Date.now(), project.id)
-    .run();
-
-  // Audit log
-  if (updateCron) {
-    await recordAudit(
-      c.env.DB,
-      c.get("user"),
-      c.get("teamId"),
-      {
-        action: "trigger.cron.update",
-        resourceType: "trigger",
-        resourceId: project.id,
-        metadata: { projectSlug: project.slug, cron: newCron },
-      },
-      c.get("auditCtx"),
-    );
-  }
-  if (updateQueue && existing.queue !== newQueue) {
-    await recordAudit(
-      c.env.DB,
-      c.get("user"),
-      c.get("teamId"),
-      {
-        action: "trigger.queue.update",
-        resourceType: "trigger",
-        resourceId: project.id,
-        metadata: { projectSlug: project.slug, queue: newQueue },
-      },
-      c.get("auditCtx"),
-    );
-  }
-
-  return c.json({
-    ok: true,
-    cron: newCron,
-    queue: newQueue,
-    queueRequiresRedeploy: updateQueue && existing.queue !== newQueue,
-  });
-});
+    return c.json({
+      ok: true,
+      cron: newCron,
+      queue: newQueue,
+      queueRequiresRedeploy: updateQueue && existing.queue !== newQueue,
+    });
+  },
+);
 
 /**
  * POST /projects/:id/queue/send
  * Send a message to the project's auto-provisioned queue.
  */
-deployments.post("/:projectId/queue/send", requirePermission("deploy:create"), async (c) => {
-  const teamId = c.get("teamId");
-  const projectId = c.req.param("projectId");
+deployments.post(
+  "/:projectId/queue/send",
+  requireScopes("queue:send"),
+  requirePermission("deploy:create"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  // Look up the project's queue via resource bindings
-  const { getProjectQueueId } = await import("../resources/service.js");
-  const queueId = await getProjectQueueId(c.env, project.id);
+    // Look up the project's queue via resource bindings
+    const { getProjectQueueId } = await import("../resources/service.js");
+    const queueId = await getProjectQueueId(c.env, project.id);
 
-  if (!queueId) {
-    return c.json(
-      {
-        error: "queue_not_provisioned",
-        message:
-          "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
-      },
-      400,
-    );
-  }
+    if (!queueId) {
+      return c.json(
+        {
+          error: "queue_not_provisioned",
+          message:
+            "This project does not have a queue. Add `queue = true` under [triggers] in creek.toml and redeploy.",
+        },
+        400,
+      );
+    }
 
-  const body = await c.req.json<{ message?: unknown }>().catch(() => ({}) as { message?: unknown });
-  const messageBody = (body as { message?: unknown }).message;
-  if (messageBody === undefined) {
-    return c.json({ error: "validation", message: "Missing 'message' field" }, 400);
-  }
+    const body = await c.req
+      .json<{ message?: unknown }>()
+      .catch(() => ({}) as { message?: unknown });
+    const messageBody = (body as { message?: unknown }).message;
+    if (messageBody === undefined) {
+      return c.json({ error: "validation", message: "Missing 'message' field" }, 400);
+    }
 
-  try {
-    const { sendQueueMessage } = await import("../resources/cloudflare.js");
-    await sendQueueMessage(c.env, queueId, messageBody);
-    return c.json({ ok: true, queueId });
-  } catch (err) {
-    return c.json(
-      {
-        error: "send_failed",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
-  }
-});
+    try {
+      const { sendQueueMessage } = await import("../resources/cloudflare.js");
+      await sendQueueMessage(c.env, queueId, messageBody);
+      return c.json({ ok: true, queueId });
+    } catch (err) {
+      return c.json(
+        {
+          error: "send_failed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
+  },
+);
 
 // --- Turbo deploy helpers ---
 

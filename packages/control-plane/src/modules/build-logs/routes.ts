@@ -12,7 +12,7 @@
  *   Streaming ingest via Realtime DO subscribe; per-line flush.
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
@@ -20,6 +20,13 @@ import { requirePermission } from "../tenant/permissions.js";
 import { deployStageLogKey, readLogLines, storeBuildLog } from "./storage.js";
 import { classifyDeployFailure } from "./classify.js";
 import type { BuildLogLine, BuildLogStatus, BuildLogStep } from "./types.js";
+import {
+  assertScope,
+  deployScopeFor,
+  internalRoute,
+  requireAnyScope,
+  requireScopes,
+} from "../tenant/scope-guard.js";
 
 type BuildLogsEnv = {
   Bindings: Env;
@@ -37,16 +44,29 @@ export const buildLogs = new Hono<BuildLogsEnv>();
 async function resolveDeployment(
   env: Env,
   deploymentId: string,
-): Promise<{ projectSlug: string; teamSlug: string; teamId: string } | null> {
+): Promise<{
+  projectSlug: string;
+  teamSlug: string;
+  teamId: string;
+  branch: string | null;
+  productionBranch: string;
+} | null> {
   const row = await env.DB.prepare(
-    `SELECT p.slug AS projectSlug, t.slug AS teamSlug, t.id AS teamId
+    `SELECT p.slug AS projectSlug, t.slug AS teamSlug, t.id AS teamId,
+            d.branch AS branch, p.productionBranch AS productionBranch
      FROM deployment d
      JOIN project p ON d.projectId = p.id
      JOIN organization t ON p.organizationId = t.id
      WHERE d.id = ?`,
   )
     .bind(deploymentId)
-    .first<{ projectSlug: string; teamSlug: string; teamId: string }>();
+    .first<{
+      projectSlug: string;
+      teamSlug: string;
+      teamId: string;
+      branch: string | null;
+      productionBranch: string;
+    }>();
   return row ?? null;
 }
 
@@ -94,13 +114,18 @@ function isInternalAuth(c: {
 // INTERNAL_SECRET; CLI/dashboard users go through tenantMiddleware.
 // We split the handler so each path gets the right middleware chain.
 
-buildLogs.post("/:id/logs", async (c, next) => {
+buildLogs.post("/:id/logs", internalRoute, async (c, next) => {
   if (isInternalAuth(c)) return ingestHandler(c, { internal: true });
   // Fall through to the authenticated path below.
   await next();
 });
 
-buildLogs.post("/:id/logs", tenantMiddleware, async (c) => ingestHandler(c, { internal: false }));
+buildLogs.post(
+  "/:id/logs",
+  tenantMiddleware,
+  requireAnyScope("deploy:preview", "deploy:production"),
+  async (c) => ingestHandler(c, { internal: false }),
+);
 
 // --- Read routes (mounted under /projects) --------------------------
 //
@@ -109,160 +134,165 @@ buildLogs.post("/:id/logs", tenantMiddleware, async (c) => ingestHandler(c, { in
 // the deployment's project.
 export const buildLogsRead = new Hono<BuildLogsEnv>();
 
-buildLogsRead.get("/:slug/deployments/:id/logs", requirePermission("project:read"), async (c) => {
-  const projectSlug = c.req.param("slug");
-  const deploymentId = c.req.param("id");
-  const teamId = c.get("teamId");
-  if (!teamId) return c.json({ error: "unauthorized" }, 401);
+buildLogsRead.get(
+  "/:slug/deployments/:id/logs",
+  requireScopes("logs:read"),
+  requirePermission("project:read"),
+  async (c) => {
+    const projectSlug = c.req.param("slug");
+    const deploymentId = c.req.param("id");
+    const teamId = c.get("teamId");
+    if (!teamId) return c.json({ error: "unauthorized" }, 401);
 
-  // Ownership: the deployment's project.slug + project.organizationId
-  // must match the URL slug + session team.
-  const row = await c.env.DB.prepare(
-    `SELECT p.slug AS projectSlug, t.slug AS teamSlug
+    // Ownership: the deployment's project.slug + project.organizationId
+    // must match the URL slug + session team.
+    const row = await c.env.DB.prepare(
+      `SELECT p.slug AS projectSlug, t.slug AS teamSlug
        FROM deployment d
        JOIN project p ON d.projectId = p.id
        JOIN organization t ON p.organizationId = t.id
        WHERE d.id = ? AND p.slug = ? AND t.id = ?`,
-  )
-    .bind(deploymentId, projectSlug, teamId)
-    .first<{ projectSlug: string; teamSlug: string }>();
-  if (!row) {
-    return c.json({ error: "not_found" }, 404);
-  }
+    )
+      .bind(deploymentId, projectSlug, teamId)
+      .first<{ projectSlug: string; teamSlug: string }>();
+    if (!row) {
+      return c.json({ error: "not_found" }, 404);
+    }
 
-  // Metadata row — covers the "still running / never uploaded" cases.
-  const meta = await c.env.DB.prepare(
-    `SELECT deploymentId, status, startedAt, endedAt, bytes, lines,
+    // Metadata row — covers the "still running / never uploaded" cases.
+    const meta = await c.env.DB.prepare(
+      `SELECT deploymentId, status, startedAt, endedAt, bytes, lines,
               truncated, errorCode, errorStep, r2Key
        FROM build_log WHERE deploymentId = ?`,
-  )
-    .bind(deploymentId)
-    .first<{
-      deploymentId: string;
-      status: string;
-      startedAt: number;
-      endedAt: number | null;
-      bytes: number;
-      lines: number;
-      truncated: number;
-      errorCode: string | null;
-      errorStep: string | null;
-      r2Key: string;
-    }>();
-
-  if (!meta) {
-    // No build_log row. A server-side failure (deploy-job's failDeployment,
-    // or the stale-deploy reaper) records the reason on the deployment row,
-    // not in build_log — so without this fallback a failed deploy looks
-    // log-less. Surface the recorded failure instead of a bare "not yet
-    // available", and mark it synthesized so callers know it's not an
-    // uploaded log.
-    const dep = await c.env.DB.prepare(
-      `SELECT status, failedStep, errorMessage, updatedAt
-           FROM deployment WHERE id = ?`,
     )
       .bind(deploymentId)
       .first<{
+        deploymentId: string;
         status: string;
-        failedStep: string | null;
-        errorMessage: string | null;
-        updatedAt: number;
+        startedAt: number;
+        endedAt: number | null;
+        bytes: number;
+        lines: number;
+        truncated: number;
+        errorCode: string | null;
+        errorStep: string | null;
+        r2Key: string;
       }>();
 
-    if (dep?.status === "failed") {
-      const ts = dep.updatedAt ?? Date.now();
-      // The deploying/activation stages upload no build log, so this is the
-      // only structured signal for those failures. Classify the recorded
-      // reason into a stable code + actionable hint.
-      const reason = classifyDeployFailure(dep.failedStep, dep.errorMessage);
-      const entry: BuildLogLine = {
-        ts,
-        step: mapFailedStep(dep.failedStep),
-        stream: "creek",
-        level: "error",
-        msg: dep.errorMessage ?? "Deploy failed",
-      };
+    if (!meta) {
+      // No build_log row. A server-side failure (deploy-job's failDeployment,
+      // or the stale-deploy reaper) records the reason on the deployment row,
+      // not in build_log — so without this fallback a failed deploy looks
+      // log-less. Surface the recorded failure instead of a bare "not yet
+      // available", and mark it synthesized so callers know it's not an
+      // uploaded log.
+      const dep = await c.env.DB.prepare(
+        `SELECT status, failedStep, errorMessage, updatedAt
+           FROM deployment WHERE id = ?`,
+      )
+        .bind(deploymentId)
+        .first<{
+          status: string;
+          failedStep: string | null;
+          errorMessage: string | null;
+          updatedAt: number;
+        }>();
+
+      if (dep?.status === "failed") {
+        const ts = dep.updatedAt ?? Date.now();
+        // The deploying/activation stages upload no build log, so this is the
+        // only structured signal for those failures. Classify the recorded
+        // reason into a stable code + actionable hint.
+        const reason = classifyDeployFailure(dep.failedStep, dep.errorMessage);
+        const entry: BuildLogLine = {
+          ts,
+          step: mapFailedStep(dep.failedStep),
+          stream: "creek",
+          level: "error",
+          msg: dep.errorMessage ?? "Deploy failed",
+        };
+        return c.json({
+          entries: [entry],
+          metadata: {
+            deploymentId,
+            status: "failed" as BuildLogStatus,
+            startedAt: ts,
+            endedAt: ts,
+            bytes: 0,
+            lines: 1,
+            truncated: false,
+            errorCode: reason.code,
+            errorStep: dep.failedStep,
+            r2Key: null,
+            synthesized: true,
+          },
+          message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}. ${reason.hint}`,
+        });
+      }
+
       return c.json({
-        entries: [entry],
-        metadata: {
-          deploymentId,
-          status: "failed" as BuildLogStatus,
-          startedAt: ts,
-          endedAt: ts,
-          bytes: 0,
-          lines: 1,
-          truncated: false,
-          errorCode: reason.code,
-          errorStep: dep.failedStep,
-          r2Key: null,
-          synthesized: true,
-        },
-        message: `No build log was uploaded; showing the recorded failure${dep.failedStep ? ` at "${dep.failedStep}"` : ""}. ${reason.hint}`,
+        entries: [] as BuildLogLine[],
+        metadata: dep ? { deploymentId, status: dep.status, synthesized: true } : null,
+        message: dep
+          ? `Build log not yet available — deployment status is "${dep.status}".`
+          : "Build log not yet available — the deploy may still be running or never uploaded logs.",
       });
     }
 
-    return c.json({
-      entries: [] as BuildLogLine[],
-      metadata: dep ? { deploymentId, status: dep.status, synthesized: true } : null,
-      message: dep
-        ? `Build log not yet available — deployment status is "${dep.status}".`
-        : "Build log not yet available — the deploy may still be running or never uploaded logs.",
-    });
-  }
-
-  if (!c.env.LOGS_BUCKET) {
-    return c.json({ error: "logs_unavailable" }, 503);
-  }
-
-  const mainLines = await readLogLines(c.env.LOGS_BUCKET, meta.r2Key);
-  if (!mainLines) {
-    // D1 row exists but R2 object missing — consistency issue.
-    return c.json(
-      {
-        entries: [] as BuildLogLine[],
-        metadata: meta,
-        message: "Log archive not found",
-      },
-      200,
-    );
-  }
-  // Merge in the deploy job's stage log (provisioning, release migrations,
-  // activation), which a client upload doesn't carry. Identical lines (the
-  // job's own log when it also wrote the main object) appear once.
-  const stageLines = (await readLogLines(c.env.LOGS_BUCKET, deployStageLogKey(meta.r2Key))) ?? [];
-  const entries = mergeLogLines(mainLines, stageLines);
-
-  // A persisted build_log can still carry a null errorCode: the stale-deploy
-  // reaper fails the deployment out from under a job that's still running (a
-  // real activation timeout), so the job never reaches its catch to record the
-  // code. Fall back to classifying the deployment's recorded (failedStep,
-  // errorMessage) — the same reconciliation the synthesized path above and the
-  // status endpoint do — so metadata.errorCode is populated for real timeouts,
-  // not just synthesized fast-fails.
-  // Only a FAILED build_log with no recorded code needs reconciliation — for a
-  // successful/running log errorCode is null by design, so don't pay for the
-  // extra deployment read on that hot path.
-  let errorCode = meta.errorCode;
-  if (!errorCode && meta.status === "failed") {
-    const dep = await c.env.DB.prepare(
-      "SELECT status, failedStep, errorMessage FROM deployment WHERE id = ?",
-    )
-      .bind(deploymentId)
-      .first<{ status: string; failedStep: string | null; errorMessage: string | null }>();
-    if (dep?.status === "failed") {
-      errorCode = classifyDeployFailure(dep.failedStep, dep.errorMessage).code;
+    if (!c.env.LOGS_BUCKET) {
+      return c.json({ error: "logs_unavailable" }, 503);
     }
-  }
 
-  return c.json({
-    entries,
-    metadata: {
-      ...meta,
-      errorCode,
-      truncated: Boolean(meta.truncated),
-    },
-  });
-});
+    const mainLines = await readLogLines(c.env.LOGS_BUCKET, meta.r2Key);
+    if (!mainLines) {
+      // D1 row exists but R2 object missing — consistency issue.
+      return c.json(
+        {
+          entries: [] as BuildLogLine[],
+          metadata: meta,
+          message: "Log archive not found",
+        },
+        200,
+      );
+    }
+    // Merge in the deploy job's stage log (provisioning, release migrations,
+    // activation), which a client upload doesn't carry. Identical lines (the
+    // job's own log when it also wrote the main object) appear once.
+    const stageLines = (await readLogLines(c.env.LOGS_BUCKET, deployStageLogKey(meta.r2Key))) ?? [];
+    const entries = mergeLogLines(mainLines, stageLines);
+
+    // A persisted build_log can still carry a null errorCode: the stale-deploy
+    // reaper fails the deployment out from under a job that's still running (a
+    // real activation timeout), so the job never reaches its catch to record the
+    // code. Fall back to classifying the deployment's recorded (failedStep,
+    // errorMessage) — the same reconciliation the synthesized path above and the
+    // status endpoint do — so metadata.errorCode is populated for real timeouts,
+    // not just synthesized fast-fails.
+    // Only a FAILED build_log with no recorded code needs reconciliation — for a
+    // successful/running log errorCode is null by design, so don't pay for the
+    // extra deployment read on that hot path.
+    let errorCode = meta.errorCode;
+    if (!errorCode && meta.status === "failed") {
+      const dep = await c.env.DB.prepare(
+        "SELECT status, failedStep, errorMessage FROM deployment WHERE id = ?",
+      )
+        .bind(deploymentId)
+        .first<{ status: string; failedStep: string | null; errorMessage: string | null }>();
+      if (dep?.status === "failed") {
+        errorCode = classifyDeployFailure(dep.failedStep, dep.errorMessage).code;
+      }
+    }
+
+    return c.json({
+      entries,
+      metadata: {
+        ...meta,
+        errorCode,
+        truncated: Boolean(meta.truncated),
+      },
+    });
+  },
+);
 
 /**
  * Merge the main log with the deploy job's stage log into one timeline,
@@ -321,6 +351,14 @@ async function ingestHandler(
     if (!sessionTeamId || sessionTeamId !== owner.teamId) {
       return c.json({ error: "forbidden", message: "deployment not owned by session team" }, 403);
     }
+    // The route lets in either deploy scope; a production deployment's log
+    // (what the dashboard shows for it) needs the production one.
+    // ingestHandler's narrow type is a view of the route's Hono Context.
+    const scopeDenied = assertScope(
+      c as unknown as Context,
+      deployScopeFor(owner.branch, owner.productionBranch),
+    );
+    if (scopeDenied) return scopeDenied;
   }
 
   const status = (c.req.query("status") ?? "success") as BuildLogStatus;

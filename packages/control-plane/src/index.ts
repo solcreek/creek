@@ -37,6 +37,11 @@ import { resources, resourceBindings } from "./modules/resources/routes.js";
 import { aggregateYesterday } from "./modules/metering/aggregate.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
+import {
+  apiKeyAuthRouteGuard,
+  apiKeyRouteGate,
+  publicRoute,
+} from "./modules/tenant/scope-guard.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -68,11 +73,15 @@ app.use("*", logger());
 // service-to-service) omit Origin and pass through; see origin-guard.ts.
 app.use("*", originGuard);
 
+// API key requests must hit a route that declares what a key needs (see
+// tenant/scope-guard.ts); anything else is refused before it runs.
+app.use("*", apiKeyRouteGate);
+
 // Health check
-app.get("/health", (c) => c.json({ status: "ok" }));
+app.get("/health", publicRoute, (c) => c.json({ status: "ok" }));
 
 // Better Auth routes (signup, login, OAuth callbacks, session, API key management)
-app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   try {
     const auth = createAuth(c.env);
     return await auth.handler(c.req.raw);
@@ -90,7 +99,7 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 });
 
 // GitHub webhook endpoint (UNAUTHENTICATED — GitHub sends these, verified via HMAC)
-app.post("/webhooks/github", async (c) => {
+app.post("/webhooks/github", publicRoute, async (c) => {
   const secret = c.env.GITHUB_WEBHOOK_SECRET;
   if (!secret) {
     console.error("GITHUB_WEBHOOK_SECRET not configured");

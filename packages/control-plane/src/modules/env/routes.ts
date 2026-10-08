@@ -6,6 +6,7 @@ import { recordAudit } from "../audit/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { encrypt, mask } from "./crypto.js";
+import { requireScopes } from "../tenant/scope-guard.js";
 
 type EnvVarEnv = {
   Bindings: Env;
@@ -21,7 +22,7 @@ type EnvVarEnv = {
 const envVars = new Hono<EnvVarEnv>();
 
 // List env vars for a project (values masked)
-envVars.get("/:projectId/env", async (c) => {
+envVars.get("/:projectId/env", requireScopes("env:read"), async (c) => {
   const teamId = c.get("teamId");
   const projectId = c.req.param("projectId");
 
@@ -47,102 +48,115 @@ envVars.get("/:projectId/env", async (c) => {
 });
 
 // Set an env var (create or update)
-envVars.post("/:projectId/env", requirePermission("envvar:manage"), async (c) => {
-  const teamId = c.get("teamId");
-  const projectId = c.req.param("projectId");
+envVars.post(
+  "/:projectId/env",
+  requireScopes("env:write"),
+  requirePermission("envvar:manage"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const body = await c.req.json<{ key: string; value: string }>();
+    const body = await c.req.json<{ key: string; value: string }>();
 
-  if (!body.key || typeof body.key !== "string") {
-    return c.json({ error: "validation", message: "key is required" }, 400);
-  }
-  if (!body.value || typeof body.value !== "string") {
-    return c.json({ error: "validation", message: "value is required" }, 400);
-  }
-  if (!/^[A-Z_][A-Z0-9_]*$/.test(body.key)) {
-    return c.json(
-      {
-        error: "validation",
-        message: "Key must be uppercase alphanumeric with underscores (e.g. DATABASE_URL)",
-      },
-      400,
-    );
-  }
+    if (!body.key || typeof body.key !== "string") {
+      return c.json({ error: "validation", message: "key is required" }, 400);
+    }
+    if (!body.value || typeof body.value !== "string") {
+      return c.json({ error: "validation", message: "value is required" }, 400);
+    }
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(body.key)) {
+      return c.json(
+        {
+          error: "validation",
+          message: "Key must be uppercase alphanumeric with underscores (e.g. DATABASE_URL)",
+        },
+        400,
+      );
+    }
 
-  const encryptionKey = c.env.ENCRYPTION_KEY;
-  if (!encryptionKey) {
-    return c.json({ error: "config_error", message: "ENCRYPTION_KEY not configured" }, 500);
-  }
+    const encryptionKey = c.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      return c.json({ error: "config_error", message: "ENCRYPTION_KEY not configured" }, 500);
+    }
 
-  const encryptedValue = await encrypt(body.value, encryptionKey);
+    const encryptedValue = await encrypt(body.value, encryptionKey);
 
-  // Upsert: INSERT OR REPLACE on composite PK (projectId, key)
-  await c.env.DB.prepare(
-    `INSERT INTO environment_variable (projectId, key, encryptedValue)
+    // Upsert: INSERT OR REPLACE on composite PK (projectId, key)
+    await c.env.DB.prepare(
+      `INSERT INTO environment_variable (projectId, key, encryptedValue)
      VALUES (?, ?, ?)
      ON CONFLICT (projectId, key) DO UPDATE SET encryptedValue = excluded.encryptedValue`,
-  )
-    .bind(project.id, body.key, encryptedValue)
-    .run();
+    )
+      .bind(project.id, body.key, encryptedValue)
+      .run();
 
-  await recordAudit(
-    c.env.DB,
-    c.get("user"),
-    c.get("teamId"),
-    {
-      action: "envvar.set",
-      resourceType: "envvar",
-      resourceId: projectId,
-      metadata: { key: body.key },
-    },
-    c.get("auditCtx"),
-  );
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "envvar.set",
+        resourceType: "envvar",
+        resourceId: projectId,
+        metadata: { key: body.key },
+      },
+      c.get("auditCtx"),
+    );
 
-  return c.json({ ok: true, key: body.key }, 201);
-});
+    return c.json({ ok: true, key: body.key }, 201);
+  },
+);
 
 // Delete an env var
-envVars.delete("/:projectId/env/:key", requirePermission("envvar:manage"), async (c) => {
-  const teamId = c.get("teamId");
-  const projectId = c.req.param("projectId");
-  const key = c.req.param("key");
+envVars.delete(
+  "/:projectId/env/:key",
+  requireScopes("env:write"),
+  requirePermission("envvar:manage"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
+    const key = c.req.param("key");
 
-  const project = await resolveProject(c.env.DB, projectId!, teamId);
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
 
-  if (!project) {
-    return c.json({ error: "not_found", message: "Project not found" }, 404);
-  }
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
 
-  const result = await c.env.DB.prepare(
-    "DELETE FROM environment_variable WHERE projectId = ? AND key = ?",
-  )
-    .bind(project.id, key)
-    .run();
+    const result = await c.env.DB.prepare(
+      "DELETE FROM environment_variable WHERE projectId = ? AND key = ?",
+    )
+      .bind(project.id, key)
+      .run();
 
-  if (!result.meta.changes) {
-    return c.json({ error: "not_found", message: `Environment variable '${key}' not found` }, 404);
-  }
+    if (!result.meta.changes) {
+      return c.json(
+        { error: "not_found", message: `Environment variable '${key}' not found` },
+        404,
+      );
+    }
 
-  await recordAudit(
-    c.env.DB,
-    c.get("user"),
-    c.get("teamId"),
-    {
-      action: "envvar.delete",
-      resourceType: "envvar",
-      resourceId: projectId,
-      metadata: { key },
-    },
-    c.get("auditCtx"),
-  );
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "envvar.delete",
+        resourceType: "envvar",
+        resourceId: projectId,
+        metadata: { key },
+      },
+      c.get("auditCtx"),
+    );
 
-  return c.json({ ok: true });
-});
+    return c.json({ ok: true });
+  },
+);
 
 export { envVars };
