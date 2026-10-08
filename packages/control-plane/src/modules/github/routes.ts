@@ -211,11 +211,15 @@ github.post("/connect", requireScopes("github:write", "deploy:production"), asyn
 
   const id = crypto.randomUUID();
   const productionBranch = body.productionBranch ?? "main";
-  await c.env.DB.prepare(
-    `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-  )
-    .bind(
+  // One batch (a single transaction): the connection and the project must
+  // never disagree about the production branch, even for a moment — GitHub
+  // deploys decide production from the connection, while API deploys and
+  // API key scope checks read project.productionBranch.
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+    ).bind(
       id,
       body.projectId,
       body.installationId,
@@ -224,18 +228,11 @@ github.post("/connect", requireScopes("github:write", "deploy:production"), asyn
       body.repoName,
       productionBranch,
       Date.now(),
-    )
-    .run();
-
-  // Also update project.githubRepo, and keep project.productionBranch equal
-  // to the connection's: GitHub deploys decide production from the
-  // connection, while API deploys and API key scope checks read the project,
-  // so the two must never disagree about which branch is production.
-  await c.env.DB.prepare(
-    "UPDATE project SET githubRepo = ?, productionBranch = ?, updatedAt = ? WHERE id = ?",
-  )
-    .bind(`${body.repoOwner}/${body.repoName}`, productionBranch, Date.now(), body.projectId)
-    .run();
+    ),
+    c.env.DB.prepare(
+      "UPDATE project SET githubRepo = ?, productionBranch = ?, updatedAt = ? WHERE id = ?",
+    ).bind(`${body.repoOwner}/${body.repoName}`, productionBranch, Date.now(), body.projectId),
+  ]);
 
   return c.json({ ok: true, connectionId: id, repoId }, 201);
 });
