@@ -24,6 +24,14 @@ if [[ ! -d "$VERIFY_CREEK_RUN" ]]; then
   exit 0
 fi
 
+# A local control-plane started by control-plane.sh runs from this directory:
+# stop it (by the PID it recorded) before deleting its data.
+cp_pid_file="$VERIFY_CREEK_RUN/control-plane/pid"
+if [[ -f "$cp_pid_file" ]]; then
+  kill "$(cat "$cp_pid_file")" 2>/dev/null || true
+  echo "verify-creek cleanup: stopped local control-plane" >&2
+fi
+
 rm -rf "$VERIFY_CREEK_RUN"
 echo "verify-creek cleanup: removed $VERIFY_CREEK_RUN" >&2
 echo "verify-creek cleanup: artifacts left at $VERIFY_CREEK_ARTIFACTS" >&2
