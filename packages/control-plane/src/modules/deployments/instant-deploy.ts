@@ -50,6 +50,17 @@ instantDeploy.post("/", requireScopes("project:write", "deploy:production"), asy
     );
   }
 
+  // Same rule as POST /projects: "{slug}-git-{branch}" names branch deploys,
+  // so a project slug containing "-git-" could share a script name with
+  // another project's branch deploy, and that branch deploy would replace
+  // this project's production script.
+  if (body.slug.includes("-git-")) {
+    return c.json(
+      { error: "validation", message: "Slug cannot contain '-git-' (reserved for branch URLs)" },
+      400,
+    );
+  }
+
   if (!body.files || Object.keys(body.files).length === 0) {
     return c.json({ error: "validation", message: "At least one file is required" }, 400);
   }
