@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 
 export const opsCommand = defineCommand({
   meta: {
@@ -39,15 +39,40 @@ async function listDeployments(jsonMode: boolean, envFilter?: string) {
   const apiUrl = getApiUrl();
   const token = getToken();
   if (!token) {
-    jsonOutput({ error: "Not authenticated", hint: "Run `creek login` first" }, 1);
+    jsonOutput(
+      { ok: false, error: "not_authenticated", message: "Not authenticated" },
+      1,
+      AUTH_BREADCRUMBS,
+    );
   }
 
+  // The control-plane reads API keys from x-api-key (it ignores Bearer).
   const res = await fetch(`${apiUrl}/web-deploy/list`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { "x-api-key": token! },
   });
 
+  if (res.status === 401) {
+    jsonOutput(
+      { ok: false, error: "not_authenticated", message: "Invalid or expired API key" },
+      1,
+      AUTH_BREADCRUMBS,
+    );
+  }
+  if (res.status === 403) {
+    jsonOutput(
+      {
+        ok: false,
+        error: "forbidden",
+        message: "`creek ops deployments` requires a platform admin account",
+      },
+      1,
+    );
+  }
   if (!res.ok) {
-    jsonOutput({ error: `Failed to fetch deployments: ${res.status}` }, 1);
+    jsonOutput(
+      { ok: false, error: "api_error", message: `Failed to fetch deployments: ${res.status}` },
+      1,
+    );
   }
 
   let deploys = (await res.json()) as any[];

@@ -6,11 +6,15 @@
  *
  * These routes are called from creek.dev/new (browser) and are
  * rate-limited by IP. No login required — uses sandbox infrastructure.
+ *
+ * Exception: GET /web-deploy/list lists every visitor's deploy, so it
+ * requires a platform admin.
  */
 
 import { Hono } from "hono";
 import type { Env } from "../../types.js";
 import { isAllowedOrigin } from "../tenant/origin-guard.js";
+import { requirePlatformAdmin } from "../tenant/platform-admin.js";
 import {
   buildAndDeploy,
   fetchCommitSha,
@@ -128,8 +132,9 @@ webDeploy.post("/", async (c) => {
   return c.json({ buildId, statusUrl: `/web-deploy/${buildId}` }, 202);
 });
 
-// GET /web-deploy/list — aggregated deployments (KV in-flight + sandbox-db history)
-webDeploy.get("/list", async (c) => {
+// GET /web-deploy/list — aggregated deployments (KV in-flight + sandbox-db history).
+// Platform admin only: the result holds every visitor's preview URL.
+webDeploy.get("/list", requirePlatformAdmin, async (c) => {
   // 1. KV: in-flight builds
   const keys = await c.env.BUILD_STATUS.list({ prefix: "build:" });
   const kvBuilds = await Promise.all(

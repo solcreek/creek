@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { LocalD1Database } from "./d1-adapter.js";
 import { LocalR2Bucket } from "./r2-adapter.js";
 import { LocalKVNamespace } from "./kv-adapter.js";
+import { mountLocalPreview } from "./preview-route.js";
 import type { Env } from "../types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -109,7 +110,9 @@ async function main() {
 
   // Import the app — it's a module-level const so we need dynamic import
   // and inject env via Hono's middleware
-  const { default: worker } = await import("../index.js");
+  const { default: worker, app } = await import("../index.js");
+  // Local-only routes go on before the first request builds the router.
+  mountLocalPreview(app);
 
   // The CF Worker export is { fetch, scheduled }. We need the fetch function.
   const workerFetch = worker.fetch;
