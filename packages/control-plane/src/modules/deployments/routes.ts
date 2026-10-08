@@ -125,7 +125,9 @@ deployments.post(
         // Try multiple cache key patterns (with and without branch)
         const repoUrl = await getProjectRepoUrl(c.env.DB, project.id);
         if (repoUrl) {
-          const branch = body.branch || "main";
+          // No branch means the production branch — as for the scope check
+          // above and the deploy itself — so look up that branch's build.
+          const branch = body.branch || project.productionBranch;
           const cacheKey = `bundlecache:${repoUrl}:${branch}:${body.commitSha}`;
           const cached = await c.env.BUILD_STATUS.get(cacheKey);
           if (cached) {

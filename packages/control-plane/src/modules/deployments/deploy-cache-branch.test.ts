@@ -61,6 +61,43 @@ describe("build-cache deploy and the production branch", () => {
     expect([branch, productionBranch]).toEqual(["main", "release"]);
   });
 
+  it("looks up the production branch's build when no branch is given", async () => {
+    const owner = await setup("release");
+    // Only main's build is cached for this commit: a branchless (production)
+    // request must not deploy it.
+    await f.env.BUILD_STATUS.delete(`bundlecache:https://github.com/acme/site:release:abc123`);
+    const key = await f.scopedKey(owner.userId, owner.orgId, ["deploy:production"]);
+    const miss = await f.call(
+      "POST",
+      "/projects/site/deployments",
+      { "x-api-key": key },
+      { commitSha: "abc123" },
+    );
+    expect(miss.status).toBe(201);
+    expect(((await miss.json()) as { cacheHit: boolean }).cacheHit).toBe(false);
+    await f.settle();
+    expect(deploy).not.toHaveBeenCalled();
+
+    // With release's build cached, the same request deploys it as production.
+    const mainBuild = await f.env.BUILD_STATUS.get(
+      `bundlecache:https://github.com/acme/site:main:abc123`,
+    );
+    await f.env.BUILD_STATUS.put(
+      `bundlecache:https://github.com/acme/site:release:abc123`,
+      mainBuild!,
+    );
+    const hit = await f.call(
+      "POST",
+      "/projects/site/deployments",
+      { "x-api-key": key },
+      { commitSha: "abc123" },
+    );
+    expect(((await hit.json()) as { cacheHit: boolean }).cacheHit).toBe(true);
+    await f.settle();
+    const [, , , , , branch, productionBranch] = deploy.mock.calls[0] as unknown[];
+    expect([branch, productionBranch]).toEqual([undefined, "release"]);
+  });
+
   it("refuses a cache hit on the production branch to deploy:preview before deploying", async () => {
     const owner = await setup("release");
     const key = await f.scopedKey(owner.userId, owner.orgId, ["deploy:preview"]);
