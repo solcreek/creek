@@ -38,6 +38,12 @@ export const requirePlatformAdmin = markGuard(
       if (!grant) {
         return c.json({ error: "unauthorized", message: "Missing or invalid authentication" }, 401);
       }
+      if (grant.kind === "invalid") {
+        return c.json(
+          { error: "invalid_key_scopes", message: "This API key's scopes are unreadable" },
+          403,
+        );
+      }
       if (grant.kind !== "legacy") {
         return c.json(
           { error: "forbidden", message: "Scoped API keys cannot use platform admin endpoints" },

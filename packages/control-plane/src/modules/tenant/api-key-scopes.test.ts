@@ -552,6 +552,13 @@ describe("platform admin endpoints", () => {
     expect([res.status, await errorOf(res)]).toEqual([403, "forbidden"]);
   });
 
+  it("refuse a platform admin's key with unreadable scopes as invalid_key_scopes", async () => {
+    const key = await f.scopedKey(owner.userId, owner.orgId, ALL_SCOPES);
+    await f.sql("UPDATE apikey SET permissions = '[]'");
+    const res = await f.call("GET", "/web-deploy/list", { "x-api-key": key });
+    expect([res.status, await errorOf(res)]).toEqual([403, "invalid_key_scopes"]);
+  });
+
   it("still accept a platform admin's legacy key", async () => {
     const key = await f.legacyKey(owner.cookie);
     expect((await f.call("GET", "/web-deploy/list", { "x-api-key": key })).status).toBe(200);
