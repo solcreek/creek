@@ -9,7 +9,7 @@ A scoped API key can do only what its scopes allow, only in the team it is pinne
 - `scoped-refused` refuses a command outside the key's scopes (`creek env set`) without changing anything.
 - `legacy-unchanged` runs the same refused command with a legacy key.
 - `platform-admin-refused` refuses `creek ops deployments` to a platform admin's scoped key.
-- `http-probe` checks the rules over raw HTTP: auth endpoints, path and header tricks, team pinning, deploy scope by branch.
+- `http-probe` checks the rules over raw HTTP: auth endpoints, path and header tricks, team pinning, deploy scope by branch, and a preview deploy that would add a binding or a queue to the project.
 
 ## How to get to it (user POV)
 
