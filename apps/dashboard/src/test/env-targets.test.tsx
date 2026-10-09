@@ -36,7 +36,10 @@ describe("env vars page: deploy targets", () => {
       http.get(`${API_URL}/projects/proj-1/env`, () => HttpResponse.json([])),
       http.post(`${API_URL}/projects/proj-1/env`, async ({ request }) => {
         posted = await request.json();
-        return HttpResponse.json({ ok: true, key: "STRIPE_KEY", target: "production" }, { status: 201 });
+        return HttpResponse.json(
+          { ok: true, key: "STRIPE_KEY", target: "production" },
+          { status: 201 },
+        );
       }),
     );
     renderWithProviders(<EnvVarsPanel projectId="proj-1" />);
