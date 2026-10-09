@@ -78,19 +78,6 @@ const CF_TO_KIND: Record<string, string> = {
 // --- Core: ensure bindings for deploy ---
 
 /**
- * Resolves bindings from two sources:
- *   - Server-side attachments (`creek <kind> attach`): every existing
- *     d1/r2/kv `project_resource_binding` with a provisioned CF resource is
- *     bound, so an attached resource reaches the worker even when the bundle's
- *     config doesn't declare it. (Other kinds like queues are wired
- *     separately and aren't seeded here.)
- *   - The CLI bundle's requirements: for each, reuse the existing binding
- *     (provisioning CF if needed) or auto-create a resource + binding.
- *     A requirement overrides a server attachment of the same name.
- *
- * Returns resolved resource rows keyed by binding name.
- */
-/**
  * The binding names a deploy would add to the project, without changing
  * anything. ensureProjectBindings binds a new name — creating a resource, or
  * adopting a deprecated alias's resource — for every requirement whose name
@@ -118,6 +105,19 @@ export async function bindingsADeployWouldAdd(
   return [...added];
 }
 
+/**
+ * Resolves bindings from two sources:
+ *   - Server-side attachments (`creek <kind> attach`): every existing
+ *     d1/r2/kv `project_resource_binding` with a provisioned CF resource is
+ *     bound, so an attached resource reaches the worker even when the bundle's
+ *     config doesn't declare it. (Other kinds like queues are wired
+ *     separately and aren't seeded here.)
+ *   - The CLI bundle's requirements: for each, reuse the existing binding
+ *     (provisioning CF if needed) or auto-create a resource + binding.
+ *     A requirement overrides a server attachment of the same name.
+ *
+ * Returns resolved resource rows keyed by binding name.
+ */
 export async function ensureProjectBindings(
   env: Env,
   projectId: string,
