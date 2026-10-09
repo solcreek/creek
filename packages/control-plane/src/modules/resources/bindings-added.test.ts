@@ -173,10 +173,12 @@ describe("upload check and deploy job agree", () => {
       expect(refused, `${label} predicted=${predicted}`).toBe(predicted.length > 0);
       expect((await bindingNames()).sort(), label).toEqual([...before].sort());
 
-      // 2. Independent oracle: what the unrestricted job actually does. The
-      //    prediction must equal the binding names it inserts, plus AI when it
-      //    turns Workers AI on (an ai requirement) without binding any AI
-      //    resource and none was bound before.
+      // 2. Against what the unrestricted job does. Observed: the binding names
+      //    ensureProjectBindings inserts. Specified, not observed: the AI term
+      //    — runDeployJob (not this function) turns Workers AI on for any ai
+      //    requirement, so the expected AI addition restates that rule here.
+      //    preview-bindings.test.ts runs the real job for the borrowed-name
+      //    case (refused) and the custom-name case (accepted).
       await ensureProjectBindings(f.env, projectId, owner.orgId, requirements);
       const inserted = (await bindingNames()).filter((n) => !before.includes(n));
       const hadAi = boundAi.size > 0;
