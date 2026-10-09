@@ -328,6 +328,7 @@ deployments.put(
       }
       const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
 
+      let mayAddBindings = true;
       // A deploy binds every resource its bundle declares, creating the ones
       // the project lacks, and those bindings are the project's: production
       // picks them up on its next deploy. So a preview deploy by a scoped key
@@ -337,6 +338,7 @@ deployments.put(
       if (deployScopeFor(deployment.branch, project.productionBranch) === "deploy:preview") {
         const cannotManageResources = assertScope(c, "resource:write");
         if (cannotManageResources) {
+          mayAddBindings = false;
           const { bindingsADeployWouldAdd } = await import("../resources/service.js");
           const added = await bindingsADeployWouldAdd(
             c.env,
@@ -397,6 +399,7 @@ deployments.put(
         branch: deployment.branch,
         productionBranch: project.productionBranch,
         framework: project.framework,
+        mayAddBindings,
       };
 
       if (c.env.DEPLOY_JOBS) {

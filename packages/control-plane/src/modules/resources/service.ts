@@ -77,6 +77,16 @@ const CF_TO_KIND: Record<string, string> = {
 
 // --- Core: ensure bindings for deploy ---
 
+/** A deploy that may only use existing bindings declared a new one. */
+export class BindingNotAllowedError extends Error {
+  constructor(public readonly bindingName: string) {
+    super(
+      `This deploy cannot add ${bindingName} to the project: it may only use bindings the project already has (a preview deploy by a key without resource:write)`,
+    );
+    this.name = "BindingNotAllowedError";
+  }
+}
+
 /**
  * The binding names a deploy would add to the project, without changing
  * anything. ensureProjectBindings binds a new name — creating a resource, or
@@ -123,7 +133,9 @@ export async function ensureProjectBindings(
   projectId: string,
   teamId: string,
   requirements: BundleBindingRequirement[],
+  opts: { mayAddBindings?: boolean } = {},
 ): Promise<Map<string, { bindingName: string; cfResourceId: string; cfType: string }>> {
+  const mayAddBindings = opts.mayAddBindings !== false;
   // Fetch existing bindings for this project
   const existingRows = await env.DB.prepare(
     `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
@@ -200,6 +212,10 @@ export async function ensureProjectBindings(
     // first deployed under the old name (DB) that now deploys under the new
     // primary (DATABASE) gets a SECOND, empty database bound as DATABASE while
     // its data stays in DB: a split-brain across two D1s.
+    // Past this point the requirement's name is not bound: binding it (by
+    // adopting an alias's resource or creating one) changes the project.
+    if (!mayAddBindings) throw new BindingNotAllowedError(req.bindingName);
+
     const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
     const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
     const aliasCfType = aliasBinding
@@ -291,6 +307,7 @@ export async function ensureQueue(
   env: Env,
   projectId: string,
   teamId: string,
+  opts: { mayAddBindings?: boolean } = {},
 ): Promise<{ cfResourceId: string; cfResourceName: string }> {
   // Check for existing queue binding
   const existing = await env.DB.prepare(
@@ -305,6 +322,10 @@ export async function ensureQueue(
   if (existing?.cfResourceId) {
     const name = `creek-q-${existing.resourceId.slice(0, 8)}`;
     return { cfResourceId: existing.cfResourceId, cfResourceName: name };
+  }
+
+  if (!existing && opts.mayAddBindings === false) {
+    throw new BindingNotAllowedError(BINDING_NAMES.queue);
   }
 
   // Create queue resource

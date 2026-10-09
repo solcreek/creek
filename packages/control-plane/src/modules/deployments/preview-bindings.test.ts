@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFixture, type Fixture } from "../tenant/scoped-key-fixture.js";
+import { runDeployJob } from "./deploy-job.js";
 import type { Scope } from "../tenant/scopes.js";
 
 // The real deploy job runs (SQLite); only Cloudflare and the edge deploy are
@@ -201,6 +202,85 @@ describe("preview deploys and new bindings", () => {
     expect(await projectState()).toEqual(before);
     expect(deploy).not.toHaveBeenCalled();
     expect(await f.env.ASSETS.get("bundles/dep-prev.json")).toBeNull();
+  });
+
+  // The upload check runs before the job; the job runs later (queued, maybe
+  // retried). A binding detached in between must not be re-created.
+  describe("the deploy job enforces the same rule", () => {
+    async function runJob(
+      bindings: { type: string; bindingName: string }[],
+      queue: boolean,
+      mayAddBindings?: boolean,
+    ) {
+      await f.env.ASSETS.put("bundles/dep-prev.json", JSON.stringify(bundle(bindings, queue)));
+      await runDeployJob(f.env, {
+        deploymentId: "dep-prev",
+        projectId: "p",
+        projectSlug: "site",
+        teamId: owner.orgId,
+        teamSlug: owner.orgSlug,
+        plan: "free",
+        branch: "feature",
+        productionBranch: "main",
+        ...(mayAddBindings === undefined ? {} : { mayAddBindings }),
+      });
+      const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+        "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prev'",
+      );
+      return dep;
+    }
+
+    it("fails instead of re-creating a binding detached after the upload check", async () => {
+      // Accepted at upload while DB was bound; detached before the job ran.
+      await f.sql("DELETE FROM project_resource_binding WHERE bindingName = 'DB'");
+      const before = await projectState();
+      const dep = await runJob([{ type: "d1", bindingName: "DB" }], false, false);
+      expect(dep.status).toBe("failed");
+      expect(dep.errorMessage).toContain("cannot add DB");
+      expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("fails instead of creating the queue", async () => {
+      const before = await projectState();
+      const dep = await runJob([{ type: "d1", bindingName: "DB" }], true, false);
+      expect([dep.status, dep.errorMessage]).toEqual(["failed", expect.stringContaining("QUEUE")]);
+      expect(await projectState()).toEqual(before);
+    });
+
+    it("deploys with existing bindings when it may not add any", async () => {
+      const dep = await runJob([{ type: "d1", bindingName: "DB" }], false, false);
+      expect(dep.status).toBe("active");
+      expect(deploy).toHaveBeenCalledTimes(1);
+    });
+
+    it("provisions as before for jobs that may add bindings, and for messages queued before the field existed", async () => {
+      for (const mayAdd of [true, undefined]) {
+        await f.sql("UPDATE deployment SET status = 'queued' WHERE id = 'dep-prev'");
+        const dep = await runJob([{ type: "kv", bindingName: `CACHE_${mayAdd}` }], false, mayAdd);
+        expect(dep.status, String(mayAdd)).toBe("active");
+      }
+      expect((await projectState()).bindings).toEqual(["CACHE_true", "CACHE_undefined", "DB"]);
+    });
+
+    it("hands the upload's decision to the queued job", async () => {
+      const sent: { mayAddBindings?: boolean }[] = [];
+      (f.env as { DEPLOY_JOBS?: unknown }).DEPLOY_JOBS = {
+        send: async (msg: { mayAddBindings?: boolean }) => void sent.push(msg),
+      };
+      const existingOnly = bundle([{ type: "d1", bindingName: "DB" }]);
+      const reset = () => f.sql("UPDATE deployment SET status = 'queued'");
+
+      await upload(await keyWith(["deploy:preview"]), "dep-prev", existingOnly);
+      await reset();
+      await upload(await keyWith(["deploy:preview", "resource:write"]), "dep-prev", existingOnly);
+      await reset();
+      await upload(await keyWith(["deploy:production"]), "dep-prod", existingOnly);
+      await reset();
+      await upload(await f.legacyKey(owner.cookie), "dep-prev", existingOnly);
+
+      expect(sent.map((m) => m.mayAddBindings)).toEqual([false, true, true, true]);
+    });
   });
 
   it("treats a bound name whose resource row is gone as unbound, as the deploy would", async () => {
