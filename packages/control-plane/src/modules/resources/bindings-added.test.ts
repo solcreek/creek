@@ -81,7 +81,7 @@ describe("upload check and deploy job agree", () => {
   let f: Fixture;
   afterEach(() => f?.cleanup());
 
-  it("on 150 random project states and bundles", async () => {
+  it("on 400 random project states and bundles", async () => {
     f = createFixture();
     const owner = await f.signUp("owner@example.com");
     const rand = rng(0x5eed);
@@ -95,7 +95,10 @@ describe("upload check and deploy job agree", () => {
     ] as const;
     const types = ["d1", "kv", "r2", "ai"];
 
-    for (let i = 0; i < 150; i++) {
+    // Each class of case the decision has to get right, counted so a seed
+    // that stops producing one fails loudly instead of passing vacuously.
+    const seen = { borrowedAi: 0, newAiName: 0, existingAi: 0, newName: 0, nothingAdded: 0 };
+    for (let i = 0; i < 400; i++) {
       const projectId = `p${i}`;
       const now = Date.now();
       await f.sql(
@@ -146,10 +149,18 @@ describe("upload check and deploy job agree", () => {
       }[];
 
       const label = `#${i} reqs=${JSON.stringify(requirements)}`;
-      const added = await bindingsADeployWouldAdd(f.env, projectId, requirements, false);
-      const before = await f.sql(
-        "SELECT bindingName, resourceId FROM project_resource_binding ORDER BY 1, 2",
-      );
+      const bindingNames = async () =>
+        (
+          await f.sql<{ bindingName: string }>(
+            "SELECT bindingName FROM project_resource_binding WHERE projectId = ?",
+            projectId,
+          )
+        ).map((r) => r.bindingName);
+      const predicted = await bindingsADeployWouldAdd(f.env, projectId, requirements, false);
+
+      // 1. The job under mayAddBindings=false refuses exactly when the check
+      //    predicts an addition, and then writes nothing.
+      const before = await bindingNames();
       let refused = false;
       try {
         await ensureProjectBindings(f.env, projectId, owner.orgId, requirements, {
@@ -159,11 +170,33 @@ describe("upload check and deploy job agree", () => {
         if (!(err instanceof BindingNotAllowedError)) throw err;
         refused = true;
       }
-      expect(refused, `${label} added=${added}`).toBe(added.length > 0);
-      const after = await f.sql(
-        "SELECT bindingName, resourceId FROM project_resource_binding ORDER BY 1, 2",
+      expect(refused, `${label} predicted=${predicted}`).toBe(predicted.length > 0);
+      expect((await bindingNames()).sort(), label).toEqual([...before].sort());
+
+      // 2. Independent oracle: what the unrestricted job actually does. The
+      //    prediction must equal the binding names it inserts, plus AI when it
+      //    turns Workers AI on (an ai requirement) without binding any AI
+      //    resource and none was bound before.
+      await ensureProjectBindings(f.env, projectId, owner.orgId, requirements);
+      const inserted = (await bindingNames()).filter((n) => !before.includes(n));
+      const hadAi = boundAi.size > 0;
+      const aiTurnedOnUnbound =
+        requirements.some((r) => r.type === "ai") &&
+        !hadAi &&
+        !requirements.some((r) => r.type === "ai" && inserted.includes(r.bindingName));
+      const actual = [...inserted, ...(aiTurnedOnUnbound ? ["AI"] : [])];
+      expect([...predicted].sort(), `${label} inserted=${inserted}`).toEqual(
+        [...new Set(actual)].sort(),
       );
-      expect(after, label).toEqual(before);
+
+      if (aiTurnedOnUnbound) seen.borrowedAi++;
+      if (requirements.some((r) => r.type === "ai" && inserted.includes(r.bindingName))) {
+        seen.newAiName++;
+      }
+      if (hadAi && requirements.some((r) => r.type === "ai")) seen.existingAi++;
+      if (inserted.length > 0) seen.newName++;
+      if (predicted.length === 0) seen.nothingAdded++;
     }
+    for (const [kind, count] of Object.entries(seen)) expect(count, kind).toBeGreaterThan(0);
   });
 });
