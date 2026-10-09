@@ -3,55 +3,102 @@ import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
 import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
+import type { EnvTarget } from "@solcreek/sdk";
+
+const TARGETS: readonly EnvTarget[] = ["all", "production", "preview"];
+
+const targetArg = {
+  target: {
+    type: "string" as const,
+    description:
+      "Which deploys get this value: production, preview (branch deploys) or all. Default: all",
+  },
+};
+
+/** Parse --target, or exit with invalid_target. */
+function parseTarget(
+  jsonMode: boolean,
+  value: unknown,
+  fallback?: EnvTarget,
+): EnvTarget | undefined {
+  if (value === undefined || value === "") return fallback;
+  if (typeof value === "string" && (TARGETS as readonly string[]).includes(value)) {
+    return value as EnvTarget;
+  }
+  const message = `--target must be one of: ${TARGETS.join(", ")}`;
+  if (jsonMode) jsonOutput({ ok: false, error: "invalid_target", message }, 1);
+  consola.error(message);
+  process.exit(1);
+}
+
+/** The deploys that pick up a change to this target. */
+function appliesOn(target: EnvTarget): string {
+  if (target === "production") return "the next production deploy";
+  if (target === "preview") return "the next branch (preview) deploy";
+  return "the next deploy";
+}
 
 const envSet = defineCommand({
   meta: { name: "set", description: "Set an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name (e.g. DATABASE_URL)", required: true },
     value: { type: "positional", description: "Variable value", required: true },
+    ...targetArg,
     ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    const target = parseTarget(jsonMode, args.target, "all")!;
     const client = requireClient(jsonMode);
     const slug = resolveProjectSlug(undefined, jsonMode);
+    const targetFlag = target === "all" ? "" : ` --target ${target}`;
     if (isDryRun(args)) {
       emitDryRunPlan(jsonMode, {
-        command: `creek env set ${args.key} '$VALUE'`,
+        command: `creek env set ${args.key} '$VALUE'${targetFlag}`,
         wouldExecute: true,
         project: slug,
         key: args.key,
+        target,
         pendingDeploy: true,
         sideEffects: [
-          `Store ${args.key} on project ${slug} (value not logged)`,
-          "Running worker is unchanged until the next production deploy",
+          `Store ${args.key} (${target}) on project ${slug} (value not logged)`,
+          `Running deployments are unchanged until ${appliesOn(target)}`,
           "Replace $VALUE with the real secret; keep the single quotes",
         ],
-        nextStep: `creek env set ${args.key} '$VALUE' --json`,
+        nextStep: `creek env set ${args.key} '$VALUE'${targetFlag} --json`,
       });
       return;
     }
-    await apiCall(jsonMode, "set_failed", () => client.setEnvVar(slug, args.key, args.value));
+    const result = await apiCall(jsonMode, "set_failed", () =>
+      client.setEnvVar(slug, args.key, args.value, target === "all" ? undefined : target),
+    );
+    // A server (or SDK) without targets ignores the target and stores the
+    // value for every deploy — the opposite of what --target production asks
+    // for. Refuse to report success unless the server echoed the target.
+    if ((result.target ?? "all") !== target) {
+      const message = `The server stored ${args.key} for all deploys, not only ${target}: it does not support --target. Remove it with \`creek env rm ${args.key}\` if previews must not see it.`;
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "target_unsupported", message, key: args.key }, 1);
+      consola.error(message);
+      process.exit(1);
+    }
     // Env vars are injected at deploy time — the change is stored but NOT
     // live on the running worker until the next deploy. Signal that
     // structurally so an agent doesn't assume it took effect immediately.
     if (jsonMode)
       jsonOutput(
-        { ok: true, key: args.key, project: slug, applied: false, pendingDeploy: true },
+        { ok: true, key: args.key, target, project: slug, applied: false, pendingDeploy: true },
         0,
         [
-          {
-            command: `creek env ls --project ${slug}`,
-            description: "List all environment variables",
-          },
+          { command: "creek env ls --json", description: "List all environment variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
         ],
       );
-    consola.success(`Set ${args.key}`);
+    consola.success(`Set ${args.key}${target === "all" ? "" : ` for ${target} deploys`}`);
     // Env vars are injected at deploy time, so a change to a live project does
     // nothing until the next deploy. Say so, or it silently 500s on the old value.
-    consola.info("Run `creek deploy` to apply this to your live deployment.");
+    consola.info(`Takes effect on ${appliesOn(target)}.`);
   },
 });
 
@@ -94,7 +141,11 @@ const envGet = defineCommand({
         {
           ok: true,
           project: slug,
-          vars: vars.map((v) => ({ key: v.key, value: args.show ? v.value : redact(v.value) })),
+          vars: vars.map((v) => ({
+            key: v.key,
+            target: v.target ?? "all",
+            value: args.show ? v.value : redact(v.value),
+          })),
         },
         0,
         crumbs,
@@ -108,7 +159,7 @@ const envGet = defineCommand({
 
     for (const v of vars) {
       const displayed = args.show ? v.value : redact(v.value);
-      consola.log(`  ${v.key} = ${displayed}`);
+      consola.log(`  ${v.key} = ${displayed}  (${v.target ?? "all"})`);
     }
 
     if (!args.show) {
@@ -121,34 +172,49 @@ const envRm = defineCommand({
   meta: { name: "rm", description: "Remove an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name to remove", required: true },
+    target: {
+      type: "string" as const,
+      description:
+        "Remove only the value for production, preview or all. Default: every value of the key",
+    },
     ...dryRunArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    const target = parseTarget(jsonMode, args.target);
     const client = requireClient(jsonMode);
     const slug = resolveProjectSlug(undefined, jsonMode);
+    const targetFlag = target ? ` --target ${target}` : "";
     if (isDryRun(args)) {
       const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
-      const exists = vars.some((v) => v.key === args.key);
+      const matching = vars
+        .filter((v) => v.key === args.key && (!target || (v.target ?? "all") === target))
+        .map((v) => v.target ?? "all");
+      const exists = matching.length > 0;
       emitDryRunPlan(jsonMode, {
-        command: `creek env rm ${args.key}`,
+        command: `creek env rm ${args.key}${targetFlag}`,
         wouldExecute: exists,
         project: slug,
         key: args.key,
+        targets: matching,
         exists,
         pendingDeploy: exists,
         sideEffects: exists
           ? [
-              `Remove ${args.key} from project ${slug}`,
-              "Running worker keeps the old value until the next production deploy",
+              `Remove ${args.key} (${matching.join(", ")}) from project ${slug}`,
+              "Running deployments keep the old value until they are redeployed",
             ]
-          : [`${args.key} is not set on ${slug} — nothing to remove`],
-        nextStep: exists ? `creek env rm ${args.key} --json` : `creek env ls --json`,
+          : [
+              `${args.key}${target ? ` (${target})` : ""} is not set on ${slug} — nothing to remove`,
+            ],
+        nextStep: exists ? `creek env rm ${args.key}${targetFlag} --json` : `creek env ls --json`,
       });
       return;
     }
-    await apiCall(jsonMode, "rm_failed", () => client.deleteEnvVar(slug, args.key));
+    const result = await apiCall(jsonMode, "rm_failed", () =>
+      client.deleteEnvVar(slug, args.key, target),
+    );
     // Same deploy-time injection as `set`: the var is removed from the
     // store but the running worker keeps the old value until redeploy.
     if (jsonMode)
@@ -156,19 +222,21 @@ const envRm = defineCommand({
         {
           ok: true,
           key: args.key,
+          ...(target ? { target } : {}),
           removed: true,
+          removedValues: result.removed ?? 1,
           project: slug,
           applied: false,
           pendingDeploy: true,
         },
         0,
         [
-          { command: `creek env ls --project ${slug}`, description: "List remaining variables" },
+          { command: "creek env ls --json", description: "List remaining variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
         ],
       );
-    consola.success(`Removed ${args.key}`);
-    consola.info("Run `creek deploy` to apply this to your live deployment.");
+    consola.success(`Removed ${args.key}${target ? ` (${target})` : ""}`);
+    consola.info("Running deployments keep the old value until they are redeployed.");
   },
 });
 
