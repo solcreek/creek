@@ -307,7 +307,8 @@ describe("MCP authenticated tools", () => {
       project: "hello",
       keys: ["DATABASE_URL"],
     });
-    expect(lsPayload).not.toHaveProperty("vars");
+    // Key and target only; a server without targets means "all".
+    expect(lsPayload.vars).toEqual([{ key: "DATABASE_URL", target: "all" }]);
     expect(JSON.stringify(lsPayload)).not.toContain("DATA****");
     expect(JSON.stringify(lsPayload)).not.toContain("value");
     const set = await tools.get("env_set")!({
@@ -324,6 +325,49 @@ describe("MCP authenticated tools", () => {
     });
     expect(payload.nextStep).toContain("deploy_prod");
     expect(JSON.stringify(payload)).not.toContain("super-secret");
+  });
+
+  it("env_set / env_rm pass a target, and env_set refuses a server that ignored it", async () => {
+    let posted: unknown;
+    let deleted = "";
+    let echoTarget: string | undefined = "production";
+    server.use(
+      http.post("https://cp.test/projects/hello/env", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json({ ok: true, key: "STRIPE_KEY", target: echoTarget });
+      }),
+      http.delete("https://cp.test/projects/hello/env/STRIPE_KEY", ({ request }) => {
+        deleted = request.url;
+        return HttpResponse.json({ ok: true, removed: 1 });
+      }),
+    );
+    const tools = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" }));
+    const args = {
+      projectSlug: "hello",
+      key: "STRIPE_KEY",
+      value: "sk_live",
+      target: "production",
+    };
+
+    const ok = JSON.parse((await tools.get("env_set")!(args)).content[0].text);
+    expect(posted).toEqual({ key: "STRIPE_KEY", value: "sk_live", target: "production" });
+    expect(ok).toMatchObject({ ok: true, target: "production" });
+
+    echoTarget = undefined; // a server without targets stored it for all deploys
+    const refused = await tools.get("env_set")!(args);
+    expect(refused.isError).toBe(true);
+    expect(JSON.parse(refused.content[0].text)).toMatchObject({
+      ok: false,
+      error: "target_unsupported",
+    });
+
+    const rm = await tools.get("env_rm")!({
+      projectSlug: "hello",
+      key: "STRIPE_KEY",
+      target: "preview",
+    });
+    expect(new URL(deleted).searchParams.get("target")).toBe("preview");
+    expect(JSON.parse(rm.content[0].text)).toMatchObject({ ok: true, target: "preview" });
   });
 
   it("deploy_prod POSTs /github/deploy-latest and does not wait", async () => {
