@@ -10,9 +10,13 @@ vi.mock("./target.js", () => ({ resolveDeployTarget: () => ({ deploy }) }));
 vi.mock("../resources/cloudflare.js", async (orig) => ({
   ...(await orig<object>()),
   findExistingCFResource: vi.fn(async () => null),
-  provisionCFResource: vi.fn(
-    async (_env: unknown, type: string, name: string) => `cf-${type}-${name}`,
-  ),
+  // Like the real one: only D1/R2/KV can be provisioned.
+  provisionCFResource: vi.fn(async (_env: unknown, type: string, name: string) => {
+    if (type !== "d1" && type !== "r2" && type !== "kv") {
+      throw new Error(`Unknown CF resource type: ${type}`);
+    }
+    return `cf-${type}-${name}`;
+  }),
   getQueue: vi.fn(async () => null),
   createQueue: vi.fn(async (_env: unknown, name: string) => `cfq-${name}`),
   setQueueConsumer: vi.fn(async () => {}),
@@ -182,6 +186,36 @@ describe("preview deploys and new bindings", () => {
     const key = await keyWith(["deploy:preview"]);
     const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "MODEL" }]));
     expect(res.status).toBe(202);
+    // Accepted is not enough: the job must deploy it, with Workers AI on.
+    const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+      "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prev'",
+    );
+    expect([dep.status, dep.errorMessage]).toEqual(["active", null]);
+    const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+      bindings: { type: string; name: string }[];
+    };
+    expect(input.bindings).toContainEqual(expect.objectContaining({ type: "ai", name: "AI" }));
+  });
+
+  it("deploys a project's second Workers AI deploy (it used to fail provisioning the AI row)", async () => {
+    const key = await keyWith(["deploy:production"]);
+    const first = await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "AI" }]));
+    expect(first.status).toBe(202);
+    await f.sql(
+      `INSERT INTO deployment (id, projectId, version, status, branch, triggerType, createdAt, updatedAt)
+       VALUES ('dep-prod-2', 'p', 2, 'queued', 'main', 'cli', ?, ?)`,
+      Date.now(),
+      Date.now(),
+    );
+    const second = await upload(key, "dep-prod-2", bundle([{ type: "ai", bindingName: "AI" }]));
+    expect(second.status).toBe(202);
+    const rows = await f.sql<{ id: string; status: string; errorMessage: string | null }>(
+      "SELECT id, status, errorMessage FROM deployment WHERE id IN ('dep-prod', 'dep-prod-2') ORDER BY id",
+    );
+    expect(rows).toEqual([
+      { id: "dep-prod", status: "active", errorMessage: null },
+      { id: "dep-prod-2", status: "active", errorMessage: null },
+    ]);
   });
 
   it("deploys a preview that only uses what is already bound", async () => {

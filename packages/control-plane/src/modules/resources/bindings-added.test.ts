@@ -10,9 +10,13 @@ import {
 vi.mock("./cloudflare.js", async (orig) => ({
   ...(await orig<object>()),
   findExistingCFResource: vi.fn(async () => null),
-  provisionCFResource: vi.fn(
-    async (_e: unknown, type: string, name: string) => `cf-${type}-${name}`,
-  ),
+  // Like the real one: only D1/R2/KV can be provisioned.
+  provisionCFResource: vi.fn(async (_env: unknown, type: string, name: string) => {
+    if (type !== "d1" && type !== "r2" && type !== "kv") {
+      throw new Error(`Unknown CF resource type: ${type}`);
+    }
+    return `cf-${type}-${name}`;
+  }),
 }));
 
 const row = (bindingName: string, kind: string, cfResourceType: string | null = null) => ({
@@ -139,10 +143,6 @@ describe("upload check and deploy job agree", () => {
       }
       const requirements = names
         .filter(() => rand() < 0.3)
-        // Skip a requirement naming a bound AI row: ensureProjectBindings
-        // tries to provision it and fails on its own (a separate bug), which
-        // would read as a refusal here.
-        .filter((n) => !boundAi.has(n))
         .map((bindingName) => ({ type: pick(types), bindingName })) as {
         type: "d1" | "kv" | "r2" | "ai";
         bindingName: string;

@@ -215,9 +215,14 @@ export async function ensureProjectBindings(
     }
 
     if (existing && !existing.cfResourceId) {
+      const cfType = KIND_TO_CF[existing.kind] ?? existing.cfResourceType ?? req.type;
+      // Only D1/R2/KV have a Cloudflare resource to provision. A Workers AI
+      // row never gets a cfResourceId (runDeployJob wires AI by type), so
+      // provisioning it threw "Unknown CF resource type: ai" and failed every
+      // deploy after a project's first AI deploy. It is bound already: reuse.
+      if (cfType !== "d1" && cfType !== "r2" && cfType !== "kv") continue;
       // Binding exists but CF resource not yet provisioned — provision now
       const cfName = `creek-${existing.resourceId.slice(0, 8)}`;
-      const cfType = KIND_TO_CF[existing.kind] ?? req.type;
       const cfId =
         (await findExistingCFResource(env, cfType, cfName)) ??
         (await provisionCFResource(env, cfType, cfName));
