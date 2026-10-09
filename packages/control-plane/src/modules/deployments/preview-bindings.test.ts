@@ -197,6 +197,38 @@ describe("preview deploys and new bindings", () => {
     expect(input.bindings).toContainEqual(expect.objectContaining({ type: "ai", name: "AI" }));
   });
 
+  it("does not silently drop a binding whose attached resource is AI but whose declared type is not", async () => {
+    // An AI resource attached as CACHE, while the bundle declares CACHE as kv:
+    // the deploy must not go out with neither binding.
+    const now = Date.now();
+    await f.sql(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('r-ai-cache', ?, 'ai', 'ai', NULL, 'ai', 'active', ?, ?)`,
+      owner.orgId,
+      now,
+      now,
+    );
+    await f.sql(
+      "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'CACHE', 'r-ai-cache', ?)",
+      now,
+    );
+    const key = await keyWith(["deploy:production"]);
+    expect(
+      (await upload(key, "dep-prod", bundle([{ type: "kv", bindingName: "CACHE" }]))).status,
+    ).toBe(202);
+    const [dep] = await f.sql<{ status: string }>(
+      "SELECT status FROM deployment WHERE id = 'dep-prod'",
+    );
+    if (dep.status === "active") {
+      const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+        bindings: { type: string; name: string }[];
+      };
+      expect(input.bindings.map((b) => b.name)).toContain("CACHE");
+    } else {
+      expect(dep.status).toBe("failed");
+    }
+  });
+
   it("deploys a project's second Workers AI deploy (it used to fail provisioning the AI row)", async () => {
     const key = await keyWith(["deploy:production"]);
     const first = await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "AI" }]));
