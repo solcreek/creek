@@ -39,7 +39,7 @@ creek deploy --prod --json
 
 - Do not run `creek deploy` or `creek deploy --json` without `--sandbox` or `--prod` in a non-TTY. You will get `confirmation_required`.
 - Do not treat dry-run `wouldDeploy: true` as a license to omit the flags in `nextStep`.
-- Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production secrets and database. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
+- Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production database and every env var not marked `--target production`. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
 - Do not POST to `sandbox-api.creek.dev` yourself. Some egress IPs get Cloudflare 1010. Use the CLI or MCP.
 - Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
