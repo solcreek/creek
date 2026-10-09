@@ -14,6 +14,7 @@ import {
 } from "./release-migrations.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
+import { deployTargetFor, selectForTarget } from "../env/targets.js";
 import { storeBuildLogIfAbsent, storeDeployStageLog } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 import type {
@@ -289,21 +290,31 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       }
     }
 
-    // Load user-defined environment variables
+    // Load user-defined environment variables for this deploy's target: a
+    // branch deploy gets 'preview' values, a production deploy 'production'
+    // ones, each falling back to 'all'. One set for the whole job — the
+    // immutable per-deploy script of a production deploy is production too.
+    const envTarget = deployTargetFor(branch, productionBranch);
     const envVarRows = await env.DB.prepare(
-      "SELECT key, encryptedValue FROM environment_variable WHERE projectId = ?",
+      "SELECT key, target, encryptedValue FROM environment_variable WHERE projectId = ? AND target IN ('all', ?)",
     )
-      .bind(projectId)
-      .all<{ key: string; encryptedValue: string }>();
+      .bind(projectId, envTarget)
+      .all<{ key: string; target: string; encryptedValue: string }>();
+    const envVarsForTarget = selectForTarget(envVarRows.results, envTarget);
+    log(
+      "provision",
+      "info",
+      `Environment variables: ${envVarsForTarget.length} for ${envTarget} deploys`,
+    );
 
     const envVars: { key: string; value: string }[] = [];
     if (env.ENCRYPTION_KEY) {
-      for (const row of envVarRows.results) {
+      for (const row of envVarsForTarget) {
         const value = await decrypt(row.encryptedValue, env.ENCRYPTION_KEY);
         envVars.push({ key: row.key, value });
       }
     } else {
-      for (const row of envVarRows.results) {
+      for (const row of envVarsForTarget) {
         envVars.push({ key: row.key, value: row.encryptedValue });
       }
     }

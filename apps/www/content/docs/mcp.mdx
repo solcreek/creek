@@ -82,25 +82,25 @@ Remote status for one project.
 
 ### `env_ls`
 
-List env var **keys** only (values are never returned).
+List env var **keys** only (values are never returned), with each value's deploy target.
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, project, keys: string[] }`
+**Output:** `{ ok, project, keys: string[], vars: { key, target }[] }`
 
 ### `env_set`
 
-Create or update an env var. Does not restart the worker.
+Create or update an env var. Does not restart the worker. `target` is `production`, `preview` (branch deploys) or `all` (default); a deploy uses its own target's value, else the `all` value.
 
-**Input:** `projectSlug`, `key`, `value`
+**Input:** `projectSlug`, `key`, `value`, `target?`
 
-**Output:** `{ ok, key, pendingDeploy: true, nextStep: "Call deploy_prod …" }` — the value is never echoed.
+**Output:** `{ ok, key, target, pendingDeploy: true, nextStep: "Call deploy_prod …" }` — the value is never echoed. `target_unsupported` means the server stored the value for all deploys.
 
 ### `env_rm`
 
-Remove an env var. Same pending-deploy caveat as `env_set`.
+Remove an env var: one target's value, or every value of the key without `target`. Same pending-deploy caveat as `env_set`.
 
-**Input:** `projectSlug`, `key`
+**Input:** `projectSlug`, `key`, `target?`
 
 ### `deploy_prod`
 
