@@ -33,12 +33,12 @@ export const SCOPES = {
     // High, not moderate: a branch deploy runs with the project's environment
     // variables and resource bindings (deploy-job.ts binds the same D1/R2/KV
     // as production), so code deployed with this scope can read secrets and
-    // read or write production data. Like any deploy, it also provisions the
-    // resources and project bindings its bundle declares
-    // (ensureProjectBindings), which production deploys then pick up — no
-    // resource:write needed. It cannot replace the production script.
+    // read or write production data. It cannot replace the production
+    // script, and it cannot add bindings to the project: a preview bundle
+    // that declares a resource the project lacks is refused unless the key
+    // also holds resource:write (PUT .../bundle).
     description:
-      "Deploy to a non-production branch. The deploy runs with the project's environment variables and resources, including production data, and creates and binds the resources its bundle declares",
+      "Deploy to a non-production branch, using the resources the project already has. The deploy runs with the project's environment variables and resources, including production data",
     risk: "high",
     rolePermission: "deploy:create",
   },

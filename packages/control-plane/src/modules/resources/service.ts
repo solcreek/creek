@@ -90,6 +90,34 @@ const CF_TO_KIND: Record<string, string> = {
  *
  * Returns resolved resource rows keyed by binding name.
  */
+/**
+ * The binding names a deploy would add to the project, without changing
+ * anything. ensureProjectBindings binds a new name — creating a resource, or
+ * adopting a deprecated alias's resource — for every requirement whose name
+ * is not bound yet (same JOIN as there: a binding whose resource row is gone
+ * counts as unbound), and ensureQueue binds QUEUE when the bundle wants a
+ * queue. A bound name whose Cloudflare resource is not provisioned yet is
+ * not new: someone already attached it.
+ */
+export async function bindingsADeployWouldAdd(
+  env: Env,
+  projectId: string,
+  requirements: { bindingName: string }[],
+  wantsQueue: boolean,
+): Promise<string[]> {
+  const rows = await env.DB.prepare(
+    `SELECT b.bindingName FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ?`,
+  )
+    .bind(projectId)
+    .all<{ bindingName: string }>();
+  const bound = new Set(rows.results.map((r) => r.bindingName));
+  const added = new Set(requirements.map((r) => r.bindingName).filter((n) => !bound.has(n)));
+  if (wantsQueue && !bound.has(BINDING_NAMES.queue)) added.add(BINDING_NAMES.queue);
+  return [...added];
+}
+
 export async function ensureProjectBindings(
   env: Env,
   projectId: string,
