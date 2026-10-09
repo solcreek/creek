@@ -197,9 +197,10 @@ describe("preview deploys and new bindings", () => {
     expect(input.bindings).toContainEqual(expect.objectContaining({ type: "ai", name: "AI" }));
   });
 
-  it("does not silently drop a binding whose attached resource is AI but whose declared type is not", async () => {
+  it("fails a deploy whose declared type does not match an attached AI resource, leaving the resource intact", async () => {
     // An AI resource attached as CACHE, while the bundle declares CACHE as kv:
-    // the deploy must not go out with neither binding.
+    // neither drop the binding nor provision a KV onto the team's AI row
+    // (other projects may bind it as AI).
     const now = Date.now();
     await f.sql(
       `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
@@ -216,17 +217,39 @@ describe("preview deploys and new bindings", () => {
     expect(
       (await upload(key, "dep-prod", bundle([{ type: "kv", bindingName: "CACHE" }]))).status,
     ).toBe(202);
-    const [dep] = await f.sql<{ status: string }>(
-      "SELECT status FROM deployment WHERE id = 'dep-prod'",
+    const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+      "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
     );
-    if (dep.status === "active") {
-      const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
-        bindings: { type: string; name: string }[];
-      };
-      expect(input.bindings.map((b) => b.name)).toContain("CACHE");
-    } else {
-      expect(dep.status).toBe("failed");
-    }
+    expect(dep.status).toBe("failed");
+    expect(dep.errorMessage).toContain("CACHE is attached to a ai resource");
+    expect(deploy).not.toHaveBeenCalled();
+    expect(
+      await f.sql(
+        "SELECT kind, cfResourceId, cfResourceType FROM resource WHERE id = 'r-ai-cache'",
+      ),
+    ).toEqual([{ kind: "ai", cfResourceId: null, cfResourceType: "ai" }]);
+
+    // And the reverse: a kv resource attached under a name declared as ai.
+    await f.sql(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('r-kv-unprov', ?, 'cache', 'c', NULL, NULL, 'active', ?, ?)`,
+      owner.orgId,
+      now,
+      now,
+    );
+    await f.sql(
+      "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'MODEL', 'r-kv-unprov', ?)",
+      now,
+    );
+    await f.sql("UPDATE deployment SET status = 'queued' WHERE id = 'dep-prod'");
+    await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "MODEL" }]));
+    const [dep2] = await f.sql<{ status: string; errorMessage: string | null }>(
+      "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+    );
+    expect([dep2.status, dep2.errorMessage]).toEqual([
+      "failed",
+      expect.stringContaining("MODEL is attached to a cache resource"),
+    ]);
   });
 
   it("deploys a project's second Workers AI deploy (it used to fail provisioning the AI row)", async () => {

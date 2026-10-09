@@ -143,7 +143,11 @@ describe("upload check and deploy job agree", () => {
       }
       const requirements = names
         .filter(() => rand() < 0.3)
-        .map((bindingName) => ({ type: pick(types), bindingName })) as {
+        .map((bindingName) => ({ type: pick(types), bindingName }))
+        // A non-ai requirement naming a bound AI resource is a type mismatch
+        // the job rejects in either mode (preview-bindings.test.ts covers it);
+        // it is not an addition, so it has no place in this comparison.
+        .filter((r) => r.type === "ai" || !boundAi.has(r.bindingName)) as {
         type: "d1" | "kv" | "r2" | "ai";
         bindingName: string;
       }[];
