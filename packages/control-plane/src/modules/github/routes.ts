@@ -15,6 +15,7 @@ import {
 import { handlePush } from "./handlers.js";
 import { scanRepo } from "./scan.js";
 import { resolveProject } from "../tenant/resolve-project.js";
+import { requireScopes } from "../tenant/scope-guard.js";
 
 type GitHubEnv = {
   Bindings: Env;
@@ -25,7 +26,7 @@ const github = new Hono<GitHubEnv>();
 
 // --- List installations for current team ---
 
-github.get("/installations", async (c) => {
+github.get("/installations", requireScopes("github:read"), async (c) => {
   const teamId = c.get("teamId");
 
   const rows = await c.env.DB.prepare(
@@ -39,7 +40,7 @@ github.get("/installations", async (c) => {
 
 // --- Claim an installation (associate with current team) ---
 
-github.post("/installations/:id/claim", async (c) => {
+github.post("/installations/:id/claim", requireScopes("github:write"), async (c) => {
   const teamId = c.get("teamId");
   const installationId = parseInt(c.req.param("id"), 10);
 
@@ -78,7 +79,7 @@ github.post("/installations/:id/claim", async (c) => {
 
 // --- List repos for an installation (with scan data) ---
 
-github.get("/installations/:id/repos", async (c) => {
+github.get("/installations/:id/repos", requireScopes("github:read"), async (c) => {
   const teamId = c.get("teamId");
   const installationId = parseInt(c.req.param("id"), 10);
 
@@ -136,7 +137,7 @@ github.get("/installations/:id/repos", async (c) => {
 
 // --- Connect repo to project ---
 
-github.post("/connect", async (c) => {
+github.post("/connect", requireScopes("github:write", "deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const body = await c.req.json<{
     projectId: string;
@@ -209,33 +210,36 @@ github.post("/connect", async (c) => {
   }
 
   const id = crypto.randomUUID();
-  await c.env.DB.prepare(
-    `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-  )
-    .bind(
+  const productionBranch = body.productionBranch ?? "main";
+  // One batch (a single transaction): the connection and the project must
+  // never disagree about the production branch, even for a moment — GitHub
+  // deploys decide production from the connection, while API deploys and
+  // API key scope checks read project.productionBranch.
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO github_connection (id, projectId, installationId, repoId, repoOwner, repoName, productionBranch, autoDeployEnabled, previewEnabled, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+    ).bind(
       id,
       body.projectId,
       body.installationId,
       repoId,
       body.repoOwner,
       body.repoName,
-      body.productionBranch ?? "main",
+      productionBranch,
       Date.now(),
-    )
-    .run();
-
-  // Also update project.githubRepo
-  await c.env.DB.prepare("UPDATE project SET githubRepo = ?, updatedAt = ? WHERE id = ?")
-    .bind(`${body.repoOwner}/${body.repoName}`, Date.now(), body.projectId)
-    .run();
+    ),
+    c.env.DB.prepare(
+      "UPDATE project SET githubRepo = ?, productionBranch = ?, updatedAt = ? WHERE id = ?",
+    ).bind(`${body.repoOwner}/${body.repoName}`, productionBranch, Date.now(), body.projectId),
+  ]);
 
   return c.json({ ok: true, connectionId: id, repoId }, 201);
 });
 
 // --- Trigger initial deploy from latest commit on production branch ---
 
-github.post("/deploy-latest", async (c) => {
+github.post("/deploy-latest", requireScopes("deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const body = await c.req.json<{ projectId: string }>();
 
@@ -314,7 +318,7 @@ github.post("/deploy-latest", async (c) => {
 
 // --- Disconnect ---
 
-github.delete("/connections/:id", async (c) => {
+github.delete("/connections/:id", requireScopes("github:write"), async (c) => {
   const teamId = c.get("teamId");
   const connectionId = c.req.param("id");
 
@@ -344,7 +348,7 @@ github.delete("/connections/:id", async (c) => {
 
 // --- Get the connection for a single project (team-scoped) ---
 
-github.get("/connections/by-project/:projectId", async (c) => {
+github.get("/connections/by-project/:projectId", requireScopes("github:read"), async (c) => {
   const teamId = c.get("teamId");
   const projectIdOrSlug = c.req.param("projectId");
 
@@ -372,7 +376,7 @@ github.get("/connections/by-project/:projectId", async (c) => {
 
 // --- List connections for team ---
 
-github.get("/connections", async (c) => {
+github.get("/connections", requireScopes("github:read"), async (c) => {
   const teamId = c.get("teamId");
 
   const rows = await c.env.DB.prepare(
@@ -389,7 +393,7 @@ github.get("/connections", async (c) => {
 
 // --- Trigger re-scan ---
 
-github.post("/scan/:owner/:repo", async (c) => {
+github.post("/scan/:owner/:repo", requireScopes("github:write"), async (c) => {
   const teamId = c.get("teamId");
   const owner = c.req.param("owner");
   const repo = c.req.param("repo");

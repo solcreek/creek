@@ -38,6 +38,12 @@ const ROLE_PERMISSIONS: Record<string, Set<Permission>> = {
   member: new Set(["project:read", "deploy:read", "deploy:create"]),
 };
 
+/** Whether a team role grants a permission. Unknown or missing roles grant nothing. */
+export function roleGrants(role: string | undefined | null, perm: Permission): boolean {
+  if (!role || !Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, role)) return false;
+  return ROLE_PERMISSIONS[role].has(perm);
+}
+
 type RbacEnv = {
   Bindings: Env;
   Variables: TenantContext;

@@ -478,11 +478,14 @@ describe("POST /github/connect", () => {
     expect(conn.repoName).toBe("my-app");
     expect(conn.productionBranch).toBe("dev");
 
-    // Verify DB: project.githubRepo updated
+    // Verify DB: project.githubRepo updated, and the project's production
+    // branch follows the connection's (API deploys and API key scope checks
+    // read the project; GitHub deploys read the connection).
     const proj = testEnv.db.db
-      .prepare("SELECT githubRepo FROM project WHERE id = 'proj-1'")
+      .prepare("SELECT githubRepo, productionBranch FROM project WHERE id = 'proj-1'")
       .get() as any;
     expect(proj.githubRepo).toBe("linyiru/my-app");
+    expect(proj.productionBranch).toBe("dev");
   });
 
   test("still creates connection when getRepoInfo fails (repoId = null)", async () => {

@@ -22,13 +22,14 @@ import {
   hashIp,
   type DeployRequest,
 } from "./build-and-deploy.js";
+import { publicRoute } from "../tenant/scope-guard.js";
 
 type AppEnv = { Bindings: Env };
 
 export const webDeploy = new Hono<AppEnv>();
 
 // POST /web-deploy — trigger build
-webDeploy.post("/", async (c) => {
+webDeploy.post("/", publicRoute, async (c) => {
   // CSRF: only allow creek.dev origins (shared allowlist with originGuard)
   const origin = c.req.header("origin");
   if (origin && !isAllowedOrigin(origin)) {
@@ -182,7 +183,7 @@ webDeploy.get("/list", requirePlatformAdmin, async (c) => {
 // so the UI can show "⚡ Turbo — instant deploy" before the user clicks.
 // Public, unauthenticated, cheap (one GitHub API call + one KV read).
 // Must be defined BEFORE /:buildId so Hono routes it correctly.
-webDeploy.get("/preflight", async (c) => {
+webDeploy.get("/preflight", publicRoute, async (c) => {
   const repo = c.req.query("repo");
   const branch = c.req.query("branch") || "main";
   const path = c.req.query("path");
@@ -224,7 +225,7 @@ webDeploy.get("/preflight", async (c) => {
 });
 
 // GET /web-deploy/:buildId — poll status
-webDeploy.get("/:buildId", async (c) => {
+webDeploy.get("/:buildId", publicRoute, async (c) => {
   const buildId = c.req.param("buildId");
   const data = await c.env.BUILD_STATUS.get(`build:${buildId}`);
   if (!data) return c.json({ error: "Build not found" }, 404);

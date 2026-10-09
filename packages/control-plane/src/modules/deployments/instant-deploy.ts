@@ -4,6 +4,7 @@ import type { AuditRequestContext } from "../audit/types.js";
 import { shortDeployId } from "./deploy.js";
 import { resolveDeployTarget } from "./target.js";
 import { recordAudit } from "../audit/service.js";
+import { requireScopes } from "../tenant/scope-guard.js";
 
 type InstantDeployEnv = {
   Bindings: Env;
@@ -31,7 +32,7 @@ const instantDeploy = new Hono<InstantDeployEnv>();
  *
  * → 201 { url, previewUrl, deploymentId }
  */
-instantDeploy.post("/", async (c) => {
+instantDeploy.post("/", requireScopes("project:write", "deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
 
@@ -45,6 +46,17 @@ instantDeploy.post("/", async (c) => {
   if (!body.slug || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.slug)) {
     return c.json(
       { error: "validation", message: "Slug must be lowercase alphanumeric with hyphens" },
+      400,
+    );
+  }
+
+  // Same rule as POST /projects: "{slug}-git-{branch}" names branch deploys,
+  // so a project slug containing "-git-" could share a script name with
+  // another project's branch deploy, and that branch deploy would replace
+  // this project's production script.
+  if (body.slug.includes("-git-")) {
+    return c.json(
+      { error: "validation", message: "Slug cannot contain '-git-' (reserved for branch URLs)" },
       400,
     );
   }
@@ -169,7 +181,7 @@ instantDeploy.post("/", async (c) => {
  *   "files": { "index.html": "..." }
  * }
  */
-instantDeploy.put("/:slug", async (c) => {
+instantDeploy.put("/:slug", requireScopes("deploy:production"), async (c) => {
   const teamId = c.get("teamId");
   const teamSlug = c.get("teamSlug");
   const slug = c.req.param("slug");

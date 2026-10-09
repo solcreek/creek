@@ -7,7 +7,9 @@ description: "Drive the Creek CLI (creek / ck / crk) the way a user does: isolat
 
 Creek's user-facing product is the `creek` CLI (`ck` and `crk` are the same binary). This skill drives that binary from a disposable `HOME` and project directory.
 
-Other surfaces in this repo — `apps/dashboard` (Vite on port 3000), `apps/www` (Next.js), the control-plane HTTP API, and `mcp.creek.dev` — are out of scope here. Do not start them for a CLI proof.
+Other surfaces in this repo — `apps/dashboard` (Vite on port 3000), `apps/www` (Next.js), the deployed control-plane HTTP API, and `mcp.creek.dev` — are out of scope here. Do not start them for a CLI proof.
+
+One exception: a signed-in proof needs a real API. `scripts/control-plane.sh start` runs a disposable local control-plane (the same app on SQLite) inside the run directory and writes `local.env`, which points the CLI at it. Use it only for recipes that say so ([API key scopes](features/api-key-scopes.md)); everything else keeps the dead API URL.
 
 Unit tests under `packages/cli/src/**/*.test.ts` import `command.run()` and mock config. They are not a user path. Drive `node packages/creek/bin.js`.
 

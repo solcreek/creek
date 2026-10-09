@@ -23,9 +23,15 @@ import type { Env } from "../types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.CREEK_DATA_DIR || join(__dirname, "../../.creek-local");
 const PORT = parseInt(process.env.PORT || "8787", 10);
+// Interface to listen on. Unset keeps Bun's default (all interfaces); a
+// disposable run sets 127.0.0.1 so nothing off this machine can reach it.
+const HOSTNAME = process.env.CREEK_LOCAL_HOSTNAME || undefined;
 
+// Settings come from one file: CREEK_LOCAL_ENV_FILE when set (a disposable
+// run uses its own), else packages/control-plane/.dev.vars. Never from the
+// shell environment, which may hold real credentials.
 function loadEnvFile(): Record<string, string> {
-  const devVars = join(__dirname, "../../.dev.vars");
+  const devVars = process.env.CREEK_LOCAL_ENV_FILE || join(__dirname, "../../.dev.vars");
   if (!existsSync(devVars)) return {};
   const content = readFileSync(devVars, "utf-8");
   const vars: Record<string, string> = {};
@@ -123,6 +129,7 @@ async function main() {
 
   const server = Bun.serve({
     port: PORT,
+    hostname: HOSTNAME,
     async fetch(request: Request) {
       // Inject env into the request context — Hono Workers adapter reads from the second arg
       return workerFetch(request, env, {

@@ -1,3 +1,5 @@
+import type { ApiKeyGrant } from "./api-key-grant.js";
+
 /**
  * Tenant context resolved by the tenant middleware chain.
  * All downstream modules (projects, deployments, domains) consume this.
@@ -10,6 +12,9 @@ export interface TenantContext {
   // success path: keeps consumers (e.g. requirePermission) doing an explicit
   // fail-closed `!memberRole` check instead of trusting the type.
   memberRole?: string;
+  // Set when the request authenticated with an API key: the key's scopes
+  // (see api-key-grant.ts). Absent for dashboard sessions.
+  apiKeyGrant?: ApiKeyGrant;
 }
 
 export interface AuthUser {
