@@ -95,11 +95,15 @@ export class BindingNotAllowedError extends Error {
  * counts as unbound), and ensureQueue binds QUEUE when the bundle wants a
  * queue. A bound name whose Cloudflare resource is not provisioned yet is
  * not new: someone already attached it.
+ *
+ * Workers AI is keyed by type, not name: any `ai` requirement makes the
+ * deploy bind AI under the fixed name AI (runDeployJob's needsAi), so it
+ * adds AI unless AI is bound already — whatever bindingName it carries.
  */
 export async function bindingsADeployWouldAdd(
   env: Env,
   projectId: string,
-  requirements: { bindingName: string }[],
+  requirements: { bindingName: string; type?: string }[],
   wantsQueue: boolean,
 ): Promise<string[]> {
   const rows = await env.DB.prepare(
@@ -112,6 +116,9 @@ export async function bindingsADeployWouldAdd(
   const bound = new Set(rows.results.map((r) => r.bindingName));
   const added = new Set(requirements.map((r) => r.bindingName).filter((n) => !bound.has(n)));
   if (wantsQueue && !bound.has(BINDING_NAMES.queue)) added.add(BINDING_NAMES.queue);
+  if (requirements.some((r) => r.type === "ai") && !bound.has(BINDING_NAMES.ai)) {
+    added.add(BINDING_NAMES.ai);
+  }
   return [...added];
 }
 
@@ -165,6 +172,16 @@ export async function ensureProjectBindings(
       cfResourceId: existing.cfResourceId,
       cfType,
     });
+  }
+
+  // Workers AI is bound by type under the fixed name AI (see
+  // bindingsADeployWouldAdd), whatever name the requirement carries.
+  if (
+    !mayAddBindings &&
+    requirements.some((r) => r.type === "ai") &&
+    !existingByName.has(BINDING_NAMES.ai)
+  ) {
+    throw new BindingNotAllowedError(BINDING_NAMES.ai);
   }
 
   for (const req of requirements) {

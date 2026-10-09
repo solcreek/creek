@@ -140,6 +140,31 @@ describe("preview deploys and new bindings", () => {
     }
   });
 
+  it("counts Workers AI as added whatever name the requirement carries", async () => {
+    const key = await keyWith(["deploy:preview"]);
+    // AI is bound by type under the fixed name AI; borrowing a bound name
+    // (DB) must not smuggle it in.
+    const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "DB" }]));
+    expect([res.status, res.body.newBindings]).toEqual([403, ["AI"]]);
+    expect(deploy).not.toHaveBeenCalled();
+
+    // Once the project has AI, a preview may use it.
+    const now = Date.now();
+    await f.sql(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('r-ai', ?, 'ai', 'ai', NULL, 'ai', 'active', ?, ?)`,
+      owner.orgId,
+      now,
+      now,
+    );
+    await f.sql(
+      "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'AI', 'r-ai', ?)",
+      now,
+    );
+    const ok = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "AI" }]));
+    expect(ok.status).toBe(202);
+  });
+
   it("deploys a preview that only uses what is already bound", async () => {
     const key = await keyWith(["deploy:preview"]);
     const before = await projectState();
@@ -238,6 +263,12 @@ describe("preview deploys and new bindings", () => {
       expect(dep.status).toBe("failed");
       expect(dep.errorMessage).toContain("cannot add DB");
       expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("fails instead of turning on Workers AI under a borrowed name", async () => {
+      const dep = await runJob([{ type: "ai", bindingName: "DB" }], false, false);
+      expect([dep.status, dep.errorMessage]).toEqual(["failed", expect.stringContaining("AI")]);
       expect(deploy).not.toHaveBeenCalled();
     });
 
