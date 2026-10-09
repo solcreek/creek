@@ -302,6 +302,32 @@ deployments.put(
         );
       }
 
+      // The deploy job hands `bindings` to ensureProjectBindings as is, so a
+      // malformed entry would be provisioned and bound under whatever its
+      // fields coerce to. Refuse it here, for every caller: the check below
+      // must see exactly what the job will bind.
+      const declared = parsedBundle as { bindings?: unknown; queue?: unknown };
+      if (
+        declared.bindings !== undefined &&
+        (!Array.isArray(declared.bindings) ||
+          !declared.bindings.every(
+            (b) =>
+              typeof b === "object" &&
+              b !== null &&
+              typeof (b as { bindingName?: unknown }).bindingName === "string" &&
+              typeof (b as { type?: unknown }).type === "string",
+          ))
+      ) {
+        return c.json(
+          {
+            error: "validation",
+            message: "bindings must be an array of { type: string, bindingName: string }",
+          },
+          400,
+        );
+      }
+      const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
+
       // A deploy binds every resource its bundle declares, creating the ones
       // the project lacks, and those bindings are the project's: production
       // picks them up on its next deploy. So a preview deploy by a scoped key
@@ -311,11 +337,6 @@ deployments.put(
       if (deployScopeFor(deployment.branch, project.productionBranch) === "deploy:preview") {
         const cannotManageResources = assertScope(c, "resource:write");
         if (cannotManageResources) {
-          const declared = parsedBundle as { bindings?: unknown; queue?: unknown };
-          const requirements = (Array.isArray(declared.bindings) ? declared.bindings : []).filter(
-            (b): b is { bindingName: string } =>
-              typeof (b as { bindingName?: unknown })?.bindingName === "string",
-          );
           const { bindingsADeployWouldAdd } = await import("../resources/service.js");
           const added = await bindingsADeployWouldAdd(
             c.env,

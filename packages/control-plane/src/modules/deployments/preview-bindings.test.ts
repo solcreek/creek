@@ -177,6 +177,32 @@ describe("preview deploys and new bindings", () => {
     expect((await projectState()).bindings).toEqual(["CACHE", "DB"]);
   });
 
+  it("refuses malformed bindings for every caller, so nothing slips past the check", async () => {
+    const preview = await keyWith(["deploy:preview"]);
+    const legacy = await f.legacyKey(owner.cookie);
+    const before = await projectState();
+    for (const bindings of [
+      [{ type: "kv", bindingName: 123 }],
+      [{ type: "kv" }],
+      [{ bindingName: "CACHE" }],
+      [null],
+      ["CACHE"],
+      { CACHE: "kv" },
+      "CACHE",
+    ]) {
+      for (const key of [preview, legacy]) {
+        const res = await upload(key, "dep-prev", {
+          ...bundle([]),
+          bindings,
+        });
+        expect([res.status, res.body.error], JSON.stringify(bindings)).toEqual([400, "validation"]);
+      }
+    }
+    expect(await projectState()).toEqual(before);
+    expect(deploy).not.toHaveBeenCalled();
+    expect(await f.env.ASSETS.get("bundles/dep-prev.json")).toBeNull();
+  });
+
   it("treats a bound name whose resource row is gone as unbound, as the deploy would", async () => {
     f.t.db.db.exec("PRAGMA foreign_keys = OFF; DELETE FROM resource WHERE id = 'r-db'");
     const key = await keyWith(["deploy:preview"]);
