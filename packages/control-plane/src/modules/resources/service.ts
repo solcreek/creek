@@ -87,39 +87,61 @@ export class BindingNotAllowedError extends Error {
   }
 }
 
+const PROJECT_BINDINGS_SQL = `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
+     FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ?`;
+
+/** Whether a bound resource is Workers AI, under whatever binding name. */
+function isAiResource(row: { kind: string; cfResourceType: string | null }): boolean {
+  return row.kind === "ai" || row.cfResourceType === "ai";
+}
+
 /**
- * The binding names a deploy would add to the project, without changing
- * anything. ensureProjectBindings binds a new name — creating a resource, or
- * adopting a deprecated alias's resource — for every requirement whose name
- * is not bound yet (same JOIN as there: a binding whose resource row is gone
- * counts as unbound), and ensureQueue binds QUEUE when the bundle wants a
- * queue. A bound name whose Cloudflare resource is not provisioned yet is
- * not new: someone already attached it.
+ * The one definition of what a deploy adds to a project, used by both the
+ * upload check (bindingsADeployWouldAdd) and the deploy job
+ * (ensureProjectBindings with mayAddBindings=false), so the two cannot
+ * disagree. Pure: decides from the project's binding rows as read.
  *
- * Workers AI is keyed by type, not name: any `ai` requirement makes the
- * deploy bind AI under the fixed name AI (runDeployJob's needsAi), so it
- * adds AI unless AI is bound already — whatever bindingName it carries.
+ * - A requirement whose name is not bound (a binding whose resource row is
+ *   gone counts as unbound) is added: ensureProjectBindings creates a
+ *   resource for it, or adopts a deprecated alias's resource under it. A
+ *   bound name is not, even when its Cloudflare resource is not provisioned
+ *   yet: someone already attached it.
+ * - Workers AI is keyed by type, not name: runDeployJob binds AI under the
+ *   fixed name AI for any `ai` requirement. So an `ai` requirement adds AI
+ *   when the project has no AI resource bound under any name — even if its
+ *   own bindingName borrows a bound name (reported as AI).
+ * - wantsQueue adds QUEUE when QUEUE is not bound (ensureQueue).
  */
+export function bindingsAdded(
+  existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
+  requirements: readonly { bindingName: string; type?: string }[],
+  wantsQueue: boolean,
+): string[] {
+  const bound = new Set(existing.map((r) => r.bindingName));
+  const added = new Set(requirements.map((r) => r.bindingName).filter((n) => !bound.has(n)));
+  const aiRequirements = requirements.filter((r) => r.type === "ai");
+  if (
+    aiRequirements.length > 0 &&
+    !existing.some(isAiResource) &&
+    !aiRequirements.some((r) => added.has(r.bindingName))
+  ) {
+    added.add(BINDING_NAMES.ai);
+  }
+  if (wantsQueue && !bound.has(BINDING_NAMES.queue)) added.add(BINDING_NAMES.queue);
+  return [...added];
+}
+
+/** bindingsAdded against the project's current bindings. Read-only. */
 export async function bindingsADeployWouldAdd(
   env: Env,
   projectId: string,
   requirements: { bindingName: string; type?: string }[],
   wantsQueue: boolean,
 ): Promise<string[]> {
-  const rows = await env.DB.prepare(
-    `SELECT b.bindingName FROM project_resource_binding b
-     JOIN resource r ON b.resourceId = r.id
-     WHERE b.projectId = ?`,
-  )
-    .bind(projectId)
-    .all<{ bindingName: string }>();
-  const bound = new Set(rows.results.map((r) => r.bindingName));
-  const added = new Set(requirements.map((r) => r.bindingName).filter((n) => !bound.has(n)));
-  if (wantsQueue && !bound.has(BINDING_NAMES.queue)) added.add(BINDING_NAMES.queue);
-  if (requirements.some((r) => r.type === "ai") && !bound.has(BINDING_NAMES.ai)) {
-    added.add(BINDING_NAMES.ai);
-  }
-  return [...added];
+  const rows = await env.DB.prepare(PROJECT_BINDINGS_SQL).bind(projectId).all<ResolvedBinding>();
+  return bindingsAdded(rows.results, requirements, wantsQueue);
 }
 
 /**
@@ -144,12 +166,7 @@ export async function ensureProjectBindings(
 ): Promise<Map<string, { bindingName: string; cfResourceId: string; cfType: string }>> {
   const mayAddBindings = opts.mayAddBindings !== false;
   // Fetch existing bindings for this project
-  const existingRows = await env.DB.prepare(
-    `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
-     FROM project_resource_binding b
-     JOIN resource r ON b.resourceId = r.id
-     WHERE b.projectId = ?`,
-  )
+  const existingRows = await env.DB.prepare(PROJECT_BINDINGS_SQL)
     .bind(projectId)
     .all<ResolvedBinding>();
 
@@ -174,14 +191,12 @@ export async function ensureProjectBindings(
     });
   }
 
-  // Workers AI is bound by type under the fixed name AI (see
-  // bindingsADeployWouldAdd), whatever name the requirement carries.
-  if (
-    !mayAddBindings &&
-    requirements.some((r) => r.type === "ai") &&
-    !existingByName.has(BINDING_NAMES.ai)
-  ) {
-    throw new BindingNotAllowedError(BINDING_NAMES.ai);
+  // Refuse before any write, with the same decision the upload check made
+  // (bindingsAdded). The throw at the alias/create point below stays as a
+  // second line in case this function's branches ever drift from it.
+  if (!mayAddBindings) {
+    const added = bindingsAdded(existingRows.results, requirements, false);
+    if (added.length > 0) throw new BindingNotAllowedError(added.join(", "));
   }
 
   for (const req of requirements) {

@@ -165,6 +165,25 @@ describe("preview deploys and new bindings", () => {
     expect(ok.status).toBe(202);
   });
 
+  it("accepts a preview using AI the project already has under a custom name", async () => {
+    // wrangler `[ai] binding = "MODEL"` is stored under MODEL, not AI.
+    const now = Date.now();
+    await f.sql(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('r-model', ?, 'ai', 'model', NULL, 'ai', 'active', ?, ?)`,
+      owner.orgId,
+      now,
+      now,
+    );
+    await f.sql(
+      "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'MODEL', 'r-model', ?)",
+      now,
+    );
+    const key = await keyWith(["deploy:preview"]);
+    const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "MODEL" }]));
+    expect(res.status).toBe(202);
+  });
+
   it("deploys a preview that only uses what is already bound", async () => {
     const key = await keyWith(["deploy:preview"]);
     const before = await projectState();
