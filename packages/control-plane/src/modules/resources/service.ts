@@ -218,11 +218,14 @@ export async function ensureProjectBindings(
       // A Workers AI row never gets a cfResourceId (runDeployJob wires AI by
       // type), so provisioning it threw "Unknown CF resource type: ai" and
       // failed every deploy after a project's first AI deploy. An AI
-      // requirement on an AI resource is bound already: reuse it. An AI
-      // resource under a name the bundle declares as another type (or the
-      // reverse) is a mismatch: fail loudly — provisioning would write a
-      // Cloudflare id onto the team's AI resource row and break every
-      // project bound to it, and skipping would deploy without the binding.
+      // requirement on an AI resource is bound already: reuse it. On this
+      // not-yet-provisioned path, any other pairing of AI and non-AI is a
+      // mismatch and fails loudly — provisioning would write a Cloudflare id
+      // onto the team's AI resource row and break every project bound to
+      // it, and skipping would deploy without the binding. (An already
+      // provisioned D1/R2/KV declared as ai takes the branch above and is
+      // bound as its own type; making AI handling uniform is a separate
+      // change.)
       const aiResource = isAiResource(existing);
       if (aiResource && req.type === "ai") continue;
       if (aiResource !== (req.type === "ai")) {
