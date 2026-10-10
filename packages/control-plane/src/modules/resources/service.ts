@@ -77,6 +77,83 @@ const CF_TO_KIND: Record<string, string> = {
 
 // --- Core: ensure bindings for deploy ---
 
+/** A deploy that may only use existing bindings declared a new one. */
+export class BindingNotAllowedError extends Error {
+  constructor(public readonly bindingName: string) {
+    super(
+      `This deploy cannot add ${bindingName} to the project: it may only use bindings the project already has (a preview deploy by a key without resource:write)`,
+    );
+    this.name = "BindingNotAllowedError";
+  }
+}
+
+const PROJECT_BINDINGS_SQL = `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
+     FROM project_resource_binding b
+     JOIN resource r ON b.resourceId = r.id
+     WHERE b.projectId = ?`;
+
+/** Whether a bound resource is a queue. */
+function isQueueResource(row: { kind: string; cfResourceType: string | null }): boolean {
+  return row.kind === "queue" || row.cfResourceType === "queue";
+}
+
+/** Whether a bound resource is Workers AI, under whatever binding name. */
+function isAiResource(row: { kind: string; cfResourceType: string | null }): boolean {
+  return row.kind === "ai" || row.cfResourceType === "ai";
+}
+
+/**
+ * The one definition of what a deploy adds to a project, used by both the
+ * upload check (bindingsADeployWouldAdd) and the deploy job
+ * (ensureProjectBindings with mayAddBindings=false), so the two cannot
+ * disagree. Pure: decides from the project's binding rows as read.
+ *
+ * - A requirement whose name is not bound (a binding whose resource row is
+ *   gone counts as unbound) is added: ensureProjectBindings creates a
+ *   resource for it, or adopts a deprecated alias's resource under it. A
+ *   bound name is not, even when its Cloudflare resource is not provisioned
+ *   yet: someone already attached it.
+ * - Workers AI is keyed by type, not name: runDeployJob binds AI under the
+ *   fixed name AI for any `ai` requirement. So an `ai` requirement adds AI
+ *   when the project has no AI resource bound under any name — even if its
+ *   own bindingName borrows a bound name (reported as AI).
+ * - wantsQueue adds QUEUE when no queue is bound under QUEUE (ensureQueue).
+ */
+export function bindingsAdded(
+  existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
+  requirements: readonly { bindingName: string; type?: string }[],
+  wantsQueue: boolean,
+): string[] {
+  const bound = new Set(existing.map((r) => r.bindingName));
+  const added = new Set(requirements.map((r) => r.bindingName).filter((n) => !bound.has(n)));
+  const aiRequirements = requirements.filter((r) => r.type === "ai");
+  if (
+    aiRequirements.length > 0 &&
+    !existing.some(isAiResource) &&
+    !aiRequirements.some((r) => added.has(r.bindingName))
+  ) {
+    added.add(BINDING_NAMES.ai);
+  }
+  // QUEUE counts as present only when a queue is bound under it: any other
+  // resource under that name gets no queue (ensureQueue refuses it).
+  const queueBound = existing.some(
+    (r) => r.bindingName === BINDING_NAMES.queue && isQueueResource(r),
+  );
+  if (wantsQueue && !queueBound) added.add(BINDING_NAMES.queue);
+  return [...added];
+}
+
+/** bindingsAdded against the project's current bindings. Read-only. */
+export async function bindingsADeployWouldAdd(
+  env: Env,
+  projectId: string,
+  requirements: { bindingName: string; type?: string }[],
+  wantsQueue: boolean,
+): Promise<string[]> {
+  const rows = await env.DB.prepare(PROJECT_BINDINGS_SQL).bind(projectId).all<ResolvedBinding>();
+  return bindingsAdded(rows.results, requirements, wantsQueue);
+}
+
 /**
  * Resolves bindings from two sources:
  *   - Server-side attachments (`creek <kind> attach`): every existing
@@ -95,14 +172,11 @@ export async function ensureProjectBindings(
   projectId: string,
   teamId: string,
   requirements: BundleBindingRequirement[],
+  opts: { mayAddBindings?: boolean } = {},
 ): Promise<Map<string, { bindingName: string; cfResourceId: string; cfType: string }>> {
+  const mayAddBindings = opts.mayAddBindings !== false;
   // Fetch existing bindings for this project
-  const existingRows = await env.DB.prepare(
-    `SELECT b.bindingName, b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
-     FROM project_resource_binding b
-     JOIN resource r ON b.resourceId = r.id
-     WHERE b.projectId = ?`,
-  )
+  const existingRows = await env.DB.prepare(PROJECT_BINDINGS_SQL)
     .bind(projectId)
     .all<ResolvedBinding>();
 
@@ -127,6 +201,14 @@ export async function ensureProjectBindings(
     });
   }
 
+  // Refuse before any write, with the same decision the upload check made
+  // (bindingsAdded). The throw at the alias/create point below stays as a
+  // second line in case this function's branches ever drift from it.
+  if (!mayAddBindings) {
+    const added = bindingsAdded(existingRows.results, requirements, false);
+    if (added.length > 0) throw new BindingNotAllowedError(added.join(", "));
+  }
+
   for (const req of requirements) {
     const existing = existingByName.get(req.bindingName);
 
@@ -143,6 +225,24 @@ export async function ensureProjectBindings(
     }
 
     if (existing && !existing.cfResourceId) {
+      // A Workers AI row never gets a cfResourceId (runDeployJob wires AI by
+      // type), so provisioning it threw "Unknown CF resource type: ai" and
+      // failed every deploy after a project's first AI deploy. An AI
+      // requirement on an AI resource is bound already: reuse it. On this
+      // not-yet-provisioned path, any other pairing of AI and non-AI is a
+      // mismatch and fails loudly — provisioning would write a Cloudflare id
+      // onto the team's AI resource row and break every project bound to
+      // it, and skipping would deploy without the binding. (An already
+      // provisioned D1/R2/KV declared as ai takes the branch above and is
+      // bound as its own type; making AI handling uniform is a separate
+      // change.)
+      const aiResource = isAiResource(existing);
+      if (aiResource && req.type === "ai") continue;
+      if (aiResource !== (req.type === "ai")) {
+        throw new Error(
+          `Binding ${req.bindingName} is attached to a ${existing.kind} resource, but the bundle declares it as ${req.type}. Detach it or rename the binding.`,
+        );
+      }
       // Binding exists but CF resource not yet provisioned — provision now
       const cfName = `creek-${existing.resourceId.slice(0, 8)}`;
       const cfType = KIND_TO_CF[existing.kind] ?? req.type;
@@ -172,6 +272,10 @@ export async function ensureProjectBindings(
     // first deployed under the old name (DB) that now deploys under the new
     // primary (DATABASE) gets a SECOND, empty database bound as DATABASE while
     // its data stays in DB: a split-brain across two D1s.
+    // Past this point the requirement's name is not bound: binding it (by
+    // adopting an alias's resource or creating one) changes the project.
+    if (!mayAddBindings) throw new BindingNotAllowedError(req.bindingName);
+
     const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
     const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
     const aliasCfType = aliasBinding
@@ -263,20 +367,39 @@ export async function ensureQueue(
   env: Env,
   projectId: string,
   teamId: string,
+  opts: { mayAddBindings?: boolean } = {},
 ): Promise<{ cfResourceId: string; cfResourceName: string }> {
   // Check for existing queue binding
   const existing = await env.DB.prepare(
-    `SELECT b.resourceId, r.cfResourceId, r.cfResourceType
+    `SELECT b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
      FROM project_resource_binding b
      JOIN resource r ON b.resourceId = r.id
      WHERE b.projectId = ? AND b.bindingName = ?`,
   )
     .bind(projectId, BINDING_NAMES.queue)
-    .first<{ resourceId: string; cfResourceId: string | null; cfResourceType: string | null }>();
+    .first<{
+      resourceId: string;
+      kind: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+    }>();
+
+  // Another kind of resource attached as QUEUE is not a queue: using its id
+  // as one, or writing a new queue's id onto its row, would break it (and
+  // every project bound to it). Refuse instead.
+  if (existing && !isQueueResource(existing)) {
+    throw new Error(
+      `Binding ${BINDING_NAMES.queue} is attached to a ${existing.kind} resource, not a queue. Detach it or rename that binding.`,
+    );
+  }
 
   if (existing?.cfResourceId) {
     const name = `creek-q-${existing.resourceId.slice(0, 8)}`;
     return { cfResourceId: existing.cfResourceId, cfResourceName: name };
+  }
+
+  if (!existing && opts.mayAddBindings === false) {
+    throw new BindingNotAllowedError(BINDING_NAMES.queue);
   }
 
   // Create queue resource

@@ -302,6 +302,64 @@ deployments.put(
         );
       }
 
+      // The deploy job hands `bindings` to ensureProjectBindings as is, so a
+      // malformed entry would be provisioned and bound under whatever its
+      // fields coerce to. Refuse it here, for every caller: the check below
+      // must see exactly what the job will bind.
+      const declared = parsedBundle as { bindings?: unknown; queue?: unknown };
+      if (
+        declared.bindings !== undefined &&
+        (!Array.isArray(declared.bindings) ||
+          !declared.bindings.every(
+            (b) =>
+              typeof b === "object" &&
+              b !== null &&
+              typeof (b as { bindingName?: unknown }).bindingName === "string" &&
+              typeof (b as { type?: unknown }).type === "string",
+          ))
+      ) {
+        return c.json(
+          {
+            error: "validation",
+            message: "bindings must be an array of { type: string, bindingName: string }",
+          },
+          400,
+        );
+      }
+      const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
+
+      let mayAddBindings = true;
+      // A deploy binds every resource its bundle declares, creating the ones
+      // the project lacks, and those bindings are the project's: production
+      // picks them up on its next deploy. So a preview deploy by a scoped key
+      // may only use what is already bound, unless the key may manage
+      // resources. Production deploys provision as before. Checked before
+      // the bundle is staged, so nothing runs.
+      if (deployScopeFor(deployment.branch, project.productionBranch) === "deploy:preview") {
+        const cannotManageResources = assertScope(c, "resource:write");
+        if (cannotManageResources) {
+          mayAddBindings = false;
+          const { bindingsADeployWouldAdd } = await import("../resources/service.js");
+          const added = await bindingsADeployWouldAdd(
+            c.env,
+            project.id,
+            requirements,
+            Boolean(declared.queue),
+          );
+          if (added.length > 0) {
+            const refusal = (await cannotManageResources.json()) as Record<string, unknown>;
+            return c.json(
+              {
+                ...refusal,
+                message: `A preview deploy cannot add ${added.join(", ")} to the project without resource:write. Deploy to production first, or attach the resources with a key that may manage them.`,
+                newBindings: added,
+              },
+              403,
+            );
+          }
+        }
+      }
+
       // Stage bundle to R2
       const bundleKey = `bundles/${deploymentId}.json`;
       await c.env.ASSETS.put(bundleKey, bundleBody);
@@ -341,6 +399,7 @@ deployments.put(
         branch: deployment.branch,
         productionBranch: project.productionBranch,
         framework: project.framework,
+        mayAddBindings,
       };
 
       if (c.env.DEPLOY_JOBS) {
