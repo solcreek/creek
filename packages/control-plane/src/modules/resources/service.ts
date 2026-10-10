@@ -92,6 +92,11 @@ const PROJECT_BINDINGS_SQL = `SELECT b.bindingName, b.resourceId, r.kind, r.cfRe
      JOIN resource r ON b.resourceId = r.id
      WHERE b.projectId = ?`;
 
+/** Whether a bound resource is a queue. */
+function isQueueResource(row: { kind: string; cfResourceType: string | null }): boolean {
+  return row.kind === "queue" || row.cfResourceType === "queue";
+}
+
 /** Whether a bound resource is Workers AI, under whatever binding name. */
 function isAiResource(row: { kind: string; cfResourceType: string | null }): boolean {
   return row.kind === "ai" || row.cfResourceType === "ai";
@@ -112,7 +117,7 @@ function isAiResource(row: { kind: string; cfResourceType: string | null }): boo
  *   fixed name AI for any `ai` requirement. So an `ai` requirement adds AI
  *   when the project has no AI resource bound under any name — even if its
  *   own bindingName borrows a bound name (reported as AI).
- * - wantsQueue adds QUEUE when QUEUE is not bound (ensureQueue).
+ * - wantsQueue adds QUEUE when no queue is bound under QUEUE (ensureQueue).
  */
 export function bindingsAdded(
   existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
@@ -129,7 +134,12 @@ export function bindingsAdded(
   ) {
     added.add(BINDING_NAMES.ai);
   }
-  if (wantsQueue && !bound.has(BINDING_NAMES.queue)) added.add(BINDING_NAMES.queue);
+  // QUEUE counts as present only when a queue is bound under it: any other
+  // resource under that name gets no queue (ensureQueue refuses it).
+  const queueBound = existing.some(
+    (r) => r.bindingName === BINDING_NAMES.queue && isQueueResource(r),
+  );
+  if (wantsQueue && !queueBound) added.add(BINDING_NAMES.queue);
   return [...added];
 }
 
@@ -361,13 +371,27 @@ export async function ensureQueue(
 ): Promise<{ cfResourceId: string; cfResourceName: string }> {
   // Check for existing queue binding
   const existing = await env.DB.prepare(
-    `SELECT b.resourceId, r.cfResourceId, r.cfResourceType
+    `SELECT b.resourceId, r.kind, r.cfResourceId, r.cfResourceType
      FROM project_resource_binding b
      JOIN resource r ON b.resourceId = r.id
      WHERE b.projectId = ? AND b.bindingName = ?`,
   )
     .bind(projectId, BINDING_NAMES.queue)
-    .first<{ resourceId: string; cfResourceId: string | null; cfResourceType: string | null }>();
+    .first<{
+      resourceId: string;
+      kind: string;
+      cfResourceId: string | null;
+      cfResourceType: string | null;
+    }>();
+
+  // Another kind of resource attached as QUEUE is not a queue: using its id
+  // as one, or writing a new queue's id onto its row, would break it (and
+  // every project bound to it). Refuse instead.
+  if (existing && !isQueueResource(existing)) {
+    throw new Error(
+      `Binding ${BINDING_NAMES.queue} is attached to a ${existing.kind} resource, not a queue. Detach it or rename that binding.`,
+    );
+  }
 
   if (existing?.cfResourceId) {
     const name = `creek-q-${existing.resourceId.slice(0, 8)}`;

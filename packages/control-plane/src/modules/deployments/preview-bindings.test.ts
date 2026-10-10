@@ -252,6 +252,73 @@ describe("preview deploys and new bindings", () => {
     ]);
   });
 
+  describe("a non-queue resource attached as QUEUE", () => {
+    async function attachAsQueue(
+      id: string,
+      kind: string,
+      cfResourceId: string | null,
+      cfType: string,
+    ) {
+      const now = Date.now();
+      await f.sql(
+        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        id,
+        owner.orgId,
+        kind,
+        id,
+        cfResourceId,
+        cfType,
+        now,
+        now,
+      );
+      await f.sql(
+        "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'QUEUE', ?, ?)",
+        id,
+        now,
+      );
+    }
+    const resourceRow = (id: string) =>
+      f.sql("SELECT kind, cfResourceId, cfResourceType FROM resource WHERE id = ?", id);
+
+    it("is refused for a preview that wants a queue", async () => {
+      await attachAsQueue("r-ai-q", "ai", null, "ai");
+      const res = await upload(
+        await keyWith(["deploy:preview"]),
+        "dep-prev",
+        bundle([{ type: "d1", bindingName: "DB" }], true),
+      );
+      expect([res.status, res.body.newBindings]).toEqual([403, ["QUEUE"]]);
+      expect(await resourceRow("r-ai-q")).toEqual([
+        { kind: "ai", cfResourceId: null, cfResourceType: "ai" },
+      ]);
+    });
+
+    for (const [label, id, kind, cfId, cfType] of [
+      ["an AI resource (no Cloudflare id)", "r-ai-q", "ai", null, "ai"],
+      ["a provisioned KV", "r-kv-q", "cache", "cf-kv-real", "kv"],
+    ] as const) {
+      it(`fails a production deploy that wants a queue, leaving ${label} untouched`, async () => {
+        await attachAsQueue(id, kind, cfId, cfType);
+        const before = await resourceRow(id);
+        await upload(
+          await keyWith(["deploy:production"]),
+          "dep-prod",
+          bundle([{ type: "d1", bindingName: "DB" }], true),
+        );
+        const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+          "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+        );
+        expect([dep.status, dep.errorMessage]).toEqual([
+          "failed",
+          expect.stringContaining("QUEUE is attached to a"),
+        ]);
+        expect(await resourceRow(id)).toEqual(before);
+        expect(deploy).not.toHaveBeenCalled();
+      });
+    }
+  });
+
   it("deploys a project's second Workers AI deploy (it used to fail provisioning the AI row)", async () => {
     const key = await keyWith(["deploy:production"]);
     const first = await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "AI" }]));

@@ -34,6 +34,13 @@ describe("bindingsAdded", () => {
     ["a new name", [db], [{ type: "kv", bindingName: "CACHE" }], false, ["CACHE"]],
     ["the queue when unbound", [db], [], true, ["QUEUE"]],
     ["not the queue when bound", [db, row("QUEUE", "queue", "queue")], [], true, []],
+    [
+      "the queue when QUEUE holds another kind",
+      [db, row("QUEUE", "ai", "ai")],
+      [],
+      true,
+      ["QUEUE"],
+    ],
     ["AI under a borrowed bound name", [db], [{ type: "ai", bindingName: "DB" }], false, ["AI"]],
     ["AI under its own new name, once", [db], [{ type: "ai", bindingName: "AI" }], false, ["AI"]],
     ["AI under a custom new name", [db], [{ type: "ai", bindingName: "MODEL" }], false, ["MODEL"]],
