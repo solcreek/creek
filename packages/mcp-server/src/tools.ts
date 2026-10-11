@@ -46,6 +46,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const err = data as { error?: string; message?: string };
       return {
         ok: false as const,
+        status: res.status,
         result: toolJson(
           { ok: false, error: err.error ?? "api_error", message: err.message ?? res.statusText },
           true,
@@ -479,11 +480,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!apiKey) return missingKeyResult();
       // A server without targets ignores ?target= and deletes the key's only
       // (all-deploys) value; its list has no target field. Refuse instead.
-      // The list needs env:read, which a key allowed to delete may lack: if it
-      // cannot be read, go ahead — a server with targets answers a per-target
-      // delete itself (409 env_targets_unavailable before its migration).
+      // The list needs env:read, which a key allowed to delete may lack: on a
+      // scope refusal (403) only, go ahead — a server with targets answers a
+      // per-target delete itself (409 env_targets_unavailable before its
+      // migration). Any other failure stops here.
       if (target && target !== "all") {
         const listed = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
+        if (!listed.ok && listed.status !== 403) return listed.result;
         const rows =
           listed.ok && Array.isArray(listed.data)
             ? (listed.data as Array<Record<string, unknown>>)

@@ -222,11 +222,18 @@ const envRm = defineCommand({
     }
     // A server without targets ignores ?target= and deletes the key's only
     // (all-deploys) value. Its list has no target field: refuse instead. The
-    // list needs env:read, which a key allowed to delete may lack; if it
-    // cannot be read, go ahead — a server with targets answers a per-target
-    // delete itself (409 env_targets_unavailable before its migration).
+    // list needs env:read, which a key allowed to delete may lack: on that
+    // refusal (403) only, go ahead — a server with targets answers a
+    // per-target delete itself (409 env_targets_unavailable before its
+    // migration). Any other failure stops here, before a DELETE an old
+    // server would apply to the all-deploys value.
     if (target && target !== "all") {
-      const vars = await client.listEnvVars(slug).catch(() => null);
+      const vars = await apiCall(jsonMode, "api_error", () =>
+        client.listEnvVars(slug).catch((err: unknown) => {
+          if ((err as { status?: unknown }).status === 403) return null;
+          throw err;
+        }),
+      );
       if (vars && vars.length > 0 && vars.every((v) => v.target === undefined)) {
         const message = `The server does not support --target, so it would remove the value ${args.key} has for all deploys. Nothing was removed.`;
         if (jsonMode)

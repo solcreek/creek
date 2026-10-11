@@ -401,6 +401,21 @@ describe("MCP authenticated tools", () => {
     expect(JSON.parse(writeOnly.content[0].text)).toMatchObject({ ok: true, target: "production" });
     expect(new URL(deleted).searchParams.get("target")).toBe("production");
 
+    // Any other list failure stops before the delete.
+    deleted = "";
+    server.use(
+      http.get("https://cp.test/projects/hello/env", () =>
+        HttpResponse.json({ error: "internal" }, { status: 500 }),
+      ),
+    );
+    const failedList = await tools.get("env_rm")!({
+      projectSlug: "hello",
+      key: "STRIPE_KEY",
+      target: "production",
+    });
+    expect(failedList.isError).toBe(true);
+    expect(deleted).toBe("");
+
     // For a preview value, the warning is about production, not previews.
     echoTarget = undefined;
     const previewSet = await tools.get("env_set")!({ ...args, target: "preview" });

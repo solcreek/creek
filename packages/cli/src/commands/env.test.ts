@@ -263,6 +263,24 @@ describe("creek env --target", () => {
     expect(new URL(deletedUrl).searchParams.get("target")).toBe("preview");
   });
 
+  it("does not delete when the list fails for any reason other than scope", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "internal", message: "boom" }, { status: 500 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "production" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(deleted).toBe(false);
+  });
+
   it("refuses to report success when the server ignored the target", async () => {
     server.use(
       http.post(`${API}/projects/${SLUG}/env`, () =>
