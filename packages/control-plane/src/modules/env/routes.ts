@@ -7,6 +7,7 @@ import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { encrypt, mask } from "./crypto.js";
 import { ENV_TARGETS, isEnvTarget } from "./targets.js";
+import { ENV_TARGETS_UNAVAILABLE, envTargetsAvailable } from "./schema-compat.js";
 import { requireScopes } from "../tenant/scope-guard.js";
 
 type EnvVarEnv = {
@@ -33,8 +34,11 @@ envVars.get("/:projectId/env", requireScopes("env:read"), async (c) => {
     return c.json({ error: "not_found", message: "Project not found" }, 404);
   }
 
+  // Before migration 0013 every variable applies to all deploys.
   const rows = await c.env.DB.prepare(
-    "SELECT key, target FROM environment_variable WHERE projectId = ? ORDER BY key ASC, target ASC",
+    (await envTargetsAvailable(c.env.DB))
+      ? "SELECT key, target FROM environment_variable WHERE projectId = ? ORDER BY key ASC, target ASC"
+      : "SELECT key, 'all' AS target FROM environment_variable WHERE projectId = ? ORDER BY key ASC",
   )
     .bind(project.id)
     .all<{ key: string; target: string }>();
@@ -96,14 +100,27 @@ envVars.post(
 
     const encryptedValue = await encrypt(body.value, encryptionKey);
 
-    // Upsert on the composite PK (projectId, key, target)
-    await c.env.DB.prepare(
-      `INSERT INTO environment_variable (projectId, key, target, encryptedValue)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT (projectId, key, target) DO UPDATE SET encryptedValue = excluded.encryptedValue`,
-    )
-      .bind(project.id, body.key, target, encryptedValue)
-      .run();
+    if (await envTargetsAvailable(c.env.DB)) {
+      // Upsert on the composite PK (projectId, key, target)
+      await c.env.DB.prepare(
+        `INSERT INTO environment_variable (projectId, key, target, encryptedValue)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (projectId, key, target) DO UPDATE SET encryptedValue = excluded.encryptedValue`,
+      )
+        .bind(project.id, body.key, target, encryptedValue)
+        .run();
+    } else {
+      // Before migration 0013: one value per key, for all deploys. Refuse a
+      // per-target value rather than store it for every deploy.
+      if (target !== "all") return c.json(ENV_TARGETS_UNAVAILABLE, 409);
+      await c.env.DB.prepare(
+        `INSERT INTO environment_variable (projectId, key, encryptedValue)
+       VALUES (?, ?, ?)
+       ON CONFLICT (projectId, key) DO UPDATE SET encryptedValue = excluded.encryptedValue`,
+      )
+        .bind(project.id, body.key, encryptedValue)
+        .run();
+    }
 
     await recordAudit(
       c.env.DB,
@@ -145,8 +162,14 @@ envVars.delete(
       return c.json({ error: "not_found", message: "Project not found" }, 404);
     }
 
+    const targetsAvailable = await envTargetsAvailable(c.env.DB);
+    // Before migration 0013 only the all-deploys value exists: refuse a
+    // per-target delete rather than delete that value instead.
+    if (!targetsAvailable && target && target !== "all") {
+      return c.json(ENV_TARGETS_UNAVAILABLE, 409);
+    }
     const result = await (
-      target
+      target && targetsAvailable
         ? c.env.DB.prepare(
             "DELETE FROM environment_variable WHERE projectId = ? AND key = ? AND target = ?",
           ).bind(project.id, key, target)

@@ -15,6 +15,7 @@ import {
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
 import { deployTargetFor, selectForTarget } from "../env/targets.js";
+import { envTargetsAvailable } from "../env/schema-compat.js";
 import { storeBuildLogIfAbsent, storeDeployStageLog } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 import type {
@@ -307,11 +308,16 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     // ones, each falling back to 'all'. One set for the whole job — the
     // immutable per-deploy script of a production deploy is production too.
     const envTarget = deployTargetFor(branch, productionBranch);
-    const envVarRows = await env.DB.prepare(
-      "SELECT key, target, encryptedValue FROM environment_variable WHERE projectId = ? AND target IN ('all', ?)",
-    )
-      .bind(projectId, envTarget)
-      .all<{ key: string; target: string; encryptedValue: string }>();
+    // Before migration 0013 every variable is an all-deploys value.
+    const envVarRows = await (
+      (await envTargetsAvailable(env.DB))
+        ? env.DB.prepare(
+            "SELECT key, target, encryptedValue FROM environment_variable WHERE projectId = ? AND target IN ('all', ?)",
+          ).bind(projectId, envTarget)
+        : env.DB.prepare(
+            "SELECT key, 'all' AS target, encryptedValue FROM environment_variable WHERE projectId = ?",
+          ).bind(projectId)
+    ).all<{ key: string; target: string; encryptedValue: string }>();
     const envVarsForTarget = selectForTarget(envVarRows.results, envTarget);
     log(
       "provision",
