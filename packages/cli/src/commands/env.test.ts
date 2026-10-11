@@ -245,6 +245,24 @@ describe("creek env --target", () => {
     expect(deleted).toBe(false);
   });
 
+  it("still removes a per-target value when the key may not list (env:write without env:read)", async () => {
+    let deletedUrl = "";
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "insufficient_scope", required: ["env:read"] }, { status: 403 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, ({ request }) => {
+        deletedUrl = request.url;
+        return HttpResponse.json({ ok: true, removed: 1 });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "preview" } } as never),
+    );
+    expect(code).toBe(0);
+    expect(new URL(deletedUrl).searchParams.get("target")).toBe("preview");
+  });
+
   it("refuses to report success when the server ignored the target", async () => {
     server.use(
       http.post(`${API}/projects/${SLUG}/env`, () =>

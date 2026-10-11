@@ -386,6 +386,21 @@ describe("MCP authenticated tools", () => {
     expect(JSON.parse(refusedRm.content[0].text)).toMatchObject({ error: "target_unsupported" });
     expect(deleted).toBe("");
 
+    // A key that may delete but not list (env:write without env:read) still
+    // removes the value: the list is only a guard against old servers.
+    server.use(
+      http.get("https://cp.test/projects/hello/env", () =>
+        HttpResponse.json({ error: "insufficient_scope" }, { status: 403 }),
+      ),
+    );
+    const writeOnly = await tools.get("env_rm")!({
+      projectSlug: "hello",
+      key: "STRIPE_KEY",
+      target: "production",
+    });
+    expect(JSON.parse(writeOnly.content[0].text)).toMatchObject({ ok: true, target: "production" });
+    expect(new URL(deleted).searchParams.get("target")).toBe("production");
+
     // For a preview value, the warning is about production, not previews.
     echoTarget = undefined;
     const previewSet = await tools.get("env_set")!({ ...args, target: "preview" });

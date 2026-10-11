@@ -479,12 +479,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!apiKey) return missingKeyResult();
       // A server without targets ignores ?target= and deletes the key's only
       // (all-deploys) value; its list has no target field. Refuse instead.
+      // The list needs env:read, which a key allowed to delete may lack: if it
+      // cannot be read, go ahead — a server with targets answers a per-target
+      // delete itself (409 env_targets_unavailable before its migration).
       if (target && target !== "all") {
         const listed = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
-        if (!listed.ok) return listed.result;
-        const rows = Array.isArray(listed.data)
-          ? (listed.data as Array<Record<string, unknown>>)
-          : [];
+        const rows =
+          listed.ok && Array.isArray(listed.data)
+            ? (listed.data as Array<Record<string, unknown>>)
+            : [];
         if (rows.length > 0 && rows.every((r) => r.target === undefined)) {
           return toolJson(
             {
