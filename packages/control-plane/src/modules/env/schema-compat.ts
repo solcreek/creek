@@ -18,8 +18,12 @@ export async function envTargetsAvailable(db: D1Database): Promise<boolean> {
   if (available.has(db)) return true;
   try {
     await db.prepare("SELECT target FROM environment_variable LIMIT 0").all();
-  } catch {
-    return false;
+  } catch (err) {
+    // Only a missing column means "before 0013". Any other failure (a
+    // transient D1 error) must not select the fallback: after 0013 it would
+    // relabel production- and preview-only values as all-deploys values.
+    if (/no such column/i.test(err instanceof Error ? err.message : String(err))) return false;
+    throw err;
   }
   available.set(db, true);
   return true;

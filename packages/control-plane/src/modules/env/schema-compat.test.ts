@@ -142,3 +142,26 @@ describe("environment variables before and after migration 0013", () => {
     }
   });
 });
+
+describe("envTargetsAvailable", () => {
+  const db = (fail: Error | null) =>
+    ({
+      prepare: () => ({
+        all: async () => {
+          if (fail) throw fail;
+          return { results: [] };
+        },
+      }),
+    }) as never;
+
+  it("says no only for a missing column, and rethrows any other error", async () => {
+    const { envTargetsAvailable } = await import("./schema-compat.js");
+    expect(
+      await envTargetsAvailable(db(new Error("D1_ERROR: no such column: target: SQLITE_ERROR"))),
+    ).toBe(false);
+    await expect(
+      envTargetsAvailable(db(new Error("D1_ERROR: Network connection lost."))),
+    ).rejects.toThrow("Network connection lost");
+    expect(await envTargetsAvailable(db(null))).toBe(true);
+  });
+});
