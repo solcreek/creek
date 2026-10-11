@@ -213,6 +213,38 @@ describe("creek env --target", () => {
     expect(json()).toMatchObject({ ok: true, target: "all" });
   });
 
+  it("warns about production, not previews, when a preview value was stored for all deploys", async () => {
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ ok: true, key: "STRIPE_KEY" }, { status: 201 }),
+      ),
+    );
+    const code = await runExit(
+      setCmd.run!({ args: { key: "STRIPE_KEY", value: "sk_test", target: "preview" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(json().message).toContain("Production deploys now get this preview value");
+  });
+
+  it("refuses rm --target on a server without targets instead of deleting the all value", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "STRIPE_KEY", value: "STRI****" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "production" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "target_unsupported" });
+    expect(deleted).toBe(false);
+  });
+
   it("refuses to report success when the server ignored the target", async () => {
     server.use(
       http.post(`${API}/projects/${SLUG}/env`, () =>

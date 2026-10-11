@@ -443,7 +443,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           {
             ok: false,
             error: "target_unsupported",
-            message: `The server stored ${key} for all deploys, not only ${wanted}. Call env_rm for ${key} if previews must not see it.`,
+            message:
+              wanted === "preview"
+                ? `The server stored ${key} for all deploys: production deploys now get this preview value, replacing any value production had. Set the production value again with env_set (target all).`
+                : `The server stored ${key} for all deploys, previews included. Call env_rm for ${key} if previews must not see it.`,
           },
           true,
         );
@@ -474,6 +477,25 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug, key, target }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
+      // A server without targets ignores ?target= and deletes the key's only
+      // (all-deploys) value; its list has no target field. Refuse instead.
+      if (target && target !== "all") {
+        const listed = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
+        if (!listed.ok) return listed.result;
+        const rows = Array.isArray(listed.data)
+          ? (listed.data as Array<Record<string, unknown>>)
+          : [];
+        if (rows.length > 0 && rows.every((r) => r.target === undefined)) {
+          return toolJson(
+            {
+              ok: false,
+              error: "target_unsupported",
+              message: `The server does not support targets, so it would remove the value ${key} has for all deploys. Nothing was removed.`,
+            },
+            true,
+          );
+        }
+      }
       const query = target ? `?target=${encodeURIComponent(target)}` : "";
       const got = await cpFetch(
         apiKey,

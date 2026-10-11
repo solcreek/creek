@@ -31,6 +31,14 @@ function parseTarget(
   process.exit(1);
 }
 
+/** What a server without targets did with a per-target `set`, and the way back. */
+function targetUnsupportedMessage(key: string, target: EnvTarget): string {
+  const base = `The server does not support --target and stored ${key} for all deploys.`;
+  return target === "preview"
+    ? `${base} Production deploys now get this preview value, replacing any value production had: set the production value again with \`creek env set ${key} '<VALUE>'\`.`
+    : `${base} Previews get it too: remove it with \`creek env rm ${key}\` if they must not.`;
+}
+
 /** The deploys that pick up a change to this target. */
 function appliesOn(target: EnvTarget): string {
   if (target === "production") return "the next production deploy";
@@ -77,7 +85,7 @@ const envSet = defineCommand({
     // value for every deploy — the opposite of what --target production asks
     // for. Refuse to report success unless the server echoed the target.
     if ((result.target ?? "all") !== target) {
-      const message = `The server stored ${args.key} for all deploys, not only ${target}: it does not support --target. Remove it with \`creek env rm ${args.key}\` if previews must not see it.`;
+      const message = targetUnsupportedMessage(args.key, target);
       if (jsonMode)
         jsonOutput({ ok: false, error: "target_unsupported", message, key: args.key }, 1);
       consola.error(message);
@@ -211,6 +219,18 @@ const envRm = defineCommand({
         nextStep: exists ? `creek env rm ${args.key}${targetFlag} --json` : `creek env ls --json`,
       });
       return;
+    }
+    // A server without targets ignores ?target= and deletes the key's only
+    // (all-deploys) value. Its list has no target field: refuse instead.
+    if (target && target !== "all") {
+      const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
+      if (vars.length > 0 && vars.every((v) => v.target === undefined)) {
+        const message = `The server does not support --target, so it would remove the value ${args.key} has for all deploys. Nothing was removed.`;
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "target_unsupported", message, key: args.key }, 1);
+        consola.error(message);
+        process.exit(1);
+      }
     }
     const result = await apiCall(jsonMode, "rm_failed", () =>
       client.deleteEnvVar(slug, args.key, target),

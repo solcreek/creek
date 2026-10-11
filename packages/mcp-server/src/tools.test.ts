@@ -331,11 +331,15 @@ describe("MCP authenticated tools", () => {
     let posted: unknown;
     let deleted = "";
     let echoTarget: string | undefined = "production";
+    let listedRows: Record<string, unknown>[] = [
+      { key: "STRIPE_KEY", target: "preview", value: "STRI****" },
+    ];
     server.use(
       http.post("https://cp.test/projects/hello/env", async ({ request }) => {
         posted = await request.json();
         return HttpResponse.json({ ok: true, key: "STRIPE_KEY", target: echoTarget });
       }),
+      http.get("https://cp.test/projects/hello/env", () => HttpResponse.json(listedRows)),
       http.delete("https://cp.test/projects/hello/env/STRIPE_KEY", ({ request }) => {
         deleted = request.url;
         return HttpResponse.json({ ok: true, removed: 1 });
@@ -368,6 +372,24 @@ describe("MCP authenticated tools", () => {
     });
     expect(new URL(deleted).searchParams.get("target")).toBe("preview");
     expect(JSON.parse(rm.content[0].text)).toMatchObject({ ok: true, target: "preview" });
+
+    // A server without targets lists no target field: env_rm refuses rather
+    // than let it delete the all-deploys value.
+    deleted = "";
+    listedRows = [{ key: "STRIPE_KEY", value: "STRI****" }];
+    const refusedRm = await tools.get("env_rm")!({
+      projectSlug: "hello",
+      key: "STRIPE_KEY",
+      target: "production",
+    });
+    expect(refusedRm.isError).toBe(true);
+    expect(JSON.parse(refusedRm.content[0].text)).toMatchObject({ error: "target_unsupported" });
+    expect(deleted).toBe("");
+
+    // For a preview value, the warning is about production, not previews.
+    echoTarget = undefined;
+    const previewSet = await tools.get("env_set")!({ ...args, target: "preview" });
+    expect(JSON.parse(previewSet.content[0].text).message).toContain("production deploys now get");
   });
 
   it("deploy_prod POSTs /github/deploy-latest and does not wait", async () => {
