@@ -28,6 +28,20 @@ creek verify <url> --json      # confirm it is live
 creek claim <SANDBOX_ID>       # convert to permanent project (requires login)
 ```
 
+## Preview vs sandbox: what the deployed code can reach
+
+A **branch (preview) deploy of a project** — a push to a non-production
+branch, or any project deploy whose branch is not the production branch —
+runs with the project's environment variables and resources, **including
+production secrets and the production database**. It does not replace
+the production site, but its code can read and write production data.
+
+A **sandbox** deploy is not part of any project: no secrets, no project
+resources.
+
+So: to try out code you did not write or have not reviewed (an agent's
+first draft, a third-party template), use `--sandbox`, not a branch deploy.
+
 Unsigned-in TTY sessions still default to sandbox; unsigned-in
 non-TTY sessions do **not** — they refuse without `--sandbox`.
 

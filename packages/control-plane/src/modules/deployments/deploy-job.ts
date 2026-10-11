@@ -76,6 +76,13 @@ export interface DeployJobInput {
   branch: string | null;
   productionBranch: string;
   framework?: string | null;
+  /**
+   * false: this deploy may only use bindings the project already has — a
+   * preview by a scoped key without resource:write. Enforced again here, not
+   * only at upload, because the job runs later (queued, maybe retried) and a
+   * binding can be detached in between. Absent (older messages) means true.
+   */
+  mayAddBindings?: boolean;
 }
 
 /**
@@ -109,7 +116,8 @@ function isDeployJobInput(body: unknown): body is DeployJobInput {
     typeof b.productionBranch === "string" &&
     typeof b.plan === "string" &&
     (b.branch === null || typeof b.branch === "string") &&
-    (b.framework === undefined || b.framework === null || typeof b.framework === "string")
+    (b.framework === undefined || b.framework === null || typeof b.framework === "string") &&
+    (b.mayAddBindings === undefined || typeof b.mayAddBindings === "boolean")
   );
 }
 
@@ -231,7 +239,9 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
 
     let resolvedBindings;
     try {
-      resolvedBindings = await ensureProjectBindings(env, projectId, teamId, requirements);
+      resolvedBindings = await ensureProjectBindings(env, projectId, teamId, requirements, {
+        mayAddBindings: input.mayAddBindings !== false,
+      });
     } catch (err) {
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
     }
@@ -241,7 +251,9 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     let queueResource;
     if (bundle.queue) {
       try {
-        queueResource = await ensureQueue(env, projectId, teamId);
+        queueResource = await ensureQueue(env, projectId, teamId, {
+          mayAddBindings: input.mayAddBindings !== false,
+        });
         log("provision", "info", "Queue provisioned");
       } catch (err) {
         throw new StepError("provisioning", err instanceof Error ? err.message : String(err));

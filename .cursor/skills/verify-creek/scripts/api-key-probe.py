@@ -148,6 +148,31 @@ probe("preview key cannot name the production branch", "POST", f"/projects/{P}/d
 probe("preview key creates a preview deployment", "POST", f"/projects/{P}/deployments",
       key("preview"), (201, None), body={"branch": "feature"})
 
+# --- A preview deploy may only use bindings the project already has ----------
+with sqlite3.connect(DB) as db:
+    row = db.execute(
+        "SELECT d.id FROM deployment d JOIN project p ON p.id = d.projectId "
+        "WHERE p.slug = ? AND d.branch = 'feature' AND d.status = 'queued' "
+        "ORDER BY d.createdAt DESC LIMIT 1", (P,)).fetchone()
+DEP = row[0] if row else "missing"
+
+
+def bundle(bindings, queue=False):
+    return {"assets": {"index.html": "PGgxPng8L2gxPg=="},
+            "manifest": {"assets": ["index.html"], "hasWorker": False, "entrypoint": None,
+                         "renderMode": "spa"},
+            "bindings": bindings, "queue": queue}
+
+
+for declared, queue in [([{"type": "kv", "bindingName": "PROBE_CACHE"}], False), ([], True)]:
+    probe(f"preview key cannot add {declared[0]['bindingName'] if declared else 'a queue'} to the project",
+          "PUT", f"/projects/{P}/deployments/{DEP}/bundle", key("preview"),
+          (403, "insufficient_scope"), body=bundle(declared, queue),
+          unchanged=["resource", "project_resource_binding"])
+probe("preview key deploys a bundle that adds nothing", "PUT",
+      f"/projects/{P}/deployments/{DEP}/bundle", key("preview"), (202, None), body=bundle([]),
+      unchanged=["resource", "project_resource_binding"])
+
 failed = results.count(False)
 print(json.dumps({"summary": True, "probes": len(results), "failed": failed}))
 sys.exit(1 if failed else 0)
