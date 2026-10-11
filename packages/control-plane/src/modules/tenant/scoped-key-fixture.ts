@@ -45,8 +45,8 @@ function cookieHeader(res: Response): string {
     .join("; ");
 }
 
-export function createFixture(): Fixture {
-  const t = createLocalTestEnv({ applyMigrations: true });
+export function createFixture(opts: { migrationsUpTo?: string } = {}): Fixture {
+  const t = createLocalTestEnv({ applyMigrations: true, migrationsUpTo: opts.migrationsUpTo });
   const env = {
     ...t.env,
     BETTER_AUTH_URL: BASE,

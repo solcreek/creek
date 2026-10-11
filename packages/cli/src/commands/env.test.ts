@@ -174,3 +174,184 @@ describe("creek env rm", () => {
     expect(hasDeployBreadcrumb()).toBe(true);
   });
 });
+
+const lsCmd = (envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>)
+  .ls;
+
+describe("creek env --target", () => {
+  it("sends --target to the server and reports it", async () => {
+    let body: Record<string, unknown> = {};
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { ok: true, key: "STRIPE_KEY", target: "production" },
+          { status: 201 },
+        );
+      }),
+    );
+    const code = await runExit(
+      setCmd.run!({ args: { key: "STRIPE_KEY", value: "sk_live", target: "production" } } as never),
+    );
+    expect(code).toBe(0);
+    expect(body).toEqual({ key: "STRIPE_KEY", value: "sk_live", target: "production" });
+    expect(json()).toMatchObject({ ok: true, key: "STRIPE_KEY", target: "production" });
+    // Breadcrumbs name only commands that exist (env ls takes no --project).
+    for (const b of json().breadcrumbs) expect(b.command).not.toContain("--project");
+  });
+
+  it("omits target for all, so servers without targets keep working", async () => {
+    let body: Record<string, unknown> = {};
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true, key: "A" }, { status: 201 });
+      }),
+    );
+    expect(await runExit(setCmd.run!({ args: { key: "A", value: "v" } } as never))).toBe(0);
+    expect(body).toEqual({ key: "A", value: "v" });
+    expect(json()).toMatchObject({ ok: true, target: "all" });
+  });
+
+  it("warns about production, not previews, when a preview value was stored for all deploys", async () => {
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ ok: true, key: "STRIPE_KEY" }, { status: 201 }),
+      ),
+    );
+    const code = await runExit(
+      setCmd.run!({ args: { key: "STRIPE_KEY", value: "sk_test", target: "preview" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(json().message).toContain("Production deploys now get this preview value");
+  });
+
+  it("refuses rm --target on a server without targets instead of deleting the all value", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "STRIPE_KEY", value: "STRI****" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "production" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "target_unsupported" });
+    expect(deleted).toBe(false);
+  });
+
+  it("still removes a per-target value when the key may not list (env:write without env:read)", async () => {
+    let deletedUrl = "";
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "insufficient_scope", required: ["env:read"] }, { status: 403 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, ({ request }) => {
+        deletedUrl = request.url;
+        return HttpResponse.json({ ok: true, removed: 1 });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "preview" } } as never),
+    );
+    expect(code).toBe(0);
+    expect(new URL(deletedUrl).searchParams.get("target")).toBe("preview");
+  });
+
+  it("does not delete when the list fails for any reason other than scope", async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "internal", message: "boom" }, { status: 500 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/STRIPE_KEY`, () => {
+        deleted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const code = await runExit(
+      rmCmd.run!({ args: { key: "STRIPE_KEY", target: "production" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(deleted).toBe(false);
+  });
+
+  it("refuses to report success when the server ignored the target", async () => {
+    server.use(
+      http.post(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ ok: true, key: "STRIPE_KEY" }, { status: 201 }),
+      ),
+    );
+    const code = await runExit(
+      setCmd.run!({ args: { key: "STRIPE_KEY", value: "sk_live", target: "production" } } as never),
+    );
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "target_unsupported", key: "STRIPE_KEY" });
+    expect(json().message).toContain("creek env rm STRIPE_KEY");
+  });
+
+  it("rejects an unknown target before any request", async () => {
+    for (const target of ["staging", "Production"]) {
+      stdout = "";
+      const code = await runExit(setCmd.run!({ args: { key: "A", value: "v", target } } as never));
+      expect(code, target).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "invalid_target" });
+    }
+  });
+
+  it("lists the target of each value", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([
+          { key: "K", target: "all", value: "K***" },
+          { key: "K", target: "production", value: "K***" },
+          { key: "OLD", value: "OLD***" },
+        ]),
+      ),
+    );
+    expect(await runExit(lsCmd.run!({ args: {} } as never))).toBe(0);
+    expect(json().vars.map((v: { key: string; target: string }) => [v.key, v.target])).toEqual([
+      ["K", "all"],
+      ["K", "production"],
+      ["OLD", "all"],
+    ]);
+  });
+
+  it("removes one target's value with --target, and says which values a dry run would remove", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([
+          { key: "K", target: "all", value: "K***" },
+          { key: "K", target: "preview", value: "K***" },
+        ]),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "K", "dry-run": true } } as never))).toBe(0);
+    expect(json()).toMatchObject({ exists: true, targets: ["all", "preview"] });
+
+    stdout = "";
+    expect(
+      await runExit(
+        rmCmd.run!({ args: { key: "K", target: "production", "dry-run": true } } as never),
+      ),
+    ).toBe(0);
+    expect(json()).toMatchObject({ exists: false, targets: [], wouldExecute: false });
+
+    let url = "";
+    server.use(
+      http.delete(`${API}/projects/${SLUG}/env/K`, ({ request }) => {
+        url = request.url;
+        return HttpResponse.json({ ok: true, removed: 1 });
+      }),
+    );
+    stdout = "";
+    expect(await runExit(rmCmd.run!({ args: { key: "K", target: "preview" } } as never))).toBe(0);
+    expect(new URL(url).searchParams.get("target")).toBe("preview");
+    expect(json()).toMatchObject({ ok: true, key: "K", target: "preview", removedValues: 1 });
+  });
+});

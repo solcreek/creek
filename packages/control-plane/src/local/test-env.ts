@@ -301,13 +301,17 @@ export interface LocalTestEnv {
   cleanup: () => void;
 }
 
-export function createLocalTestEnv(options?: { applyMigrations?: boolean }): LocalTestEnv {
+export function createLocalTestEnv(options?: {
+  applyMigrations?: boolean;
+  /** Apply migrations only up to this file (inclusive), e.g. to test old-schema code paths. */
+  migrationsUpTo?: string;
+}): LocalTestEnv {
   const tmpDir = mkdtempSync(join(tmpdir(), "creek-test-"));
   const db = new TestD1Database(join(tmpDir, "test.db"));
   const kvDb = new Database(join(tmpDir, "kv.db"));
 
   if (options?.applyMigrations !== false) {
-    applyMigrations(db);
+    applyMigrations(db, options?.migrationsUpTo);
   }
 
   const env: Env = {
@@ -396,11 +400,13 @@ export function seedProject(
   return id;
 }
 
-function applyMigrations(db: TestD1Database) {
+function applyMigrations(db: TestD1Database, upTo?: string) {
   if (!existsSync(MIGRATIONS_DIR)) return;
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql") && /^\d{4}/.test(f))
+    .filter((f) => !upTo || f <= upTo)
     .sort();
+  if (upTo && !files.includes(upTo)) throw new Error(`no migration named ${upTo}`);
   // A migration that fails here would fail on a fresh D1 too, so let it throw.
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf-8");

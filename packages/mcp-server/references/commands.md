@@ -37,6 +37,9 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Preview rollback | `creek rollback --dry-run --json` |
 | Rollback to specific | `creek rollback <DEPLOYMENT_ID> --json` |
 | Set env var | `creek env set <KEY> <VALUE> --json` |
+| Production-only secret | `creek env set <KEY> <VALUE> --target production --json` |
+| Preview-only value | `creek env set <KEY> <VALUE> --target preview --json` |
+| Remove one target's value | `creek env rm <KEY> --target <production\|preview\|all> --json` |
 | Preview env set | `creek env set <KEY> <VALUE> --dry-run --json` |
 | Preview env rm | `creek env rm <KEY> --dry-run --json` |
 | List env vars | `creek env ls --json` |

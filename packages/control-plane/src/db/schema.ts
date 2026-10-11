@@ -193,9 +193,11 @@ export const environmentVariable = sqliteTable(
       .notNull()
       .references(() => project.id),
     key: text("key").notNull(),
+    // 'all' | 'production' | 'preview' — see modules/env/targets.ts.
+    target: text("target").notNull().default("all"),
     encryptedValue: text("encryptedValue").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.key] })],
+  (table) => [primaryKey({ columns: [table.projectId, table.key, table.target] })],
 );
 
 export const customDomain = sqliteTable(

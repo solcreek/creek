@@ -10,6 +10,7 @@ import type {
   CreateDeploymentResponse,
   DeploymentStatusResponse,
   ApiError,
+  EnvTarget,
   LogEntry,
   LogQueryFilters,
   LogQueryResponse,
@@ -150,20 +151,38 @@ export class CreekClient {
 
   // --- Environment Variables ---
 
-  async listEnvVars(projectId: string): Promise<{ key: string; value: string }[]> {
+  /**
+   * One entry per key and target. `target` is absent from servers that
+   * predate targets, where every variable applies to all deploys.
+   */
+  async listEnvVars(
+    projectId: string,
+  ): Promise<{ key: string; value: string; target?: EnvTarget }[]> {
     return this.request("GET", `/projects/${projectId}/env`);
   }
 
+  /** `target` defaults to "all" on the server. */
   async setEnvVar(
     projectId: string,
     key: string,
     value: string,
-  ): Promise<{ ok: boolean; key: string }> {
-    return this.request("POST", `/projects/${projectId}/env`, { key, value });
+    target?: EnvTarget,
+  ): Promise<{ ok: boolean; key: string; target?: EnvTarget }> {
+    return this.request("POST", `/projects/${projectId}/env`, {
+      key,
+      value,
+      ...(target ? { target } : {}),
+    });
   }
 
-  async deleteEnvVar(projectId: string, key: string): Promise<{ ok: boolean }> {
-    return this.request("DELETE", `/projects/${projectId}/env/${key}`);
+  /** Removes one target's value, or every target's when `target` is omitted. */
+  async deleteEnvVar(
+    projectId: string,
+    key: string,
+    target?: EnvTarget,
+  ): Promise<{ ok: boolean; removed?: number }> {
+    const query = target ? `?target=${encodeURIComponent(target)}` : "";
+    return this.request("DELETE", `/projects/${projectId}/env/${encodeURIComponent(key)}${query}`);
   }
 
   // --- Queue ---

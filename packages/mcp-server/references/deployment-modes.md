@@ -32,9 +32,11 @@ creek claim <SANDBOX_ID>       # convert to permanent project (requires login)
 
 A **branch (preview) deploy of a project** — a push to a non-production
 branch, or any project deploy whose branch is not the production branch —
-runs with the project's environment variables and resources, **including
-production secrets and the production database**. It does not replace
-the production site, but its code can read and write production data.
+runs with the project's resources, **including the production database**,
+and with every environment variable set for `all` or `preview` deploys.
+It does not replace the production site, but its code can read and write
+production data. Keep secrets away from previews with
+`creek env set <KEY> <VALUE> --target production`.
 
 A **sandbox** deploy is not part of any project: no secrets, no project
 resources.

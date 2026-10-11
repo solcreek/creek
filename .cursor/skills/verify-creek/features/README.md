@@ -46,3 +46,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Deploy dry-run](./deploy-dry-run.md) covers the no-network deploy plan, payload gates, and the non-TTY confirmation gate.
 - [Auth status](./whoami.md) covers unauthenticated `whoami` and non-interactive `login` refusal.
 - [API key scopes](./api-key-scopes.md) covers what a scoped key may do, against a local control-plane (`scripts/control-plane.sh`), plus a raw-HTTP probe.
+- [Environment variable targets](./env-targets.md) covers `creek env --target` against a local control-plane.

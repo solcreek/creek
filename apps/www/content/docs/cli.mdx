@@ -229,6 +229,17 @@ creek env rm DATABASE_URL
 creek env ls --json
 ```
 
+A variable applies to **all deploys** unless you give `--target`:
+
+```bash
+creek env set STRIPE_KEY "sk_live_..." --target production   # production deploys only
+creek env set STRIPE_KEY "sk_test_..." --target preview      # branch (preview) deploys only
+creek env rm STRIPE_KEY --target preview                     # remove one target's value
+creek env rm STRIPE_KEY                                      # remove every value of the key
+```
+
+A deploy uses its own target's value, else the all-deploys value. Branch deploys run with the project's resources, so mark secrets that preview code must not see as `--target production`.
+
 ### `creek domains`
 
 Manage custom domains. See [Custom Domains](/docs/custom-domains) for full guide.

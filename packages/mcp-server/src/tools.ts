@@ -46,6 +46,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const err = data as { error?: string; message?: string };
       return {
         ok: false as const,
+        status: res.status,
         result: toolJson(
           { ok: false, error: err.error ?? "api_error", message: err.message ?? res.statusText },
           true,
@@ -393,7 +394,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.tool(
     "env_ls",
-    "List environment variable keys for a project. Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "List environment variable keys for a project, with the deploy target of each value (production, preview or all). Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
     },
@@ -404,51 +405,107 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!got.ok) return got.result;
       // CP `value` is mask(key), a placeholder — not a masked secret. Omit it.
       const rows = Array.isArray(got.data) ? (got.data as Array<Record<string, unknown>>) : [];
-      const keys = rows.map((row) => row.key).filter((k): k is string => typeof k === "string");
-      return toolJson({ ok: true, project: projectSlug, keys });
+      const vars = rows
+        .filter((row) => typeof row.key === "string")
+        .map((row) => ({
+          key: row.key as string,
+          // A server without targets applies every variable to all deploys.
+          target: typeof row.target === "string" ? row.target : "all",
+        }));
+      const keys = [...new Set(vars.map((v) => v.key))];
+      return toolJson({ ok: true, project: projectSlug, keys, vars });
     },
   );
 
   server.tool(
     "env_set",
-    "Set an environment variable on a project. Does not restart the worker — a production deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "Set an environment variable on a project, for production deploys, preview (branch) deploys, or all (default). A key may hold one value per target; a deploy uses its own target's value, else the all value. Use target production for secrets previews must not see. Does not restart the worker — a deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
       key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
       value: z.string().describe("Secret value (not logged in the tool result)"),
+      target: z
+        .enum(["all", "production", "preview"])
+        .optional()
+        .describe("Which deploys get this value. Default: all"),
     },
-    async ({ projectSlug, key, value }) => {
+    async ({ projectSlug, key, value, target }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
+      const wanted = target ?? "all";
       const got = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`, {
         method: "POST",
-        body: JSON.stringify({ key, value }),
+        body: JSON.stringify({ key, value, ...(target ? { target } : {}) }),
       });
       if (!got.ok) return got.result;
+      const stored = (got.data as { target?: unknown } | null)?.target ?? "all";
+      if (stored !== wanted) {
+        return toolJson(
+          {
+            ok: false,
+            error: "target_unsupported",
+            message:
+              wanted === "preview"
+                ? `The server stored ${key} for all deploys: production deploys now get this preview value, replacing any value production had. Set the production value again with env_set (target all).`
+                : `The server stored ${key} for all deploys, previews included. Call env_rm for ${key} if previews must not see it.`,
+          },
+          true,
+        );
+      }
       return toolJson({
         ok: true,
         project: projectSlug,
         key,
+        target: wanted,
         pendingDeploy: true,
         nextStep: "Call deploy_prod with this projectSlug, or creek deploy --prod --json",
-        message: `${key} stored. Running worker is unchanged until the next production deploy.`,
+        message: `${key} (${wanted}) stored. Running deployments are unchanged until the next deploy.`,
       });
     },
   );
 
   server.tool(
     "env_rm",
-    "Remove an environment variable from a project. Does not restart the worker — a production deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
+    "Remove an environment variable from a project: one target's value (production, preview or all), or every value of the key when target is omitted. Does not restart the worker — a deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
       projectSlug: z.string().describe("Project slug"),
       key: z.string().describe("Env key to remove"),
+      target: z
+        .enum(["all", "production", "preview"])
+        .optional()
+        .describe("Remove only this target's value. Default: every value of the key"),
     },
-    async ({ projectSlug, key }) => {
+    async ({ projectSlug, key, target }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
+      // A server without targets ignores ?target= and deletes the key's only
+      // (all-deploys) value; its list has no target field. Refuse instead.
+      // The list needs env:read, which a key allowed to delete may lack: on a
+      // scope refusal (403) only, go ahead — a server with targets answers a
+      // per-target delete itself (409 env_targets_unavailable before its
+      // migration). Any other failure stops here.
+      if (target && target !== "all") {
+        const listed = await cpFetch(apiKey, `/projects/${encodeURIComponent(projectSlug)}/env`);
+        if (!listed.ok && listed.status !== 403) return listed.result;
+        const rows =
+          listed.ok && Array.isArray(listed.data)
+            ? (listed.data as Array<Record<string, unknown>>)
+            : [];
+        if (rows.length > 0 && rows.every((r) => r.target === undefined)) {
+          return toolJson(
+            {
+              ok: false,
+              error: "target_unsupported",
+              message: `The server does not support targets, so it would remove the value ${key} has for all deploys. Nothing was removed.`,
+            },
+            true,
+          );
+        }
+      }
+      const query = target ? `?target=${encodeURIComponent(target)}` : "";
       const got = await cpFetch(
         apiKey,
-        `/projects/${encodeURIComponent(projectSlug)}/env/${encodeURIComponent(key)}`,
+        `/projects/${encodeURIComponent(projectSlug)}/env/${encodeURIComponent(key)}${query}`,
         { method: "DELETE" },
       );
       if (!got.ok) return got.result;
@@ -456,6 +513,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         ok: true,
         project: projectSlug,
         key,
+        ...(target ? { target } : {}),
         pendingDeploy: true,
         nextStep: "Call deploy_prod with this projectSlug, or creek deploy --prod --json",
       });

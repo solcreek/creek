@@ -185,6 +185,14 @@ export interface ApiError {
   message: string;
 }
 
+/**
+ * Which deploys an environment variable applies to: production deploys,
+ * preview (branch) deploys, or all. A deploy uses its own target's value,
+ * else the "all" value.
+ */
+export type EnvTarget = "all" | "production" | "preview";
+export const ENV_TARGETS: readonly EnvTarget[] = ["all", "production", "preview"];
+
 export interface CreateProjectRequest {
   slug: string;
   framework?: Framework;
