@@ -54,12 +54,21 @@ resources.post(
   requirePermission("project:create"),
   async (c) => {
     const teamId = c.get("teamId");
-    const body = await c.req.json<{
-      kind?: string;
-      name?: string;
-      cfResourceId?: string;
-      cfResourceType?: string;
-    }>();
+    const body = await c.req.json<Record<string, unknown> & { kind?: string; name?: string }>();
+
+    // The Cloudflare resource behind a resource is always one Creek
+    // provisions for it. A caller-supplied ID would let a team attach, read,
+    // write and delete any D1/R2/KV in the shared account, including other
+    // tenants' and the control plane's own.
+    if ("cfResourceId" in body || "cfResourceType" in body) {
+      return c.json(
+        {
+          error: "validation",
+          message: "cfResourceId and cfResourceType are assigned by Creek and can't be set",
+        },
+        400,
+      );
+    }
 
     if (!body.kind || !ALLOWED_KINDS.has(body.kind)) {
       return c.json(
@@ -91,8 +100,8 @@ resources.post(
 
     // Auto-provision the CF resource if it's a provisionable type.
     // Use the resource UUID prefix as the CF resource name for uniqueness.
-    let cfResourceId = body.cfResourceId ?? null;
-    if (!cfResourceId && cfType) {
+    let cfResourceId: string | null = null;
+    if (cfType) {
       const cfName = `creek-${id.slice(0, 8)}`;
       try {
         cfResourceId =
@@ -110,40 +119,12 @@ resources.post(
     }
 
     try {
-      // A Cloudflare resource queued for teardown can't be adopted: the cleanup
-      // would delete it under the new row. Checked in the same statement as
-      // the insert, so it can't race the queue's claim (the cleanup also skips
-      // a resource a live row references).
-      const inserted = await c.env.DB.prepare(
+      await c.env.DB.prepare(
         `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?
-       WHERE NOT EXISTS (
-         SELECT 1 FROM resource_cleanup_queue q
-         WHERE q.cfResourceId = ? AND q.status IN ('pending', 'cleaning')
-       )`,
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       )
-        .bind(
-          id,
-          teamId,
-          body.kind,
-          body.name,
-          cfResourceId,
-          cfType ?? body.cfResourceType ?? null,
-          now,
-          now,
-          cfResourceId,
-        )
+        .bind(id, teamId, body.kind, body.name, cfResourceId, cfType, now, now)
         .run();
-      if (!inserted.meta.changes) {
-        return c.json(
-          {
-            error: "conflict",
-            message:
-              "That Cloudflare resource is being deleted and can't be attached to a new resource.",
-          },
-          409,
-        );
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {

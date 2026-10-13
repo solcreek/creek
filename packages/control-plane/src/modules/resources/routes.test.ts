@@ -7,6 +7,17 @@ import {
 } from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
 import { processResourceCleanupQueue } from "./cleanup-queue.js";
+import { findExistingCFResource, provisionCFResource } from "./cloudflare.js";
+
+// Provisioning is the only way a resource gets a Cloudflare resource; stand
+// it in so creating one doesn't call Cloudflare.
+vi.mock("./cloudflare.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./cloudflare.js")>()),
+  findExistingCFResource: vi.fn(async () => null),
+  provisionCFResource: vi.fn(async (_env: unknown, cfType: string, name: string) =>
+    cfType === "r2" ? name : `${cfType}-for-${name}`,
+  ),
+}));
 
 let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
@@ -51,13 +62,8 @@ describe("resources input validation", () => {
     expect(res.status).toBe(400);
   });
 
-  test("POST /resources accepts valid database kind + hyphen name (pre-provisioned)", async () => {
-    // Pass cfResourceId to skip auto-provision (no CF API in tests)
-    const res = await req("POST", "/resources", {
-      kind: "database",
-      name: "my-db",
-      cfResourceId: "test-d1-uuid",
-    });
+  test("POST /resources accepts valid database kind + hyphen name and provisions its D1", async () => {
+    const res = await req("POST", "/resources", { kind: "database", name: "my-db" });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       id: string;
@@ -69,7 +75,8 @@ describe("resources input validation", () => {
     };
     expect(body.kind).toBe("database");
     expect(body.name).toBe("my-db");
-    expect(body.cfResourceId).toBe("test-d1-uuid");
+    // Provisioned under Creek's name for it, creek-<first 8 of id>.
+    expect(body.cfResourceId).toBe(`d1-for-creek-${body.id.slice(0, 8)}`);
     expect(body.status).toBe("active");
     expect(body.teamId).toBe(teamId);
     // UUIDs are 36-char
@@ -83,11 +90,26 @@ describe("resources input validation", () => {
 
   test("POST /resources accepts storage / cache / ai kinds", async () => {
     for (const kind of ["storage", "cache", "ai"]) {
-      // Pass cfResourceId for provisionable kinds; ai has no CF resource
-      const extra = kind === "ai" ? {} : { cfResourceId: `test-${kind}-id` };
-      const res = await req("POST", "/resources", { kind, name: `r-${kind}`, ...extra });
+      const res = await req("POST", "/resources", { kind, name: `r-${kind}` });
       expect(res.status).toBe(201);
     }
+  });
+
+  test("POST /resources refuses a caller-supplied Cloudflare resource", async () => {
+    // Pointing a new resource at an existing Cloudflare ID would hand this
+    // team another tenant's (or the control plane's own) database.
+    for (const extra of [
+      { cfResourceId: "b9fe9847-fbed-48a9-8c4d-a895289be631" },
+      { cfResourceType: "d1" },
+      { cfResourceId: null },
+    ]) {
+      const res = await req("POST", "/resources", { kind: "database", name: "adopt", ...extra });
+      expect(res.status).toBe(400);
+    }
+
+    expect(testEnv.db.db.prepare("SELECT COUNT(*) AS n FROM resource").get()).toEqual({ n: 0 });
+    expect(provisionCFResource).not.toHaveBeenCalled();
+    expect(findExistingCFResource).not.toHaveBeenCalled();
   });
 
   test("POST bindings rejects lowercase binding name", async () => {
@@ -253,16 +275,15 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(cleanupRows()).toEqual([]);
   });
 
-  test("adopting another resource's Cloudflare ID and deleting it never deletes that resource", async () => {
-    // POST /resources accepts a caller-supplied cfResourceId. Point one at a
-    // database Creek provisioned for someone else, then delete the new row.
-    const created = await req("POST", "/resources", {
+  test("a row adopted before IDs were refused never deletes the resource it points at", async () => {
+    // Rows created when POST /resources still accepted a cfResourceId may
+    // point at a database Creek provisioned for someone else.
+    seedResource("res-adopted", {
       kind: "database",
-      name: "adopted",
       cfResourceId: "victim-d1-uuid",
+      cfResourceType: "d1",
     });
-    expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    const id = "res-adopted";
     expect((await req("DELETE", `/resources/${id}`)).status).toBe(200);
 
     // Queued under the adopting row's own expected name, not the victim's.
@@ -324,26 +345,6 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(
       testEnv.db.db
         .prepare("SELECT COUNT(*) AS n FROM project_resource_binding WHERE resourceId = 'res-gone'")
-        .get(),
-    ).toEqual({ n: 0 });
-  });
-
-  test("a Cloudflare resource queued for teardown can't be re-registered", async () => {
-    seedResource("res-old", { kind: "database", cfResourceId: "d1-queued", cfResourceType: "d1" });
-    expect((await req("DELETE", "/resources/res-old")).status).toBe(200);
-
-    const res = await req("POST", "/resources", {
-      kind: "database",
-      name: "readopt",
-      cfResourceId: "d1-queued",
-    });
-
-    expect(res.status).toBe(409);
-    expect(
-      testEnv.db.db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM resource WHERE cfResourceId = 'd1-queued' AND status != 'deleted'",
-        )
         .get(),
     ).toEqual({ n: 0 });
   });
