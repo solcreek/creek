@@ -1,5 +1,19 @@
 # @solcreek/sdk
 
+## 0.4.22
+
+- **Environment variable targets.** New `EnvTarget` type
+  (`"all" | "production" | "preview"`) and `ENV_TARGETS`. `setEnvVar` and
+  `deleteEnvVar` take an optional `target`: `setEnvVar` sends it only when
+  given (the server defaults to `"all"`), and `deleteEnvVar` without one removes
+  every target's value. `listEnvVars` entries and the `setEnvVar` result carry
+  `target`, absent from servers that predate targets. `deleteEnvVar` returns
+  `removed`, the number of values deleted.
+- **`deleteEnvVar` URL-encodes the key.**
+- **`deleteResource` documents what deletion does**: the D1 database or KV
+  namespace is deleted with its data, irreversibly, normally within minutes; an
+  R2 bucket only if it is empty; refused (409) while a project binds it.
+
 ## 0.4.21
 
 - **vinext.** `detectFramework` returns `"vinext"`, ahead of `next`, and
