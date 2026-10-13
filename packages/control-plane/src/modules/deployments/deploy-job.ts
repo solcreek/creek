@@ -247,7 +247,9 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       log(
         "provision",
         "warn",
-        `Skipping binding ${skipped.bindingName}: deploys do not bind ${skipped.type} resources`,
+        skipped.type
+          ? `Skipping binding ${skipped.bindingName}: deploys do not bind ${skipped.type} resources`
+          : `Skipping binding ${skipped.bindingName}: it declares no type`,
       );
     }
 

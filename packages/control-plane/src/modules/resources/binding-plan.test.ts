@@ -10,6 +10,7 @@ import {
   planDeployBindings,
   resourceBindingType,
 } from "./service.js";
+import { createQueue, provisionCFResource } from "./cloudflare.js";
 
 vi.mock("./cloudflare.js", async (orig) => ({
   ...(await orig<object>()),
@@ -184,15 +185,19 @@ describe("upload check and deploy job agree", () => {
     const rand = rng(0x5eed);
     const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
     const names = ["DB", "DATABASE", "CACHE", "KV", "STORAGE", "MODEL", "AI", "QUEUE"];
-    // [kind, stored type]; the last pairs disagree or store nothing.
+    // [kind, stored type, provisioned]. Some pairs disagree or store no
+    // type; some D1/R2/KV rows are attached but not provisioned yet. An AI
+    // row never has a Cloudflare id.
     const kinds = [
-      ["database", "d1"],
-      ["cache", "kv"],
-      ["storage", "r2"],
-      ["ai", "ai"],
-      ["ai", null],
-      ["queue", "queue"],
-      ["cache", "d1"],
+      ["database", "d1", true],
+      ["cache", "kv", true],
+      ["storage", "r2", true],
+      ["database", null, false],
+      ["cache", "kv", false],
+      ["ai", "ai", false],
+      ["ai", null, false],
+      ["queue", "queue", true],
+      ["cache", "d1", true],
     ] as const;
     const types = ["d1", "kv", "r2", "ai", "images"];
 
@@ -204,6 +209,7 @@ describe("upload check and deploy job agree", () => {
       customAi: 0,
       queueAdded: 0,
       skipped: 0,
+      provisionedAttached: 0,
     };
     for (let i = 0; i < 400; i++) {
       const projectId = `p${i}`;
@@ -218,9 +224,8 @@ describe("upload check and deploy job agree", () => {
       );
       for (const name of names) {
         if (rand() < 0.35) {
-          const [kind, cf] = pick(kinds);
+          const [kind, cf, provisioned] = pick(kinds);
           const id = `${projectId}-${name}`;
-          // An AI row has no Cloudflare id; the others are provisioned.
           await f.sql(
             `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
              VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
@@ -228,7 +233,7 @@ describe("upload check and deploy job agree", () => {
             owner.orgId,
             kind,
             id,
-            kind === "ai" ? null : `cf-${id}`,
+            provisioned ? `cf-${id}` : null,
             cf,
             now,
             now,
@@ -254,7 +259,24 @@ describe("upload check and deploy job agree", () => {
           projectId,
         );
       const plan = await planDeployBindings(f.env, projectId, requirements, wantsQueue);
+      const resourceRows = () =>
+        f.sql<{ id: string; cfResourceId: string | null }>(
+          "SELECT id, kind, cfResourceId, cfResourceType FROM resource WHERE id LIKE ? ORDER BY id",
+          `${projectId}-%`,
+        );
+      // Everything a refused job must leave as it was: binding rows, resource
+      // rows (any new one would be named by UUID, so count all of them), and
+      // the Cloudflare calls that create something.
+      const world = async () => ({
+        bindings: await bindingRows(),
+        resources: await resourceRows(),
+        resourceCount: (await f.sql("SELECT id FROM resource")).length,
+        cfCreates:
+          vi.mocked(provisionCFResource).mock.calls.length +
+          vi.mocked(createQueue).mock.calls.length,
+      });
       const before = await bindingRows();
+      const worldBefore = await world();
       const runJob = async (mayAddBindings: boolean) => {
         const resolved = await ensureProjectBindings(f.env, projectId, owner.orgId, requirements, {
           mayAddBindings,
@@ -272,7 +294,7 @@ describe("upload check and deploy job agree", () => {
         for (const mayAddBindings of [false, true]) {
           await expect(runJob(mayAddBindings), label).rejects.toThrow(BindingConflictError);
         }
-        expect(await bindingRows(), label).toEqual(before);
+        expect(await world(), label).toEqual(worldBefore);
         continue;
       }
 
@@ -286,8 +308,16 @@ describe("upload check and deploy job agree", () => {
         refused = true;
       }
       expect(refused, `${label} added=${plan.added}`).toBe(plan.added.length > 0);
-      expect(await bindingRows(), label).toEqual(before);
-      if (refused) seen.refused++;
+      if (refused) {
+        expect(await world(), label).toEqual(worldBefore);
+        seen.refused++;
+      } else {
+        // Allowed: no binding and no resource added. Provisioning a resource
+        // someone already attached is allowed (it is bound already).
+        const after = await world();
+        expect(after.bindings, label).toEqual(worldBefore.bindings);
+        expect(after.resourceCount, label).toBe(worldBefore.resourceCount);
+      }
 
       // 3. Unrestricted, the names it binds are exactly the predicted ones,
       //    existing bindings keep their resources, and the worker gets every
@@ -332,6 +362,14 @@ describe("upload check and deploy job agree", () => {
         ).toBe(false);
       }
 
+      const resourcesAfter = await resourceRows();
+      if (
+        worldBefore.resources.some(
+          (r) => !r.cfResourceId && resourcesAfter.find((a) => a.id === r.id)?.cfResourceId,
+        )
+      ) {
+        seen.provisionedAttached++;
+      }
       if (plan.added.length > 0) seen.added++;
       else seen.nothingAdded++;
       if (plan.requirements.some((r) => r.type === "ai" && r.bindingName !== "AI")) seen.customAi++;

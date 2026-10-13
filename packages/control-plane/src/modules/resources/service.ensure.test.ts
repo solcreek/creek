@@ -153,7 +153,7 @@ describe("ensureProjectBindings — server attachment merge", () => {
     ).rejects.toThrow(BindingConflictError);
   });
 
-  test("seeds a Workers AI attachment under its own name, with no Cloudflare id", async () => {
+  test("does not bind a Workers AI attachment the bundle does not declare", async () => {
     const env = envWithBindings([
       {
         bindingName: "MODEL",
@@ -166,7 +166,8 @@ describe("ensureProjectBindings — server attachment merge", () => {
 
     const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
 
-    expect(result.get("MODEL")).toEqual({ bindingName: "MODEL", cfType: "ai", cfResourceId: null });
+    // Usage bills to the account: AI stays tied to the app's own config.
+    expect(result.has("MODEL")).toBe(false);
   });
 
   test("an AI requirement reuses AI bound under its name, without provisioning", async () => {

@@ -254,10 +254,10 @@ export async function planDeployBindings(
 /**
  * Resolves bindings from two sources:
  *   - Server-side attachments (`creek <kind> attach`): every existing
- *     d1/r2/kv `project_resource_binding` with a provisioned CF resource, and
- *     every Workers AI binding, is bound, so an attached resource reaches the
- *     worker even when the bundle's config doesn't declare it. (Queues are
- *     wired separately and aren't seeded here.)
+ *     d1/r2/kv `project_resource_binding` with a provisioned CF resource is
+ *     bound, so an attached resource reaches the worker even when the bundle's
+ *     config doesn't declare it. (Queues are wired separately; Workers AI is
+ *     bound only when declared.)
  *   - The CLI bundle's requirements: for each, reuse the existing binding
  *     (provisioning CF if needed) or auto-create a resource + binding.
  *     A requirement overrides a server attachment of the same name.
@@ -295,20 +295,20 @@ export async function ensureProjectBindings(
 
   const result = new Map<string, ResolvedResourceBinding>();
 
-  // Seed with server-side attachments the worker can be bound to as they
-  // are: provisioned D1/R2/KV, and Workers AI, which needs no provisioning.
-  // Requirements below override these by binding name. Skip a row whose type
-  // can't be determined rather than guessing — a wrong guess would mis-bind
-  // the resource (e.g. a non-KV resource as KV).
+  // Seed with server-side attachments that already have a provisioned CF
+  // resource: D1/R2/KV. Requirements below override these by binding name.
+  // Skip a row whose type can't be determined rather than guessing — a wrong
+  // guess would mis-bind the resource (e.g. a non-KV resource as KV). Workers
+  // AI is bound only while the bundle declares it, as before: account-level
+  // usage stays tied to the app's own config.
   for (const existing of existingRows.results) {
     const cfType = resourceBindingType(existing);
-    // Queues are wired separately (ensureQueue).
-    if (cfType === null || !isBindingType(cfType)) continue;
-    if (cfType !== "ai" && !existing.cfResourceId) continue;
+    if (cfType !== "d1" && cfType !== "r2" && cfType !== "kv") continue;
+    if (!existing.cfResourceId) continue;
     result.set(existing.bindingName, {
       bindingName: existing.bindingName,
       cfType,
-      cfResourceId: cfType === "ai" ? null : existing.cfResourceId,
+      cfResourceId: existing.cfResourceId,
     });
   }
 
