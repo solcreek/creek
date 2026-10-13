@@ -1,5 +1,25 @@
 # @solcreek/cli
 
+## 0.4.51
+
+Requires `@solcreek/sdk@0.4.22`.
+
+### Environment variables
+
+- **`creek env set --target production|preview|all`** stores a value for
+  production deploys, preview (branch) deploys, or all of them (the default). A
+  deploy uses its own target's value, else the `all` value. The CLI reports
+  success only when the server stored the target asked for: on a server
+  without targets, which stores the value for every deploy, it fails with
+  `target_unsupported` and says how to undo it.
+- **`creek env ls`** shows each value's target, and `--json` includes it.
+- **`creek env rm --target <target>`** removes only that target's value;
+  without `--target` it removes every value of the key, and `--json` reports
+  `removedValues`. On a server without targets it refuses
+  (`target_unsupported`) instead of deleting the all-deploys value.
+- **`creek env set` says which deploys pick up the change**: the next deploy,
+  production deploy or branch deploy.
+
 ## 0.4.50
 
 Requires `@solcreek/sdk@0.4.21` (unchanged).
