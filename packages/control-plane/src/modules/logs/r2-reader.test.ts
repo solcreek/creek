@@ -160,7 +160,8 @@ describe("readLogs", () => {
   test("follows the LIST cursor so the newest batches on a later page are read", async () => {
     const keys = Array.from(
       { length: 5 },
-      (_, i) => `logs/acme/blog/2026-04-13/17-production-${(i * 60_000).toString(16).padStart(6, "0")}aaaaaa.ndjson`,
+      (_, i) =>
+        `logs/acme/blog/2026-04-13/17-production-${(i * 60_000).toString(16).padStart(6, "0")}aaaaaa.ndjson`,
     );
     const pages = [keys.slice(0, 2), keys.slice(2, 4), keys.slice(4)];
     const bucket = {
