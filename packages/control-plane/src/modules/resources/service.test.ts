@@ -1,9 +1,7 @@
 import { describe, test, expect } from "vitest";
-import { buildBindings } from "./service.js";
+import { buildBindings, type ResolvedResourceBinding } from "./service.js";
 
-type Resolved = { bindingName: string; cfResourceId: string; cfType: string };
-
-function resolved(entries: Resolved[]): Map<string, Resolved> {
+function resolved(entries: ResolvedResourceBinding[]): Map<string, ResolvedResourceBinding> {
   return new Map(entries.map((e) => [e.bindingName, e]));
 }
 
@@ -11,7 +9,6 @@ const baseOptions = {
   projectSlug: "app",
   projectId: "proj-1",
   realtimeUrl: "https://realtime.example",
-  needsAi: false,
 };
 
 describe("buildBindings — deprecated aliases", () => {
@@ -80,5 +77,40 @@ describe("buildBindings — deprecated aliases", () => {
       { type: "d1", name: "DATABASE", id: "d1-new" },
       { type: "d1", name: "DB", id: "d1-legacy" },
     ]);
+  });
+});
+
+describe("buildBindings — Workers AI", () => {
+  test("binds AI under the name the bundle declared", () => {
+    const bindings = buildBindings(
+      resolved([{ bindingName: "MODEL", cfResourceId: null, cfType: "ai" }]),
+      [],
+      baseOptions,
+    );
+    expect(bindings.filter((b) => b.type === "ai")).toEqual([{ type: "ai", name: "MODEL" }]);
+  });
+
+  test("binds AI once per name, with no deprecated alias", () => {
+    const bindings = buildBindings(
+      resolved([
+        { bindingName: "AI", cfResourceId: null, cfType: "ai" },
+        { bindingName: "MODEL", cfResourceId: null, cfType: "ai" },
+      ]),
+      [],
+      baseOptions,
+    );
+    expect(bindings.filter((b) => b.type === "ai")).toEqual([
+      { type: "ai", name: "AI" },
+      { type: "ai", name: "MODEL" },
+    ]);
+  });
+
+  test("binds no AI when nothing resolved is AI", () => {
+    const bindings = buildBindings(
+      resolved([{ bindingName: "DATABASE", cfResourceId: "d1-id", cfType: "d1" }]),
+      [],
+      baseOptions,
+    );
+    expect(bindings.some((b) => b.type === "ai")).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
-import { describe, test, expect, vi } from "vitest";
-import { ensureProjectBindings } from "./service.js";
+import { describe, test, expect, vi, beforeEach } from "vitest";
+import { BindingConflictError, ensureProjectBindings } from "./service.js";
+import { provisionCFResource } from "./cloudflare.js";
 
 // Mock CF provisioning so the auto-create fall-through (used by the type-
 // mismatch test) doesn't hit the network. Other tests avoid auto-create, so
@@ -43,6 +44,8 @@ function envWithBindings(rows: Row[]): any {
     },
   };
 }
+
+beforeEach(() => vi.clearAllMocks());
 
 describe("ensureProjectBindings — server attachment merge", () => {
   test("a provisioned server attachment reaches the deploy even with empty requirements", async () => {
@@ -132,7 +135,7 @@ describe("ensureProjectBindings — server attachment merge", () => {
     expect(result.has("QUEUE")).toBe(false);
   });
 
-  test("an existing provisioned binding trusts its kind over a divergent requirement type", async () => {
+  test("refuses a requirement whose type differs from the bound resource's", async () => {
     const env = envWithBindings([
       {
         bindingName: "CACHE",
@@ -143,12 +146,62 @@ describe("ensureProjectBindings — server attachment merge", () => {
       },
     ]);
 
-    // The bundle wrongly claims CACHE is a d1 — the resource's kind (cache -> kv) wins.
-    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
-      { type: "d1", bindingName: "CACHE" },
+    // The bundle claims CACHE is a d1. Binding the KV namespace (or a new D1)
+    // under a name the worker reads as a database would break it at runtime.
+    await expect(
+      ensureProjectBindings(env, "proj-1", "team-1", [{ type: "d1", bindingName: "CACHE" }]),
+    ).rejects.toThrow(BindingConflictError);
+  });
+
+  test("seeds a Workers AI attachment under its own name, with no Cloudflare id", async () => {
+    const env = envWithBindings([
+      {
+        bindingName: "MODEL",
+        resourceId: "res-ai",
+        kind: "ai",
+        cfResourceId: null,
+        cfResourceType: null,
+      },
     ]);
 
-    expect(result.get("CACHE")?.cfType).toBe("kv");
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
+
+    expect(result.get("MODEL")).toEqual({ bindingName: "MODEL", cfType: "ai", cfResourceId: null });
+  });
+
+  test("an AI requirement reuses AI bound under its name, without provisioning", async () => {
+    const env = envWithBindings([
+      {
+        bindingName: "MODEL",
+        resourceId: "res-ai",
+        kind: "ai",
+        cfResourceId: null,
+        cfResourceType: "ai",
+      },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", [
+      { type: "ai", bindingName: "MODEL" },
+    ]);
+
+    expect(result.get("MODEL")).toEqual({ bindingName: "MODEL", cfType: "ai", cfResourceId: null });
+    expect(provisionCFResource).not.toHaveBeenCalled();
+  });
+
+  test("does not seed a resource whose kind and stored type disagree", async () => {
+    const env = envWithBindings([
+      {
+        bindingName: "DATA",
+        resourceId: "res-x",
+        kind: "cache",
+        cfResourceId: "d1-1",
+        cfResourceType: "d1",
+      },
+    ]);
+
+    const result = await ensureProjectBindings(env, "proj-1", "team-1", []);
+
+    expect(result.has("DATA")).toBe(false);
   });
 
   test("adopts a legacy DB alias's resource under the DATABASE primary (no new empty D1)", async () => {

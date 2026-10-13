@@ -34,7 +34,7 @@ const TRACKING_TABLE_SQL = `CREATE TABLE IF NOT EXISTS _creek_migrations (
  */
 export const MAX_MIGRATION_BYTES = 90 * 1024;
 
-type ResolvedBinding = { bindingName: string; cfResourceId: string; cfType: string };
+type ResolvedBinding = { bindingName: string; cfResourceId: string | null; cfType: string };
 
 /**
  * The database migrations apply to: the one bound as DATABASE (what
@@ -46,7 +46,10 @@ type ResolvedBinding = { bindingName: string; cfResourceId: string; cfType: stri
 export function pickMigrationDatabase(
   resolved: Map<string, ResolvedBinding>,
 ): { ok: true; bindingName: string; databaseId: string } | { ok: false; message: string } {
-  const d1s = [...resolved.values()].filter((b) => b.cfType === "d1");
+  const d1s = [...resolved.values()].filter(
+    (b): b is ResolvedBinding & { cfResourceId: string } =>
+      b.cfType === "d1" && b.cfResourceId !== null,
+  );
   const chosen =
     d1s.find((b) => b.bindingName === "DATABASE") ??
     d1s.find((b) => b.bindingName === "DB") ??
