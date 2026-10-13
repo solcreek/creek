@@ -3,19 +3,13 @@
  *
  * Append-style writes are not native to R2 (objects are immutable),
  * so we batch within a single tail() invocation and write one object
- * per (team, project, hour, scriptType, batchSeq). The batchSeq comes
- * from `crypto.randomUUID()` — we don't try to coordinate sequence
- * numbers across Tail Worker isolates because the cost of an extra
- * R2 read for ordering would dwarf the cost of just letting batches
- * accumulate and sorting at read time.
+ * per (team, project, hour, scriptType, batchId). We don't coordinate
+ * sequence numbers across Tail Worker isolates; instead the batchId
+ * starts with the time of the batch's newest entry (see `batchId`), so
+ * the reader can order batches by it without an extra R2 read.
  *
  * Key shape (matches creek-observability-design.md):
  *   logs/{team}/{project}/{YYYY-MM-DD}/{HH}-{scriptType}-{batchId}.ndjson
- *
- * Reader (Phase 2 of observability) will list-prefix by date+hour and
- * concatenate objects in lexical order — batchId at the end means
- * "creation order within an hour" ≈ "ms timestamp order" for typical
- * traffic.
  */
 
 import type { LogEntry, PlatformLogEntry } from "./types.js";
@@ -65,16 +59,13 @@ function writeOne(env: R2WriterEnv, entries: LogEntry[]): Promise<R2Object | nul
   const mm = pad2(date.getUTCMonth() + 1);
   const dd = pad2(date.getUTCDate());
   const hh = pad2(date.getUTCHours());
-  // randomUUID returns hex-with-hyphens (8-4-4-4-12). Strip hyphens
-  // first so the batchId is pure 12-hex — easier to glob and parse.
-  const batchId = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
   const key = [
     "logs",
     first.team,
     first.project,
     `${yyyy}-${mm}-${dd}`,
-    `${hh}-${first.scriptType}-${batchId}.ndjson`,
+    `${hh}-${first.scriptType}-${batchId(entries)}.ndjson`,
   ].join("/");
 
   const body = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
@@ -117,7 +108,6 @@ function writeOnePlatform(env: R2WriterEnv, entries: PlatformLogEntry[]): Promis
   const mm = pad2(date.getUTCMonth() + 1);
   const dd = pad2(date.getUTCDate());
   const hh = pad2(date.getUTCHours());
-  const batchId = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
   const key = [
     PLATFORM_PREFIX,
@@ -125,13 +115,30 @@ function writeOnePlatform(env: R2WriterEnv, entries: PlatformLogEntry[]): Promis
     // key out of its prefix even if CF ever emits something exotic.
     sanitizeKeySegment(first.script),
     `${yyyy}-${mm}-${dd}`,
-    `${hh}-${batchId}.ndjson`,
+    `${hh}-${batchId(entries)}.ndjson`,
   ].join("/");
 
   const body = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
   return env.LOGS_BUCKET.put(key, body, {
     httpMetadata: { contentType: "application/x-ndjson" },
   });
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * 12 hex chars: 6 for the milliseconds into the hour of the batch's newest
+ * entry (at most 0x36ee7f), then 6 random. Fixed width, so within an hour
+ * the ids sort by time; the random half keeps concurrent isolates apart.
+ * The hour is the first entry's, matching the key's {HH} segment.
+ */
+export function batchId(entries: { timestamp: number }[]): string {
+  const hourStart = entries[0].timestamp - (entries[0].timestamp % HOUR_MS);
+  const newest = Math.max(...entries.map((e) => e.timestamp));
+  const offset = Math.min(Math.max(newest - hourStart, 0), HOUR_MS - 1);
+  // randomUUID is hex with hyphens; strip them for a pure-hex suffix.
+  const random = crypto.randomUUID().replace(/-/g, "").slice(0, 6);
+  return offset.toString(16).padStart(6, "0") + random;
 }
 
 function sanitizeKeySegment(s: string): string {
