@@ -95,6 +95,21 @@ describe("resources input validation", () => {
     }
   });
 
+  test("POST /resources answers 400 to a body that isn't a JSON object", async () => {
+    for (const body of ["x", 1, false, null, []]) {
+      const res = await app.request(
+        "/resources",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        testEnv.env,
+      );
+      expect(res.status).toBe(400);
+    }
+  });
+
   test("POST /resources refuses a caller-supplied Cloudflare resource", async () => {
     // Pointing a new resource at an existing Cloudflare ID would hand this
     // team another tenant's (or the control plane's own) database.

@@ -54,7 +54,11 @@ resources.post(
   requirePermission("project:create"),
   async (c) => {
     const teamId = c.get("teamId");
-    const body = await c.req.json<Record<string, unknown> & { kind?: string; name?: string }>();
+    const raw: unknown = await c.req.json();
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return c.json({ error: "validation", message: "body must be a JSON object" }, 400);
+    }
+    const body = raw as Record<string, unknown> & { kind?: string; name?: string };
 
     // The Cloudflare resource behind a resource is always one Creek
     // provisions for it. A caller-supplied ID would let a team attach, read,
