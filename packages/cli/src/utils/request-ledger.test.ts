@@ -123,4 +123,52 @@ describe("installRequestLedger", () => {
     await fetch(new Request("https://api.test/x", { method: "PATCH" }));
     expect(mutationsMaybeApplied()).toBe(1);
   });
+
+  it("sends writes without following redirects, reads unchanged", async () => {
+    const seen: (RequestInit | undefined)[] = [];
+    globalThis.fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      seen.push(init);
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    installRequestLedger();
+    await fetch("https://api.test/x", { method: "POST", body: "{}" });
+    await fetch("https://api.test/x");
+    expect(seen[0]).toMatchObject({ method: "POST", body: "{}", redirect: "manual" });
+    expect(seen[1]).toBeUndefined();
+  });
+});
+
+describe("a write the server applied and answered with a redirect", () => {
+  // Reproduced on Node 24: the server logs the POST, answers 303 to a host
+  // that does not resolve, and a followed fetch rejects with ENOTFOUND — the
+  // target's error, which reads as "never sent".
+  const realFetch = globalThis.fetch;
+  let server: import("node:http").Server | undefined;
+  afterEach(async () => {
+    globalThis.fetch = realFetch;
+    resetRequestLedger();
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = undefined;
+  });
+
+  it("counts as applied and returns the 3xx instead of failing on its target", async () => {
+    const { createServer } = await import("node:http");
+    let received = 0;
+    server = createServer((req, res) => {
+      received++;
+      res.writeHead(303, { location: "http://creek-no-such-host.invalid/" });
+      res.end();
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+
+    installRequestLedger();
+    const response = await fetch(`http://127.0.0.1:${port}/deployments`, {
+      method: "POST",
+      body: "{}",
+    });
+    expect(received).toBe(1);
+    expect(response.status).toBe(303);
+    expect(mutationsMaybeApplied()).toBe(1);
+  });
 });

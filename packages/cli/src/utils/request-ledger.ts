@@ -6,9 +6,9 @@
  * create the deployment, upload). If a later one fails, the earlier ones may
  * already be applied, and re-running the command would apply them again —
  * requests carry no idempotency key. The ledger counts every mutating request
- * (any method but GET/HEAD/OPTIONS) that may have been applied: one that
- * succeeded or got a 5xx, or one that failed in a way that does not prove
- * nothing was sent. A 4xx is a refusal and is not counted.
+ * (any method but GET/HEAD/OPTIONS) that may have been applied: one that got
+ * a 2xx, 3xx or 5xx, or one that failed in a way that does not prove nothing
+ * was sent. A 4xx is a refusal and is not counted.
  */
 
 /**
@@ -96,15 +96,25 @@ function methodOf(input: Parameters<typeof fetch>[0], init?: RequestInit): strin
   return method.toUpperCase();
 }
 
-/** Count this run's mutating requests that may have reached a server. */
+/**
+ * Count this run's mutating requests that may have reached a server.
+ *
+ * Mutating requests are sent with `redirect: "manual"`. Followed, a redirect
+ * turns the failure of its target (ENOTFOUND, a certificate error) into the
+ * request's own, and a write the server applied before answering 303/307/308
+ * would read as never sent. Unfollowed, a failure is the first hop's, and the
+ * 3xx comes back to the caller, counted as applied. Creek's APIs never answer
+ * a write with a redirect.
+ */
 export function installRequestLedger(): void {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const mutating = !SAFE_METHODS.has(methodOf(input, init));
     try {
-      const response = await original(input, init);
-      // A 4xx is a refusal, nothing applied; a 5xx may have failed midway.
-      if (mutating && (response.ok || response.status >= 500)) maybeApplied++;
+      const response = await original(input, mutating ? { ...init, redirect: "manual" } : init);
+      // A 4xx is a refusal, nothing applied. A 2xx or 3xx answered it, and a
+      // 5xx may have failed midway.
+      if (mutating && (response.status < 400 || response.status >= 500)) maybeApplied++;
       return response;
     } catch (err) {
       if (mutating && !provablyNotSent(err)) maybeApplied++;
