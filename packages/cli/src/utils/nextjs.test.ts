@@ -193,9 +193,17 @@ describe("resolveAdapterPath (adapter cache floor)", () => {
     expect(resolveAdapterPath(cwd, "0.2.19")).not.toBeNull(); // the previous floor reused it
   });
 
+  it("rejects a cached 0.2.20, whose D1 shims read only env.DB", () => {
+    // A project bound only under DATABASE got a 500 on every query; 0.2.21
+    // reads env.DATABASE first. A cached 0.2.20 must not be reused.
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.20");
+    expect(resolveAdapterPath(cwd, ADAPTER_MIN_VERSION)).toBeNull();
+    expect(resolveAdapterPath(cwd, "0.2.20")).not.toBeNull(); // the previous floor reused it
+  });
+
   it("prefers the project node_modules copy over .creek when both pass the floor", () => {
-    fakeAdapter(join(cwd, "node_modules"), "0.2.20");
-    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.21");
+    fakeAdapter(join(cwd, "node_modules"), "0.2.21");
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.22");
     const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
     // node_modules is tried before .creek in the base order.
     expect(resolved).toContain(join("node_modules", "@solcreek", "adapter-creek"));
