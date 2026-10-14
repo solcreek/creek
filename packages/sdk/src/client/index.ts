@@ -56,11 +56,19 @@ export class CreekClient {
 
   // --- Auth ---
 
+  /**
+   * The key's session, or null when the API refuses the key (401, or 403
+   * for a key it will not use: unreadable scopes, a team its owner left).
+   * Any other failure — network, timeout, 5xx — throws: it says nothing
+   * about the key, and a caller must not tell the user to log in again.
+   */
   async getSession(): Promise<{ user: { id: string; name: string; email: string } } | null> {
     try {
       return await this.request("GET", "/api/auth/get-session");
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof CreekAuthError) return null;
+      if (err instanceof CreekApiError && err.status === 403) return null;
+      throw err;
     }
   }
 

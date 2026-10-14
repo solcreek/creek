@@ -129,6 +129,19 @@ describe("CreekClient", () => {
     expect(result).toBeNull();
   });
 
+  test("getSession returns null for a key the API will not use (403)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(403, { error: "team_mismatch", message: "x" }));
+    expect(await client.getSession()).toBeNull();
+  });
+
+  test("getSession throws, not null, when the failure says nothing about the key", async () => {
+    // A null would read as "log in again"; a 5xx or a network error should be retried.
+    mockFetch.mockResolvedValue(jsonResponse(503, { error: "unavailable", message: "Down" }));
+    await expect(client.getSession()).rejects.toMatchObject({ status: 503 });
+    mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+    await expect(client.getSession()).rejects.toThrow("fetch failed");
+  });
+
   test("getSession returns user on success", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse(200, { user: { id: "1", name: "Test", email: "test@example.com" } }),

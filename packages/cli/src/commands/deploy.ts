@@ -2164,8 +2164,9 @@ async function deployAuthenticated(
     progress.section("Auth");
     const session = await client.getSession();
     if (!session?.user) {
-      // getSession() swallows the 401, so this is the rejected-key exit:
-      // JSON mode still owes stdout a result.
+      // getSession() is null only when the API refuses the key (other
+      // failures throw), so this is the rejected-key exit: JSON mode still
+      // owes stdout a result.
       if (jsonMode) {
         jsonOutput(
           {
