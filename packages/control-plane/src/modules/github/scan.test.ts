@@ -159,4 +159,21 @@ id = "yyy"
     expect(result.bindings).toContainEqual({ type: "r2", name: "UPLOADS" });
     expect(result.bindings).toContainEqual({ type: "analytics_engine", name: "AE" });
   });
+
+  test.each([
+    [{ binding: "MODEL" }, "MODEL"],
+    [{}, "AI"],
+    [true, "AI"],
+  ])("names the AI binding as the worker reads it (ai = %j)", async (ai, name) => {
+    setupMockFiles({
+      "wrangler.jsonc": JSON.stringify({ name: "app", ai }),
+      "wrangler.json": null,
+      "wrangler.toml": null,
+      "package.json": null,
+      ".env.example": null,
+    });
+
+    const result = await scanRepo("token", "owner", "repo");
+    expect(result.bindings.filter((b) => b.type === "ai")).toEqual([{ type: "ai", name }]);
+  });
 });

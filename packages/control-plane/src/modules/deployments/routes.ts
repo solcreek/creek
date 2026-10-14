@@ -328,6 +328,27 @@ deployments.put(
       }
       const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
 
+      // What the deploy job will bind, decided now with the job's own rules
+      // (planBindings), so a bundle the job would refuse fails here, before
+      // the bundle is staged and a deployment runs.
+      const { planDeployBindings } = await import("../resources/service.js");
+      const plan = await planDeployBindings(
+        c.env,
+        project.id,
+        requirements,
+        Boolean(declared.queue),
+      );
+      if (plan.conflicts.length > 0) {
+        return c.json(
+          {
+            error: "binding_conflict",
+            message: plan.conflicts.join(" "),
+            conflicts: plan.conflicts,
+          },
+          409,
+        );
+      }
+
       let mayAddBindings = true;
       // A deploy binds every resource its bundle declares, creating the ones
       // the project lacks, and those bindings are the project's: production
@@ -339,13 +360,7 @@ deployments.put(
         const cannotManageResources = assertScope(c, "resource:write");
         if (cannotManageResources) {
           mayAddBindings = false;
-          const { bindingsADeployWouldAdd } = await import("../resources/service.js");
-          const added = await bindingsADeployWouldAdd(
-            c.env,
-            project.id,
-            requirements,
-            Boolean(declared.queue),
-          );
+          const added = plan.added;
           if (added.length > 0) {
             const refusal = (await cannotManageResources.json()) as Record<string, unknown>;
             return c.json(

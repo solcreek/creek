@@ -635,7 +635,9 @@ export function mergeAdapterBindings(
   existing: ReadonlyArray<{ type: string; bindingName: string }>,
   adapterWrangler: Record<string, unknown>,
 ): BindingReq[] {
-  const seen = new Set(existing.map((b) => `${b.type}:${b.bindingName}`));
+  // Keyed by name alone: the worker's env has one binding per name, and the
+  // control plane refuses a bundle that declares one name with two types.
+  const seen = new Set(existing.map((b) => b.bindingName));
   // Cast existing entries; their type field is already one of the
   // narrower SDK union members, so this is safe.
   const out: BindingReq[] = existing.map((b) => ({
@@ -644,9 +646,8 @@ export function mergeAdapterBindings(
   }));
 
   const push = (type: BindingType, bindingName: string) => {
-    const key = `${type}:${bindingName}`;
-    if (!seen.has(key)) {
-      seen.add(key);
+    if (!seen.has(bindingName)) {
+      seen.add(bindingName);
       out.push({ type, bindingName });
     }
   };

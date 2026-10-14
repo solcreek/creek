@@ -55,12 +55,25 @@ BETTER_AUTH_SECRET=verify-creek-$(python3 -c 'import secrets; print(secrets.toke
 ENCRYPTION_KEY=verify-creek-$(python3 -c 'import secrets; print(secrets.token_hex(16))')
 INTERNAL_SECRET=verify-creek-$(python3 -c 'import secrets; print(secrets.token_hex(16))')
 EOF
+  # VERIFY_CREEK_FAKE_CLOUDFLARE=1: answer Cloudflare API calls in-process
+  # (scripts/fake-cloudflare.ts) so deploy jobs finish, recording each call
+  # in control-plane/cloudflare-calls.ndjson. The credentials are fake too.
+  preload=()
+  if [[ "${VERIFY_CREEK_FAKE_CLOUDFLARE:-}" == "1" ]]; then
+    cat >>"$CP_DIR/dev.vars" <<EOF
+CLOUDFLARE_API_TOKEN=verify-creek-fake-token
+CLOUDFLARE_ACCOUNT_ID=verify-creek-fake-account
+DISPATCH_NAMESPACE=verify-creek-fake-namespace
+EOF
+    : >"$CP_DIR/cloudflare-calls.ndjson"
+    preload=(--preload "$VERIFY_CREEK_REPO/.cursor/skills/verify-creek/scripts/fake-cloudflare.ts")
+  fi
   (
     cd "$VERIFY_CREEK_REPO/packages/control-plane"
     env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID \
       CREEK_LOCAL_ENV_FILE="$CP_DIR/dev.vars" CREEK_DATA_DIR="$CP_DIR/data" PORT="$port" \
-      CREEK_LOCAL_HOSTNAME=127.0.0.1 \
-      nohup bun run src/local/serve.ts >"$CP_DIR/server.log" 2>&1 &
+      CREEK_LOCAL_HOSTNAME=127.0.0.1 VERIFY_CREEK_CF_LOG="$CP_DIR/cloudflare-calls.ndjson" \
+      nohup bun run ${preload[@]+"${preload[@]}"} src/local/serve.ts >"$CP_DIR/server.log" 2>&1 &
     echo $! >"$CP_DIR/pid"
   )
   echo "$url" >"$CP_DIR/url"

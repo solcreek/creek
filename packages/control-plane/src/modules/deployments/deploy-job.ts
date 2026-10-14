@@ -3,7 +3,7 @@ import {
   ensureProjectBindings,
   ensureQueue,
   buildBindings,
-  type BundleBindingRequirement,
+  isBindingType,
 } from "../resources/service.js";
 import { setQueueConsumer } from "../resources/cloudflare.js";
 import { resolveDeployTarget } from "./target.js";
@@ -51,8 +51,10 @@ export interface StagedBundle {
    * the deploy job doesn't OOM. Mutually exclusive with `serverFiles`.
    */
   serverFileNames?: string[];
-  // Typed binding declarations with user-defined names
-  bindings?: BundleBindingRequirement[];
+  // Typed binding declarations with user-defined names. The CLI sends
+  // d1/r2/kv/ai; a remote build can also carry a framework adapter's
+  // bindings of other types, which the job skips.
+  bindings?: { type: string; bindingName: string }[];
   // Wrangler [vars] passthrough
   vars?: Record<string, string>;
   // Wrangler compatibility settings passthrough
@@ -238,11 +240,24 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
     log("provision", "info", "Provisioning resources");
 
     const requirements = bundle.bindings ?? [];
+    // A framework adapter can declare bindings deploys do not provision
+    // (IMAGES, worker loaders): say so, rather than deploy without them
+    // silently.
+    for (const skipped of requirements.filter((r) => !isBindingType(r.type))) {
+      log(
+        "provision",
+        "warn",
+        skipped.type
+          ? `Skipping binding ${skipped.bindingName}: deploys do not bind ${skipped.type} resources`
+          : `Skipping binding ${skipped.bindingName}: it declares no type`,
+      );
+    }
 
     let resolvedBindings;
     try {
       resolvedBindings = await ensureProjectBindings(env, projectId, teamId, requirements, {
         mayAddBindings: input.mayAddBindings !== false,
+        wantsQueue: Boolean(bundle.queue),
       });
     } catch (err) {
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
@@ -349,14 +364,11 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       ? await deriveRealtimeSecret(env.REALTIME_MASTER_KEY, projectSlug)
       : undefined;
 
-    const needsAi = requirements.some((r) => r.type === "ai");
-
     const bindings = buildBindings(resolvedBindings, envVars, {
       projectSlug,
       projectId,
       realtimeUrl: env.CREEK_REALTIME_URL ?? `https://realtime.${env.CREEK_DOMAIN}`,
       realtimeSecret,
-      needsAi,
       queueName: queueResource?.cfResourceName,
     });
 

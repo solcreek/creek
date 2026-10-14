@@ -23,7 +23,11 @@ import { context, type BuildContext } from "esbuild";
 // still work in-repo, but the published package.json excludes it.
 import type { Miniflare } from "miniflare";
 import { generateWorkerWrapper } from "../utils/worker-bundle.js";
-import { DEPRECATED_BINDING_ALIASES, type BindingDeclaration } from "@solcreek/sdk";
+import {
+  DEPRECATED_ALIAS_TYPES,
+  DEPRECATED_BINDING_ALIASES,
+  type BindingDeclaration,
+} from "@solcreek/sdk";
 
 /**
  * Thrown by `creek dev` when no local runtime package can be resolved from
@@ -428,7 +432,9 @@ export function buildMiniflareBindingOptions(bindings: BindingDeclaration[]): {
     const kind = bindings.filter((b) => b.type === type);
     kind.forEach((b, i) => {
       const alias = DEPRECATED_BINDING_ALIASES[b.name];
-      if (alias && !claimed.has(alias)) {
+      // Only the primary's own kind is aliased, as production and sandbox
+      // deploys do (deprecatedAliasBindings): an R2 named DATABASE gets no DB.
+      if (alias && DEPRECATED_ALIAS_TYPES[b.name] === type && !claimed.has(alias)) {
         maps[type][alias] = storeFor(kind, i, legacyId);
         claimed.add(alias);
       }

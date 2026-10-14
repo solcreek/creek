@@ -93,4 +93,6 @@ Quick lookup when the user reports a specific error string verbatim.
 | Webhook not firing on push | Verify the repo is connected under project Settings; GitHub App must be installed on the repo's account |
 | `CK-DB-DUAL-DRIVER-SPLIT` from `creek doctor` | Consolidate db.local.ts + db.prod.ts to the shared-routes pattern. See `references/resources.md`. |
 | "Resource has bindings" on `creek db delete` | Detach from every project (`creek db detach <name> --from <project>`) before deletion |
+| "X is attached to a … resource, but the bundle declares it as …" (409 `binding_conflict` on deploy) | The project already binds that name to another type of resource. Rename the binding in your config, or detach the old binding first: `creek <kind> detach <resource> --from <project> --as X` for a database, storage or cache (`--as` names the binding; without it the kind's default name is detached), or MCP `detach_resource` / the dashboard's project Bindings panel for any kind, Workers AI included. Nothing was deployed or created |
+| "X is declared as both … and …" (409 `binding_conflict`) | Two bindings in your config share a name. Give each its own |
 | "A resource named 'X' already exists" | Team-unique names; pick a different one or `creek db rename` the existing one |
