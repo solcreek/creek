@@ -171,6 +171,52 @@ describe("planBindings", () => {
       [],
       0,
     ],
+    [
+      "an unsupported type under a name the project has attached",
+      [row("IMAGES", "storage", "r2")],
+      [{ type: "images", bindingName: "IMAGES" }],
+      false,
+      [],
+      1,
+    ],
+    [
+      "an unsupported type under the alias of a declared DATABASE",
+      [],
+      [
+        { type: "d1", bindingName: "DATABASE" },
+        { type: "images", bindingName: "DB" },
+      ],
+      false,
+      ["DATABASE"],
+      1,
+    ],
+    [
+      "an unsupported type under the alias of an attached CACHE",
+      [row("CACHE", "cache", "kv")],
+      [{ type: "images", bindingName: "KV" }],
+      false,
+      [],
+      1,
+    ],
+    [
+      "nothing for an unsupported type under DB when DATABASE is not a D1",
+      [],
+      [
+        { type: "r2", bindingName: "DATABASE" },
+        { type: "images", bindingName: "DB" },
+      ],
+      false,
+      ["DATABASE"],
+      0,
+    ],
+    [
+      "nothing for an unsupported type under a free name",
+      [db],
+      [{ type: "worker_loader", bindingName: "LOADER" }],
+      false,
+      [],
+      0,
+    ],
   ] as const)("%s", (_label, existing, requirements, wantsQueue, added, conflicts) => {
     const plan = planBindings(existing, requirements, wantsQueue);
     expect(plan.added.sort()).toEqual([...added].sort());
@@ -237,6 +283,7 @@ describe("upload check and deploy job agree", () => {
       queueAdded: 0,
       skipped: 0,
       provisionedAttached: 0,
+      skippedName: 0,
     };
     for (let i = 0; i < 400; i++) {
       const projectId = `p${i}`;
@@ -378,15 +425,16 @@ describe("upload check and deploy job agree", () => {
         emitted.some((b) => b.type === "queue"),
         label,
       ).toBe(wantsQueue);
-      // A requirement of an unsupported type is neither recorded nor bound
-      // (QUEUE aside: the bundle's queue may add that name itself).
+      // A requirement of an unsupported type is neither recorded nor bound,
+      // and nothing else reaches the worker under its name: no attachment,
+      // alias or queue (those are conflicts, refused above).
       for (const skipped of plan.unsupported) {
-        if (skipped.bindingName === "QUEUE" && wantsQueue) continue;
         expect(inserted, label).not.toContain(skipped.bindingName);
         expect(
-          emitted.some((b) => b.type === skipped.type),
-          label,
-        ).toBe(false);
+          emitted.filter((b) => b.name === skipped.bindingName),
+          `${label} ${skipped.bindingName} emitted`,
+        ).toEqual([]);
+        seen.skippedName++;
       }
 
       const resourcesAfter = await resourceRows();

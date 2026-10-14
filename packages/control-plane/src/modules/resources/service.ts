@@ -19,6 +19,7 @@
 import type { Env } from "../../types.js";
 import {
   BINDING_NAMES,
+  DEPRECATED_ALIAS_TYPES,
   DEPRECATED_BINDING_ALIASES,
   INTERNAL_VARS,
   deprecatedAliasBindings,
@@ -183,9 +184,10 @@ export interface BindingPlan {
  *   yet: someone already attached it.
  * - wantsQueue adds QUEUE when nothing is bound under QUEUE (ensureQueue).
  * - A requirement of a type deploys do not bind (a framework adapter's
- *   IMAGES, say) is skipped: never added nor checked against the project's
- *   bindings. Its name still counts in the bundle's own name checks (two
- *   types under one name, QUEUE beside the queue).
+ *   IMAGES, say) is skipped: never added or bound. Its name stays reserved,
+ *   so the worker never gets something else under it: two types under one
+ *   name, QUEUE beside the queue, a resource attached under the name, or a
+ *   deprecated alias the deploy emits under it are all conflicts.
  */
 export function planBindings(
   existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
@@ -221,6 +223,37 @@ export function planBindings(
     } else if (resourceBindingType(row) !== req.type) {
       plan.conflicts.push(
         `${req.bindingName} is attached to ${aResource(row.kind)}, but the bundle declares it as ${req.type}. Detach it or rename the binding.`,
+      );
+    }
+  }
+
+  // A skipped declaration still names something the app reads, so no other
+  // binding may take its name in the worker: not a resource the project has
+  // attached under it (ensureProjectBindings binds D1/R2/KV attachments
+  // whether declared or not), nor a deprecated alias (DB, KV) this deploy
+  // emits for a primary of the alias's own type, declared or attached.
+  const aliasOf = new Map<string, string>();
+  const primaries = [
+    ...plan.requirements.map((r) => ({ name: r.bindingName, type: r.type as string | null })),
+    ...existing
+      .filter((r) => !declared.has(r.bindingName))
+      .map((r) => ({ name: r.bindingName, type: resourceBindingType(r) })),
+  ];
+  for (const { name, type } of primaries) {
+    const alias = DEPRECATED_BINDING_ALIASES[name];
+    if (alias && type !== null && DEPRECATED_ALIAS_TYPES[name] === type) aliasOf.set(alias, name);
+  }
+  for (const skipped of plan.unsupported) {
+    const what = skipped.type || "untyped";
+    const row = bound.get(skipped.bindingName);
+    const primary = aliasOf.get(skipped.bindingName);
+    if (row) {
+      plan.conflicts.push(
+        `${skipped.bindingName} is attached to ${aResource(row.kind)}, but the bundle declares it as ${what}, which deploys do not bind. Detach it or rename the binding.`,
+      );
+    } else if (primary) {
+      plan.conflicts.push(
+        `${skipped.bindingName} is bound as the deprecated alias of ${primary}, but the bundle declares it as ${what}, which deploys do not bind. Rename the binding.`,
       );
     }
   }
