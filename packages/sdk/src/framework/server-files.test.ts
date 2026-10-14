@@ -9,6 +9,7 @@ import {
   detectAstroCloudflareBuild,
   WORKER_MODULE_LIMIT,
 } from "./server-files.js";
+import { WORKER_MODULE_LIMIT as WORKER_MODULE_LIMIT_FROM_ROOT } from "../index.js";
 
 // --- getSSRServerDir ---
 
@@ -221,6 +222,10 @@ describe("collectServerFiles", () => {
       /more than 4999 worker modules \(a Worker upload carries at most 4999 modules\)/,
     );
   }, 30_000); // writes and reads 5,000 files
+
+  test("WORKER_MODULE_LIMIT is part of the package's public API", () => {
+    expect(WORKER_MODULE_LIMIT_FROM_ROOT).toBe(WORKER_MODULE_LIMIT);
+  });
 
   test("collects a 990-module build, which the old default of 500 refused", () => {
     for (let i = 0; i < 990; i++) writeFileSync(join(tmpDir, `chunk-${i}.js`), "");
