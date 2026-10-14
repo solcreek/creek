@@ -22,6 +22,16 @@ describe("buildMiniflareBindingOptions", () => {
     });
   });
 
+  it("aliases only the primary's own kind, as deploys do: R2 named DATABASE, D1 named CACHE get none", () => {
+    const result = buildMiniflareBindingOptions([
+      { type: "r2", name: "DATABASE" },
+      { type: "d1", name: "CACHE" },
+    ]);
+    expect(result.r2Buckets).toEqual({ DATABASE: "creek-dev-r2" });
+    expect(result.d1Databases).toEqual({ CACHE: "creek-dev-db" });
+    expect(result.kvNamespaces ?? {}).toEqual({});
+  });
+
   it("detects KV and R2 bindings", () => {
     const bindings: BindingDeclaration[] = [
       { type: "kv", name: "MY_KV" },

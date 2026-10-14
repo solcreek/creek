@@ -29,11 +29,25 @@ export const DEPRECATED_BINDING_ALIASES: Record<string, string | undefined> = {
   CACHE: "KV",
 };
 
-/** The Worker binding type each aliased primary name stands for. */
-const ALIASED_BINDING_TYPES: Record<string, string | undefined> = {
+/**
+ * The resource type each aliased primary name stands for: only a D1 named
+ * DATABASE gets DB, and only a KV namespace named CACHE gets KV. Workers AI
+ * or an R2 bucket a user named DATABASE gets no alias. Keyed by config type
+ * (`creek dev`); ALIASED_BINDING_TYPES is the same in Worker binding types.
+ */
+export const DEPRECATED_ALIAS_TYPES: Record<string, "d1" | "kv" | undefined> = {
   DATABASE: "d1",
-  CACHE: "kv_namespace",
+  CACHE: "kv",
 };
+
+const WORKER_BINDING_TYPE = { d1: "d1", kv: "kv_namespace" } as const;
+
+const ALIASED_BINDING_TYPES: Record<string, string | undefined> = Object.fromEntries(
+  Object.entries(DEPRECATED_ALIAS_TYPES).map(([name, type]) => [
+    name,
+    type && WORKER_BINDING_TYPE[type],
+  ]),
+);
 
 /**
  * The deprecated-alias bindings to add for a list of Worker bindings: for
