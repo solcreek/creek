@@ -1384,7 +1384,8 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
           ...apiErrorFields(err),
         },
         1,
-        NO_PROJECT_BREADCRUMBS,
+        // Creating a project is the way out only when there is none.
+        missing ? NO_PROJECT_BREADCRUMBS : [],
       );
     consola.error(
       `Could not load deployments for project '${projectSlug}': ${(err as Error).message}`,
