@@ -427,7 +427,19 @@ export async function ensureProjectBindings(
     });
   }
 
-  for (const req of plan.requirements) {
+  // Primaries (DATABASE, CACHE) before their aliases (DB, KV): a bundle
+  // declaring both creates the primary's resource and the alias adopts it.
+  // Two deploys of one project running at once then both create the primary
+  // first, and the second one's insert fails on the binding's key, instead
+  // of each creating one name of the pair and adopting the other's resource,
+  // which would leave the pair crossed over two resources.
+  const aliasNames = new Set(Object.values(DEPRECATED_BINDING_ALIASES));
+  const ordered = [
+    ...plan.requirements.filter((r) => !aliasNames.has(r.bindingName)),
+    ...plan.requirements.filter((r) => aliasNames.has(r.bindingName)),
+  ];
+
+  for (const req of ordered) {
     const existing = existingByName.get(req.bindingName);
 
     if (existing) {

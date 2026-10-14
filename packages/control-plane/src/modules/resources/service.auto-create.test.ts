@@ -131,6 +131,40 @@ describe("ensureProjectBindings — one resource under DATABASE and DB", () => {
     expect(boundTo("DATABASE")).toBe(boundTo("DB"));
   });
 
+  test("creates DATABASE before adopting it under DB, so a concurrent deploy cannot cross the pair", async () => {
+    // Another deploy of the project binds DATABASE just before this one's
+    // first new resource. Handling DB first would create a second database
+    // under DB and adopt it under DATABASE; DATABASE first makes this
+    // deploy's insert fail on the binding's key instead.
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    let raced = false;
+    env.DB.batch = ((stmts: D1PreparedStatement[]) => {
+      if (!raced) {
+        raced = true;
+        const now = Date.now();
+        testEnv.db.db.exec(
+          `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES ('res-other', '${TEST_TEAM.id}', 'database', 'other', 'other-d1-id', 'd1', 'active', ${now}, ${now})`,
+        );
+        testEnv.db.db.exec(
+          `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES ('proj-app', 'DATABASE', 'res-other', ${now})`,
+        );
+      }
+      return batch(stmts);
+    }) as typeof env.DB.batch;
+
+    await expect(
+      ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+        { type: "d1", bindingName: "DB" },
+        { type: "d1", bindingName: "DATABASE" },
+      ]),
+    ).rejects.toThrow();
+    expect(boundTo("DATABASE")).toBe("res-other");
+    expect(boundTo("DB")).toBeUndefined();
+  });
+
   test("binds a newly declared DB to the database already bound as DATABASE", async () => {
     const now = Date.now();
     testEnv.db.db.exec(
