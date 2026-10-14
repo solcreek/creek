@@ -39,6 +39,60 @@ export function wantsJson(rawArgs: string[], isTTY: boolean): boolean {
   return rawArgs.includes("--json") || !isTTY;
 }
 
+/**
+ * Failures that happen before a connection exists — so the request never
+ * reached the server — and can pass on their own: a refused connection, a
+ * connect timeout, a network or route that is down, a temporary DNS failure.
+ * Re-running the command is safe whatever it does: nothing was applied.
+ *
+ * Not here, and so not retryable:
+ * - a connection lost mid-request (ECONNRESET, EPIPE, ETIMEDOUT, undici's
+ *   socket/headers/body errors): the server may have applied it — a deploy
+ *   may exist — so re-running a mutation could do it twice;
+ * - ENOTFOUND: a wrong host, or (macOS, Windows) no network at all;
+ * - a TLS or certificate error, `bad port`, `unknown scheme`: configuration
+ *   (CREEK_API_URL, a proxy's certificate) that fails the same way again.
+ */
+const RETRYABLE_BEFORE_CONNECT: ReadonlySet<string> = new Set([
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+/** What to tell the caller about an unreachable server, by cause. */
+function unreachableMessage(
+  reason: string | undefined,
+  retryable: boolean,
+  lostMidRequest: boolean,
+): string {
+  const failed = `fetch failed${reason ? `: ${reason}` : ""}`;
+  if (retryable) {
+    return `Could not reach the server (${failed}); the request was not sent. Retry.`;
+  }
+  if (lostMidRequest) {
+    return `Lost the connection to the server (${failed}). The request may have been applied: check the result (e.g. creek status, creek deployments) before running the command again.`;
+  }
+  if (reason === "ENOTFOUND") {
+    return `Could not reach the server (${failed}): the host was not found. Check the network connection, and CREEK_API_URL if you set one.`;
+  }
+  return `Could not reach the server (${failed}). Check the API URL (CREEK_API_URL) and certificates; retrying will not help.`;
+}
+
+/** A connection lost after the request may have been sent. */
+const LOST_MID_REQUEST: ReadonlySet<string> = new Set([
+  "ECONNRESET",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CLOSED",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
 const HELP_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek --help --json", description: "Machine-readable command schema" },
 ];
@@ -112,7 +166,8 @@ export async function runCli(
     // only.
     const api = apiErrorFields(err);
     // Node's fetch rejects with TypeError("fetch failed") when a server can't
-    // be reached (refused, DNS, TLS, reset): retryable, and not a CLI bug.
+    // be reached: not a CLI bug. Whether re-running is safe depends on the
+    // cause (RETRYABLE_BEFORE_CONNECT, LOST_MID_REQUEST).
     const unreachable = err instanceof TypeError && err.message === "fetch failed";
     // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error)
     // on `cause`: it tells a bad URL or certificate from an outage.
@@ -131,16 +186,20 @@ export async function runCli(
     } else {
       consola.error(err);
     }
+    const retryable = unreachable && reason !== undefined && RETRYABLE_BEFORE_CONNECT.has(reason);
+    const lostMidRequest = unreachable && reason !== undefined && LOST_MID_REQUEST.has(reason);
     jsonOutput(
       {
         ok: false,
         error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
         message: unreachable
-          ? `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the network and the API URL, then retry.`
+          ? unreachableMessage(reason, retryable, lostMidRequest)
           : err instanceof Error
             ? err.message
             : String(err),
         ...(reason ? { reason } : {}),
+        ...(unreachable ? { retryable } : {}),
+        ...(lostMidRequest ? { mayHaveApplied: true } : {}),
         ...api,
       },
       1,

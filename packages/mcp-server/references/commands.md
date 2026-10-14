@@ -121,7 +121,7 @@ Act on `apiError`:
 | `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
-`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. `reason` says why: `ENOTFOUND` or a TLS/certificate code (`CERT_*`, `ERR_TLS_*`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, …) means a wrong `CREEK_API_URL` or a certificate problem — fix it, retrying won't help. Anything else (`ECONNREFUSED`, `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT` and other `UND_ERR_*`) is transient: retry.
+`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. Re-run the command only when `retryable` is `true`: the connection failed before the request was sent (refused, connect timeout, network down), so nothing was applied. `mayHaveApplied: true` means the connection was lost mid-request (reset, response timeout): the server may have done it — a deploy may exist — so check (`creek status`, `creek deployments`) before running a mutating command again. Otherwise stop and tell the user: `reason` (absent when the failure gave none) names what to fix — `ENOTFOUND` (no network, or a wrong host in `CREEK_API_URL`), a certificate error (e.g. a proxy's self-signed certificate), `bad port`, `unknown scheme`.
 
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
