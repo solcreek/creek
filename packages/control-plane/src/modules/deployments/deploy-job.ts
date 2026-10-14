@@ -310,6 +310,13 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
           "info",
           `Applying pending migrations to ${target.bindingName} (${bundle.migrations.length} in project)`,
         );
+        for (const name of target.notMigrated) {
+          log(
+            "provision",
+            "warn",
+            `${name} is a different database from ${target.bindingName} and gets no migrations; code reading env.${name} will not see the migrated tables`,
+          );
+        }
         try {
           const result = await applyReleaseMigrations(
             env,

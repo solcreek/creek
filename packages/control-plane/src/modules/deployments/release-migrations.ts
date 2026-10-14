@@ -41,11 +41,15 @@ type ResolvedBinding = { bindingName: string; cfResourceId: string | null; cfTyp
  * `[resources] database` binds), else DB (its deprecated alias, and the
  * usual wrangler name), else the project's only D1. With several D1s and
  * none of those names there is no safe choice, so the deploy is refused
- * rather than guessing.
+ * rather than guessing. `notMigrated` names the D1 bindings on another
+ * database, which the deploy log reports so an app reading one of them is
+ * not left guessing why its tables are missing.
  */
 export function pickMigrationDatabase(
   resolved: Map<string, ResolvedBinding>,
-): { ok: true; bindingName: string; databaseId: string } | { ok: false; message: string } {
+):
+  | { ok: true; bindingName: string; databaseId: string; notMigrated: string[] }
+  | { ok: false; message: string } {
   const d1s = [...resolved.values()].filter(
     (b): b is ResolvedBinding & { cfResourceId: string } =>
       b.cfType === "d1" && b.cfResourceId !== null,
@@ -54,7 +58,16 @@ export function pickMigrationDatabase(
     d1s.find((b) => b.bindingName === "DATABASE") ??
     d1s.find((b) => b.bindingName === "DB") ??
     (d1s.length === 1 ? d1s[0] : null);
-  if (chosen) return { ok: true, bindingName: chosen.bindingName, databaseId: chosen.cfResourceId };
+  if (chosen) {
+    return {
+      ok: true,
+      bindingName: chosen.bindingName,
+      databaseId: chosen.cfResourceId,
+      notMigrated: d1s
+        .filter((b) => b.cfResourceId !== chosen.cfResourceId)
+        .map((b) => b.bindingName),
+    };
+  }
   return {
     ok: false,
     message:

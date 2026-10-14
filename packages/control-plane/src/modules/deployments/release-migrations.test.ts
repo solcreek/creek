@@ -143,6 +143,17 @@ describe("pickMigrationDatabase", () => {
     });
   });
 
+  it("names the D1 bindings on another database as not migrated", () => {
+    expect(
+      pickMigrationDatabase(new Map([d1("DATABASE", "c"), d1("DB", "b"), d1("AUDIT", "a")])),
+    ).toMatchObject({ databaseId: "c", notMigrated: ["DB", "AUDIT"] });
+    // DB on the same database as DATABASE gets DATABASE's migrations.
+    expect(pickMigrationDatabase(new Map([d1("DATABASE", "c"), d1("DB", "c")]))).toMatchObject({
+      databaseId: "c",
+      notMigrated: [],
+    });
+  });
+
   it("refuses with no D1, or several and none named DATABASE or DB", () => {
     expect(pickMigrationDatabase(new Map([kv]))).toMatchObject({ ok: false });
     expect(pickMigrationDatabase(new Map([d1("A", "a"), d1("B", "b")]))).toMatchObject({
