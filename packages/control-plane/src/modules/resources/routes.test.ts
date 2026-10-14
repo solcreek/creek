@@ -111,6 +111,8 @@ describe("resources input validation", () => {
   });
 
   test("POST /resources refuses a caller-supplied Cloudflare resource", async () => {
+    // Earlier tests provision; count only what this one does.
+    vi.clearAllMocks();
     // Pointing a new resource at an existing Cloudflare ID would hand this
     // team another tenant's (or the control plane's own) database.
     for (const extra of [
