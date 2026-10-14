@@ -18,9 +18,11 @@ import type { Env } from "../../types.js";
  * LEASE_SECONDS, and a later run reclaims it.
  *
  * D1, R2, KV and queue rows carry in cfResourceName the name Creek gave the
- * resource when it provisioned it. The resource is deleted only if it still
- * has that name: a resource row's cfResourceId can be caller-supplied, and
- * this keeps such an ID from deleting a resource Creek didn't create for it.
+ * resource when it provisioned it (provisionedName, or the older
+ * `creek-<first 8 of id>`, which acceptedNames also allows). The resource is
+ * deleted only if it still has that name: rows created before POST
+ * /resources refused caller-supplied IDs may point at a resource Creek
+ * didn't create for them, and this keeps such a row from deleting it.
  */
 
 /** A claim older than this is presumed abandoned and may be reclaimed. */
