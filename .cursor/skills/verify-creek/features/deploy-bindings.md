@@ -32,7 +32,7 @@ Preconditions:
 ## Gotchas
 
 - The deploy itself is `active`, but `creek deploy` still exits `1` with `verify_failed`: its live check fetches `https://<project>-<team>.localhost`, which nothing serves. Read the deployment row, not the exit code.
-- The CLI reports the 409 as `error: "internal_error"` with the server's message; only the message names the conflict.
+- `creek deploy --json` reports the 409 as `error: "binding_conflict"` with `status: 409`, `apiError: "binding_conflict"` and `details.conflicts` (a CLI before 0.4.53 said `internal_error`, with only the message naming the conflict).
 - In a wrangler-only project (no `creek.toml`), `creek env set` exits `no_project` and its message suggests `--project`, which `env` does not accept (verified 2026-10-13). Set variables over raw HTTP instead.
 - Without `VERIFY_CREEK_FAKE_CLOUDFLARE=1` the job fails at provisioning (no Cloudflare credentials), so the binding proof needs it. The upload-time 409 needs no Cloudflare and shows either way.
 - `packages/control-plane/src/modules/resources/binding-plan.test.ts` runs 400 random project states through the upload check and the real job; `preview-bindings.test.ts` covers preview keys without `resource:write`.

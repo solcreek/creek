@@ -95,6 +95,7 @@ import {
 } from "../utils/git-clone.js";
 import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
 import { watchDeploy, type WatchResult } from "../utils/watch.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
@@ -1371,15 +1372,25 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     previousLatestCreatedAt = existing.reduce((max, d) => Math.max(max, d.createdAt), 0);
   } catch (err) {
     if (err instanceof CreekAuthError) throw err;
+    // Only a 404 means the project is missing; a refused key (403) or a
+    // server error is reported as what it is.
+    const missing = err instanceof CreekApiError && err.status === 404;
     if (jsonMode)
       jsonOutput(
-        { error: "not_found", message: (err as Error).message },
+        {
+          ok: false,
+          error: missing ? "not_found" : "deployments_unavailable",
+          message: (err as Error).message,
+          ...apiErrorFields(err),
+        },
         1,
-        NO_PROJECT_BREADCRUMBS,
+        // Creating a project is the way out only when there is none.
+        missing ? NO_PROJECT_BREADCRUMBS : [],
       );
     consola.error(
       `Could not load deployments for project '${projectSlug}': ${(err as Error).message}`,
     );
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 
@@ -1394,8 +1405,14 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     triggerResult = await client.deployFromGithub(projectSlug);
   } catch (err) {
     const msg = (err as Error).message;
-    if (jsonMode) jsonOutput({ error: "trigger_failed", message: msg }, 1, NO_PROJECT_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        { ok: false, error: "trigger_failed", message: msg, ...apiErrorFields(err) },
+        1,
+        NO_PROJECT_BREADCRUMBS,
+      );
     consola.error(`Trigger failed: ${msg}`);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 
@@ -2147,6 +2164,20 @@ async function deployAuthenticated(
     progress.section("Auth");
     const session = await client.getSession();
     if (!session?.user) {
+      // getSession() is null only when the API refuses the key (other
+      // failures throw), so this is the rejected-key exit: JSON mode still
+      // owes stdout a result.
+      if (jsonMode) {
+        jsonOutput(
+          {
+            ok: false,
+            error: "unauthorized",
+            message: "Token is invalid or expired. Run `creek login` to re-authenticate.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
+      }
       consola.error("Token is invalid or expired. Run `creek login` to re-authenticate.");
       process.exit(1);
     }
@@ -2609,6 +2640,20 @@ async function deployAuthenticated(
     process.exit(1);
   } catch (err) {
     if (err instanceof CreekAuthError) {
+      // JSON mode must still print a result: the stdout contract holds on
+      // every exit, a rejected key included.
+      if (jsonMode) {
+        jsonOutput(
+          {
+            ok: false,
+            error: "unauthorized",
+            message: "Authentication failed. Run `creek login` to re-authenticate.",
+            ...apiErrorFields(err),
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
+      }
       consola.error("Authentication failed. Run `creek login` to re-authenticate.");
       process.exit(1);
     }

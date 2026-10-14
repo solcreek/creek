@@ -99,4 +99,30 @@ On error:
 }
 ```
 
+When the Creek API refused the call, the error also carries `status` (HTTP), `apiError` (the API's own code) and, when it has any, `details`. `error` stays the command's code (`set_failed`, `attach_failed`, …); an error no command handles uses the API's code as `error`:
+
+```json
+{
+  "ok": false,
+  "error": "set_failed",
+  "message": "This API key lacks the scope: env:write",
+  "status": 403,
+  "apiError": "insufficient_scope",
+  "details": { "required": ["env:write"], "requiredMode": "all", "granted": ["deploy:preview", "project:read"] }
+}
+```
+
+Act on `apiError`:
+
+| `apiError` | Meaning | What to do |
+|---|---|---|
+| `insufficient_scope` | The API key lacks a scope (`details.required`; it has `details.granted`) | Use a key that holds the scope; don't retry with the same key |
+| `insufficient_role` | The key holds the scope but its owner's team role no longer allows it | Ask a team owner/admin |
+| `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
+| `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
+
+`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. `reason` says why: `ENOTFOUND` or a TLS/certificate code (`CERT_*`, `ERR_TLS_*`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, …) means a wrong `CREEK_API_URL` or a certificate problem — fix it, retrying won't help. Anything else (`ECONNREFUSED`, `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT` and other `UND_ERR_*`) is transient: retry.
+
+MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
+
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.

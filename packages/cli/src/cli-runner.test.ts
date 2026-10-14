@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { defineCommand } from "citty";
 import consola from "consola";
+import { CreekApiError, CreekAuthError } from "@solcreek/sdk";
 import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
 
 describe("cliErrorToJson", () => {
@@ -126,6 +127,91 @@ describe("runCli (JSON mode error conversion)", () => {
       message: "Cannot read properties of undefined (reading 'filter')",
     });
     expect(error).toHaveBeenCalled(); // the error itself still reaches stderr
+  });
+
+  it("reports an unhandled API error under the API's own code, not internal_error", async () => {
+    // e.g. a deploy whose bundle upload the control plane refuses.
+    const refused = defineCommand({
+      meta: { name: "refused" },
+      run() {
+        throw new CreekApiError(
+          409,
+          "binding_conflict",
+          "DB is both a binding and a project environment variable.",
+          {
+            conflicts: ["DB is both a binding and a project environment variable."],
+          },
+        );
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(refused, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "binding_conflict",
+      message: "DB is both a binding and a project environment variable.",
+      status: 409,
+      apiError: "binding_conflict",
+      details: { conflicts: ["DB is both a binding and a project environment variable."] },
+    });
+    // stdout is the JSON alone (asserted by JSON.parse above, with consola's
+    // info writer unmocked); an API refusal is not a CLI crash: stderr gets
+    // the message, no stack trace.
+    expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "DB is both a binding and a project environment variable.\n",
+    );
+  });
+
+  it("reports an unreachable server as api_unreachable, not internal_error", async () => {
+    const offline = defineCommand({
+      meta: { name: "offline" },
+      run() {
+        // undici's shape: a fixed message, the reason on `cause`.
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
+            code: "ECONNREFUSED",
+          }),
+        });
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(offline, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "api_unreachable",
+      message:
+        "Could not reach the server (fetch failed: ECONNREFUSED). Check the network and the API URL, then retry.",
+      reason: "ECONNREFUSED",
+    });
+    expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "fetch failed: ECONNREFUSED\n",
+    );
+  });
+
+  it("reports a rejected API key as unauthorized", async () => {
+    const rejected = defineCommand({
+      meta: { name: "rejected" },
+      run() {
+        throw new CreekAuthError("Invalid API key");
+      },
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(rejected, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "unauthorized",
+      message: "Invalid API key",
+      status: 401,
+      apiError: "unauthorized",
+    });
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe("Invalid API key\n");
   });
 
   it("stdout is pure JSON (parseable, no usage text)", async () => {

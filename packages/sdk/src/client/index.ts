@@ -9,7 +9,6 @@ import type {
   CreateProjectResponse,
   CreateDeploymentResponse,
   DeploymentStatusResponse,
-  ApiError,
   EnvTarget,
   LogEntry,
   LogQueryFilters,
@@ -50,27 +49,26 @@ export class CreekClient {
 
     const res = await fetch(`${this.baseUrl}${path}`, init);
 
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({
-        error: "unknown",
-        message: res.statusText,
-      }))) as ApiError;
-      if (res.status === 401) {
-        throw new CreekAuthError(err.message);
-      }
-      throw new CreekApiError(res.status, err.error, err.message);
-    }
+    if (!res.ok) throw await apiErrorFrom(res, "unknown");
 
     return res.json() as Promise<T>;
   }
 
   // --- Auth ---
 
+  /**
+   * The key's session, or null when the API refuses the key (401, or 403
+   * for a key it will not use: unreadable scopes, a team its owner left).
+   * Any other failure — network, timeout, 5xx — throws: it says nothing
+   * about the key, and a caller must not tell the user to log in again.
+   */
   async getSession(): Promise<{ user: { id: string; name: string; email: string } } | null> {
     try {
       return await this.request("GET", "/api/auth/get-session");
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof CreekAuthError) return null;
+      if (err instanceof CreekApiError && err.status === 403) return null;
+      throw err;
     }
   }
 
@@ -337,13 +335,7 @@ export class CreekClient {
       },
       body: ndjsonBody,
     });
-    if (!res.ok) {
-      throw new CreekApiError(
-        res.status,
-        "build_log_upload_failed",
-        `Build log upload failed: ${res.status} ${res.statusText}`,
-      );
-    }
+    if (!res.ok) throw await apiErrorFrom(res, "build_log_upload_failed");
     return res.json() as Promise<{ ok: boolean; bytes: number; lines: number; truncated: boolean }>;
   }
 
@@ -524,11 +516,32 @@ export class CreekClient {
   }
 }
 
+/**
+ * The error a failed Creek API response becomes: the body's `error` as the
+ * code (else `fallbackCode`), its `message` (else the status text), and its
+ * other fields as `details`. A 401 is a CreekAuthError.
+ */
+async function apiErrorFrom(res: Response, fallbackCode: string): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const { error, message, ...details } = body ?? {};
+  const code = typeof error === "string" ? error : fallbackCode;
+  const text = typeof message === "string" ? message : res.statusText;
+  if (res.status === 401) return new CreekAuthError(text);
+  return new CreekApiError(res.status, code, text, details);
+}
+
 export class CreekApiError extends Error {
+  /**
+   * `details` holds the error response's other fields, for the error codes
+   * that carry them: `insufficient_scope` / `insufficient_role` (`required`,
+   * `granted`), `binding_conflict` (`conflicts`), a preview's refusal
+   * (`newBindings`).
+   */
   constructor(
     public status: number,
     public code: string,
     message: string,
+    public details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "CreekApiError";

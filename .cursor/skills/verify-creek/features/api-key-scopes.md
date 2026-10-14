@@ -31,7 +31,7 @@ Preconditions:
 
 - **Scoped whoami.** `creek.sh "$LOCAL_ENV" --evidence .cursor/skills/verify-creek/artifacts/api-key-scopes/<run>/login -- login --token <read key> --json` exits `0` with `ok: true`. Then `-- whoami --json` exits `0` with `email: "owner@example.com"`.
 - **Scoped allowed.** `-- projects --json` exits `0` and lists `site`. `-- env ls --json` exits `0`.
-- **Scoped refused.** `-- env set PROBE 1 --json` exits `1`; stderr or the JSON message names `env:write`. `control-plane.sh sql "$RUN_ENV" "SELECT count(*) n FROM environment_variable"` is unchanged.
+- **Scoped refused.** `-- env set PROBE 1 --json` exits `1` with `error: "set_failed"`, `status: 403`, `apiError: "insufficient_scope"`, `details.required: ["env:write"]` and `details.granted` listing the key's scopes. `control-plane.sh sql "$RUN_ENV" "SELECT count(*) n FROM environment_variable"` is unchanged.
 - **Legacy unchanged.** `login --token <legacy key>`, then the same `env set` exits `0`.
 - **Platform admin refused.** `control-plane.sh sql "$RUN_ENV" "UPDATE user SET role='admin'"`, log in with a scoped key that holds every scope, run `-- ops deployments --json`: exit `1`, `error: "forbidden"`. With the legacy key: exit `0`, `ok: true`.
 - **HTTP probe.** Write `{"read","envwrite","preview","legacy","project":"site","otherTeam":"team-b"}` to a JSON file and run `.cursor/skills/verify-creek/scripts/api-key-probe.py <url from local.env> <file> $VERIFY_CREEK_RUN/control-plane/data/creek.db | tee <evidence>/probe.ndjson`. The last line is `{"summary": true, ..., "failed": 0}` and the exit code is `0`.

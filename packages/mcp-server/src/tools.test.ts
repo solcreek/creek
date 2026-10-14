@@ -203,6 +203,34 @@ describe("MCP authenticated tools", () => {
     expect(JSON.parse(result.content[0].text)[0].name).toBe("db");
   });
 
+  it("passes the API's error code, status and fields through to the agent", async () => {
+    server.use(
+      http.get("https://cp.test/resources", () =>
+        HttpResponse.json(
+          {
+            error: "insufficient_scope",
+            message: "This API key lacks the scope: resource:read",
+            required: ["resource:read"],
+            granted: ["deploy:preview"],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    const list = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "list_resources",
+    )!;
+    const result = await list({});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      ok: false,
+      error: "insufficient_scope",
+      message: "This API key lacks the scope: resource:read",
+      status: 403,
+      details: { required: ["resource:read"], granted: ["deploy:preview"] },
+    });
+  });
+
   it("list_projects without a header is not_authenticated", async () => {
     const list = registerAndCapture().get("list_projects")!;
     const result = await list({});

@@ -69,6 +69,59 @@ function json() {
   return JSON.parse(stdout);
 }
 
+describe("creek status (project)", () => {
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-status-test-"));
+    writeFileSync(join(projDir, "creek.toml"), '[project]\nname = "demo"\n');
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("reports a missing project (404) as not_found", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_found", status: 404 });
+  });
+
+  it("does not report a refused key (403) as a missing project", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json(
+          {
+            error: "insufficient_scope",
+            message: "This API key lacks the scope: project:read",
+            required: ["project:read"],
+            granted: ["deploy:preview"],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toEqual({
+      ok: false,
+      error: "api_error",
+      message: "This API key lacks the scope: project:read",
+      status: 403,
+      apiError: "insufficient_scope",
+      details: { required: ["project:read"], granted: ["deploy:preview"] },
+    });
+  });
+});
+
 describe("creek status <id> (sandbox)", () => {
   it("prints the sandbox status as JSON and exits 0", async () => {
     server.use(
@@ -279,6 +332,52 @@ describe("creek env", () => {
       applied: false,
       pendingDeploy: true,
     });
+  });
+
+  it("keeps the API's error code and its fields when a scoped key is refused", async () => {
+    server.use(
+      http.post(`${API}/projects/demo/env`, () =>
+        HttpResponse.json(
+          {
+            error: "insufficient_scope",
+            message: "This API key lacks the scope: env:write",
+            required: ["env:write"],
+            requiredMode: "all",
+            granted: ["deploy:preview", "project:read"],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "DEMO_PROBE", value: "1", _: [] } } as never),
+    );
+    expect(code).toBe(1);
+    // `error` stays the command's code; the API's code and fields are added.
+    expect(json()).toEqual({
+      ok: false,
+      error: "set_failed",
+      message: "This API key lacks the scope: env:write",
+      status: 403,
+      apiError: "insufficient_scope",
+      details: {
+        required: ["env:write"],
+        requiredMode: "all",
+        granted: ["deploy:preview", "project:read"],
+      },
+    });
+  });
+
+  it("adds no API fields to an error that is not from the API", async () => {
+    server.use(http.post(`${API}/projects/demo/env`, () => HttpResponse.error()));
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "DEMO_PROBE", value: "1", _: [] } } as never),
+    );
+    expect(code).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({ ok: false, error: "set_failed" });
+    expect(out).not.toHaveProperty("apiError");
+    expect(out).not.toHaveProperty("status");
   });
 
   it("`set` signals the change is pending a deploy (not yet live)", async () => {

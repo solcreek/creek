@@ -43,12 +43,20 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     });
     const data = await res.json().catch(() => ({ message: res.statusText }));
     if (!res.ok) {
-      const err = data as { error?: string; message?: string };
+      // Keep the API's code and its other fields (`required` / `granted` on
+      // insufficient_scope, `conflicts` on binding_conflict) for the agent.
+      const { error, message, ...details } = (data ?? {}) as Record<string, unknown>;
       return {
         ok: false as const,
         status: res.status,
         result: toolJson(
-          { ok: false, error: err.error ?? "api_error", message: err.message ?? res.statusText },
+          {
+            ok: false,
+            error: typeof error === "string" ? error : "api_error",
+            message: typeof message === "string" ? message : res.statusText,
+            status: res.status,
+            ...(Object.keys(details).length > 0 ? { details } : {}),
+          },
           true,
         ),
       };
@@ -203,28 +211,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug, deploymentId }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
       // Resolve short id → full id if needed. GET /logs requires full uuid.
       let fullId = deploymentId;
       if (fullId.length < 36) {
-        const listRes = await fetch(`${base}/projects/${projectSlug}/deployments`, {
-          headers: { "x-api-key": apiKey },
-        });
-        if (!listRes.ok) {
-          const err = (await listRes.json().catch(() => ({ message: listRes.statusText }))) as {
-            message?: string;
-          };
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Lookup failed: ${err.message ?? listRes.statusText}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-        const list = (await listRes.json()) as Array<{ id: string }>;
+        const listRes = await cpFetch(apiKey, `/projects/${projectSlug}/deployments`);
+        if (!listRes.ok) return listRes.result;
+        const list = listRes.data as Array<{ id: string }>;
         const match = list.find((d) => d.id.startsWith(fullId));
         if (!match) {
           return {
@@ -240,26 +232,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         fullId = match.id;
       }
 
-      const res = await fetch(`${base}/projects/${projectSlug}/deployments/${fullId}/logs`, {
-        headers: { "x-api-key": apiKey },
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as {
-          message?: string;
-          error?: string;
-        };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Read failed (${res.status}): ${err.message ?? res.statusText}`,
-            },
-          ],
-          isError: true,
-        };
-      }
+      const res = await cpFetch(apiKey, `/projects/${projectSlug}/deployments/${fullId}/logs`);
+      if (!res.ok) return res.result;
 
-      const log = (await res.json()) as {
+      const log = res.data as {
         entries: Array<{
           ts: number;
           step: string;
@@ -635,16 +611,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ kind }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/resources`, { headers: cpHeaders(apiKey) });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${err.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
-      const data = (await res.json()) as { resources: any[] };
+      const res = await cpFetch(apiKey, "/resources");
+      if (!res.ok) return res.result;
+      const data = res.data as { resources: any[] };
       const filtered = kind ? data.resources.filter((r: any) => r.kind === kind) : data.resources;
       return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
     },
@@ -660,20 +629,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ kind, name }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/resources`, {
+      const res = await cpFetch(apiKey, "/resources", {
         method: "POST",
-        headers: cpHeaders(apiKey),
         body: JSON.stringify({ kind, name }),
       });
-      const data = (await res.json()) as any;
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      if (!res.ok) return res.result;
+      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
     },
   );
 
@@ -688,19 +649,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug, resourceId, bindingName }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/projects/${projectSlug}/bindings`, {
+      const res = await cpFetch(apiKey, `/projects/${projectSlug}/bindings`, {
         method: "POST",
-        headers: cpHeaders(apiKey),
         body: JSON.stringify({ resourceId, bindingName }),
       });
-      const data = (await res.json()) as any;
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
+      if (!res.ok) return res.result;
       return {
         content: [
           {
@@ -722,18 +675,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug, bindingName }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/projects/${projectSlug}/bindings/${bindingName}`, {
+      const res = await cpFetch(apiKey, `/projects/${projectSlug}/bindings/${bindingName}`, {
         method: "DELETE",
-        headers: cpHeaders(apiKey),
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
+      if (!res.ok) return res.result;
       return {
         content: [
           { type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` },
@@ -751,18 +696,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ resourceId }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/resources/${resourceId}`, {
-        method: "DELETE",
-        headers: cpHeaders(apiKey),
-      });
-      const data = (await res.json()) as any;
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
+      const res = await cpFetch(apiKey, `/resources/${resourceId}`, { method: "DELETE" });
+      if (!res.ok) return res.result;
       return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
     },
   );
@@ -777,19 +712,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ resourceId, name }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/resources/${resourceId}`, {
+      const res = await cpFetch(apiKey, `/resources/${resourceId}`, {
         method: "PATCH",
-        headers: cpHeaders(apiKey),
         body: JSON.stringify({ name }),
       });
-      const data = (await res.json()) as any;
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Failed: ${data.message ?? res.statusText}` }],
-          isError: true,
-        };
-      }
+      if (!res.ok) return res.result;
       return {
         content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }],
       };
@@ -807,22 +734,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ resourceId, sql, params }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/resources/${resourceId}/query`, {
+      const res = await cpFetch(apiKey, `/resources/${resourceId}/query`, {
         method: "POST",
-        headers: cpHeaders(apiKey),
         body: JSON.stringify({ sql, params: params ?? [] }),
       });
-      const data = (await res.json()) as any;
-      if (!res.ok) {
-        return {
-          content: [
-            { type: "text" as const, text: `Query failed: ${data.message ?? res.statusText}` },
-          ],
-          isError: true,
-        };
-      }
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      if (!res.ok) return res.result;
+      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
     },
   );
 }

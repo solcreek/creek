@@ -16,6 +16,75 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
+describe("CreekClient errors", () => {
+  const client = new CreekClient("http://localhost:8787", "test-token");
+
+  test("keeps an error response's code, message and other fields", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, {
+        error: "insufficient_scope",
+        message: "This API key lacks the scope: env:write",
+        required: ["env:write"],
+        granted: ["project:read"],
+      }),
+    );
+    const err = await client.listEnvVars("site").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekApiError);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "insufficient_scope",
+      message: "This API key lacks the scope: env:write",
+      details: { required: ["env:write"], granted: ["project:read"] },
+    });
+  });
+
+  test("an error body that is not JSON gives code unknown and the status text", async () => {
+    mockFetch.mockResolvedValue(
+      new Response("<html>bad gateway</html>", { status: 502, statusText: "Bad Gateway" }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 502,
+      code: "unknown",
+      message: "Bad Gateway",
+      details: {},
+    });
+  });
+
+  test("a refused build log upload keeps the API's code and fields too", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, {
+        error: "insufficient_scope",
+        message: "This API key lacks the scope: deploy:preview",
+        required: ["deploy:preview"],
+      }),
+    );
+    const err = await client
+      .uploadBuildLog("dep-1", "{}\n", { status: "running", startedAt: 1 })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "insufficient_scope",
+      details: { required: ["deploy:preview"] },
+    });
+    // A body without an error code keeps the upload's own code.
+    mockFetch.mockResolvedValue(new Response("", { status: 500, statusText: "Server Error" }));
+    const plain = await client
+      .uploadBuildLog("dep-1", "{}\n", { status: "running", startedAt: 1 })
+      .catch((e: unknown) => e);
+    expect(plain).toMatchObject({ status: 500, code: "build_log_upload_failed" });
+  });
+
+  test("a 401 is a CreekAuthError", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(401, { error: "unauthorized", message: "Invalid key" }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekAuthError);
+    expect((err as Error).message).toBe("Invalid key");
+  });
+});
+
 describe("CreekClient", () => {
   const client = new CreekClient("http://localhost:8787", "test-token");
 
@@ -58,6 +127,19 @@ describe("CreekClient", () => {
 
     const result = await client.getSession();
     expect(result).toBeNull();
+  });
+
+  test("getSession returns null for a key the API will not use (403)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(403, { error: "team_mismatch", message: "x" }));
+    expect(await client.getSession()).toBeNull();
+  });
+
+  test("getSession throws, not null, when the failure says nothing about the key", async () => {
+    // A null would read as "log in again"; a 5xx or a network error should be retried.
+    mockFetch.mockResolvedValue(jsonResponse(503, { error: "unavailable", message: "Down" }));
+    await expect(client.getSession()).rejects.toMatchObject({ status: 503 });
+    mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+    await expect(client.getSession()).rejects.toThrow("fetch failed");
   });
 
   test("getSession returns user on success", async () => {

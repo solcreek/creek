@@ -7,6 +7,7 @@ import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -256,8 +257,10 @@ async function runLastFailureDiagnosis(opts: {
     deployments = await client.listDeployments(slug);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to list deployments";
-    if (opts.jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+    if (opts.jsonMode)
+      jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
     consola.error(msg);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 
@@ -278,8 +281,10 @@ async function runLastFailureDiagnosis(opts: {
     log = await client.getBuildLog(slug, failed.id);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to read build log";
-    if (opts.jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+    if (opts.jsonMode)
+      jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
     consola.error(msg);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 

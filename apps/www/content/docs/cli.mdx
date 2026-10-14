@@ -327,7 +327,7 @@ Creek is designed for programmatic use:
 - **Non-TTY auto-detection** — pipes, CI, and agents automatically get JSON output
 - **`--json --yes`** — explicit structured output, skip all prompts
 - **Exit codes** — `0` success, `1` failure
-- **Error format** — `{"ok": false, "error": "...", "message": "..."}`
+- **Error format** — `{"ok": false, "error": "...", "message": "..."}`. When the Creek API refused the call, it also has `status` (HTTP), `apiError` (the API's code, e.g. `insufficient_scope`, `binding_conflict`) and `details` (e.g. the scopes the key lacks)
 
 ```bash
 # These are equivalent in CI/agent:

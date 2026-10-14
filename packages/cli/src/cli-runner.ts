@@ -2,6 +2,7 @@ import { runCommand, runMain } from "citty";
 import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
 import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
+import { apiErrorFields } from "./utils/api-error.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -103,14 +104,44 @@ export async function runCli(
       jsonOutput(structured, 1, HELP_BREADCRUMBS);
     }
     // A runtime error no command handled. In JSON mode the caller still needs
-    // a JSON result on stdout (an empty stdout doesn't parse); the error
-    // itself, with its stack, goes to stderr for whoever reads the logs.
-    consola.error(err);
+    // a JSON result on stdout (an empty stdout doesn't parse), and nothing
+    // else may reach stdout. A CLI bug goes to stderr with its stack, for
+    // whoever reads the logs. A refused API call is not a bug: it keeps the
+    // API's own error code (`binding_conflict`, `insufficient_scope`, …),
+    // its fields carry what a hint would say, and stderr gets the message
+    // only.
+    const api = apiErrorFields(err);
+    // Node's fetch rejects with TypeError("fetch failed") when a server can't
+    // be reached (refused, DNS, TLS, reset): retryable, and not a CLI bug.
+    const unreachable = err instanceof TypeError && err.message === "fetch failed";
+    // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error)
+    // on `cause`: it tells a bad URL or certificate from an outage.
+    const cause = unreachable
+      ? (err.cause as { code?: unknown; message?: unknown } | undefined)
+      : undefined;
+    const reason =
+      typeof cause?.code === "string"
+        ? cause.code
+        : typeof cause?.message === "string"
+          ? cause.message
+          : undefined;
+    if (api.apiError || unreachable) {
+      const text = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`${reason ? `${text}: ${reason}` : text}\n`);
+    } else {
+      consola.error(err);
+    }
     jsonOutput(
       {
         ok: false,
-        error: "internal_error",
-        message: err instanceof Error ? err.message : String(err),
+        error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
+        message: unreachable
+          ? `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the network and the API URL, then retry.`
+          : err instanceof Error
+            ? err.message
+            : String(err),
+        ...(reason ? { reason } : {}),
+        ...api,
       },
       1,
     );

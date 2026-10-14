@@ -14,6 +14,7 @@ import {
 } from "../utils/creekd-client.js";
 import { readHosts, findHost } from "../utils/hosts.js";
 import { cachedResourceVersion, recordLastDeploy } from "../utils/local-cache.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 export const rollbackCommand = defineCommand({
   meta: {
@@ -195,13 +196,18 @@ export const rollbackCommand = defineCommand({
     } catch (err: any) {
       const msg = err.message ?? "Rollback failed";
       if (jsonMode)
-        jsonOutput({ ok: false, error: "rollback_failed", message: msg }, 1, [
-          {
-            command: `creek deployments --project ${projectSlug}`,
-            description: "List available deployments",
-          },
-        ]);
+        jsonOutput(
+          { ok: false, error: "rollback_failed", message: msg, ...apiErrorFields(err) },
+          1,
+          [
+            {
+              command: `creek deployments --project ${projectSlug}`,
+              description: "List available deployments",
+            },
+          ],
+        );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
   },
