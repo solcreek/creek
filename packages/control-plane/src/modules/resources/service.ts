@@ -227,11 +227,12 @@ export function planBindings(
     }
   }
 
-  // A skipped declaration still names something the app reads, so no other
-  // binding may take its name in the worker: not a resource the project has
-  // attached under it (ensureProjectBindings binds D1/R2/KV attachments
-  // whether declared or not), nor a deprecated alias (DB, KV) this deploy
-  // emits for a primary of the alias's own type, declared or attached.
+  // A skipped declaration still names something the app reads, so its name
+  // stays reserved. Any resource attached under it conflicts, whether or not
+  // this deploy would bind it (provisioned D1/R2/KV attachments are bound
+  // undeclared; Workers AI, queues and unprovisioned rows are not yet, but
+  // the project has given the name to them). So does a deprecated alias
+  // (DB, KV) of a primary of the alias's own type, declared or attached.
   const aliasOf = new Map<string, string>();
   const primaries = [
     ...plan.requirements.map((r) => ({ name: r.bindingName, type: r.type as string | null })),
