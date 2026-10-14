@@ -321,6 +321,27 @@ describe("runCli (JSON mode error conversion)", () => {
     expect(out.message).toContain("while reading the server's response");
   });
 
+  it.each([
+    ["no cause", undefined],
+    [
+      "an undici body error",
+      Object.assign(new Error("x"), { code: "UND_ERR_RES_CONTENT_LENGTH_MISMATCH" }),
+    ],
+  ])("keeps a body that broke off retryable with %s, never blaming the URL", async (_l, cause) => {
+    const midResponse = defineCommand({
+      meta: { name: "status" },
+      run() {
+        throw new TypeError("terminated", { cause });
+      },
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runExit(runCli(midResponse, [], { jsonMode: true }));
+    const out = JSON.parse(stdout);
+    expect(out).toMatchObject({ error: "api_unreachable", retryable: true });
+    expect(out.message).toContain("while reading the server's response");
+    expect(out.message).not.toContain("CREEK_API_URL");
+  });
+
   it("is not retryable when the cause gives no reason", async () => {
     const offline = defineCommand({
       meta: { name: "offline" },
