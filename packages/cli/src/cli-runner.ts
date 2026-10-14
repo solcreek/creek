@@ -114,8 +114,20 @@ export async function runCli(
     // Node's fetch rejects with TypeError("fetch failed") when a server can't
     // be reached (refused, DNS, TLS, reset): retryable, and not a CLI bug.
     const unreachable = err instanceof TypeError && err.message === "fetch failed";
+    // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error)
+    // on `cause`: it tells a bad URL or certificate from an outage.
+    const cause = unreachable
+      ? (err.cause as { code?: unknown; message?: unknown } | undefined)
+      : undefined;
+    const reason =
+      typeof cause?.code === "string"
+        ? cause.code
+        : typeof cause?.message === "string"
+          ? cause.message
+          : undefined;
     if (api.apiError || unreachable) {
-      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      const text = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`${reason ? `${text}: ${reason}` : text}\n`);
     } else {
       consola.error(err);
     }
@@ -124,10 +136,11 @@ export async function runCli(
         ok: false,
         error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
         message: unreachable
-          ? "Could not reach the server (fetch failed). Check the network and retry."
+          ? `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the network and the API URL, then retry.`
           : err instanceof Error
             ? err.message
             : String(err),
+        ...(reason ? { reason } : {}),
         ...api,
       },
       1,

@@ -169,7 +169,12 @@ describe("runCli (JSON mode error conversion)", () => {
     const offline = defineCommand({
       meta: { name: "offline" },
       run() {
-        throw new TypeError("fetch failed");
+        // undici's shape: a fixed message, the reason on `cause`.
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
+            code: "ECONNREFUSED",
+          }),
+        });
       },
     });
     const error = vi.spyOn(consola, "error").mockImplementation(() => {});
@@ -179,10 +184,14 @@ describe("runCli (JSON mode error conversion)", () => {
     expect(JSON.parse(stdout)).toEqual({
       ok: false,
       error: "api_unreachable",
-      message: "Could not reach the server (fetch failed). Check the network and retry.",
+      message:
+        "Could not reach the server (fetch failed: ECONNREFUSED). Check the network and the API URL, then retry.",
+      reason: "ECONNREFUSED",
     });
     expect(error).not.toHaveBeenCalled();
-    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe("fetch failed\n");
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "fetch failed: ECONNREFUSED\n",
+    );
   });
 
   it("reports a rejected API key as unauthorized", async () => {
