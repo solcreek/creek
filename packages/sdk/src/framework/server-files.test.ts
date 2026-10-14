@@ -7,7 +7,9 @@ import {
   collectServerFiles,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
+  WORKER_MODULE_LIMIT,
 } from "./server-files.js";
+import { WORKER_MODULE_LIMIT as WORKER_MODULE_LIMIT_FROM_ROOT } from "../index.js";
 
 // --- getSSRServerDir ---
 
@@ -206,6 +208,28 @@ describe("collectServerFiles", () => {
     }
 
     expect(Object.keys(collectServerFiles(tmpDir, { maxFiles: 3 }))).toHaveLength(3);
+  });
+
+  test("by default takes a Worker's largest upload, and names the limit past it", () => {
+    // Cloudflare takes at most 5,000 multipart parts, one of them metadata:
+    // 4,999 modules upload, 5,000 are rejected (verified 2026-10-13).
+    expect(WORKER_MODULE_LIMIT).toBe(4999);
+    for (let i = 0; i < WORKER_MODULE_LIMIT; i++) writeFileSync(join(tmpDir, `m${i}.js`), "");
+    expect(Object.keys(collectServerFiles(tmpDir))).toHaveLength(WORKER_MODULE_LIMIT);
+
+    writeFileSync(join(tmpDir, "one-too-many.js"), "");
+    expect(() => collectServerFiles(tmpDir)).toThrow(
+      /more than 4999 worker modules \(a Worker upload carries at most 4999 modules\)/,
+    );
+  }, 30_000); // writes and reads 5,000 files
+
+  test("WORKER_MODULE_LIMIT is part of the package's public API", () => {
+    expect(WORKER_MODULE_LIMIT_FROM_ROOT).toBe(WORKER_MODULE_LIMIT);
+  });
+
+  test("collects a 990-module build, which the old default of 500 refused", () => {
+    for (let i = 0; i < 990; i++) writeFileSync(join(tmpDir, `chunk-${i}.js`), "");
+    expect(Object.keys(collectServerFiles(tmpDir))).toHaveLength(990);
   });
 
   test("returns empty object for non-existent directory", () => {

@@ -219,6 +219,7 @@ export {
   collectServerFiles,
   isPreBundledFramework,
   detectAstroCloudflareBuild,
+  WORKER_MODULE_LIMIT,
 } from "./server-files.js";
 
 // `.assetsignore` (Wrangler's asset exclusion file)
