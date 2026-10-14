@@ -162,3 +162,16 @@ export async function provisionSandboxResources(
 
   return { bindings, provisioned };
 }
+
+/**
+ * The provisioned D1 a sandbox's migrations go to: the one production
+ * migrates, DATABASE, else DB, else the first. A name sharing its partner's
+ * database has no record of its own, so DB declared beside DATABASE is
+ * found as DATABASE.
+ */
+export function migrationDatabase(
+  provisioned: ProvisionedResources,
+): { binding: string; name: string; id: string } | undefined {
+  const d1 = provisioned.d1 ?? [];
+  return d1.find((d) => d.binding === "DATABASE") ?? d1.find((d) => d.binding === "DB") ?? d1[0];
+}

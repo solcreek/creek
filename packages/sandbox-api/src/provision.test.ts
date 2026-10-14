@@ -9,7 +9,7 @@ vi.mock("@solcreek/deploy-core", () => ({
 }));
 
 import { createD1Database } from "@solcreek/deploy-core";
-import { provisionSandboxResources } from "./provision.js";
+import { migrationDatabase, provisionSandboxResources } from "./provision.js";
 import type { Env } from "./types.js";
 
 const env = {} as Env;
@@ -121,5 +121,23 @@ describe("provisionSandboxResources: one name, one binding", () => {
       { type: "images", bindingName: "IMAGES" },
     ]);
     expect(bindings).toEqual([{ type: "images", name: "IMAGES" }]);
+  });
+});
+
+describe("migrationDatabase", () => {
+  test("is the database DATABASE and DB share, whatever D1 comes first", async () => {
+    const { provisioned } = await provisionSandboxResources(env, "abc123", [
+      { type: "d1", bindingName: "AUDIT" },
+      { type: "d1", bindingName: "DATABASE" },
+      { type: "d1", bindingName: "DB" },
+    ]);
+    expect(migrationDatabase(provisioned)?.id).toBe("d1:sbox-abc123-database");
+  });
+
+  test("is DB without DATABASE, else the first D1, else none", async () => {
+    const d1 = (binding: string) => ({ binding, name: binding, id: binding });
+    expect(migrationDatabase({ d1: [d1("AUDIT"), d1("DB")] })?.binding).toBe("DB");
+    expect(migrationDatabase({ d1: [d1("AUDIT"), d1("MAIN")] })?.binding).toBe("AUDIT");
+    expect(migrationDatabase({})).toBeUndefined();
   });
 });

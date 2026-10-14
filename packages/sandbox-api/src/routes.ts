@@ -6,7 +6,7 @@ import {
   execD1Query,
   mainModuleProblem,
 } from "@solcreek/deploy-core";
-import { provisionSandboxResources } from "./provision.js";
+import { migrationDatabase, provisionSandboxResources } from "./provision.js";
 import { scanBundle } from "./scan.js";
 import { verifyAgentToken } from "./agent-challenge.js";
 
@@ -562,11 +562,11 @@ async function runSandboxDeploy(
 
     // Apply the user's migrations to the freshly-provisioned D1 so DB-backed
     // routes (and Better Auth) work in the preview without `creek db migrate`.
-    // Target the "DB" binding (the database resource), falling back to the
-    // first provisioned D1. Statements run in order; a failure aborts the
-    // deploy with a clear message (caught below as failedStep "deploying").
-    if (bundle.migrations?.length && provisioned.d1?.length) {
-      const target = provisioned.d1.find((d) => d.binding === "DB") ?? provisioned.d1[0];
+    // Target the database production migrates (migrationDatabase).
+    // Statements run in order; a failure aborts the deploy with a clear
+    // message (caught below as failedStep "deploying").
+    const target = migrationDatabase(provisioned);
+    if (bundle.migrations?.length && target) {
       for (const migration of bundle.migrations) {
         for (const statement of migration.statements) {
           try {
