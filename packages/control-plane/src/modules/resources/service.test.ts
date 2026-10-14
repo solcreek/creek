@@ -105,6 +105,23 @@ describe("buildBindings — Workers AI", () => {
     ]);
   });
 
+  test("gives AI under a deprecated-alias primary name no alias", () => {
+    // ai.binding = "DATABASE" must not also expose Workers AI as env.DB.
+    const bindings = buildBindings(
+      resolved([
+        { bindingName: "DATABASE", cfResourceId: null, cfType: "ai" },
+        { bindingName: "CACHE", cfResourceId: null, cfType: "ai" },
+      ]),
+      [],
+      baseOptions,
+    );
+    expect(bindings.filter((b) => b.type === "ai").map((b) => b.name)).toEqual([
+      "DATABASE",
+      "CACHE",
+    ]);
+    expect(bindings.some((b) => b.name === "DB" || b.name === "KV")).toBe(false);
+  });
+
   test("binds no AI when nothing resolved is AI", () => {
     const bindings = buildBindings(
       resolved([{ bindingName: "DATABASE", cfResourceId: "d1-id", cfType: "d1" }]),

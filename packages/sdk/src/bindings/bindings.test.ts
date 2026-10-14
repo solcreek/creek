@@ -113,6 +113,16 @@ describe("deprecatedAliasBindings", () => {
     ).toEqual([]);
   });
 
+  test("aliases only the primary's own type: AI or R2 named DATABASE / CACHE gets none", () => {
+    expect(
+      deprecatedAliasBindings([
+        { type: "ai", name: "DATABASE" },
+        { type: "r2_bucket", name: "CACHE", bucket_name: "b" },
+        { type: "kv_namespace", name: "DATABASE_X", namespace_id: "kv-1" },
+      ]),
+    ).toEqual([]);
+  });
+
   test("adds nothing for names without an alias", () => {
     expect(deprecatedAliasBindings([{ type: "r2_bucket", name: "STORAGE" }])).toEqual([]);
   });
