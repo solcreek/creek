@@ -281,8 +281,8 @@ export function planBindings(
   }
 
   // Text bindings share the worker's env with everything above: project
-  // environment variables (secret_text) and the config's [vars]
-  // (plain_text), beside Creek's own CREEK_* values. Two bindings under one
+  // environment variables and the config's [vars] (both emitted as
+  // secret_text), beside Creek's own CREEK_* values. Two bindings under one
   // name fail the Workers upload, after resources have been created, so
   // refuse the name here. Resource names count as the skipped-name rule
   // does: anything declared, attached, an alias the deploy emits, or the
