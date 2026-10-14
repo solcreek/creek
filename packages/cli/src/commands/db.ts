@@ -288,6 +288,7 @@ async function executeAndPrint(
       jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
     } else {
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
     }
   }
 }
@@ -398,6 +399,7 @@ const migrateCommand = defineCommand({
           1,
         );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 
@@ -413,6 +415,7 @@ const migrateCommand = defineCommand({
       if (jsonMode)
         jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 
@@ -538,6 +541,7 @@ const migrateCommand = defineCommand({
             1,
           );
         }
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         if (alreadyExists) {
           consola.info(`  If a previous run was interrupted, re-run with --resume to reconcile.`);
         }
@@ -678,6 +682,7 @@ const seedCommand = defineCommand({
           );
         }
         consola.error(`Statement ${i + 1}/${statements.length} failed: ${msg}`);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     }
