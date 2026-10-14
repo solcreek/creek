@@ -117,15 +117,27 @@ function shouldSkipFile(name: string): boolean {
 }
 
 /**
+ * Most modules one Worker upload can carry. The Workers script upload takes
+ * at most 5,000 multipart parts, and one of them is the metadata part.
+ * Verified 2026-10-13 against a Workers for Platforms dispatch namespace,
+ * with deploy-core's upload shape (one part per module): 4,999 modules
+ * (5,000 parts) upload, 5,000 modules (5,001 parts) are rejected with code
+ * 10021 "multipart: message too large", although the two bodies differ by a
+ * few hundred bytes. The Workers limits page lists only the 64 MiB size.
+ */
+export const WORKER_MODULE_LIMIT = 4999;
+
+/**
  * Recursively collect all files from a directory into Record<relativePath, Buffer>.
  *
  * Skips:
  * - .map files (source maps break WfP module parsing)
  * - node_modules/ (too large, not needed)
  *
- * Throws when the directory holds more than `maxFiles` modules: a worker
- * uploaded with some of its chunks missing fails at runtime, on whichever
- * route imports them, so a partial collection is never usable.
+ * Throws when the directory holds more than `maxFiles` modules (default
+ * WORKER_MODULE_LIMIT): a worker uploaded with some of its chunks missing
+ * fails at runtime, on whichever route imports them, so a partial collection
+ * is never usable.
  *
  * `include` drops files by their relative path before they count toward
  * `maxFiles`.
@@ -136,7 +148,7 @@ export function collectServerFiles(
   dir: string,
   options?: { maxFiles?: number; include?: (relPath: string) => boolean },
 ): Record<string, Buffer> {
-  const maxFiles = options?.maxFiles ?? 500;
+  const maxFiles = options?.maxFiles ?? WORKER_MODULE_LIMIT;
   const include = options?.include ?? (() => true);
   const result: Record<string, Buffer> = {};
 
@@ -171,8 +183,12 @@ function _collectRecursive(
       const rel = relative(base, full);
       if (!include(rel)) continue;
       if (limit.count >= limit.max) {
+        const why =
+          limit.max === WORKER_MODULE_LIMIT
+            ? ` (a Worker upload carries at most ${WORKER_MODULE_LIMIT} modules)`
+            : "";
         throw new Error(
-          `${base} has more than ${limit.max} worker modules; refusing to upload a partial worker`,
+          `${base} has more than ${limit.max} worker modules${why}; refusing to upload a partial worker`,
         );
       }
       out[rel] = readFileSync(full);
