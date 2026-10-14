@@ -27,7 +27,7 @@ import {
   createKVNamespace,
   type WfPBinding,
 } from "@solcreek/deploy-core";
-import { deprecatedAliasBindings } from "@solcreek/sdk/bindings";
+import { aliasPartner, deprecatedAliasBindings } from "@solcreek/sdk/bindings";
 import type { Env } from "./types.js";
 
 export interface BindingRequirement {
@@ -73,11 +73,32 @@ export async function provisionSandboxResources(
     }
   }
 
+  // D1 / KV id provisioned under each binding name so far, with its type:
+  // a partner of another type (a KV named DB beside a D1 DATABASE) is not
+  // shared.
+  const idByName = new Map<string, { type: string; id: string }>();
+
   for (const req of unique) {
     const name = `sbox-${sandboxId}-${req.bindingName.toLowerCase()}`;
+    // DATABASE and DB (CACHE and KV) declared together share one resource,
+    // as in production, so the app and migrations see the same database.
+    // Cleanup is unaffected — the second name adds a binding, not a resource.
+    const partner = aliasPartner(req.bindingName, req.type);
+    const shared = partner ? idByName.get(partner) : undefined;
+    const sharedId = shared?.type === req.type ? shared.id : undefined;
+    if (sharedId) {
+      bindings.push(
+        req.type === "d1"
+          ? { type: "d1", name: req.bindingName, id: sharedId }
+          : { type: "kv_namespace", name: req.bindingName, namespace_id: sharedId },
+      );
+      idByName.set(req.bindingName, { type: req.type, id: sharedId });
+      continue;
+    }
     switch (req.type) {
       case "d1": {
         const id = await createD1Database(env, name);
+        idByName.set(req.bindingName, { type: req.type, id });
         bindings.push({
           type: "d1",
           name: req.bindingName,
@@ -98,6 +119,7 @@ export async function provisionSandboxResources(
       }
       case "kv": {
         const id = await createKVNamespace(env, name);
+        idByName.set(req.bindingName, { type: req.type, id });
         bindings.push({
           type: "kv_namespace",
           name: req.bindingName,
@@ -139,4 +161,18 @@ export async function provisionSandboxResources(
   bindings.push(...deprecatedAliasBindings(bindings));
 
   return { bindings, provisioned };
+}
+
+/**
+ * The provisioned D1 a sandbox's migrations go to: DATABASE, else DB, as
+ * production deploys choose, else the first D1 (production refuses a choice
+ * among several unnamed D1s; a sandbox keeps its earlier fallback). A name
+ * sharing its partner's database has no record of its own, so DB declared
+ * beside DATABASE is found as DATABASE.
+ */
+export function migrationDatabase(
+  provisioned: ProvisionedResources,
+): { binding: string; name: string; id: string } | undefined {
+  const d1 = provisioned.d1 ?? [];
+  return d1.find((d) => d.binding === "DATABASE") ?? d1.find((d) => d.binding === "DB") ?? d1[0];
 }

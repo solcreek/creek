@@ -9,7 +9,7 @@ vi.mock("@solcreek/deploy-core", () => ({
 }));
 
 import { createD1Database } from "@solcreek/deploy-core";
-import { provisionSandboxResources } from "./provision.js";
+import { migrationDatabase, provisionSandboxResources } from "./provision.js";
 import type { Env } from "./types.js";
 
 const env = {} as Env;
@@ -56,6 +56,53 @@ describe("provisionSandboxResources: binding names match production (#61)", () =
   });
 });
 
+describe("provisionSandboxResources: DATABASE and DB declared together", () => {
+  test("share one database, in either order", async () => {
+    for (const names of [
+      ["DATABASE", "DB"],
+      ["DB", "DATABASE"],
+    ]) {
+      vi.clearAllMocks();
+      const { bindings, provisioned } = await provisionSandboxResources(
+        env,
+        "abc123",
+        names.map((bindingName) => ({ type: "d1", bindingName })),
+      );
+      const id = `d1:sbox-abc123-${names[0].toLowerCase()}`;
+      expect(bindings).toEqual([
+        { type: "d1", name: names[0], id },
+        { type: "d1", name: names[1], id },
+      ]);
+      expect(createD1Database).toHaveBeenCalledTimes(1);
+      expect(provisioned.d1).toHaveLength(1);
+    }
+  });
+
+  test("does not share a partner's resource of another type", async () => {
+    const { bindings } = await provisionSandboxResources(env, "abc123", [
+      { type: "kv", bindingName: "DB" },
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+    expect(createD1Database).toHaveBeenCalledTimes(1);
+    expect(bindings).toEqual([
+      { type: "kv_namespace", name: "DB", namespace_id: "kv:sbox-abc123-db" },
+      { type: "d1", name: "DATABASE", id: "d1:sbox-abc123-database" },
+    ]);
+  });
+
+  test("CACHE and KV share one namespace", async () => {
+    const { bindings, provisioned } = await provisionSandboxResources(env, "abc123", [
+      { type: "kv", bindingName: "CACHE" },
+      { type: "kv", bindingName: "KV" },
+    ]);
+    expect(bindings).toEqual([
+      { type: "kv_namespace", name: "CACHE", namespace_id: "kv:sbox-abc123-cache" },
+      { type: "kv_namespace", name: "KV", namespace_id: "kv:sbox-abc123-cache" },
+    ]);
+    expect(provisioned.kv).toHaveLength(1);
+  });
+});
+
 describe("provisionSandboxResources: one name, one binding", () => {
   test("refuses a name declared with two types, before creating anything", async () => {
     await expect(
@@ -74,5 +121,23 @@ describe("provisionSandboxResources: one name, one binding", () => {
       { type: "images", bindingName: "IMAGES" },
     ]);
     expect(bindings).toEqual([{ type: "images", name: "IMAGES" }]);
+  });
+});
+
+describe("migrationDatabase", () => {
+  test("is the database DATABASE and DB share, whatever D1 comes first", async () => {
+    const { provisioned } = await provisionSandboxResources(env, "abc123", [
+      { type: "d1", bindingName: "AUDIT" },
+      { type: "d1", bindingName: "DATABASE" },
+      { type: "d1", bindingName: "DB" },
+    ]);
+    expect(migrationDatabase(provisioned)?.id).toBe("d1:sbox-abc123-database");
+  });
+
+  test("is DB without DATABASE, else the first D1, else none", async () => {
+    const d1 = (binding: string) => ({ binding, name: binding, id: binding });
+    expect(migrationDatabase({ d1: [d1("AUDIT"), d1("DB")] })?.binding).toBe("DB");
+    expect(migrationDatabase({ d1: [d1("AUDIT"), d1("MAIN")] })?.binding).toBe("AUDIT");
+    expect(migrationDatabase({})).toBeUndefined();
   });
 });
