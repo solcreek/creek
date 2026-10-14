@@ -196,22 +196,36 @@ describe("runCli (JSON mode error conversion)", () => {
 
   // Causes as Node 24's fetch reports them (measured 2026-10-13): code when
   // the socket layer has one, else only a message.
+  const RETRY = "Retry.";
+  const FIX = "retrying will not help";
   it.each([
-    ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true],
-    ["a connect timeout", { code: "UND_ERR_CONNECT_TIMEOUT" }, "UND_ERR_CONNECT_TIMEOUT", true],
-    ["a temporary DNS failure", { code: "EAI_AGAIN" }, "EAI_AGAIN", true],
-    ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false],
+    ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true, RETRY],
+    [
+      "a connect timeout",
+      { code: "UND_ERR_CONNECT_TIMEOUT" },
+      "UND_ERR_CONNECT_TIMEOUT",
+      true,
+      RETRY,
+    ],
+    ["a temporary DNS failure", { code: "EAI_AGAIN" }, "EAI_AGAIN", true, RETRY],
+    // Node 24 reports this for an unroutable address (measured: [100::1]).
+    ["an unreachable host", { code: "EHOSTUNREACH" }, "EHOSTUNREACH", true, RETRY],
+    ["a network that is down", { code: "ENETUNREACH" }, "ENETUNREACH", true, RETRY],
+    // A wrong host, or no network on macOS/Windows: not retried, and the
+    // message names both rather than claiming a retry cannot help.
+    ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false, "Check the network connection"],
     [
       "a self-signed proxy certificate",
       { code: "SELF_SIGNED_CERT_IN_CHAIN" },
       "SELF_SIGNED_CERT_IN_CHAIN",
       false,
+      FIX,
     ],
-    ["a blocked port", { message: "bad port" }, "bad port", false],
-    ["a non-HTTP(S) API URL", { message: "unknown scheme" }, "unknown scheme", false],
+    ["a blocked port", { message: "bad port" }, "bad port", false, FIX],
+    ["a non-HTTP(S) API URL", { message: "unknown scheme" }, "unknown scheme", false, FIX],
   ])(
     "marks %s retryable=%s only when it can pass on its own",
-    async (_label, cause, reason, retryable) => {
+    async (_label, cause, reason, retryable, says) => {
       const offline = defineCommand({
         meta: { name: "offline" },
         run() {
@@ -224,7 +238,7 @@ describe("runCli (JSON mode error conversion)", () => {
       await runExit(runCli(offline, [], { jsonMode: true }));
       const out = JSON.parse(stdout);
       expect(out).toMatchObject({ error: "api_unreachable", reason, retryable });
-      expect(out.message).toContain(retryable ? "Retry." : "retrying will not help");
+      expect(out.message).toContain(says);
     },
   );
 

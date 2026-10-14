@@ -41,16 +41,23 @@ export function wantsJson(rawArgs: string[], isTTY: boolean): boolean {
 
 /**
  * The undici/Node network failures that can pass on their own, so an agent
- * may retry. Anything else behind "fetch failed" — ENOTFOUND, a TLS or
- * certificate error, `bad port`, `unknown scheme` — is the configuration
- * (CREEK_API_URL, a proxy's certificate) and fails again the same way.
- * A whitelist: an unlisted reason is reported as not retryable.
+ * may retry: refused or reset connections, timeouts, a network or route
+ * that is down. Anything else behind "fetch failed" — a TLS or certificate
+ * error, `bad port`, `unknown scheme` — is the configuration (CREEK_API_URL,
+ * a proxy's certificate) and fails again the same way. ENOTFOUND is not
+ * listed: it is a wrong host, or (macOS, Windows) no network at all, and an
+ * agent can fix neither by retrying. A whitelist: an unlisted reason is
+ * reported as not retryable.
  */
 const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
+  "ECONNABORTED",
   "ETIMEDOUT",
   "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
   "EAI_AGAIN",
   "UND_ERR_CONNECT_TIMEOUT",
   "UND_ERR_HEADERS_TIMEOUT",
@@ -132,7 +139,8 @@ export async function runCli(
     // only.
     const api = apiErrorFields(err);
     // Node's fetch rejects with TypeError("fetch failed") when a server can't
-    // be reached (refused, DNS, TLS, reset): retryable, and not a CLI bug.
+    // be reached: not a CLI bug. Whether a retry can help depends on the
+    // cause (TRANSIENT_NETWORK_CODES).
     const unreachable = err instanceof TypeError && err.message === "fetch failed";
     // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error)
     // on `cause`: it tells a bad URL or certificate from an outage.
@@ -159,7 +167,9 @@ export async function runCli(
         message: unreachable
           ? retryable
             ? `Could not reach the server (fetch failed: ${reason}). Retry.`
-            : `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the API URL (CREEK_API_URL) and certificates; retrying will not help.`
+            : reason === "ENOTFOUND"
+              ? "Could not reach the server (fetch failed: ENOTFOUND): the host was not found. Check the network connection, and CREEK_API_URL if you set one."
+              : `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the API URL (CREEK_API_URL) and certificates; retrying will not help.`
           : err instanceof Error
             ? err.message
             : String(err),
