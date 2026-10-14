@@ -31,6 +31,15 @@ Requires `@solcreek/sdk@0.4.24`. Publish the SDK tag `sdk@0.4.24` before
   write; a `CREEK_API_URL` pointing at an `http://` address the edge
   redirects to `https://` now fails on writes.
 
+### Next.js
+
+- **Edge-runtime pages and routes work in Next.js deploys.** Deploys now build
+  with `@solcreek/adapter-creek@0.2.22`. Before, every page or route with the
+  Edge runtime (a pages API route with `runtime: "edge"`, an app route handler
+  or page with `runtime = "edge"`, an edge pages SSR page) returned 500 "No
+  handler function found on module", with or without middleware. An older
+  adapter cached in `.creek` is replaced on the next deploy.
+
 ## 0.4.52
 
 Requires `@solcreek/sdk@0.4.23`. Publish the SDK tag `sdk@0.4.23` before
