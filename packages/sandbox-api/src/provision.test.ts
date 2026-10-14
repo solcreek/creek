@@ -55,3 +55,24 @@ describe("provisionSandboxResources: binding names match production (#61)", () =
     ]);
   });
 });
+
+describe("provisionSandboxResources: one name, one binding", () => {
+  test("refuses a name declared with two types, before creating anything", async () => {
+    await expect(
+      provisionSandboxResources(env, "abc123", [
+        { type: "d1", bindingName: "DATABASE" },
+        { type: "r2", bindingName: "IMAGES" },
+        { type: "images", bindingName: "IMAGES" },
+      ]),
+    ).rejects.toThrow("IMAGES is declared as both r2 and images");
+    expect(createD1Database).not.toHaveBeenCalled();
+  });
+
+  test("binds a requirement declared twice with one type once", async () => {
+    const { bindings } = await provisionSandboxResources(env, "abc123", [
+      { type: "images", bindingName: "IMAGES" },
+      { type: "images", bindingName: "IMAGES" },
+    ]);
+    expect(bindings).toEqual([{ type: "images", name: "IMAGES" }]);
+  });
+});

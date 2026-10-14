@@ -620,8 +620,11 @@ export async function buildAndBundle(req: BuildRequest): Promise<BuildResult | B
  * the user never wrote — SESSION (KV), IMAGES, `worker_loaders` — and
  * the Worker will crash at runtime if we don't provision them.
  *
- * User-declared entries take precedence on binding-name conflict so
- * a user explicitly overriding a binding isn't silently clobbered.
+ * An adapter binding the user already declares (same name and type) is
+ * added once. One under a name the user uses for another type is kept, so
+ * the deploy refuses the bundle (`binding_conflict`, or the sandbox's own
+ * check) instead of deploying a worker without the binding the adapter's
+ * code reads.
  */
 // SDK's `BindingRequirement` is currently typed to "d1"|"r2"|"kv"|"ai".
 // Adapters can declare more (worker_loader for plugin sandboxes,
@@ -635,9 +638,9 @@ export function mergeAdapterBindings(
   existing: ReadonlyArray<{ type: string; bindingName: string }>,
   adapterWrangler: Record<string, unknown>,
 ): BindingReq[] {
-  // Keyed by name alone: the worker's env has one binding per name, and the
-  // control plane refuses a bundle that declares one name with two types.
-  const seen = new Set(existing.map((b) => b.bindingName));
+  // Keyed by type and name: an exact duplicate is dropped, a cross-type one
+  // kept for the deploy to refuse.
+  const seen = new Set(existing.map((b) => `${b.type}:${b.bindingName}`));
   // Cast existing entries; their type field is already one of the
   // narrower SDK union members, so this is safe.
   const out: BindingReq[] = existing.map((b) => ({
@@ -646,8 +649,9 @@ export function mergeAdapterBindings(
   }));
 
   const push = (type: BindingType, bindingName: string) => {
-    if (!seen.has(bindingName)) {
-      seen.add(bindingName);
+    const key = `${type}:${bindingName}`;
+    if (!seen.has(key)) {
+      seen.add(key);
       out.push({ type, bindingName });
     }
   };

@@ -532,23 +532,24 @@ describe("mergeAdapterBindings", () => {
     ]);
   });
 
-  test("keeps the user's binding when the adapter uses its name with another type", () => {
-    // One name, one binding: the control plane refuses two types under one name.
+  test("adds an adapter binding the user already declares only once", () => {
     expect(
-      mergeAdapterBindings(
-        [
-          { type: "r2", bindingName: "IMAGES" },
-          { type: "kv", bindingName: "LOADER" },
-        ],
-        {
-          images: { binding: "IMAGES" },
-          worker_loaders: [{ binding: "LOADER" }],
-          kv_namespaces: [{ binding: "IMAGES" }],
-        },
-      ),
+      mergeAdapterBindings([{ type: "kv", bindingName: "SESSION" }], {
+        kv_namespaces: [{ binding: "SESSION" }],
+      }),
+    ).toEqual([{ type: "kv", bindingName: "SESSION" }]);
+  });
+
+  test("keeps an adapter binding under a name the user uses for another type, for the deploy to refuse", () => {
+    // Dropping it would deploy a worker whose adapter code reads env.IMAGES
+    // as the Images API and gets the user's R2 bucket.
+    expect(
+      mergeAdapterBindings([{ type: "r2", bindingName: "IMAGES" }], {
+        images: { binding: "IMAGES" },
+      }),
     ).toEqual([
       { type: "r2", bindingName: "IMAGES" },
-      { type: "kv", bindingName: "LOADER" },
+      { type: "images", bindingName: "IMAGES" },
     ]);
   });
 });

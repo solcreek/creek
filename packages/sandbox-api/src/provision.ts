@@ -55,7 +55,25 @@ export async function provisionSandboxResources(
   const bindings: WfPBinding[] = [];
   const provisioned: ProvisionedResources = {};
 
+  // One name, one binding, as production deploys require: refuse a bundle
+  // that declares a name with two types (a framework adapter's IMAGES beside
+  // the user's own IMAGES bucket) before creating anything, rather than fail
+  // at the Workers upload with resources already made.
+  const declared = new Map<string, string>();
+  const unique: BindingRequirement[] = [];
   for (const req of requirements) {
+    const earlier = declared.get(req.bindingName);
+    if (earlier === undefined) {
+      declared.set(req.bindingName, req.type);
+      unique.push(req);
+    } else if (earlier !== req.type) {
+      throw new Error(
+        `${req.bindingName} is declared as both ${earlier} and ${req.type}. Give each binding its own name.`,
+      );
+    }
+  }
+
+  for (const req of unique) {
     const name = `sbox-${sandboxId}-${req.bindingName.toLowerCase()}`;
     switch (req.type) {
       case "d1": {
