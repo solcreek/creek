@@ -142,7 +142,7 @@ export function collectServerFiles(
 
   if (!existsSync(dir)) return result;
 
-  _collectRecursive(dir, dir, result, maxFiles, include);
+  _collectRecursive(dir, dir, result, { count: 0, max: maxFiles }, include);
   return result;
 }
 
@@ -150,7 +150,7 @@ function _collectRecursive(
   dir: string,
   base: string,
   out: Record<string, Buffer>,
-  maxFiles: number,
+  limit: { count: number; max: number },
   include: (relPath: string) => boolean,
 ): void {
   let entries;
@@ -166,16 +166,17 @@ function _collectRecursive(
     const full = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      _collectRecursive(full, base, out, maxFiles, include);
+      _collectRecursive(full, base, out, limit, include);
     } else if (entry.isFile() && !shouldSkipFile(entry.name)) {
       const rel = relative(base, full);
       if (!include(rel)) continue;
-      if (Object.keys(out).length >= maxFiles) {
+      if (limit.count >= limit.max) {
         throw new Error(
-          `${base} has more than ${maxFiles} worker modules; refusing to upload a partial worker`,
+          `${base} has more than ${limit.max} worker modules; refusing to upload a partial worker`,
         );
       }
       out[rel] = readFileSync(full);
+      limit.count++;
     }
   }
 }
