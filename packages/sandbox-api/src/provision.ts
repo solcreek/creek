@@ -164,10 +164,11 @@ export async function provisionSandboxResources(
 }
 
 /**
- * The provisioned D1 a sandbox's migrations go to: the one production
- * migrates, DATABASE, else DB, else the first. A name sharing its partner's
- * database has no record of its own, so DB declared beside DATABASE is
- * found as DATABASE.
+ * The provisioned D1 a sandbox's migrations go to: DATABASE, else DB, as
+ * production deploys choose, else the first D1 (production refuses a choice
+ * among several unnamed D1s; a sandbox keeps its earlier fallback). A name
+ * sharing its partner's database has no record of its own, so DB declared
+ * beside DATABASE is found as DATABASE.
  */
 export function migrationDatabase(
   provisioned: ProvisionedResources,

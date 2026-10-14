@@ -562,7 +562,7 @@ async function runSandboxDeploy(
 
     // Apply the user's migrations to the freshly-provisioned D1 so DB-backed
     // routes (and Better Auth) work in the preview without `creek db migrate`.
-    // Target the database production migrates (migrationDatabase).
+    // Target DATABASE, else DB, else the first D1 (migrationDatabase).
     // Statements run in order; a failure aborts the deploy with a clear
     // message (caught below as failedStep "deploying").
     const target = migrationDatabase(provisioned);
