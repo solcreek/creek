@@ -121,7 +121,7 @@ Act on `apiError`:
 | `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
-`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. Retry only when `retryable` is `true` (a refused connection, a timeout, a reset). When it is `false`, `reason` names what to fix — `ENOTFOUND` (wrong host in `CREEK_API_URL`), a certificate error (e.g. a proxy's self-signed certificate), `bad port`, `unknown scheme` — and retrying fails the same way.
+`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. Retry only when `retryable` is `true` (a refused or reset connection, a timeout, a network that is down). When it is `false`, stop and tell the user: `reason` (absent when the failure gave none) names what to fix — `ENOTFOUND` (no network, or a wrong host in `CREEK_API_URL`), a certificate error (e.g. a proxy's self-signed certificate), `bad port`, `unknown scheme`.
 
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
