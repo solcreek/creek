@@ -49,16 +49,7 @@ export class CreekClient {
 
     const res = await fetch(`${this.baseUrl}${path}`, init);
 
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-      const { error, message, ...details } = body ?? {};
-      const code = typeof error === "string" ? error : "unknown";
-      const text = typeof message === "string" ? message : res.statusText;
-      if (res.status === 401) {
-        throw new CreekAuthError(text);
-      }
-      throw new CreekApiError(res.status, code, text, details);
-    }
+    if (!res.ok) throw await apiErrorFrom(res, "unknown");
 
     return res.json() as Promise<T>;
   }
@@ -336,13 +327,7 @@ export class CreekClient {
       },
       body: ndjsonBody,
     });
-    if (!res.ok) {
-      throw new CreekApiError(
-        res.status,
-        "build_log_upload_failed",
-        `Build log upload failed: ${res.status} ${res.statusText}`,
-      );
-    }
+    if (!res.ok) throw await apiErrorFrom(res, "build_log_upload_failed");
     return res.json() as Promise<{ ok: boolean; bytes: number; lines: number; truncated: boolean }>;
   }
 
@@ -521,6 +506,20 @@ export class CreekClient {
   async activateDomain(projectId: string, domainId: string): Promise<ActivateDomainResult> {
     return this.request("POST", `/projects/${projectId}/domains/${domainId}/activate`);
   }
+}
+
+/**
+ * The error a failed Creek API response becomes: the body's `error` as the
+ * code (else `fallbackCode`), its `message` (else the status text), and its
+ * other fields as `details`. A 401 is a CreekAuthError.
+ */
+async function apiErrorFrom(res: Response, fallbackCode: string): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const { error, message, ...details } = body ?? {};
+  const code = typeof error === "string" ? error : fallbackCode;
+  const text = typeof message === "string" ? message : res.statusText;
+  if (res.status === 401) return new CreekAuthError(text);
+  return new CreekApiError(res.status, code, text, details);
 }
 
 export class CreekApiError extends Error {

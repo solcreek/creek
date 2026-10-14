@@ -51,6 +51,30 @@ describe("CreekClient errors", () => {
     });
   });
 
+  test("a refused build log upload keeps the API's code and fields too", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, {
+        error: "insufficient_scope",
+        message: "This API key lacks the scope: deploy:preview",
+        required: ["deploy:preview"],
+      }),
+    );
+    const err = await client
+      .uploadBuildLog("dep-1", "{}\n", { status: "running", startedAt: 1 })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "insufficient_scope",
+      details: { required: ["deploy:preview"] },
+    });
+    // A body without an error code keeps the upload's own code.
+    mockFetch.mockResolvedValue(new Response("", { status: 500, statusText: "Server Error" }));
+    const plain = await client
+      .uploadBuildLog("dep-1", "{}\n", { status: "running", startedAt: 1 })
+      .catch((e: unknown) => e);
+    expect(plain).toMatchObject({ status: 500, code: "build_log_upload_failed" });
+  });
+
   test("a 401 is a CreekAuthError", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse(401, { error: "unauthorized", message: "Invalid key" }),
