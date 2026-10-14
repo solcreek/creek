@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { createLocalTestEnv, type LocalTestEnv } from "../../local/test-env.js";
 import { MAX_ATTEMPTS, processResourceCleanupQueue } from "./cleanup-queue.js";
+import { provisionedName } from "./service.js";
 
 const deletes: string[] = [];
 let respond: (url: string) => Response = () =>
@@ -120,6 +121,21 @@ describe("processResourceCleanupQueue", () => {
 
     expect(deletes).toEqual(["/client/v4/accounts/acc/queues/q-mine"]);
     expect(statuses()).toEqual(["q-mine:done", "q-other:failed"]);
+  });
+
+  it("deletes a resource provisioned under the older 8-character name", async () => {
+    const expected = provisionedName("0f1e2d3c-4b5a-4968-8776-655443322110");
+    // Provisioned before names carried 26 hex digits.
+    names = { "legacy-d1": "creek-0f1e2d3c" };
+    queue("d1", "legacy-d1", expected);
+    queue("r2", "creek-0f1e2d3c", expected);
+    // Another resource's 8-character name is not this one's.
+    names["other-d1"] = "creek-99999999";
+    queue("d1", "other-d1", expected);
+
+    await processResourceCleanupQueue(testEnv.env);
+
+    expect(statuses()).toEqual(["legacy-d1:done", "creek-0f1e2d3c:done", "other-d1:failed"]);
   });
 
   it("refuses to delete a resource that isn't the one Creek provisioned", async () => {

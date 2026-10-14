@@ -75,8 +75,9 @@ describe("resources input validation", () => {
     };
     expect(body.kind).toBe("database");
     expect(body.name).toBe("my-db");
-    // Provisioned under Creek's name for it, creek-<first 8 of id>.
-    expect(body.cfResourceId).toBe(`d1-for-creek-${body.id.slice(0, 8)}`);
+    // Provisioned under Creek's name for it: 26 hex digits of the id, so it
+    // can't collide with another team's resource.
+    expect(body.cfResourceId).toBe(`d1-for-creek-${body.id.replace(/-/g, "").slice(0, 26)}`);
     expect(body.status).toBe("active");
     expect(body.teamId).toBe(teamId);
     // UUIDs are 36-char
@@ -229,7 +230,7 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
       resourceType: "d1",
       cfResourceId: "d1-uuid",
       // The name Creek gives what it provisions, checked before deleting.
-      cfResourceName: "creek-res-d1",
+      cfResourceName: "creek-resd1",
       status: "pending",
       reason: "resource_deleted",
     });
@@ -248,8 +249,19 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect((await req("DELETE", "/resources/res-r2")).status).toBe(200);
 
     expect(cleanupRows()).toMatchObject([
-      { resourceType: "r2", cfResourceId: "creek-bucket-1", cfResourceName: "creek-res-r2" },
+      { resourceType: "r2", cfResourceId: "creek-bucket-1", cfResourceName: "creek-resr2" },
     ]);
+  });
+
+  test("the teardown expects the exact name the resource was provisioned under", async () => {
+    // The delete route computes the name in SQL; provisioning computes it in
+    // JS. If they drift, the cleanup refuses to delete anything.
+    const created = await req("POST", "/resources", { kind: "database", name: "roundtrip" });
+    const { id, cfResourceId } = (await created.json()) as { id: string; cfResourceId: string };
+    expect((await req("DELETE", `/resources/${id}`)).status).toBe(200);
+
+    const provisionedAs = cfResourceId.replace(/^d1-for-/, "");
+    expect(cleanupRows()[0].cfResourceName).toBe(provisionedAs);
   });
 
   test("deleting twice queues the teardown once", async () => {
@@ -305,7 +317,7 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
 
     // Queued under the adopting row's own expected name, not the victim's.
     const [queued] = cleanupRows();
-    expect(queued.cfResourceName).toBe(`creek-${id.slice(0, 8)}`);
+    expect(queued.cfResourceName).toBe("creek-resadopted");
 
     const calls: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

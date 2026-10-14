@@ -244,7 +244,7 @@ export async function ensureProjectBindings(
         );
       }
       // Binding exists but CF resource not yet provisioned — provision now
-      const cfName = `creek-${existing.resourceId.slice(0, 8)}`;
+      const cfName = provisionedName(existing.resourceId);
       const cfType = KIND_TO_CF[existing.kind] ?? req.type;
       const cfId =
         (await findExistingCFResource(env, cfType, cfName)) ??
@@ -312,7 +312,7 @@ export async function ensureProjectBindings(
 
     // No binding exists — auto-create resource + binding
     const resourceId = crypto.randomUUID();
-    const cfName = `creek-${resourceId.slice(0, 8)}`;
+    const cfName = provisionedName(resourceId);
     const kind = CF_TO_KIND[req.type] ?? req.type;
     const cfType = req.type;
     const now = Date.now();
@@ -407,7 +407,11 @@ export async function ensureQueue(
   const queueName = `creek-q-${resourceId.slice(0, 8)}`;
   const now = Date.now();
 
-  let queueId = await getQueue(env, queueName);
+  // A new queue is created outright. Looking it up by name first only makes
+  // sense for an existing row whose queue may have been created by an
+  // earlier, half-finished attempt; for a fresh id, a queue with this name
+  // can only belong to another resource whose id shares the prefix.
+  let queueId = existing ? await getQueue(env, queueName) : null;
   if (!queueId) {
     queueId = await createQueue(env, queueName);
   }
@@ -558,6 +562,20 @@ export function buildBindings(
   }
 
   return bindings;
+}
+
+/**
+ * The name Creek provisions a resource's D1 database, R2 bucket or KV
+ * namespace under: `creek-` and the first 26 hex digits of the resource id
+ * (104 random bits, 32 characters in all). Provisioning looks a resource up
+ * by this name to recover from a half-finished attempt, so it must not
+ * collide across the shared account: the 8-digit prefix used before could
+ * hand one team another team's database. It stays within 32 characters to
+ * fit every resource type's name limit. Resources provisioned before carry
+ * `creek-<first 8 of id>`; the cleanup accepts both.
+ */
+export function provisionedName(resourceId: string): string {
+  return `creek-${resourceId.replace(/-/g, "").slice(0, 26)}`;
 }
 
 // --- Cleanup ---

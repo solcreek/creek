@@ -19,6 +19,7 @@ import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { provisionCFResource, findExistingCFResource } from "./cloudflare.js";
+import { provisionedName } from "./service.js";
 import { requireScopes } from "../tenant/scope-guard.js";
 
 type ResourcesEnv = {
@@ -103,10 +104,9 @@ resources.post(
     const cfType = KIND_TO_CF[body.kind] ?? null;
 
     // Auto-provision the CF resource if it's a provisionable type.
-    // Use the resource UUID prefix as the CF resource name for uniqueness.
     let cfResourceId: string | null = null;
     if (cfType) {
-      const cfName = `creek-${id.slice(0, 8)}`;
+      const cfName = provisionedName(id);
       try {
         cfResourceId =
           (await findExistingCFResource(c.env, cfType, cfName)) ??
@@ -259,7 +259,7 @@ resources.delete(
     const [, res] = await c.env.DB.batch([
       c.env.DB.prepare(
         `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
-       SELECT type, cfResourceId, 'creek-' || substr(id, 1, 8), 'pending', 'resource_deleted', ?
+       SELECT type, cfResourceId, 'creek-' || substr(replace(id, '-', ''), 1, 26), 'pending', 'resource_deleted', ?
        FROM (
          -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
          SELECT cfResourceId, status, id, teamId,
