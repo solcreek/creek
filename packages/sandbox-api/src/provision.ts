@@ -27,7 +27,7 @@ import {
   createKVNamespace,
   type WfPBinding,
 } from "@solcreek/deploy-core";
-import { deprecatedAliasBindings } from "@solcreek/sdk/bindings";
+import { aliasPartner, deprecatedAliasBindings } from "@solcreek/sdk/bindings";
 import type { Env } from "./types.js";
 
 export interface BindingRequirement {
@@ -73,11 +73,29 @@ export async function provisionSandboxResources(
     }
   }
 
+  // D1 / KV id provisioned under each binding name so far.
+  const idByName = new Map<string, string>();
+
   for (const req of unique) {
     const name = `sbox-${sandboxId}-${req.bindingName.toLowerCase()}`;
+    // DATABASE and DB (CACHE and KV) declared together share one resource,
+    // as in production, so the app and migrations see the same database.
+    // Cleanup is unaffected — the second name adds a binding, not a resource.
+    const partner = aliasPartner(req.bindingName, req.type);
+    const sharedId = partner ? idByName.get(partner) : undefined;
+    if (sharedId) {
+      bindings.push(
+        req.type === "d1"
+          ? { type: "d1", name: req.bindingName, id: sharedId }
+          : { type: "kv_namespace", name: req.bindingName, namespace_id: sharedId },
+      );
+      idByName.set(req.bindingName, sharedId);
+      continue;
+    }
     switch (req.type) {
       case "d1": {
         const id = await createD1Database(env, name);
+        idByName.set(req.bindingName, id);
         bindings.push({
           type: "d1",
           name: req.bindingName,
@@ -98,6 +116,7 @@ export async function provisionSandboxResources(
       }
       case "kv": {
         const id = await createKVNamespace(env, name);
+        idByName.set(req.bindingName, id);
         bindings.push({
           type: "kv_namespace",
           name: req.bindingName,

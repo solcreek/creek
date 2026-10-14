@@ -56,6 +56,41 @@ describe("provisionSandboxResources: binding names match production (#61)", () =
   });
 });
 
+describe("provisionSandboxResources: DATABASE and DB declared together", () => {
+  test("share one database, in either order", async () => {
+    for (const names of [
+      ["DATABASE", "DB"],
+      ["DB", "DATABASE"],
+    ]) {
+      vi.clearAllMocks();
+      const { bindings, provisioned } = await provisionSandboxResources(
+        env,
+        "abc123",
+        names.map((bindingName) => ({ type: "d1", bindingName })),
+      );
+      const id = `d1:sbox-abc123-${names[0].toLowerCase()}`;
+      expect(bindings).toEqual([
+        { type: "d1", name: names[0], id },
+        { type: "d1", name: names[1], id },
+      ]);
+      expect(createD1Database).toHaveBeenCalledTimes(1);
+      expect(provisioned.d1).toHaveLength(1);
+    }
+  });
+
+  test("CACHE and KV share one namespace", async () => {
+    const { bindings, provisioned } = await provisionSandboxResources(env, "abc123", [
+      { type: "kv", bindingName: "CACHE" },
+      { type: "kv", bindingName: "KV" },
+    ]);
+    expect(bindings).toEqual([
+      { type: "kv_namespace", name: "CACHE", namespace_id: "kv:sbox-abc123-cache" },
+      { type: "kv_namespace", name: "KV", namespace_id: "kv:sbox-abc123-cache" },
+    ]);
+    expect(provisioned.kv).toHaveLength(1);
+  });
+});
+
 describe("provisionSandboxResources: one name, one binding", () => {
   test("refuses a name declared with two types, before creating anything", async () => {
     await expect(
