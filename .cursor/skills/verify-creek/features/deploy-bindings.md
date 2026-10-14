@@ -7,6 +7,7 @@ A deploy binds every resource the project's config declares, under the name the 
 - `custom-ai-name` binds Workers AI under the declared name (`ai.binding = "MODEL"` → `env.MODEL`).
 - `type-conflict` refuses a declaration whose type differs from the resource bound under that name (409 `binding_conflict`), with no deploy and no Cloudflare call.
 - `duplicate-name` refuses one name declared with two types.
+- `text-collision` refuses an environment variable (for the deploy's target) or a `[vars]` entry named like a binding, like each other, or like Creek's `CREEK_*` names.
 
 ## How to get to it (user POV)
 
@@ -25,11 +26,13 @@ Preconditions:
 - **Custom AI name.** `-- deploy --prod --yes --json`. `control-plane.sh sql "$RUN_ENV" "SELECT status FROM deployment"` is `active`. In `cloudflare-calls.ndjson`, both script uploads (`<project>-<id>-<team>` and `<project>-<team>`) carry `{"type":"ai","name":"MODEL"}` and `{"type":"d1","name":"DB"}`, and no `ai` binding named `AI`.
 - **Type conflict.** Change `wrangler.jsonc` to `"ai": { "binding": "DB" }` (no `d1_databases`), empty `cloudflare-calls.ndjson`, `-- deploy --prod --yes --json`. Exits `1` with the message `DB is attached to a database resource, but the bundle declares it as ai`. The new deployment stays `queued`; `cloudflare-calls.ndjson` stays empty; the `DB` resource row is unchanged.
 - **Duplicate name.** A raw `PUT /projects/<slug>/deployments/<id>/bundle` with `bindings: [{type:"kv",bindingName:"DATA"},{type:"r2",bindingName:"DATA"}]` answers 409 `binding_conflict` naming `DATA`. (The CLI's config parsing cannot produce this bundle.)
+- **Text collision.** With `wrangler.jsonc` declaring `kv_namespaces: [{ "binding": "CACHE", "id": "x" }]` and `vars: { "MODE": "prod" }`, a first `-- deploy --prod --yes --json` makes the deployment `active`. Set a variable named like the binding with `POST /projects/<slug>/env` `{"key":"CACHE","value":"x"}` (raw HTTP with the key: `creek env` needs `creek.toml`, see Gotchas); `-- deploy --prod --yes --json` exits `1` with `CACHE is both a binding and a project environment variable`, the new deployment stays `queued` and `cloudflare-calls.ndjson` stays empty. After `DELETE /projects/<slug>/env/CACHE`, a preview-only `{"key":"MODE","value":"dev","target":"preview"}` does not stop a production deploy (`active`).
 - **Proof.** Keep the evidence directories, the SQL reads and the extracted upload bindings.
 
 ## Gotchas
 
 - The deploy itself is `active`, but `creek deploy` still exits `1` with `verify_failed`: its live check fetches `https://<project>-<team>.localhost`, which nothing serves. Read the deployment row, not the exit code.
 - The CLI reports the 409 as `error: "internal_error"` with the server's message; only the message names the conflict.
+- In a wrangler-only project (no `creek.toml`), `creek env set` exits `no_project` and its message suggests `--project`, which `env` does not accept (verified 2026-10-13). Set variables over raw HTTP instead.
 - Without `VERIFY_CREEK_FAKE_CLOUDFLARE=1` the job fails at provisioning (no Cloudflare credentials), so the binding proof needs it. The upload-time 409 needs no Cloudflare and shows either way.
 - `packages/control-plane/src/modules/resources/binding-plan.test.ts` runs 400 random project states through the upload check and the real job; `preview-bindings.test.ts` covers preview keys without `resource:write`.
