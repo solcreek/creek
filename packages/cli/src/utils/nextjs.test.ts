@@ -201,9 +201,17 @@ describe("resolveAdapterPath (adapter cache floor)", () => {
     expect(resolveAdapterPath(cwd, "0.2.20")).not.toBeNull(); // the previous floor reused it
   });
 
+  it("rejects a cached 0.2.21, whose webpack builds 500 on every Edge-runtime route", () => {
+    // creek deploy builds with webpack; 0.2.22 bundles the shared edge chunks
+    // and calls webpack edge entries correctly. A cached 0.2.21 must not be reused.
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.21");
+    expect(resolveAdapterPath(cwd, ADAPTER_MIN_VERSION)).toBeNull();
+    expect(resolveAdapterPath(cwd, "0.2.21")).not.toBeNull(); // the previous floor reused it
+  });
+
   it("prefers the project node_modules copy over .creek when both pass the floor", () => {
-    fakeAdapter(join(cwd, "node_modules"), "0.2.21");
-    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.22");
+    fakeAdapter(join(cwd, "node_modules"), "0.2.22");
+    fakeAdapter(join(cwd, ".creek", "node_modules"), "0.2.23");
     const resolved = resolveAdapterPath(cwd, ADAPTER_MIN_VERSION);
     // node_modules is tried before .creek in the base order.
     expect(resolved).toContain(join("node_modules", "@solcreek", "adapter-creek"));
