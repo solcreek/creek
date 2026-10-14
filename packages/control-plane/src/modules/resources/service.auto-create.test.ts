@@ -165,6 +165,36 @@ describe("ensureProjectBindings — one resource under DATABASE and DB", () => {
     expect(boundTo("DB")).toBeUndefined();
   });
 
+  test("never overwrites a DB another deploy binds while this one adopts DATABASE's database", async () => {
+    // A concurrent deploy that declares only DB creates its own database
+    // under DB after this deploy read the bindings. Adopting DATABASE's
+    // database under DB would leave that deploy's worker on an orphan.
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const prepare = env.DB.prepare.bind(env.DB);
+    env.DB.prepare = ((sql: string) => {
+      if (sql.includes("ON CONFLICT(projectId, bindingName)") && sql.includes("SELECT ?, ?, id")) {
+        const now = Date.now();
+        testEnv.db.db.exec(
+          `INSERT OR IGNORE INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+           VALUES ('res-other', '${TEST_TEAM.id}', 'database', 'other', 'other-d1-id', 'd1', 'active', ${now}, ${now})`,
+        );
+        testEnv.db.db.exec(
+          `INSERT OR IGNORE INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+           VALUES ('proj-app', 'DB', 'res-other', ${now})`,
+        );
+      }
+      return prepare(sql);
+    }) as typeof env.DB.prepare;
+
+    await expect(
+      ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+        { type: "d1", bindingName: "DATABASE" },
+        { type: "d1", bindingName: "DB" },
+      ]),
+    ).rejects.toThrow(/another deploy/);
+    expect(boundTo("DB")).toBe("res-other");
+  });
+
   test("binds a newly declared DB to the database already bound as DATABASE", async () => {
     const now = Date.now();
     testEnv.db.db.exec(

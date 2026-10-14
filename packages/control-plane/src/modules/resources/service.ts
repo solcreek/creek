@@ -505,14 +505,28 @@ export async function ensureProjectBindings(
       // alias could be detached and the resource deleted (its Cloudflare
       // resource queued for teardown) since it was read above. If so, fall
       // through to creating a fresh resource rather than binding the old one.
+      // Never overwrite the name: a deploy of the project running at the same
+      // time may have bound it since it was read, and its worker uses that.
       const adopted = await env.DB.prepare(
         `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
          SELECT ?, ?, id, ? FROM resource WHERE id = ? AND status != 'deleted'
-         ON CONFLICT(projectId, bindingName) DO UPDATE SET resourceId = excluded.resourceId`,
+         ON CONFLICT(projectId, bindingName) DO NOTHING`,
       )
         .bind(projectId, req.bindingName, Date.now(), aliasBinding.resourceId)
         .run();
-      if (adopted.meta.changes) {
+      const boundNow = adopted.meta.changes
+        ? null
+        : await env.DB.prepare(
+            "SELECT resourceId FROM project_resource_binding WHERE projectId = ? AND bindingName = ?",
+          )
+            .bind(projectId, req.bindingName)
+            .first<{ resourceId: string }>();
+      if (boundNow && boundNow.resourceId !== aliasBinding.resourceId) {
+        throw new BindingConflictError([
+          `${req.bindingName} was bound by another deploy of this project running at the same time. Deploy again.`,
+        ]);
+      }
+      if (adopted.meta.changes || boundNow) {
         result.set(req.bindingName, {
           bindingName: req.bindingName,
           cfType: req.type,
