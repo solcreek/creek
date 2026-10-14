@@ -14,7 +14,7 @@ import {
 } from "../utils/creekd-client.js";
 import { readHosts, findHost } from "../utils/hosts.js";
 import { cachedResourceVersion, recordLastDeploy } from "../utils/local-cache.js";
-import { apiErrorFields } from "../utils/api-error.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 export const rollbackCommand = defineCommand({
   meta: {
@@ -207,6 +207,7 @@ export const rollbackCommand = defineCommand({
           ],
         );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
   },

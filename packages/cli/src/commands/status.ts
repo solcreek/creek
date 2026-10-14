@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import { CreekApiError, CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import {
   resolveConfig,
@@ -17,6 +17,7 @@ import {
   NO_PROJECT_BREADCRUMBS,
 } from "../utils/output.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 export const statusCommand = defineCommand({
   meta: {
@@ -129,17 +130,33 @@ async function projectStatus(jsonMode: boolean) {
   let project;
   try {
     project = await client.getProject(resolved.projectName);
-  } catch {
-    if (jsonMode)
-      jsonOutput(
-        { ok: false, error: "not_found", message: `Project "${resolved.projectName}" not found` },
-        1,
-        [
-          { command: "creek deploy", description: "Deploy to create the project" },
-          { command: "creek projects", description: "List existing projects" },
-        ],
-      );
-    consola.error(`Project "${resolved.projectName}" not found.`);
+  } catch (err) {
+    // Only a 404 means the project is missing; a refused key or a failing
+    // server must not read as "deploy to create it".
+    if (err instanceof CreekApiError && err.status === 404) {
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_found",
+            message: `Project "${resolved.projectName}" not found`,
+            ...apiErrorFields(err),
+          },
+          1,
+          [
+            { command: "creek deploy", description: "Deploy to create the project" },
+            { command: "creek projects", description: "List existing projects" },
+          ],
+        );
+      consola.error(`Project "${resolved.projectName}" not found.`);
+      process.exit(1);
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (jsonMode) {
+      jsonOutput({ ok: false, error: "api_error", message, ...apiErrorFields(err) }, 1);
+    }
+    consola.error(message);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 

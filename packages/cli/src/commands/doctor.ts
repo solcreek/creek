@@ -7,7 +7,7 @@ import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { apiErrorFields } from "../utils/api-error.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -260,6 +260,7 @@ async function runLastFailureDiagnosis(opts: {
     if (opts.jsonMode)
       jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
     consola.error(msg);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 
@@ -283,6 +284,7 @@ async function runLastFailureDiagnosis(opts: {
     if (opts.jsonMode)
       jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
     consola.error(msg);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 

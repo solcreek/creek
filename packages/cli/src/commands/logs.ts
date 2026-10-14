@@ -19,7 +19,7 @@ import {
 } from "../utils/output.js";
 import { matchesClientSide, describeFilters, safeStringify as ssExport } from "./logs-filter.js";
 import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
-import { apiErrorFields } from "../utils/api-error.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 /**
  * `creek logs` — read structured tenant logs from R2 archive.
@@ -162,6 +162,7 @@ export const logsCommand = defineCommand({
           [],
         );
       consola.error(`Failed to read logs: ${msg}`);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 

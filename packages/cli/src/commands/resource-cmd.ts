@@ -21,7 +21,7 @@ import {
 } from "../utils/output.js";
 import { apiCall } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import { apiErrorFields } from "../utils/api-error.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 interface Resource {
   id: string;
@@ -149,6 +149,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             1,
           );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -206,6 +207,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             1,
           );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -240,6 +242,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             1,
           );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -280,6 +283,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             1,
           );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -359,6 +363,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
             1,
           );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },

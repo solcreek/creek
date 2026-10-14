@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { CreekClient, parseConfig } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 /**
  * The project name `creek deploy` will use from a local creek.toml, if any.
@@ -162,8 +163,19 @@ export const claimCommand = defineCommand({
       } catch (err) {
         const msg = `Couldn't create a project for this sandbox: ${err instanceof Error ? err.message : String(err)}`;
         if (jsonMode)
-          jsonOutput({ ok: false, error: "create_project_failed", sandboxId, message: msg }, 1, []);
+          jsonOutput(
+            {
+              ok: false,
+              error: "create_project_failed",
+              sandboxId,
+              message: msg,
+              ...apiErrorFields(err),
+            },
+            1,
+            [],
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     }

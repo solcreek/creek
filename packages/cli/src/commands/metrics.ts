@@ -15,7 +15,7 @@ import {
   AUTH_BREADCRUMBS,
   NO_PROJECT_BREADCRUMBS,
 } from "../utils/output.js";
-import { apiErrorFields } from "../utils/api-error.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const VALID_PERIODS = ["1h", "6h", "24h", "7d", "30d"] as const;
 type Period = (typeof VALID_PERIODS)[number];
@@ -78,6 +78,7 @@ export const metricsCommand = defineCommand({
           [],
         );
       consola.error(`Failed to read metrics: ${msg}`);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 

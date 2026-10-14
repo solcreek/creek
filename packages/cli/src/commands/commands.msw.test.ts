@@ -69,6 +69,59 @@ function json() {
   return JSON.parse(stdout);
 }
 
+describe("creek status (project)", () => {
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-status-test-"));
+    writeFileSync(join(projDir, "creek.toml"), '[project]\nname = "demo"\n');
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("reports a missing project (404) as not_found", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_found", status: 404 });
+  });
+
+  it("does not report a refused key (403) as a missing project", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json(
+          {
+            error: "insufficient_scope",
+            message: "This API key lacks the scope: project:read",
+            required: ["project:read"],
+            granted: ["deploy:preview"],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(1);
+    expect(json()).toEqual({
+      ok: false,
+      error: "api_error",
+      message: "This API key lacks the scope: project:read",
+      status: 403,
+      apiError: "insufficient_scope",
+      details: { required: ["project:read"], granted: ["deploy:preview"] },
+    });
+  });
+});
+
 describe("creek status <id> (sandbox)", () => {
   it("prints the sandbox status as JSON and exits 0", async () => {
     server.use(
