@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { requireClient, resolveProjectSlug } from "../utils/command-context.js";
+import { apiErrorFields } from "../utils/api-error.js";
 
 const queueSend = defineCommand({
   meta: { name: "send", description: "Send a message to the project's queue" },
@@ -63,7 +64,7 @@ const queueSend = defineCommand({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (jsonMode) {
-        jsonOutput({ ok: false, error: "send_failed", message: msg }, 1, [
+        jsonOutput({ ok: false, error: "send_failed", message: msg, ...apiErrorFields(err) }, 1, [
           { command: `creek status --project ${slug}`, description: "Check project triggers" },
         ]);
       }

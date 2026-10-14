@@ -14,6 +14,7 @@ import {
 } from "./migrate.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { apiErrorFields } from "../utils/api-error.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -274,7 +275,7 @@ async function executeAndPrint(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (jsonMode) {
-      jsonOutput({ ok: false, error: "query_failed", message: msg }, 1);
+      jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
     } else {
       consola.error(msg);
     }
@@ -381,7 +382,11 @@ const migrateCommand = defineCommand({
       );
     } catch (err) {
       const msg = `Failed to create migration tracking table: ${err instanceof Error ? err.message : String(err)}`;
-      if (jsonMode) jsonOutput({ ok: false, error: "tracking_table_failed", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "tracking_table_failed", message: msg, ...apiErrorFields(err) },
+          1,
+        );
       consola.error(msg);
       process.exit(1);
     }
@@ -395,7 +400,8 @@ const migrateCommand = defineCommand({
       appliedRows = result.rows as { name: string }[];
     } catch (err) {
       const msg = `Failed to query applied migrations: ${err instanceof Error ? err.message : String(err)}`;
-      if (jsonMode) jsonOutput({ ok: false, error: "query_failed", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
       consola.error(msg);
       process.exit(1);
     }

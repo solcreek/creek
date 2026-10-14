@@ -12,6 +12,7 @@ import {
   AUTH_BREADCRUMBS,
   NO_PROJECT_BREADCRUMBS,
 } from "../utils/output.js";
+import { apiErrorFields } from "../utils/api-error.js";
 
 function resolveSlug(argSlug: string | undefined, jsonMode: boolean): string {
   if (argSlug) return argSlug;
@@ -67,7 +68,8 @@ const deploymentsList = defineCommand({
       deployments = await client.listDeployments(slug);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to list deployments";
-      if (jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
       consola.error(msg);
       process.exit(1);
     }
@@ -162,7 +164,8 @@ const deploymentsLogs = defineCommand({
         fullId = match.id;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to resolve deployment id";
-        if (jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
         consola.error(msg);
         process.exit(1);
       }
@@ -173,7 +176,8 @@ const deploymentsLogs = defineCommand({
       log = await client.getBuildLog(slug, fullId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to read build log";
-      if (jsonMode) jsonOutput({ ok: false, error: "api_error", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "api_error", message: msg, ...apiErrorFields(err) }, 1);
       consola.error(msg);
       process.exit(1);
     }

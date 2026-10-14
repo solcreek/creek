@@ -2,6 +2,7 @@ import { runCommand, runMain } from "citty";
 import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
 import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
+import { apiErrorFields, apiErrorHints } from "./utils/api-error.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -104,13 +105,21 @@ export async function runCli(
     }
     // A runtime error no command handled. In JSON mode the caller still needs
     // a JSON result on stdout (an empty stdout doesn't parse); the error
-    // itself, with its stack, goes to stderr for whoever reads the logs.
-    consola.error(err);
+    // itself, with its stack, goes to stderr for whoever reads the logs. A
+    // failed API call keeps the API's own error code (`binding_conflict`,
+    // `insufficient_scope`, …) rather than reading as a CLI bug.
+    const api = apiErrorFields(err);
+    if (api.apiError) {
+      for (const hint of apiErrorHints(err)) consola.info(hint);
+    } else {
+      consola.error(err);
+    }
     jsonOutput(
       {
         ok: false,
-        error: "internal_error",
+        error: api.apiError ?? "internal_error",
         message: err instanceof Error ? err.message : String(err),
+        ...api,
       },
       1,
     );

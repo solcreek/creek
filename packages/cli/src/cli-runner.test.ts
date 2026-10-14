@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { defineCommand } from "citty";
 import consola from "consola";
+import { CreekApiError, CreekAuthError } from "@solcreek/sdk";
 import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
 
 describe("cliErrorToJson", () => {
@@ -126,6 +127,56 @@ describe("runCli (JSON mode error conversion)", () => {
       message: "Cannot read properties of undefined (reading 'filter')",
     });
     expect(error).toHaveBeenCalled(); // the error itself still reaches stderr
+  });
+
+  it("reports an unhandled API error under the API's own code, not internal_error", async () => {
+    // e.g. a deploy whose bundle upload the control plane refuses.
+    const refused = defineCommand({
+      meta: { name: "refused" },
+      run() {
+        throw new CreekApiError(
+          409,
+          "binding_conflict",
+          "DB is both a binding and a project environment variable.",
+          {
+            conflicts: ["DB is both a binding and a project environment variable."],
+          },
+        );
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    vi.spyOn(consola, "info").mockImplementation(() => {});
+    const code = await runExit(runCli(refused, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "binding_conflict",
+      message: "DB is both a binding and a project environment variable.",
+      status: 409,
+      apiError: "binding_conflict",
+      details: { conflicts: ["DB is both a binding and a project environment variable."] },
+    });
+    // An API refusal is not a CLI crash: no stack trace on stderr.
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected API key as unauthorized", async () => {
+    const rejected = defineCommand({
+      meta: { name: "rejected" },
+      run() {
+        throw new CreekAuthError("Invalid API key");
+      },
+    });
+    vi.spyOn(consola, "info").mockImplementation(() => {});
+    const code = await runExit(runCli(rejected, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "unauthorized",
+      message: "Invalid API key",
+      status: 401,
+      apiError: "unauthorized",
+    });
   });
 
   it("stdout is pure JSON (parseable, no usage text)", async () => {
