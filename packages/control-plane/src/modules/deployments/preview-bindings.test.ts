@@ -665,6 +665,20 @@ describe("preview deploys and new bindings", () => {
       expect(deploy).not.toHaveBeenCalled();
     });
 
+    it("refuses a [vars] the job would read differently, before staging", async () => {
+      // A binding named "0" and vars: ["x"]: the job would bind the array
+      // index as a name. Refused for its shape, for every caller.
+      for (const vars of [["x"], "MODE", 42, null]) {
+        const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+          ...bundle([{ type: "kv", bindingName: "0" }]),
+          vars,
+        });
+        expect([res.status, res.body.error], JSON.stringify(vars)).toEqual([400, "validation"]);
+      }
+      expect(await f.env.ASSETS.get("bundles/dep-prod.json")).toBeNull();
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
     it("deploys free names, each once", async () => {
       await setVar("API_KEY", "all");
       const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {

@@ -327,6 +327,18 @@ deployments.put(
         );
       }
       const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
+      // The job binds each key of `vars`: refuse a shape whose keys it would
+      // read differently (an array's indexes, a string's characters).
+      const vars = (parsedBundle as { vars?: unknown }).vars;
+      if (
+        vars !== undefined &&
+        (vars === null || typeof vars !== "object" || Array.isArray(vars))
+      ) {
+        return c.json(
+          { error: "validation", message: "vars must be an object of { NAME: value }" },
+          400,
+        );
+      }
 
       // What the deploy job will bind, decided now with the job's own rules
       // (planBindings), so a bundle the job would refuse fails here, before
@@ -334,7 +346,6 @@ deployments.put(
       const { planDeployBindings } = await import("../resources/service.js");
       const { loadDeployEnvVars } = await import("../env/deploy-vars.js");
       const { deployTargetFor } = await import("../env/targets.js");
-      const vars = (parsedBundle as { vars?: unknown }).vars;
       const plan = await planDeployBindings(
         c.env,
         project.id,
@@ -348,8 +359,7 @@ deployments.put(
               deployTargetFor(deployment.branch, project.productionBranch),
             )
           ).map((r) => r.key),
-          varKeys:
-            vars && typeof vars === "object" && !Array.isArray(vars) ? Object.keys(vars) : [],
+          varKeys: Object.keys(vars ?? {}),
         },
       );
       if (plan.conflicts.length > 0) {
