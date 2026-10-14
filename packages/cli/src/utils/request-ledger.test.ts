@@ -25,6 +25,13 @@ describe("provablyNotSent", () => {
     [{ code: "SELF_SIGNED_CERT_IN_CHAIN" }, true],
     [{ code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" }, true],
     [{ code: "ERR_TLS_CERT_ALTNAME_INVALID" }, true],
+    // Measured: Node's fetch against a local self-signed HTTPS server.
+    [{ code: "DEPTH_ZERO_SELF_SIGNED_CERT" }, true],
+    [{ code: "INVALID_CA" }, true],
+    [{ code: "PATH_LENGTH_EXCEEDED" }, true],
+    [{ code: "INVALID_PURPOSE" }, true],
+    [{ code: "UNABLE_TO_DECRYPT_CERT_SIGNATURE" }, true],
+    [{ code: "ERR_SSL_WRONG_VERSION_NUMBER" }, true],
     // Possibly after the request was written.
     [{ code: "ECONNRESET" }, false],
     [{ code: "EPIPE" }, false],
@@ -88,6 +95,11 @@ describe("installRequestLedger", () => {
   it("counts a failed mutation unless it provably was not sent", async () => {
     ledgerOver(fetchFailed({ code: "ECONNREFUSED" }));
     await expect(fetch("https://api.test/x", { method: "PUT" })).rejects.toThrow();
+    expect(mutationsMaybeApplied()).toBe(0);
+
+    globalThis.fetch = realFetch;
+    ledgerOver(fetchFailed({ code: "INVALID_CA" }));
+    await expect(fetch("https://api.test/x", { method: "POST" })).rejects.toThrow();
     expect(mutationsMaybeApplied()).toBe(0);
 
     globalThis.fetch = realFetch;

@@ -24,8 +24,43 @@ const NOT_SENT_CODES: ReadonlySet<string> = new Set([
 ]);
 /** Causes undici raises before opening a connection; they carry no code. */
 const NOT_SENT_MESSAGES: ReadonlySet<string> = new Set(["bad port", "unknown scheme"]);
-/** TLS/certificate failures: the handshake precedes the request. */
-const TLS_CODE = /^(CERT_|ERR_TLS_|ERR_SSL_)|SELF_SIGNED|UNABLE_TO_(VERIFY|GET)/;
+/**
+ * TLS failures: the handshake precedes the request. Node reports a failed
+ * certificate verification under OpenSSL's X509 verify error names (Node's
+ * src/crypto/crypto_common.cc), and its own TLS/SSL errors as ERR_TLS_* /
+ * ERR_SSL_*.
+ */
+const CERT_VERIFY_CODES: ReadonlySet<string> = new Set([
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_CRL",
+  "UNABLE_TO_DECRYPT_CERT_SIGNATURE",
+  "UNABLE_TO_DECRYPT_CRL_SIGNATURE",
+  "UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY",
+  "CERT_SIGNATURE_FAILURE",
+  "CRL_SIGNATURE_FAILURE",
+  "CERT_NOT_YET_VALID",
+  "CERT_HAS_EXPIRED",
+  "CRL_NOT_YET_VALID",
+  "CRL_HAS_EXPIRED",
+  "ERROR_IN_CERT_NOT_BEFORE_FIELD",
+  "ERROR_IN_CERT_NOT_AFTER_FIELD",
+  "ERROR_IN_CRL_LAST_UPDATE_FIELD",
+  "ERROR_IN_CRL_NEXT_UPDATE_FIELD",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "CERT_CHAIN_TOO_LONG",
+  "CERT_REVOKED",
+  "INVALID_CA",
+  "PATH_LENGTH_EXCEEDED",
+  "INVALID_PURPOSE",
+  "CERT_UNTRUSTED",
+  "CERT_REJECTED",
+  "HOSTNAME_MISMATCH",
+]);
+const isTlsFailure = (reason: string) =>
+  CERT_VERIFY_CODES.has(reason) || /^ERR_(TLS|SSL)_/.test(reason);
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -44,7 +79,7 @@ export function fetchFailureReason(err: unknown): string | undefined {
 export function provablyNotSent(err: unknown): boolean {
   const reason = fetchFailureReason(err);
   if (reason === undefined) return false;
-  return NOT_SENT_CODES.has(reason) || NOT_SENT_MESSAGES.has(reason) || TLS_CODE.test(reason);
+  return NOT_SENT_CODES.has(reason) || NOT_SENT_MESSAGES.has(reason) || isTlsFailure(reason);
 }
 
 function methodOf(input: Parameters<typeof fetch>[0], init?: RequestInit): string {
