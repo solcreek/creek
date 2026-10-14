@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { defineCommand } from "citty";
 import consola from "consola";
+import { CreekApiError, CreekAuthError } from "@solcreek/sdk";
 import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
 
 describe("cliErrorToJson", () => {
@@ -126,6 +127,167 @@ describe("runCli (JSON mode error conversion)", () => {
       message: "Cannot read properties of undefined (reading 'filter')",
     });
     expect(error).toHaveBeenCalled(); // the error itself still reaches stderr
+  });
+
+  it("reports an unhandled API error under the API's own code, not internal_error", async () => {
+    // e.g. a deploy whose bundle upload the control plane refuses.
+    const refused = defineCommand({
+      meta: { name: "refused" },
+      run() {
+        throw new CreekApiError(
+          409,
+          "binding_conflict",
+          "DB is both a binding and a project environment variable.",
+          {
+            conflicts: ["DB is both a binding and a project environment variable."],
+          },
+        );
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(refused, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "binding_conflict",
+      message: "DB is both a binding and a project environment variable.",
+      status: 409,
+      apiError: "binding_conflict",
+      details: { conflicts: ["DB is both a binding and a project environment variable."] },
+    });
+    // stdout is the JSON alone (asserted by JSON.parse above, with consola's
+    // info writer unmocked); an API refusal is not a CLI crash: stderr gets
+    // the message, no stack trace.
+    expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "DB is both a binding and a project environment variable.\n",
+    );
+  });
+
+  it("reports an unreachable server as api_unreachable, not internal_error", async () => {
+    const offline = defineCommand({
+      meta: { name: "offline" },
+      run() {
+        // undici's shape: a fixed message, the reason on `cause`.
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
+            code: "ECONNREFUSED",
+          }),
+        });
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(offline, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "api_unreachable",
+      message:
+        "Could not reach the server (fetch failed: ECONNREFUSED); the request was not sent. Retry.",
+      reason: "ECONNREFUSED",
+      retryable: true,
+    });
+    expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "fetch failed: ECONNREFUSED\n",
+    );
+  });
+
+  // Causes as Node 24's fetch reports them (measured 2026-10-13): code when
+  // the socket layer has one, else only a message.
+  const RETRY = "Retry.";
+  const FIX = "retrying will not help";
+  const MAYBE = "may have been applied";
+  it.each([
+    ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true, RETRY],
+    [
+      "a connect timeout",
+      { code: "UND_ERR_CONNECT_TIMEOUT" },
+      "UND_ERR_CONNECT_TIMEOUT",
+      true,
+      RETRY,
+    ],
+    ["a temporary DNS failure", { code: "EAI_AGAIN" }, "EAI_AGAIN", true, RETRY],
+    // Node 24 reports this for an unroutable address (measured: [100::1]).
+    ["an unreachable host", { code: "EHOSTUNREACH" }, "EHOSTUNREACH", true, RETRY],
+    ["a network that is down", { code: "ENETUNREACH" }, "ENETUNREACH", true, RETRY],
+    // Lost after the request may have been sent: re-running a mutation (a
+    // deploy) could apply it twice, so not retryable.
+    ["a reset connection", { code: "ECONNRESET" }, "ECONNRESET", false, MAYBE],
+    [
+      "a response timeout",
+      { code: "UND_ERR_HEADERS_TIMEOUT" },
+      "UND_ERR_HEADERS_TIMEOUT",
+      false,
+      MAYBE,
+    ],
+    ["a socket closed mid-request", { code: "UND_ERR_SOCKET" }, "UND_ERR_SOCKET", false, MAYBE],
+    // A wrong host, or no network on macOS/Windows: not retried, and the
+    // message names both rather than claiming a retry cannot help.
+    ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false, "Check the network connection"],
+    [
+      "a self-signed proxy certificate",
+      { code: "SELF_SIGNED_CERT_IN_CHAIN" },
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      false,
+      FIX,
+    ],
+    ["a blocked port", { message: "bad port" }, "bad port", false, FIX],
+    ["a non-HTTP(S) API URL", { message: "unknown scheme" }, "unknown scheme", false, FIX],
+  ])(
+    "marks %s retryable=%s only when it can pass on its own",
+    async (_label, cause, reason, retryable, says) => {
+      const offline = defineCommand({
+        meta: { name: "offline" },
+        run() {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error(cause.message ?? "x"), cause),
+          });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(offline, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ error: "api_unreachable", reason, retryable });
+      expect(out.message).toContain(says);
+      if (says === MAYBE) expect(out.mayHaveApplied).toBe(true);
+      else expect(out).not.toHaveProperty("mayHaveApplied");
+    },
+  );
+
+  it("is not retryable when the cause gives no reason", async () => {
+    const offline = defineCommand({
+      meta: { name: "offline" },
+      run() {
+        throw new TypeError("fetch failed");
+      },
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runExit(runCli(offline, [], { jsonMode: true }));
+    expect(JSON.parse(stdout)).toMatchObject({ error: "api_unreachable", retryable: false });
+    expect(JSON.parse(stdout)).not.toHaveProperty("reason");
+  });
+
+  it("reports a rejected API key as unauthorized", async () => {
+    const rejected = defineCommand({
+      meta: { name: "rejected" },
+      run() {
+        throw new CreekAuthError("Invalid API key");
+      },
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(rejected, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "unauthorized",
+      message: "Invalid API key",
+      status: 401,
+      apiError: "unauthorized",
+    });
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe("Invalid API key\n");
   });
 
   it("stdout is pure JSON (parseable, no usage text)", async () => {

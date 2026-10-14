@@ -327,6 +327,51 @@ deployments.put(
         );
       }
       const requirements = (declared.bindings ?? []) as { bindingName: string; type: string }[];
+      // The job binds each key of `vars`: refuse a shape whose keys it would
+      // read differently (an array's indexes, a string's characters).
+      const vars = (parsedBundle as { vars?: unknown }).vars;
+      if (
+        vars !== undefined &&
+        (vars === null || typeof vars !== "object" || Array.isArray(vars))
+      ) {
+        return c.json(
+          { error: "validation", message: "vars must be an object of { NAME: value }" },
+          400,
+        );
+      }
+
+      // What the deploy job will bind, decided now with the job's own rules
+      // (planBindings), so a bundle the job would refuse fails here, before
+      // the bundle is staged and a deployment runs.
+      const { planDeployBindings } = await import("../resources/service.js");
+      const { loadDeployEnvVars } = await import("../env/deploy-vars.js");
+      const { deployTargetFor } = await import("../env/targets.js");
+      const plan = await planDeployBindings(
+        c.env,
+        project.id,
+        requirements,
+        Boolean(declared.queue),
+        {
+          envKeys: (
+            await loadDeployEnvVars(
+              c.env.DB,
+              project.id,
+              deployTargetFor(deployment.branch, project.productionBranch),
+            )
+          ).map((r) => r.key),
+          varKeys: Object.keys(vars ?? {}),
+        },
+      );
+      if (plan.conflicts.length > 0) {
+        return c.json(
+          {
+            error: "binding_conflict",
+            message: plan.conflicts.join(" "),
+            conflicts: plan.conflicts,
+          },
+          409,
+        );
+      }
 
       let mayAddBindings = true;
       // A deploy binds every resource its bundle declares, creating the ones
@@ -339,13 +384,7 @@ deployments.put(
         const cannotManageResources = assertScope(c, "resource:write");
         if (cannotManageResources) {
           mayAddBindings = false;
-          const { bindingsADeployWouldAdd } = await import("../resources/service.js");
-          const added = await bindingsADeployWouldAdd(
-            c.env,
-            project.id,
-            requirements,
-            Boolean(declared.queue),
-          );
+          const added = plan.added;
           if (added.length > 0) {
             const refusal = (await cannotManageResources.json()) as Record<string, unknown>;
             return c.json(

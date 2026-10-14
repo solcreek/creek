@@ -30,21 +30,45 @@ export const DEPRECATED_BINDING_ALIASES: Record<string, string | undefined> = {
 };
 
 /**
+ * The resource type each aliased primary name stands for: only a D1 named
+ * DATABASE gets DB, and only a KV namespace named CACHE gets KV. Workers AI
+ * or an R2 bucket a user named DATABASE gets no alias. Keyed by config type
+ * (`creek dev`); ALIASED_BINDING_TYPES is the same in Worker binding types.
+ */
+export const DEPRECATED_ALIAS_TYPES: Record<string, "d1" | "kv" | undefined> = {
+  DATABASE: "d1",
+  CACHE: "kv",
+};
+
+const WORKER_BINDING_TYPE = { d1: "d1", kv: "kv_namespace" } as const;
+
+const ALIASED_BINDING_TYPES: Record<string, string | undefined> = Object.fromEntries(
+  Object.entries(DEPRECATED_ALIAS_TYPES).map(([name, type]) => [
+    name,
+    type && WORKER_BINDING_TYPE[type],
+  ]),
+);
+
+/**
  * The deprecated-alias bindings to add for a list of Worker bindings: for
  * each binding with a primary name that has an alias (DATABASE → DB), a copy
  * under the alias pointing at the same resource. An alias name already taken
  * in the list is skipped, so a binding the user named explicitly always wins
- * and no Worker env name is bound twice.
+ * and no Worker env name is bound twice. Only the primary's own resource type
+ * is aliased: Workers AI or an R2 bucket a user named DATABASE gets no DB.
  *
  * Production and sandbox deploys both use this, so a preview binds the same
  * names as the production deploy it previews (solcreek/creek#61).
  */
-export function deprecatedAliasBindings<T extends { name: string }>(bindings: readonly T[]): T[] {
+export function deprecatedAliasBindings<T extends { name: string; type: string }>(
+  bindings: readonly T[],
+): T[] {
   const taken = new Set(bindings.map((b) => b.name));
   const aliases: T[] = [];
   for (const binding of bindings) {
     const alias = DEPRECATED_BINDING_ALIASES[binding.name];
     if (!alias || taken.has(alias)) continue;
+    if (binding.type !== ALIASED_BINDING_TYPES[binding.name]) continue;
     aliases.push({ ...binding, name: alias });
     taken.add(alias);
   }

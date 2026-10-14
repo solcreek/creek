@@ -47,3 +47,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Auth status](./whoami.md) covers unauthenticated `whoami` and non-interactive `login` refusal.
 - [API key scopes](./api-key-scopes.md) covers what a scoped key may do, against a local control-plane (`scripts/control-plane.sh`), plus a raw-HTTP probe.
 - [Environment variable targets](./env-targets.md) covers `creek env --target` against a local control-plane.
+- [Deploy bindings](./deploy-bindings.md) covers what a deploy binds (custom Workers AI names, type conflicts), against a local control-plane that answers Cloudflare in-process.

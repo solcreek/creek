@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { requireClient, resolveProjectSlug } from "../utils/command-context.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const queueSend = defineCommand({
   meta: { name: "send", description: "Send a message to the project's queue" },
@@ -63,11 +64,12 @@ const queueSend = defineCommand({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (jsonMode) {
-        jsonOutput({ ok: false, error: "send_failed", message: msg }, 1, [
+        jsonOutput({ ok: false, error: "send_failed", message: msg, ...apiErrorFields(err) }, 1, [
           { command: `creek status --project ${slug}`, description: "Check project triggers" },
         ]);
       }
       consola.error(`Failed to send: ${msg}`);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       consola.info(
         "Make sure your creek.toml has `queue = true` under [triggers] and the project is deployed.",
       );

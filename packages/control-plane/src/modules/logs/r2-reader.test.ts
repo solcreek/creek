@@ -135,6 +135,55 @@ describe("readLogs", () => {
     expect(result.entries[0].timestamp).toBe(Date.UTC(2026, 3, 13, 17, 30, 0));
   });
 
+  test("within an hour, the newest batch is read first across scriptTypes", async () => {
+    // batchIds start with the ms into the hour; the full keys sort
+    // "branch" before "production", the batchIds the other way round.
+    const bucket = makeBucket({
+      "logs/acme/blog/2026-04-13/17-branch-0c3500aaaaaa.ndjson": [
+        entry({ scriptType: "branch", timestamp: Date.UTC(2026, 3, 13, 17, 14, 0) }),
+      ],
+      "logs/acme/blog/2026-04-13/17-production-0001f4bbbbbb.ndjson": [
+        entry({ timestamp: Date.UTC(2026, 3, 13, 17, 0, 0, 500) }),
+      ],
+      "logs/acme/blog/2026-04-13/17-production-1b7740cccccc.ndjson": [
+        entry({ timestamp: Date.UTC(2026, 3, 13, 17, 30, 0) }),
+      ],
+    });
+    const query = parseQuery(new URLSearchParams({ since: "1h", limit: "2" }), NOW);
+    const result = await readLogs({ bucket, team: "acme", project: "blog", query });
+    expect(result.entries.map((e) => e.timestamp)).toEqual([
+      Date.UTC(2026, 3, 13, 17, 30, 0),
+      Date.UTC(2026, 3, 13, 17, 14, 0),
+    ]);
+  });
+
+  test("follows the LIST cursor so the newest batches on a later page are read", async () => {
+    const keys = Array.from(
+      { length: 5 },
+      (_, i) =>
+        `logs/acme/blog/2026-04-13/17-production-${(i * 60_000).toString(16).padStart(6, "0")}aaaaaa.ndjson`,
+    );
+    const pages = [keys.slice(0, 2), keys.slice(2, 4), keys.slice(4)];
+    const bucket = {
+      async list(opts?: R2ListOptions) {
+        const page = opts?.cursor ? Number(opts.cursor) : 0;
+        return {
+          objects: pages[page].map((key) => ({ key })),
+          truncated: page < pages.length - 1,
+          cursor: String(page + 1),
+        } as unknown as R2Objects;
+      },
+      async get(key: string) {
+        const i = keys.indexOf(key);
+        const body = JSON.stringify(entry({ timestamp: Date.UTC(2026, 3, 13, 17, i, 0) }));
+        return { text: () => Promise.resolve(body) } as R2ObjectBody;
+      },
+    } as unknown as R2Bucket;
+    const query = parseQuery(new URLSearchParams({ since: "1h", limit: "1" }), NOW);
+    const result = await readLogs({ bucket, team: "acme", project: "blog", query });
+    expect(result.entries[0].timestamp).toBe(Date.UTC(2026, 3, 13, 17, 4, 0));
+  });
+
   test("empty bucket → empty result, no error", async () => {
     const bucket = makeBucket({});
     const query = parseQuery(new URLSearchParams(), NOW);

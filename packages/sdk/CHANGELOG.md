@@ -1,5 +1,29 @@
 # @solcreek/sdk
 
+## 0.4.23
+
+- **A worker can have up to 4,999 modules.** `collectServerFiles` stopped at
+  500, a limit with no basis: a 990-module build that Cloudflare accepts could
+  not be deployed. The limit is now `WORKER_MODULE_LIMIT` (4,999, exported):
+  a Workers upload takes at most 5,000 multipart parts, one of them the
+  metadata. Past it, the error says so.
+- **`collectServerFiles` counts modules as it goes** instead of re-counting the
+  collected set for every file.
+
+## 0.4.22
+
+- **Environment variable targets.** New `EnvTarget` type
+  (`"all" | "production" | "preview"`) and `ENV_TARGETS`. `setEnvVar` and
+  `deleteEnvVar` take an optional `target`: `setEnvVar` sends it only when
+  given (the server defaults to `"all"`), and `deleteEnvVar` without one removes
+  every target's value. `listEnvVars` entries and the `setEnvVar` result carry
+  `target`, absent from servers that predate targets. `deleteEnvVar` returns
+  `removed`, the number of values deleted.
+- **`deleteEnvVar` URL-encodes the key.**
+- **`deleteResource` documents what deletion does**: the D1 database or KV
+  namespace is deleted with its data, irreversibly, normally within minutes; an
+  R2 bucket only if it is empty; refused (409) while a project binds it.
+
 ## 0.4.21
 
 - **vinext.** `detectFramework` returns `"vinext"`, ahead of `next`, and

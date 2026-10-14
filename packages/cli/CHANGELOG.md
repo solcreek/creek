@@ -1,5 +1,37 @@
 # @solcreek/cli
 
+## 0.4.52
+
+Requires `@solcreek/sdk@0.4.23`. Publish the SDK tag `sdk@0.4.23` before
+`cli@0.4.52` / `creek@0.4.52`.
+
+### Deploys
+
+- **A worker can have up to 4,999 modules**, the most one Cloudflare upload
+  carries, up from 500. vinext, Astro and the pre-bundled SSR frameworks
+  (Nuxt, SvelteKit, SolidStart) deploy builds of up to that many modules; past
+  it the deploy stops and says so.
+
+## 0.4.51
+
+Requires `@solcreek/sdk@0.4.22`.
+
+### Environment variables
+
+- **`creek env set --target production|preview|all`** stores a value for
+  production deploys, preview (branch) deploys, or all of them (the default). A
+  deploy uses its own target's value, else the `all` value. The CLI reports
+  success only when the server stored the target asked for: on a server
+  without targets, which stores the value for every deploy, it fails with
+  `target_unsupported` and says how to undo it.
+- **`creek env ls`** shows each value's target, and `--json` includes it.
+- **`creek env rm --target <target>`** removes only that target's value;
+  without `--target` it removes every value of the key, and `--json` reports
+  `removedValues`. On a server without targets it refuses
+  (`target_unsupported`) instead of deleting the all-deploys value.
+- **`creek env set` says which deploys pick up the change**: the next deploy,
+  production deploy or branch deploy.
+
 ## 0.4.50
 
 Requires `@solcreek/sdk@0.4.21` (unchanged).

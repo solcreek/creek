@@ -4,6 +4,21 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.52
+
+- Bundles [`@solcreek/cli@0.4.52`](../cli/CHANGELOG.md#0452) and requires
+  [`@solcreek/sdk@0.4.23`](../sdk/CHANGELOG.md#0423): a worker can have up to
+  4,999 modules, up from 500. Publish `sdk@0.4.23` before `cli@0.4.52` /
+  `creek@0.4.52`.
+
+## 0.4.51
+
+- Bundles [`@solcreek/cli@0.4.51`](../cli/CHANGELOG.md#0451) and requires
+  [`@solcreek/sdk@0.4.22`](../sdk/CHANGELOG.md#0422): `creek env set`
+  and `creek env rm` take `--target production|preview|all`, so production and
+  preview deploys can get different values, and `creek env ls` shows each
+  value's target.
+
 ## 0.4.50
 
 - Bundles [`@solcreek/cli@0.4.50`](../cli/CHANGELOG.md#0450): `creek db delete`

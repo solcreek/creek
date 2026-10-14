@@ -14,6 +14,7 @@ import {
 } from "./migrate.js";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -170,8 +171,18 @@ export async function resolveProjectDatabase(
     const detail = err instanceof Error ? err.message : String(err);
     const msg = `Couldn't load bindings for project "${slug}" (${detail}). Check the project exists (\`creek projects\`) or pass an explicit database name (${usage}).`;
     if (jsonMode)
-      jsonOutput({ ok: false, error: "project_lookup_failed", project: slug, message: msg }, 1);
+      jsonOutput(
+        {
+          ok: false,
+          error: "project_lookup_failed",
+          project: slug,
+          message: msg,
+          ...apiErrorFields(err),
+        },
+        1,
+      );
     consola.error(msg);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
   const dbs = bindings.filter((b) => b.kind === "database");
@@ -274,9 +285,10 @@ async function executeAndPrint(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (jsonMode) {
-      jsonOutput({ ok: false, error: "query_failed", message: msg }, 1);
+      jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
     } else {
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
     }
   }
 }
@@ -381,8 +393,13 @@ const migrateCommand = defineCommand({
       );
     } catch (err) {
       const msg = `Failed to create migration tracking table: ${err instanceof Error ? err.message : String(err)}`;
-      if (jsonMode) jsonOutput({ ok: false, error: "tracking_table_failed", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput(
+          { ok: false, error: "tracking_table_failed", message: msg, ...apiErrorFields(err) },
+          1,
+        );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 
@@ -395,8 +412,10 @@ const migrateCommand = defineCommand({
       appliedRows = result.rows as { name: string }[];
     } catch (err) {
       const msg = `Failed to query applied migrations: ${err instanceof Error ? err.message : String(err)}`;
-      if (jsonMode) jsonOutput({ ok: false, error: "query_failed", message: msg }, 1);
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "query_failed", message: msg, ...apiErrorFields(err) }, 1);
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 
@@ -485,10 +504,18 @@ const migrateCommand = defineCommand({
             const rmsg = recordErr instanceof Error ? recordErr.message : String(recordErr);
             if (jsonMode)
               jsonOutput(
-                { ok: false, error: "resume_failed", file: file.name, message: rmsg, migrated },
+                {
+                  ok: false,
+                  error: "resume_failed",
+                  file: file.name,
+                  message: rmsg,
+                  migrated,
+                  ...apiErrorFields(recordErr),
+                },
                 1,
               );
             consola.error(`  ${file.name} — resume failed: ${rmsg}`);
+            for (const hint of apiErrorHints(recordErr)) consola.info(hint);
             process.exit(1);
           }
         }
@@ -501,6 +528,7 @@ const migrateCommand = defineCommand({
             {
               ok: false,
               error: "migration_failed",
+              ...apiErrorFields(err),
               file: file.name,
               totalStatements: statements.length,
               message: msg,
@@ -513,6 +541,7 @@ const migrateCommand = defineCommand({
             1,
           );
         }
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         if (alreadyExists) {
           consola.info(`  If a previous run was interrupted, re-run with --resume to reconcile.`);
         }
@@ -644,6 +673,7 @@ const seedCommand = defineCommand({
             {
               ok: false,
               error: "seed_failed",
+              ...apiErrorFields(err),
               statement: i + 1,
               totalStatements: statements.length,
               message: msg,
@@ -652,6 +682,7 @@ const seedCommand = defineCommand({
           );
         }
         consola.error(`Statement ${i + 1}/${statements.length} failed: ${msg}`);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     }

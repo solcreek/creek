@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { CreekClient, parseConfig } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "./config.js";
 import { jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "./output.js";
+import { apiErrorFields, apiErrorHints } from "./api-error.js";
 
 /**
  * An authenticated client, or a structured `not_authenticated` exit. In JSON
@@ -70,8 +71,10 @@ export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolea
 /**
  * Run an API call, converting any rejection into a structured `{ ok: false,
  * error, message }` on stdout (JSON mode) or a human error line, then exit 1.
- * Returns the resolved value on success. Use this to wrap the network calls
- * that would otherwise reject into the top-level catch as unstructured text.
+ * `error` stays the command's own code; a failed API call adds its `status`,
+ * `apiError` and `details` (apiErrorFields). Returns the resolved value on
+ * success. Use this to wrap the network calls that would otherwise reject
+ * into the top-level catch as unstructured text.
  */
 export async function apiCall<T>(
   jsonMode: boolean,
@@ -83,8 +86,11 @@ export async function apiCall<T>(
     return await fn();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (jsonMode) jsonOutput({ ok: false, error: errorCode, message }, 1, breadcrumbs);
+    if (jsonMode) {
+      jsonOutput({ ok: false, error: errorCode, message, ...apiErrorFields(err) }, 1, breadcrumbs);
+    }
     consola.error(message);
+    for (const hint of apiErrorHints(err)) consola.info(hint);
     process.exit(1);
   }
 }

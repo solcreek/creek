@@ -9,6 +9,7 @@ import {
   isTTY,
 } from "../utils/output.js";
 import { requireClient, apiCall } from "../utils/command-context.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const projectsList = defineCommand({
   meta: { name: "list", description: "List all projects" },
@@ -76,14 +77,28 @@ const projectsDelete = defineCommand({
     } catch (err) {
       if (err instanceof CreekApiError && err.status === 404) {
         const msg = `No project "${slug}" in your team (already deleted, or wrong slug).`;
-        if (jsonMode) jsonOutput({ ok: false, error: "not_found", project: slug, message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "not_found", project: slug, message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
         process.exit(1);
       }
       const msg = err instanceof Error ? err.message : "Failed to delete project";
       if (jsonMode)
-        jsonOutput({ ok: false, error: "delete_failed", project: slug, message: msg }, 1);
+        jsonOutput(
+          {
+            ok: false,
+            error: "delete_failed",
+            project: slug,
+            message: msg,
+            ...apiErrorFields(err),
+          },
+          1,
+        );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 

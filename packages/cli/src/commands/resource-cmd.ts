@@ -21,6 +21,7 @@ import {
 } from "../utils/output.js";
 import { apiCall } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
+import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 interface Resource {
   id: string;
@@ -142,8 +143,13 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (jsonMode) jsonOutput({ ok: false, error: "create_failed", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "create_failed", message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -195,8 +201,13 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         consola.success(`Attached "${resource.name}" → ${args.to} as env.${args.as}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (jsonMode) jsonOutput({ ok: false, error: "attach_failed", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "attach_failed", message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -225,8 +236,13 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         consola.success(`Detached env.${args.as} from ${args.from}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (jsonMode) jsonOutput({ ok: false, error: "detach_failed", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "detach_failed", message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -261,8 +277,13 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         consola.success(`Renamed "${args.name}" → "${args.to}"`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (jsonMode) jsonOutput({ ok: false, error: "rename_failed", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "rename_failed", message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },
@@ -336,8 +357,13 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         consola.success(`Deleted ${label} "${args.name}"`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (jsonMode) jsonOutput({ ok: false, error: "delete_failed", message: msg }, 1);
+        if (jsonMode)
+          jsonOutput(
+            { ok: false, error: "delete_failed", message: msg, ...apiErrorFields(err) },
+            1,
+          );
         consola.error(msg);
+        for (const hint of apiErrorHints(err)) consola.info(hint);
         process.exit(1);
       }
     },

@@ -10,6 +10,7 @@ import {
   vinextBuildScript,
 } from "./vinext.js";
 import { materializeVinextFixture } from "./__fixtures__/vinext-cf-output/materialize.js";
+import { WORKER_MODULE_LIMIT } from "./server-files.js";
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__/vinext-cf-output");
 const fixtureConfig = (name: string) =>
@@ -70,10 +71,10 @@ describe("parseVinextWorkerConfig — edge cases", () => {
     expect(build.bindings).toEqual([]);
   });
 
-  test("Workers AI under a name other than AI is unsupported", () => {
+  test("Workers AI keeps the name the app reads it under", () => {
     const build = parseVinextWorkerConfig({ ...base, env: { MODEL: { type: "ai" } } });
-    expect(build.bindings).toEqual([]);
-    expect(build.unsupportedBindings).toEqual([{ type: "ai", name: "MODEL" }]);
+    expect(build.bindings).toEqual([{ type: "ai", name: "MODEL" }]);
+    expect(build.unsupportedBindings).toEqual([]);
   });
 
   test("an assets binding not named ASSETS is unsupported", () => {
@@ -163,20 +164,25 @@ describe("collectVinextServerFiles", () => {
     expect(modules.some((m) => m.endsWith(".json"))).toBe(false);
   });
 
+  // The two tests below write WORKER_MODULE_LIMIT files each.
   test("JSON metadata doesn't count toward the module limit", () => {
     bundle([
       "index.js",
-      ...Array.from({ length: 499 }, (_, i) => `chunk-${i}.js`),
+      ...Array.from({ length: WORKER_MODULE_LIMIT - 1 }, (_, i) => `chunk-${i}.js`),
       ".vite/manifest.json",
       "vinext-server.json",
     ]);
-    expect(Object.keys(collectVinextServerFiles(cwd, build("index.js")))).toHaveLength(500);
-  });
+    expect(Object.keys(collectVinextServerFiles(cwd, build("index.js")))).toHaveLength(
+      WORKER_MODULE_LIMIT,
+    );
+  }, 30_000);
 
-  test("more than 500 actual modules still throws", () => {
-    bundle(["index.js", ...Array.from({ length: 500 }, (_, i) => `chunk-${i}.js`)]);
-    expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(/more than 500/);
-  });
+  test("more than WORKER_MODULE_LIMIT actual modules still throws", () => {
+    bundle(["index.js", ...Array.from({ length: WORKER_MODULE_LIMIT }, (_, i) => `chunk-${i}.js`)]);
+    expect(() => collectVinextServerFiles(cwd, build("index.js"))).toThrow(
+      new RegExp(`more than ${WORKER_MODULE_LIMIT}`),
+    );
+  }, 30_000);
 
   test("an inherited property name is not a collected entry", () => {
     bundle(["index.js"]);

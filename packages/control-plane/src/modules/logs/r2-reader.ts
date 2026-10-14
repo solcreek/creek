@@ -60,14 +60,23 @@ export async function readLogs(input: ReadLogsInput): Promise<ReadLogsResult> {
       break;
     }
 
-    const list = await bucket.list({ prefix });
-    r2Ops++;
-    if (!list.objects.length) continue;
+    // An hour can hold more than one LIST page of batches; take them all,
+    // since the newest ones sort last.
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const list = await bucket.list({ prefix, cursor });
+      r2Ops++;
+      for (const obj of list.objects) keys.push(obj.key);
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor && r2Ops < MAX_R2_OPS);
+    if (!keys.length) continue;
 
-    // Within a single hour, lex order ≈ creation order. Reverse so
-    // newer batches come first within the hour too.
-    const objects = [...list.objects].reverse();
-    for (const obj of objects) {
+    // The prefix spans every scriptType of the hour, so the full key sorts
+    // by scriptType first. Order by batchId, which starts with the batch's
+    // time, newest first.
+    keys.sort((a, b) => (batchIdOf(a) < batchIdOf(b) ? 1 : batchIdOf(a) > batchIdOf(b) ? -1 : 0));
+    for (const key of keys) {
       if (entries.length >= query.limit) {
         truncated = true;
         break;
@@ -77,7 +86,7 @@ export async function readLogs(input: ReadLogsInput): Promise<ReadLogsResult> {
         break;
       }
 
-      const got = await bucket.get(obj.key);
+      const got = await bucket.get(key);
       r2Ops++;
       if (!got) continue;
 
@@ -107,6 +116,11 @@ export async function readLogs(input: ReadLogsInput): Promise<ReadLogsResult> {
   }
 
   return { entries, truncated, r2Ops };
+}
+
+/** The trailing `{batchId}` of `…/{HH}-{scriptType}-{batchId}.ndjson`. */
+function batchIdOf(key: string): string {
+  return key.slice(key.lastIndexOf("-") + 1, key.lastIndexOf("."));
 }
 
 /**

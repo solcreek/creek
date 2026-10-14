@@ -31,5 +31,5 @@ Preconditions:
 
 - This harness unsets `CREEK_TOKEN` before every drive, so a caller value, including an empty string, never reaches the CLI. Outside these helpers, `CREEK_TOKEN=""` stays set: `getToken()` does not read `~/.creek/config.json`, and `whoami` exits `not_authenticated` without calling `getSession()`.
 - `creek login` on a TTY calls `open`/`xdg-open`. Only the non-TTY refusal is safe to drive here.
-- Do not pass `--token` during verification. `login --token` calls `getSession()` before any write. A session that has a user is what writes `$HOME/.creek/config.json`. Against `http://127.0.0.1:1` the command exits `invalid_token` and leaves that file absent. A live API URL would store the key after the session check.
+- Do not pass `--token` during verification. `login --token` calls `getSession()` before any write. A session that has a user is what writes `$HOME/.creek/config.json`. Against `http://127.0.0.1:1` the command exits `1` with `error: "api_unreachable"`, `reason: "bad port"` (fetch refuses port 1), `retryable: false`, and leaves that file absent (verified 2026-10-13; `invalid_token` means the API refused the key with 401 or 403). A live API URL would store the key after the session check.
 - Success of `whoami` against `http://127.0.0.1:1` would mean it did not actually check a session. Signed-out must fail locally before any fetch.

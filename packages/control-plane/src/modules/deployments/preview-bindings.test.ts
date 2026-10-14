@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFixture, type Fixture } from "../tenant/scoped-key-fixture.js";
 import { runDeployJob } from "./deploy-job.js";
+import { ensureQueue } from "../resources/service.js";
 import type { Scope } from "../tenant/scopes.js";
 
 // The real deploy job runs (SQLite); only Cloudflare and the edge deploy are
@@ -144,13 +145,31 @@ describe("preview deploys and new bindings", () => {
     }
   });
 
-  it("counts Workers AI as added whatever name the requirement carries", async () => {
-    const key = await keyWith(["deploy:preview"]);
-    // AI is bound by type under the fixed name AI; borrowing a bound name
-    // (DB) must not smuggle it in.
-    const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "DB" }]));
-    expect([res.status, res.body.newBindings]).toEqual([403, ["AI"]]);
+  it("refuses Workers AI declared under a name bound to another resource, for every caller", async () => {
+    // AI is bound under the name it declares. Under a bound database's name
+    // (DB) it is a conflict, never AI turned on beside it.
+    for (const key of [
+      await keyWith(["deploy:preview"]),
+      await keyWith(["deploy:preview", "resource:write"]),
+      await f.legacyKey(owner.cookie),
+    ]) {
+      const before = await projectState();
+      const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "DB" }]));
+      expect([res.status, res.body.error]).toEqual([409, "binding_conflict"]);
+      expect(res.body.conflicts).toEqual([
+        expect.stringContaining(
+          "DB is attached to a database resource, but the bundle declares it as ai",
+        ),
+      ]);
+      expect(await projectState()).toEqual(before);
+      expect(await f.env.ASSETS.get("bundles/dep-prev.json")).toBeNull();
+    }
     expect(deploy).not.toHaveBeenCalled();
+
+    // A preview without resource:write may not add AI under a new name either.
+    const key = await keyWith(["deploy:preview"]);
+    const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "AI" }]));
+    expect([res.status, res.body.newBindings]).toEqual([403, ["AI"]]);
 
     // Once the project has AI, a preview may use it.
     const now = Date.now();
@@ -186,7 +205,8 @@ describe("preview deploys and new bindings", () => {
     const key = await keyWith(["deploy:preview"]);
     const res = await upload(key, "dep-prev", bundle([{ type: "ai", bindingName: "MODEL" }]));
     expect(res.status).toBe(202);
-    // Accepted is not enough: the job must deploy it, with Workers AI on.
+    // Accepted is not enough: the job must deploy it, with Workers AI bound
+    // under the name the worker reads (env.MODEL), and under no other.
     const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
       "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prev'",
     );
@@ -194,10 +214,10 @@ describe("preview deploys and new bindings", () => {
     const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
       bindings: { type: string; name: string }[];
     };
-    expect(input.bindings).toContainEqual(expect.objectContaining({ type: "ai", name: "AI" }));
+    expect(input.bindings.filter((b) => b.type === "ai")).toEqual([{ type: "ai", name: "MODEL" }]);
   });
 
-  it("fails a deploy whose declared type does not match an attached AI resource, leaving the resource intact", async () => {
+  it("refuses a deploy whose declared type does not match an attached AI resource, leaving the resource intact", async () => {
     // An AI resource attached as CACHE, while the bundle declares CACHE as kv:
     // neither drop the binding nor provision a KV onto the team's AI row
     // (other projects may bind it as AI).
@@ -214,14 +234,13 @@ describe("preview deploys and new bindings", () => {
       now,
     );
     const key = await keyWith(["deploy:production"]);
-    expect(
-      (await upload(key, "dep-prod", bundle([{ type: "kv", bindingName: "CACHE" }]))).status,
-    ).toBe(202);
-    const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
-      "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+    const res = await upload(key, "dep-prod", bundle([{ type: "kv", bindingName: "CACHE" }]));
+    expect([res.status, res.body.error]).toEqual([409, "binding_conflict"]);
+    expect(res.body.message).toContain("CACHE is attached to an ai resource");
+    const [dep] = await f.sql<{ status: string }>(
+      "SELECT status FROM deployment WHERE id = 'dep-prod'",
     );
-    expect(dep.status).toBe("failed");
-    expect(dep.errorMessage).toContain("CACHE is attached to a ai resource");
+    expect(dep.status).toBe("queued");
     expect(deploy).not.toHaveBeenCalled();
     expect(
       await f.sql(
@@ -241,15 +260,71 @@ describe("preview deploys and new bindings", () => {
       "INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt) VALUES ('p', 'MODEL', 'r-kv-unprov', ?)",
       now,
     );
-    await f.sql("UPDATE deployment SET status = 'queued' WHERE id = 'dep-prod'");
-    await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "MODEL" }]));
-    const [dep2] = await f.sql<{ status: string; errorMessage: string | null }>(
-      "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
-    );
-    expect([dep2.status, dep2.errorMessage]).toEqual([
-      "failed",
+    const res2 = await upload(key, "dep-prod", bundle([{ type: "ai", bindingName: "MODEL" }]));
+    expect([res2.status, res2.body.message]).toEqual([
+      409,
       expect.stringContaining("MODEL is attached to a cache resource"),
     ]);
+    expect(
+      await f.sql("SELECT cfResourceId, cfResourceType FROM resource WHERE id = 'r-kv-unprov'"),
+    ).toEqual([{ cfResourceId: null, cfResourceType: null }]);
+  });
+
+  it("refuses a provisioned resource declared as another type (it used to be bound as its own type)", async () => {
+    // DB is a provisioned D1. Declared as kv, binding the D1 under a name the
+    // worker reads as a KV namespace would break the worker at runtime.
+    const key = await keyWith(["deploy:production"]);
+    const res = await upload(key, "dep-prod", bundle([{ type: "kv", bindingName: "DB" }]));
+    expect([res.status, res.body.message]).toEqual([
+      409,
+      expect.stringContaining(
+        "DB is attached to a database resource, but the bundle declares it as kv",
+      ),
+    ]);
+    expect(deploy).not.toHaveBeenCalled();
+  });
+
+  it("refuses one binding name declared with two types", async () => {
+    const key = await keyWith(["deploy:production"]);
+    const before = await projectState();
+    const res = await upload(
+      key,
+      "dep-prod",
+      bundle([
+        { type: "kv", bindingName: "DATA" },
+        { type: "r2", bindingName: "DATA" },
+      ]),
+    );
+    expect([res.status, res.body.message]).toEqual([
+      409,
+      expect.stringContaining("DATA is declared as both kv and r2"),
+    ]);
+    expect(await projectState()).toEqual(before);
+  });
+
+  it("skips a binding type deploys do not bind, without recording it", async () => {
+    // A framework adapter's IMAGES binding: neither a resource row nor a
+    // binding the worker would get, and a preview is not refused for it.
+    const key = await keyWith(["deploy:preview"]);
+    const before = await projectState();
+    const res = await upload(
+      key,
+      "dep-prev",
+      bundle([
+        { type: "d1", bindingName: "DB" },
+        { type: "images", bindingName: "IMAGES" },
+      ]),
+    );
+    expect(res.status).toBe(202);
+    expect(await projectState()).toEqual(before);
+    const [dep] = await f.sql<{ status: string }>(
+      "SELECT status FROM deployment WHERE id = 'dep-prev'",
+    );
+    expect(dep.status).toBe("active");
+    const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+      bindings: { type: string; name: string }[];
+    };
+    expect(input.bindings.some((b) => b.name === "IMAGES")).toBe(false);
   });
 
   describe("a non-queue resource attached as QUEUE", () => {
@@ -288,7 +363,7 @@ describe("preview deploys and new bindings", () => {
         "dep-prev",
         bundle([{ type: "d1", bindingName: "DB" }], true),
       );
-      expect([res.status, res.body.newBindings]).toEqual([403, ["QUEUE"]]);
+      expect([res.status, res.body.error]).toEqual([409, "binding_conflict"]);
       expect(await resourceRow("r-ai-q")).toEqual([
         { kind: "ai", cfResourceId: null, cfResourceType: "ai" },
       ]);
@@ -298,14 +373,50 @@ describe("preview deploys and new bindings", () => {
       ["an AI resource (no Cloudflare id)", "r-ai-q", "ai", null, "ai"],
       ["a provisioned KV", "r-kv-q", "cache", "cf-kv-real", "kv"],
     ] as const) {
-      it(`fails a production deploy that wants a queue, leaving ${label} untouched`, async () => {
+      it(`refuses a production deploy that wants a queue, leaving ${label} untouched`, async () => {
         await attachAsQueue(id, kind, cfId, cfType);
         const before = await resourceRow(id);
-        await upload(
+        const res = await upload(
           await keyWith(["deploy:production"]),
           "dep-prod",
           bundle([{ type: "d1", bindingName: "DB" }], true),
         );
+        expect([res.status, res.body.message]).toEqual([
+          409,
+          expect.stringContaining("QUEUE is attached to a"),
+        ]);
+        expect(await resourceRow(id)).toEqual(before);
+        expect(deploy).not.toHaveBeenCalled();
+      });
+
+      it(`fails the job too, if ${label} is attached as QUEUE after the upload check, before creating anything`, async () => {
+        // CACHE is new: the job must refuse before provisioning it, not
+        // after, when it reaches the queue.
+        await f.env.ASSETS.put(
+          "bundles/dep-prod.json",
+          JSON.stringify(
+            bundle(
+              [
+                { type: "d1", bindingName: "DB" },
+                { type: "kv", bindingName: "CACHE" },
+              ],
+              true,
+            ),
+          ),
+        );
+        await attachAsQueue(id, kind, cfId, cfType);
+        const before = await resourceRow(id);
+        const stateBefore = await projectState();
+        await runDeployJob(f.env, {
+          deploymentId: "dep-prod",
+          projectId: "p",
+          projectSlug: "site",
+          teamId: owner.orgId,
+          teamSlug: owner.orgSlug,
+          plan: "free",
+          branch: "main",
+          productionBranch: "main",
+        });
         const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
           "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
         );
@@ -314,7 +425,18 @@ describe("preview deploys and new bindings", () => {
           expect.stringContaining("QUEUE is attached to a"),
         ]);
         expect(await resourceRow(id)).toEqual(before);
+        expect(await projectState()).toEqual(stateBefore);
         expect(deploy).not.toHaveBeenCalled();
+      });
+
+      it(`ensureQueue itself refuses ${label} attached as QUEUE`, async () => {
+        // Its own guard, for a QUEUE attached after ensureProjectBindings ran.
+        await attachAsQueue(id, kind, cfId, cfType);
+        const before = await resourceRow(id);
+        await expect(ensureQueue(f.env, "p", owner.orgId)).rejects.toThrow(
+          "QUEUE is attached to a",
+        );
+        expect(await resourceRow(id)).toEqual(before);
       });
     }
   });
@@ -441,9 +563,23 @@ describe("preview deploys and new bindings", () => {
       expect(deploy).not.toHaveBeenCalled();
     });
 
-    it("fails instead of turning on Workers AI under a borrowed name", async () => {
-      const dep = await runJob([{ type: "ai", bindingName: "DB" }], false, false);
-      expect([dep.status, dep.errorMessage]).toEqual(["failed", expect.stringContaining("AI")]);
+    it("fails, in either mode, a requirement whose type differs from the bound resource's", async () => {
+      for (const mayAdd of [false, true]) {
+        await f.sql("UPDATE deployment SET status = 'queued' WHERE id = 'dep-prev'");
+        const before = await projectState();
+        const dep = await runJob([{ type: "ai", bindingName: "DB" }], false, mayAdd);
+        expect([dep.status, dep.errorMessage], String(mayAdd)).toEqual([
+          "failed",
+          expect.stringContaining("DB is attached to a database resource"),
+        ]);
+        expect(await projectState()).toEqual(before);
+      }
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("fails instead of adding Workers AI under a new name", async () => {
+      const dep = await runJob([{ type: "ai", bindingName: "MODEL" }], false, false);
+      expect([dep.status, dep.errorMessage]).toEqual(["failed", expect.stringContaining("MODEL")]);
       expect(deploy).not.toHaveBeenCalled();
     });
 
@@ -486,6 +622,144 @@ describe("preview deploys and new bindings", () => {
       await upload(await f.legacyKey(owner.cookie), "dep-prev", existingOnly);
 
       expect(sent.map((m) => m.mayAddBindings)).toEqual([false, true, true, true]);
+    });
+  });
+
+  describe("text bindings share the worker's env", () => {
+    const setVar = (key: string, target: string) =>
+      f.sql(
+        "INSERT INTO environment_variable (projectId, key, target, encryptedValue) VALUES ('p', ?, ?, 'x')",
+        key,
+        target,
+      );
+
+    it("refuses an environment variable named like a binding, for the deploys whose target it applies to", async () => {
+      // DB is the project's D1. A preview-only DB variable collides with
+      // preview deploys and not with production ones.
+      await setVar("DB", "preview");
+      const key = await keyWith(["deploy:production", "deploy:preview"]);
+      const before = await projectState();
+
+      const preview = await upload(key, "dep-prev", bundle([{ type: "d1", bindingName: "DB" }]));
+      expect([preview.status, preview.body.error]).toEqual([409, "binding_conflict"]);
+      expect(preview.body.message).toContain(
+        "DB is both a binding and a project environment variable",
+      );
+      expect(await f.env.ASSETS.get("bundles/dep-prev.json")).toBeNull();
+
+      const production = await upload(key, "dep-prod", bundle([{ type: "d1", bindingName: "DB" }]));
+      expect(production.status).toBe(202);
+      expect(await projectState()).toEqual(before);
+    });
+
+    it("refuses an environment variable and a [vars] value of one name", async () => {
+      await setVar("MODE", "all");
+      const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+        ...bundle([{ type: "d1", bindingName: "DB" }]),
+        vars: { MODE: "debug" },
+      });
+      expect([res.status, res.body.message]).toEqual([
+        409,
+        expect.stringContaining("MODE is both a project environment variable and a [vars] value"),
+      ]);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("refuses a [vars] the job would read differently, before staging", async () => {
+      // A binding named "0" and vars: ["x"]: the job would bind the array
+      // index as a name. Refused for its shape, for every caller.
+      for (const vars of [["x"], "MODE", 42, null]) {
+        const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+          ...bundle([{ type: "kv", bindingName: "0" }]),
+          vars,
+        });
+        expect([res.status, res.body.error], JSON.stringify(vars)).toEqual([400, "validation"]);
+      }
+      expect(await f.env.ASSETS.get("bundles/dep-prod.json")).toBeNull();
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("deploys free names, each once", async () => {
+      await setVar("API_KEY", "all");
+      const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+        ...bundle([{ type: "d1", bindingName: "DB" }]),
+        vars: { MODE: "debug" },
+      });
+      expect(res.status).toBe(202);
+      const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+        bindings: { type: string; name: string }[];
+      };
+      const names = input.bindings.map((b) => b.name);
+      expect(names).toEqual(expect.arrayContaining(["DB", "API_KEY", "MODE"]));
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    it("fails a job whose bundle's [vars] take a binding's name (a GitHub push skips the upload check)", async () => {
+      await f.env.ASSETS.put(
+        "bundles/dep-prod.json",
+        JSON.stringify({
+          ...bundle([
+            { type: "d1", bindingName: "DB" },
+            { type: "kv", bindingName: "CACHE" },
+          ]),
+          vars: { DB: "postgres://elsewhere" },
+        }),
+      );
+      const before = await projectState();
+      await runDeployJob(f.env, {
+        deploymentId: "dep-prod",
+        projectId: "p",
+        projectSlug: "site",
+        teamId: owner.orgId,
+        teamSlug: owner.orgSlug,
+        plan: "free",
+        branch: "main",
+        productionBranch: "main",
+      });
+      const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+        "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+      );
+      expect([dep.status, dep.errorMessage]).toEqual([
+        "failed",
+        expect.stringContaining("DB is both a binding and a [vars] value"),
+      ]);
+      expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("fails the job, before creating anything, when a variable takes a binding's name after the upload check", async () => {
+      // Accepted at upload; the variable is set before the queued job runs.
+      await f.env.ASSETS.put(
+        "bundles/dep-prod.json",
+        JSON.stringify(
+          bundle([
+            { type: "d1", bindingName: "DB" },
+            { type: "kv", bindingName: "CACHE" },
+          ]),
+        ),
+      );
+      await setVar("CACHE", "production");
+      const before = await projectState();
+      await runDeployJob(f.env, {
+        deploymentId: "dep-prod",
+        projectId: "p",
+        projectSlug: "site",
+        teamId: owner.orgId,
+        teamSlug: owner.orgSlug,
+        plan: "free",
+        branch: "main",
+        productionBranch: "main",
+      });
+      const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+        "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+      );
+      expect([dep.status, dep.errorMessage]).toEqual([
+        "failed",
+        expect.stringContaining("CACHE is both a binding and a project environment variable"),
+      ]);
+      // CACHE was not created.
+      expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
     });
   });
 

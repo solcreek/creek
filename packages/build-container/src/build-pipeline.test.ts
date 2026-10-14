@@ -8,6 +8,7 @@ import {
   buildSteps,
   detectPM,
   detectWorkspaceCascade,
+  mergeAdapterBindings,
   workerFirst,
 } from "./build-pipeline.js";
 import { materializeVinextFixture } from "../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
@@ -514,5 +515,41 @@ describe("buildAndBundle — vinext Build Output", () => {
     const result = await buildAndBundle({ repoUrl: tmpDir });
     expect(result).toMatchObject({ error: "build_output_missing" });
     if ("error" in result) expect(result.message).toContain("vinext init --platform=cloudflare");
+  });
+});
+
+describe("mergeAdapterBindings", () => {
+  test("adds the adapter's bindings the user did not declare", () => {
+    expect(
+      mergeAdapterBindings([{ type: "d1", bindingName: "DB" }], {
+        kv_namespaces: [{ binding: "SESSION" }],
+        images: { binding: "IMAGES" },
+      }),
+    ).toEqual([
+      { type: "d1", bindingName: "DB" },
+      { type: "kv", bindingName: "SESSION" },
+      { type: "images", bindingName: "IMAGES" },
+    ]);
+  });
+
+  test("adds an adapter binding the user already declares only once", () => {
+    expect(
+      mergeAdapterBindings([{ type: "kv", bindingName: "SESSION" }], {
+        kv_namespaces: [{ binding: "SESSION" }],
+      }),
+    ).toEqual([{ type: "kv", bindingName: "SESSION" }]);
+  });
+
+  test("keeps an adapter binding under a name the user uses for another type, for the deploy to refuse", () => {
+    // Dropping it would deploy a worker whose adapter code reads env.IMAGES
+    // as the Images API and gets the user's R2 bucket.
+    expect(
+      mergeAdapterBindings([{ type: "r2", bindingName: "IMAGES" }], {
+        images: { binding: "IMAGES" },
+      }),
+    ).toEqual([
+      { type: "r2", bindingName: "IMAGES" },
+      { type: "images", bindingName: "IMAGES" },
+    ]);
   });
 });

@@ -76,7 +76,9 @@ export async function scanRepo(
         }
       }
       if (config.ai) {
-        bindings.push({ type: "ai", name: "AI" });
+        // Under the name the worker reads, as resolveConfig declares it.
+        const name = typeof config.ai === "object" && config.ai.binding ? config.ai.binding : "AI";
+        bindings.push({ type: "ai", name });
       }
       if (config.analytics_engine_datasets?.length) {
         for (const ae of config.analytics_engine_datasets) {
