@@ -10,8 +10,10 @@ under `/react` and `/hono` subpaths.
   [`@solcreek/sdk@0.4.24`](../sdk/CHANGELOG.md#0424): `--json` errors carry the
   API's code and fields (`apiError`, `details`), an unreachable server is
   `api_unreachable` with `reason` and a command-wide `retryable` /
-  `mayHaveApplied`, and writes no longer follow redirects. Publish
-  `sdk@0.4.24` before `cli@0.4.53` / `creek@0.4.53`.
+  `mayHaveApplied`, writes no longer follow redirects, and Next.js deploys
+  build with `@solcreek/adapter-creek@0.2.22`, so Edge-runtime pages and
+  routes no longer return 500. Publish `sdk@0.4.24` before `cli@0.4.53` /
+  `creek@0.4.53`.
 
 ## 0.4.52
 
