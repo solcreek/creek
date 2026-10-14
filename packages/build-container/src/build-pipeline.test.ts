@@ -8,6 +8,7 @@ import {
   buildSteps,
   detectPM,
   detectWorkspaceCascade,
+  mergeAdapterBindings,
   workerFirst,
 } from "./build-pipeline.js";
 import { materializeVinextFixture } from "../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
@@ -514,5 +515,40 @@ describe("buildAndBundle — vinext Build Output", () => {
     const result = await buildAndBundle({ repoUrl: tmpDir });
     expect(result).toMatchObject({ error: "build_output_missing" });
     if ("error" in result) expect(result.message).toContain("vinext init --platform=cloudflare");
+  });
+});
+
+describe("mergeAdapterBindings", () => {
+  test("adds the adapter's bindings the user did not declare", () => {
+    expect(
+      mergeAdapterBindings([{ type: "d1", bindingName: "DB" }], {
+        kv_namespaces: [{ binding: "SESSION" }],
+        images: { binding: "IMAGES" },
+      }),
+    ).toEqual([
+      { type: "d1", bindingName: "DB" },
+      { type: "kv", bindingName: "SESSION" },
+      { type: "images", bindingName: "IMAGES" },
+    ]);
+  });
+
+  test("keeps the user's binding when the adapter uses its name with another type", () => {
+    // One name, one binding: the control plane refuses two types under one name.
+    expect(
+      mergeAdapterBindings(
+        [
+          { type: "r2", bindingName: "IMAGES" },
+          { type: "kv", bindingName: "LOADER" },
+        ],
+        {
+          images: { binding: "IMAGES" },
+          worker_loaders: [{ binding: "LOADER" }],
+          kv_namespaces: [{ binding: "IMAGES" }],
+        },
+      ),
+    ).toEqual([
+      { type: "r2", bindingName: "IMAGES" },
+      { type: "kv", bindingName: "LOADER" },
+    ]);
   });
 });
