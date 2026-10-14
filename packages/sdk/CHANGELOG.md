@@ -1,5 +1,16 @@
 # @solcreek/sdk
 
+## 0.4.24
+
+- **`CreekApiError.details`** holds an error response's fields beyond
+  `error` and `message` — `required` / `granted` on `insufficient_scope`,
+  `conflicts` on `binding_conflict`, `newBindings` on a preview's refusal.
+  `uploadBuildLog` parses its error responses the same way, keeping
+  `build_log_upload_failed` only when the body has no code.
+- **`getSession()` returns null only when the API refuses the key** (401, or
+  403 for a key it will not use). A network failure, a timeout or a 5xx now
+  throws instead of reading as "not logged in".
+
 ## 0.4.23
 
 - **A worker can have up to 4,999 modules.** `collectServerFiles` stopped at
