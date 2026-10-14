@@ -144,6 +144,33 @@ describe("planBindings", () => {
       1,
     ],
     ["the queue when QUEUE holds another kind", [db, row("QUEUE", "ai", "ai")], [], true, [], 1],
+    [
+      "an unsupported type and a supported one under one name",
+      [],
+      [
+        { type: "images", bindingName: "DATA" },
+        { type: "d1", bindingName: "DATA" },
+      ],
+      false,
+      [],
+      1,
+    ],
+    [
+      "an unsupported type named QUEUE beside the queue",
+      [],
+      [{ type: "images", bindingName: "QUEUE" }],
+      true,
+      [],
+      1,
+    ],
+    [
+      "nothing for an unsupported type named QUEUE without a queue",
+      [],
+      [{ type: "images", bindingName: "QUEUE" }],
+      false,
+      [],
+      0,
+    ],
   ] as const)("%s", (_label, existing, requirements, wantsQueue, added, conflicts) => {
     const plan = planBindings(existing, requirements, wantsQueue);
     expect(plan.added.sort()).toEqual([...added].sort());

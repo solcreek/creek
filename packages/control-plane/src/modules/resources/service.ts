@@ -183,7 +183,9 @@ export interface BindingPlan {
  *   yet: someone already attached it.
  * - wantsQueue adds QUEUE when nothing is bound under QUEUE (ensureQueue).
  * - A requirement of a type deploys do not bind (a framework adapter's
- *   IMAGES, say) is skipped: neither added nor checked.
+ *   IMAGES, say) is skipped: never added nor checked against the project's
+ *   bindings. Its name still counts in the bundle's own name checks (two
+ *   types under one name, QUEUE beside the queue).
  */
 export function planBindings(
   existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
@@ -193,22 +195,23 @@ export function planBindings(
   const bound = new Map(existing.map((r) => [r.bindingName, r]));
   const plan: BindingPlan = { requirements: [], unsupported: [], added: [], conflicts: [] };
 
-  const declared = new Map<string, BindingType>();
+  // Every declaration, of a type deploys bind or not, takes part in the name
+  // checks: one name is one binding. Only supported ones are bound.
+  const declared = new Map<string, string>();
   for (const req of requirements) {
     const type = req.type ?? "";
-    if (!isBindingType(type)) {
-      plan.unsupported.push({ type, bindingName: req.bindingName });
+    const earlier = declared.get(req.bindingName);
+    if (earlier !== undefined) {
+      if (earlier !== type) {
+        plan.conflicts.push(
+          `${req.bindingName} is declared as both ${earlier || "untyped"} and ${type || "untyped"}. Give each binding its own name.`,
+        );
+      }
       continue;
     }
-    const earlier = declared.get(req.bindingName);
-    if (earlier === undefined) {
-      declared.set(req.bindingName, type);
-      plan.requirements.push({ type, bindingName: req.bindingName });
-    } else if (earlier !== type) {
-      plan.conflicts.push(
-        `${req.bindingName} is declared as both ${earlier} and ${type}. Give each binding its own name.`,
-      );
-    }
+    declared.set(req.bindingName, type);
+    if (isBindingType(type)) plan.requirements.push({ type, bindingName: req.bindingName });
+    else plan.unsupported.push({ type, bindingName: req.bindingName });
   }
 
   for (const req of plan.requirements) {
@@ -227,7 +230,7 @@ export function planBindings(
     const row = bound.get(queue);
     if (declared.has(queue)) {
       plan.conflicts.push(
-        `${queue} is the queue's binding, but the bundle also declares it as ${declared.get(queue)}. Rename that binding.`,
+        `${queue} is the queue's binding, but the bundle also declares it as ${declared.get(queue) || "untyped"}. Rename that binding.`,
       );
     } else if (!row) {
       plan.added.push(queue);
