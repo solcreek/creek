@@ -1,5 +1,15 @@
 # @solcreek/sdk
 
+## 0.4.23
+
+- **A worker can have up to 4,999 modules.** `collectServerFiles` stopped at
+  500, a limit with no basis: a 990-module build that Cloudflare accepts could
+  not be deployed. The limit is now `WORKER_MODULE_LIMIT` (4,999, exported):
+  a Workers upload takes at most 5,000 multipart parts, one of them the
+  metadata. Past it, the error says so.
+- **`collectServerFiles` counts modules as it goes** instead of re-counting the
+  collected set for every file.
+
 ## 0.4.22
 
 - **Environment variable targets.** New `EnvTarget` type

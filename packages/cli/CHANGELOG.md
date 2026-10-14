@@ -1,5 +1,17 @@
 # @solcreek/cli
 
+## 0.4.52
+
+Requires `@solcreek/sdk@0.4.23`. Publish the SDK tag `sdk@0.4.23` before
+`cli@0.4.52` / `creek@0.4.52`.
+
+### Deploys
+
+- **A worker can have up to 4,999 modules**, the most one Cloudflare upload
+  carries, up from 500. vinext, Astro and the pre-bundled SSR frameworks
+  (Nuxt, SvelteKit, SolidStart) deploy builds of up to that many modules; past
+  it the deploy stops and says so.
+
 ## 0.4.51
 
 Requires `@solcreek/sdk@0.4.22`.
