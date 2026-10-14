@@ -40,6 +40,23 @@ export const DEPRECATED_ALIAS_TYPES: Record<string, "d1" | "kv" | undefined> = {
   CACHE: "kv",
 };
 
+/**
+ * The other name of a primary and its deprecated alias (DATABASE and DB,
+ * CACHE and KV), when `type` is the primary's own type; else undefined.
+ * A deploy that declares both names binds them to one resource, so an app
+ * reading either one sees the same database or namespace. (A framework's
+ * Workers config often names its D1 DB while `database = true` declares
+ * DATABASE.)
+ */
+export function aliasPartner(name: string, type: string): string | undefined {
+  const alias = DEPRECATED_BINDING_ALIASES[name];
+  if (alias) return DEPRECATED_ALIAS_TYPES[name] === type ? alias : undefined;
+  for (const [primary, primaryAlias] of Object.entries(DEPRECATED_BINDING_ALIASES)) {
+    if (primaryAlias === name && DEPRECATED_ALIAS_TYPES[primary] === type) return primary;
+  }
+  return undefined;
+}
+
 const WORKER_BINDING_TYPE = { d1: "d1", kv: "kv_namespace" } as const;
 
 const ALIASED_BINDING_TYPES: Record<string, string | undefined> = Object.fromEntries(

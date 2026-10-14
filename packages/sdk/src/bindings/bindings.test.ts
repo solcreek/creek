@@ -4,6 +4,7 @@ import {
   DEPRECATED_BINDING_ALIASES,
   INTERNAL_VARS,
   PROVISIONABLE_RESOURCES,
+  aliasPartner,
   deprecatedAliasBindings,
 } from "./index.js";
 
@@ -125,5 +126,24 @@ describe("deprecatedAliasBindings", () => {
 
   test("adds nothing for names without an alias", () => {
     expect(deprecatedAliasBindings([{ type: "r2_bucket", name: "STORAGE" }])).toEqual([]);
+  });
+});
+
+describe("aliasPartner", () => {
+  test("pairs DATABASE with DB for a D1, either way round", () => {
+    expect(aliasPartner("DATABASE", "d1")).toBe("DB");
+    expect(aliasPartner("DB", "d1")).toBe("DATABASE");
+  });
+
+  test("pairs CACHE with KV for a KV namespace, either way round", () => {
+    expect(aliasPartner("CACHE", "kv")).toBe("KV");
+    expect(aliasPartner("KV", "kv")).toBe("CACHE");
+  });
+
+  test("pairs nothing of another type, or a name outside the pairs", () => {
+    expect(aliasPartner("DB", "r2")).toBeUndefined();
+    expect(aliasPartner("DATABASE", "ai")).toBeUndefined();
+    expect(aliasPartner("KV", "d1")).toBeUndefined();
+    expect(aliasPartner("STORAGE", "r2")).toBeUndefined();
   });
 });
