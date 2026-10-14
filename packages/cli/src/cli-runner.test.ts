@@ -184,14 +184,61 @@ describe("runCli (JSON mode error conversion)", () => {
     expect(JSON.parse(stdout)).toEqual({
       ok: false,
       error: "api_unreachable",
-      message:
-        "Could not reach the server (fetch failed: ECONNREFUSED). Check the network and the API URL, then retry.",
+      message: "Could not reach the server (fetch failed: ECONNREFUSED). Retry.",
       reason: "ECONNREFUSED",
+      retryable: true,
     });
     expect(error).not.toHaveBeenCalled();
     expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
       "fetch failed: ECONNREFUSED\n",
     );
+  });
+
+  // Causes as Node 24's fetch reports them (measured 2026-10-13): code when
+  // the socket layer has one, else only a message.
+  it.each([
+    ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true],
+    ["a connect timeout", { code: "UND_ERR_CONNECT_TIMEOUT" }, "UND_ERR_CONNECT_TIMEOUT", true],
+    ["a temporary DNS failure", { code: "EAI_AGAIN" }, "EAI_AGAIN", true],
+    ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false],
+    [
+      "a self-signed proxy certificate",
+      { code: "SELF_SIGNED_CERT_IN_CHAIN" },
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      false,
+    ],
+    ["a blocked port", { message: "bad port" }, "bad port", false],
+    ["a non-HTTP(S) API URL", { message: "unknown scheme" }, "unknown scheme", false],
+  ])(
+    "marks %s retryable=%s only when it can pass on its own",
+    async (_label, cause, reason, retryable) => {
+      const offline = defineCommand({
+        meta: { name: "offline" },
+        run() {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error(cause.message ?? "x"), cause),
+          });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(offline, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ error: "api_unreachable", reason, retryable });
+      expect(out.message).toContain(retryable ? "Retry." : "retrying will not help");
+    },
+  );
+
+  it("is not retryable when the cause gives no reason", async () => {
+    const offline = defineCommand({
+      meta: { name: "offline" },
+      run() {
+        throw new TypeError("fetch failed");
+      },
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runExit(runCli(offline, [], { jsonMode: true }));
+    expect(JSON.parse(stdout)).toMatchObject({ error: "api_unreachable", retryable: false });
+    expect(JSON.parse(stdout)).not.toHaveProperty("reason");
   });
 
   it("reports a rejected API key as unauthorized", async () => {

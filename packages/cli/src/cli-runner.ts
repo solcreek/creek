@@ -39,6 +39,26 @@ export function wantsJson(rawArgs: string[], isTTY: boolean): boolean {
   return rawArgs.includes("--json") || !isTTY;
 }
 
+/**
+ * The undici/Node network failures that can pass on their own, so an agent
+ * may retry. Anything else behind "fetch failed" — ENOTFOUND, a TLS or
+ * certificate error, `bad port`, `unknown scheme` — is the configuration
+ * (CREEK_API_URL, a proxy's certificate) and fails again the same way.
+ * A whitelist: an unlisted reason is reported as not retryable.
+ */
+const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CLOSED",
+]);
+
 const HELP_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek --help --json", description: "Machine-readable command schema" },
 ];
@@ -131,16 +151,20 @@ export async function runCli(
     } else {
       consola.error(err);
     }
+    const retryable = unreachable && reason !== undefined && TRANSIENT_NETWORK_CODES.has(reason);
     jsonOutput(
       {
         ok: false,
         error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
         message: unreachable
-          ? `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the network and the API URL, then retry.`
+          ? retryable
+            ? `Could not reach the server (fetch failed: ${reason}). Retry.`
+            : `Could not reach the server (fetch failed${reason ? `: ${reason}` : ""}). Check the API URL (CREEK_API_URL) and certificates; retrying will not help.`
           : err instanceof Error
             ? err.message
             : String(err),
         ...(reason ? { reason } : {}),
+        ...(unreachable ? { retryable } : {}),
         ...api,
       },
       1,
