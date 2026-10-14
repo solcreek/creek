@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "vitest";
-import { writeBatchToR2 } from "./r2-writer.js";
+import { batchId, writeBatchToR2 } from "./r2-writer.js";
 import type { LogEntry } from "./types.js";
 
 interface PutCall {
@@ -119,5 +119,26 @@ describe("writeBatchToR2", () => {
       entry({ timestamp: Date.UTC(2026, 3, 13, 23, 59, 59, 999) }),
     ]);
     expect(puts[0].key).toMatch(/2026-04-13\/23-/);
+  });
+});
+
+describe("batchId", () => {
+  const hour = Date.UTC(2026, 3, 13, 14, 0, 0);
+
+  test("starts with the ms into the hour of the newest entry, then 6 random hex", () => {
+    const id = batchId([{ timestamp: hour + 5_000 }, { timestamp: hour + 90_000 }]);
+    expect(id).toMatch(/^[0-9a-f]{12}$/);
+    expect(id.slice(0, 6)).toBe((90_000).toString(16).padStart(6, "0"));
+  });
+
+  test("later batches sort after earlier ones within the hour", () => {
+    const ids = [3_599_999, 61_000, 0, 600_000].map((ms) => batchId([{ timestamp: hour + ms }]));
+    const byTime = [ids[2], ids[1], ids[3], ids[0]];
+    expect([...ids].sort()).toEqual(byTime);
+  });
+
+  test("a batch whose newest entry is in the next hour stays within the first entry's hour", () => {
+    const id = batchId([{ timestamp: hour + 3_599_000 }, { timestamp: hour + 3_700_000 }]);
+    expect(id.slice(0, 6)).toBe((3_599_999).toString(16));
   });
 });
