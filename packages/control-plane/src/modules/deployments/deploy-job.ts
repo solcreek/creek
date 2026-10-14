@@ -14,8 +14,8 @@ import {
 } from "./release-migrations.js";
 import { decrypt } from "../env/crypto.js";
 import { deriveRealtimeSecret } from "../realtime/hmac.js";
-import { deployTargetFor, selectForTarget } from "../env/targets.js";
-import { envTargetsAvailable } from "../env/schema-compat.js";
+import { deployTargetFor } from "../env/targets.js";
+import { loadDeployEnvVars } from "../env/deploy-vars.js";
 import { storeBuildLogIfAbsent, storeDeployStageLog } from "../build-logs/storage.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
 import type {
@@ -253,11 +253,23 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       );
     }
 
+    // User-defined environment variables for this deploy's target: a branch
+    // deploy gets 'preview' values, a production deploy 'production' ones,
+    // each falling back to 'all'. One set for the whole job — the immutable
+    // per-deploy script of a production deploy is production too. Read
+    // before any binding is created: their names count in the binding plan.
+    const envTarget = deployTargetFor(branch, productionBranch);
+    const envVarsForTarget = await loadDeployEnvVars(env.DB, projectId, envTarget);
+
     let resolvedBindings;
     try {
       resolvedBindings = await ensureProjectBindings(env, projectId, teamId, requirements, {
         mayAddBindings: input.mayAddBindings !== false,
         wantsQueue: Boolean(bundle.queue),
+        text: {
+          envKeys: envVarsForTarget.map((r) => r.key),
+          varKeys: Object.keys(bundle.vars ?? {}),
+        },
       });
     } catch (err) {
       throw new StepError("provisioning", err instanceof Error ? err.message : String(err));
@@ -318,22 +330,6 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
       }
     }
 
-    // Load user-defined environment variables for this deploy's target: a
-    // branch deploy gets 'preview' values, a production deploy 'production'
-    // ones, each falling back to 'all'. One set for the whole job — the
-    // immutable per-deploy script of a production deploy is production too.
-    const envTarget = deployTargetFor(branch, productionBranch);
-    // Before migration 0013 every variable is an all-deploys value.
-    const envVarRows = await (
-      (await envTargetsAvailable(env.DB))
-        ? env.DB.prepare(
-            "SELECT key, target, encryptedValue FROM environment_variable WHERE projectId = ? AND target IN ('all', ?)",
-          ).bind(projectId, envTarget)
-        : env.DB.prepare(
-            "SELECT key, 'all' AS target, encryptedValue FROM environment_variable WHERE projectId = ?",
-          ).bind(projectId)
-    ).all<{ key: string; target: string; encryptedValue: string }>();
-    const envVarsForTarget = selectForTarget(envVarRows.results, envTarget);
     log(
       "provision",
       "info",

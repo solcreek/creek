@@ -625,6 +625,144 @@ describe("preview deploys and new bindings", () => {
     });
   });
 
+  describe("text bindings share the worker's env", () => {
+    const setVar = (key: string, target: string) =>
+      f.sql(
+        "INSERT INTO environment_variable (projectId, key, target, encryptedValue) VALUES ('p', ?, ?, 'x')",
+        key,
+        target,
+      );
+
+    it("refuses an environment variable named like a binding, for the deploys whose target it applies to", async () => {
+      // DB is the project's D1. A preview-only DB variable collides with
+      // preview deploys and not with production ones.
+      await setVar("DB", "preview");
+      const key = await keyWith(["deploy:production", "deploy:preview"]);
+      const before = await projectState();
+
+      const preview = await upload(key, "dep-prev", bundle([{ type: "d1", bindingName: "DB" }]));
+      expect([preview.status, preview.body.error]).toEqual([409, "binding_conflict"]);
+      expect(preview.body.message).toContain(
+        "DB is both a binding and a project environment variable",
+      );
+      expect(await f.env.ASSETS.get("bundles/dep-prev.json")).toBeNull();
+
+      const production = await upload(key, "dep-prod", bundle([{ type: "d1", bindingName: "DB" }]));
+      expect(production.status).toBe(202);
+      expect(await projectState()).toEqual(before);
+    });
+
+    it("refuses an environment variable and a [vars] value of one name", async () => {
+      await setVar("MODE", "all");
+      const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+        ...bundle([{ type: "d1", bindingName: "DB" }]),
+        vars: { MODE: "debug" },
+      });
+      expect([res.status, res.body.message]).toEqual([
+        409,
+        expect.stringContaining("MODE is both a project environment variable and a [vars] value"),
+      ]);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("refuses a [vars] the job would read differently, before staging", async () => {
+      // A binding named "0" and vars: ["x"]: the job would bind the array
+      // index as a name. Refused for its shape, for every caller.
+      for (const vars of [["x"], "MODE", 42, null]) {
+        const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+          ...bundle([{ type: "kv", bindingName: "0" }]),
+          vars,
+        });
+        expect([res.status, res.body.error], JSON.stringify(vars)).toEqual([400, "validation"]);
+      }
+      expect(await f.env.ASSETS.get("bundles/dep-prod.json")).toBeNull();
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("deploys free names, each once", async () => {
+      await setVar("API_KEY", "all");
+      const res = await upload(await keyWith(["deploy:production"]), "dep-prod", {
+        ...bundle([{ type: "d1", bindingName: "DB" }]),
+        vars: { MODE: "debug" },
+      });
+      expect(res.status).toBe(202);
+      const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+        bindings: { type: string; name: string }[];
+      };
+      const names = input.bindings.map((b) => b.name);
+      expect(names).toEqual(expect.arrayContaining(["DB", "API_KEY", "MODE"]));
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    it("fails a job whose bundle's [vars] take a binding's name (a GitHub push skips the upload check)", async () => {
+      await f.env.ASSETS.put(
+        "bundles/dep-prod.json",
+        JSON.stringify({
+          ...bundle([
+            { type: "d1", bindingName: "DB" },
+            { type: "kv", bindingName: "CACHE" },
+          ]),
+          vars: { DB: "postgres://elsewhere" },
+        }),
+      );
+      const before = await projectState();
+      await runDeployJob(f.env, {
+        deploymentId: "dep-prod",
+        projectId: "p",
+        projectSlug: "site",
+        teamId: owner.orgId,
+        teamSlug: owner.orgSlug,
+        plan: "free",
+        branch: "main",
+        productionBranch: "main",
+      });
+      const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+        "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+      );
+      expect([dep.status, dep.errorMessage]).toEqual([
+        "failed",
+        expect.stringContaining("DB is both a binding and a [vars] value"),
+      ]);
+      expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+
+    it("fails the job, before creating anything, when a variable takes a binding's name after the upload check", async () => {
+      // Accepted at upload; the variable is set before the queued job runs.
+      await f.env.ASSETS.put(
+        "bundles/dep-prod.json",
+        JSON.stringify(
+          bundle([
+            { type: "d1", bindingName: "DB" },
+            { type: "kv", bindingName: "CACHE" },
+          ]),
+        ),
+      );
+      await setVar("CACHE", "production");
+      const before = await projectState();
+      await runDeployJob(f.env, {
+        deploymentId: "dep-prod",
+        projectId: "p",
+        projectSlug: "site",
+        teamId: owner.orgId,
+        teamSlug: owner.orgSlug,
+        plan: "free",
+        branch: "main",
+        productionBranch: "main",
+      });
+      const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+        "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+      );
+      expect([dep.status, dep.errorMessage]).toEqual([
+        "failed",
+        expect.stringContaining("CACHE is both a binding and a project environment variable"),
+      ]);
+      // CACHE was not created.
+      expect(await projectState()).toEqual(before);
+      expect(deploy).not.toHaveBeenCalled();
+    });
+  });
+
   it("treats a bound name whose resource row is gone as unbound, as the deploy would", async () => {
     f.t.db.db.exec("PRAGMA foreign_keys = OFF; DELETE FROM resource WHERE id = 'r-db'");
     const key = await keyWith(["deploy:preview"]);
