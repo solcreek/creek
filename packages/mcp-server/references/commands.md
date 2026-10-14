@@ -121,7 +121,7 @@ Act on `apiError`:
 | `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
-`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. `reason` says why: `ECONNREFUSED` / `ECONNRESET` / `ETIMEDOUT` are transient (retry); `ENOTFOUND` or a TLS/certificate code means a wrong `CREEK_API_URL` or a certificate problem (fix it — retrying won't help).
+`error: "api_unreachable"` (no `status`) means the server could not be reached at all — not the key. `reason` says why: `ENOTFOUND` or a TLS/certificate code (`CERT_*`, `ERR_TLS_*`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, …) means a wrong `CREEK_API_URL` or a certificate problem — fix it, retrying won't help. Anything else (`ECONNREFUSED`, `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT` and other `UND_ERR_*`) is transient: retry.
 
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
