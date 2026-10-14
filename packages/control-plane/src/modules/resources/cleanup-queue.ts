@@ -18,9 +18,11 @@ import type { Env } from "../../types.js";
  * LEASE_SECONDS, and a later run reclaims it.
  *
  * D1, R2, KV and queue rows carry in cfResourceName the name Creek gave the
- * resource when it provisioned it. The resource is deleted only if it still
- * has that name: a resource row's cfResourceId can be caller-supplied, and
- * this keeps such an ID from deleting a resource Creek didn't create for it.
+ * resource when it provisioned it (provisionedName, or the older
+ * `creek-<first 8 of id>`, which acceptedNames also allows). The resource is
+ * deleted only if it still has that name: rows created before POST
+ * /resources refused caller-supplied IDs may point at a resource Creek
+ * didn't create for them, and this keeps such a row from deleting it.
  */
 
 /** A claim older than this is presumed abandoned and may be reclaimed. */
@@ -162,6 +164,18 @@ async function isStillInUse(env: Env, row: QueueRow): Promise<boolean> {
 }
 
 /**
+ * The names a queued resource may legitimately carry: the expected one, and
+ * for `creek-<26 hex digits>` also `creek-<first 8 of them>`, the shorter
+ * name Creek provisioned under before. A legacy-named resource still
+ * referenced by another live row (a prefix collision) is caught earlier, by
+ * isStillInUse.
+ */
+function acceptedNames(expected: string): string[] {
+  const m = /^creek-([0-9a-f]{8})[0-9a-f]{18}$/.exec(expected);
+  return m ? [expected, `creek-${m[1]}`] : [expected];
+}
+
+/**
  * Whether the queued D1/R2/KV/queue resource is still the one Creek
  * provisioned under the expected name (a D1's name, a KV namespace's title,
  * a queue's queue_name, an R2 bucket's id): true, false, or "gone" when
@@ -174,7 +188,7 @@ async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "g
   switch (row.resourceType) {
     case "r2":
       // The bucket's ID is its name.
-      return row.cfResourceId === row.cfResourceName;
+      return acceptedNames(row.cfResourceName).includes(row.cfResourceId);
     case "d1":
       url = `${account}/d1/database/${row.cfResourceId}`;
       nameField = "name";
@@ -204,7 +218,7 @@ async function isCreekProvisioned(env: Env, row: QueueRow): Promise<boolean | "g
   if (body.success === false || !body.result) {
     throw new Error(`lookup failed: ${JSON.stringify(body).slice(0, 300)}`);
   }
-  return body.result[nameField] === row.cfResourceName;
+  return acceptedNames(row.cfResourceName).includes(String(body.result[nameField]));
 }
 
 /** The Cloudflare API URL that deletes a queued resource, or null when there is none. */
@@ -214,7 +228,9 @@ function cleanupUrl(env: Env, row: QueueRow): string | null {
     case "d1":
       return `${account}/d1/database/${row.cfResourceId}`;
     case "r2":
-      return `${account}/r2/buckets/${row.cfResourceName}`;
+      // The bucket's ID is its name, already checked against the accepted
+      // names; cfResourceName may be the newer name a legacy bucket lacks.
+      return `${account}/r2/buckets/${row.cfResourceId}`;
     case "kv":
       return `${account}/storage/kv/namespaces/${row.cfResourceId}`;
     case "queue":

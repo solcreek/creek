@@ -391,11 +391,13 @@ export class CreekClient {
     return this.request("GET", "/resources");
   }
 
+  /**
+   * Create a team-owned resource. Creek provisions the Cloudflare resource
+   * behind it; there is no way to point a resource at an existing one.
+   */
   async createResource(input: {
     kind: "database" | "storage" | "cache" | "ai";
     name: string;
-    cfResourceId?: string;
-    cfResourceType?: string;
   }): Promise<{
     id: string;
     teamId: string;

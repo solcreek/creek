@@ -7,6 +7,7 @@ import {
 } from "../../local/test-env.js";
 import { TEST_TEAM } from "../../test-helpers.js";
 import { ensureProjectBindings, ensureQueue } from "./service.js";
+import { getQueue, provisionCFResource } from "./cloudflare.js";
 
 vi.mock("./cloudflare.js", () => ({
   provisionCFResource: vi.fn(async (_env: unknown, cfType: string) => `new-${cfType}-id`),
@@ -18,6 +19,7 @@ vi.mock("./cloudflare.js", () => ({
 
 let testEnv: LocalTestEnv;
 beforeEach(() => {
+  vi.clearAllMocks();
   testEnv = createLocalTestEnv();
   seedTestData(testEnv);
   seedProject(testEnv, "app", { id: "proj-app", orgId: TEST_TEAM.id });
@@ -30,7 +32,7 @@ const queued = () =>
   testEnv.db.db
     .prepare(
       `SELECT resourceType, cfResourceId, reason, status,
-              (cfResourceName GLOB 'creek-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+              (cfResourceName GLOB 'creek-[0-9a-f]*' AND length(cfResourceName) = 32
                OR cfResourceName GLOB 'creek-q-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]') AS named
        FROM resource_cleanup_queue`,
     )
@@ -137,6 +139,27 @@ describe("ensureProjectBindings — auto-created resource", () => {
         named: 1,
       },
     ]);
+  });
+
+  test("a new D1 is provisioned under a collision-resistant name within 32 characters", async () => {
+    await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    const [[, cfType, cfName]] = vi.mocked(provisionCFResource).mock.calls;
+    expect(cfType).toBe("d1");
+    expect(cfName).toMatch(/^creek-[0-9a-f]{26}$/);
+  });
+
+  test("a new queue is created, never adopted from a same-named one", async () => {
+    // A queue with the name a short id prefix gives may belong to another
+    // resource; a brand-new queue must not look it up.
+    vi.mocked(getQueue).mockResolvedValueOnce("someone-elses-queue");
+
+    const queue = await ensureQueue(testEnv.env, "proj-app", TEST_TEAM.id);
+
+    expect(getQueue).not.toHaveBeenCalled();
+    expect(queue.cfResourceId).toBe("new-queue-id");
   });
 
   test("a queue whose rows roll back is queued for teardown too", async () => {

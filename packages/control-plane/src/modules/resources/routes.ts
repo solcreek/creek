@@ -19,6 +19,7 @@ import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { provisionCFResource, findExistingCFResource } from "./cloudflare.js";
+import { provisionedName } from "./service.js";
 import { requireScopes } from "../tenant/scope-guard.js";
 
 type ResourcesEnv = {
@@ -54,12 +55,25 @@ resources.post(
   requirePermission("project:create"),
   async (c) => {
     const teamId = c.get("teamId");
-    const body = await c.req.json<{
-      kind?: string;
-      name?: string;
-      cfResourceId?: string;
-      cfResourceType?: string;
-    }>();
+    const raw: unknown = await c.req.json();
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return c.json({ error: "validation", message: "body must be a JSON object" }, 400);
+    }
+    const body = raw as Record<string, unknown> & { kind?: string; name?: string };
+
+    // The Cloudflare resource behind a resource is always one Creek
+    // provisions for it. A caller-supplied ID would let a team attach, read,
+    // write and delete any D1/R2/KV in the shared account, including other
+    // tenants' and the control plane's own.
+    if ("cfResourceId" in body || "cfResourceType" in body) {
+      return c.json(
+        {
+          error: "validation",
+          message: "cfResourceId and cfResourceType are assigned by Creek and can't be set",
+        },
+        400,
+      );
+    }
 
     if (!body.kind || !ALLOWED_KINDS.has(body.kind)) {
       return c.json(
@@ -90,10 +104,9 @@ resources.post(
     const cfType = KIND_TO_CF[body.kind] ?? null;
 
     // Auto-provision the CF resource if it's a provisionable type.
-    // Use the resource UUID prefix as the CF resource name for uniqueness.
-    let cfResourceId = body.cfResourceId ?? null;
-    if (!cfResourceId && cfType) {
-      const cfName = `creek-${id.slice(0, 8)}`;
+    let cfResourceId: string | null = null;
+    if (cfType) {
+      const cfName = provisionedName(id);
       try {
         cfResourceId =
           (await findExistingCFResource(c.env, cfType, cfName)) ??
@@ -110,40 +123,12 @@ resources.post(
     }
 
     try {
-      // A Cloudflare resource queued for teardown can't be adopted: the cleanup
-      // would delete it under the new row. Checked in the same statement as
-      // the insert, so it can't race the queue's claim (the cleanup also skips
-      // a resource a live row references).
-      const inserted = await c.env.DB.prepare(
+      await c.env.DB.prepare(
         `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
-       SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?
-       WHERE NOT EXISTS (
-         SELECT 1 FROM resource_cleanup_queue q
-         WHERE q.cfResourceId = ? AND q.status IN ('pending', 'cleaning')
-       )`,
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       )
-        .bind(
-          id,
-          teamId,
-          body.kind,
-          body.name,
-          cfResourceId,
-          cfType ?? body.cfResourceType ?? null,
-          now,
-          now,
-          cfResourceId,
-        )
+        .bind(id, teamId, body.kind, body.name, cfResourceId, cfType, now, now)
         .run();
-      if (!inserted.meta.changes) {
-        return c.json(
-          {
-            error: "conflict",
-            message:
-              "That Cloudflare resource is being deleted and can't be attached to a new resource.",
-          },
-          409,
-        );
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
@@ -260,11 +245,12 @@ resources.delete(
     // recoverable after that. Both statements match the same live row, so a
     // missing or already-deleted resource queues nothing.
     //
-    // cfResourceId can come from the caller (POST /resources accepts one), so
-    // it is not proof the resource is this team's. The queue records the name
-    // Creek gives every resource it provisions, `creek-<first 8 of id>`, and
-    // the cleanup deletes only a resource that still carries it. Nothing is
-    // queued while another live row points at the same Cloudflare resource.
+    // A row's cfResourceId is not proof the resource is this team's: rows
+    // created before POST /resources refused caller-supplied IDs may point at
+    // any resource. The queue records the name Creek gives what it provisions
+    // for this row (provisionedName), and the cleanup deletes only a resource
+    // that still carries it, or the older `creek-<first 8 of id>` name. Nothing
+    // is queued while another live row points at the same Cloudflare resource.
     //
     // The binding check above only gives the 409 its message: a project can
     // attach the resource after it. Both statements therefore also require it
@@ -274,7 +260,7 @@ resources.delete(
     const [, res] = await c.env.DB.batch([
       c.env.DB.prepare(
         `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
-       SELECT type, cfResourceId, 'creek-' || substr(id, 1, 8), 'pending', 'resource_deleted', ?
+       SELECT type, cfResourceId, 'creek-' || substr(replace(id, '-', ''), 1, 26), 'pending', 'resource_deleted', ?
        FROM (
          -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
          SELECT cfResourceId, status, id, teamId,
