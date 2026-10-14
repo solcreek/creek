@@ -90,6 +90,9 @@ function unreachableMessage(
   if (mayHaveApplied) {
     return `Lost the server (${failed}) after this command may have changed something. Check the result (e.g. creek status, creek deployments) before running it again.`;
   }
+  if (failure === "terminated") {
+    return `The server's response broke off (${failed}) in a way a retry repeats. Report it; retrying will not help.`;
+  }
   if (reason === "ENOTFOUND") {
     return `Could not reach the server (${failed}): the host was not found. Check the network connection, and CREEK_API_URL if you set one.`;
   }
@@ -185,13 +188,13 @@ export async function runCli(
     // Re-running is safe only if nothing this run did can have been applied:
     // the failing request included, which the ledger has already counted.
     const mayHaveApplied = unreachable && mutationsMaybeApplied() > 0;
-    // A body that broke off reached a server that answered: a network
-    // failure whatever its cause, never the URL or a certificate.
+    // A body that broke off reached a server that answered, so never the URL
+    // or a certificate. With no cause or a transient one the connection
+    // dropped; other undici causes (a wrong content-length, a size limit)
+    // come from the response itself and repeat on a retry.
     const brokeMidResponse = unreachable && (err as TypeError).message === "terminated";
-    const retryable =
-      unreachable &&
-      !mayHaveApplied &&
-      (brokeMidResponse || (reason !== undefined && TRANSIENT_NETWORK_CODES.has(reason)));
+    const transient = reason !== undefined ? TRANSIENT_NETWORK_CODES.has(reason) : brokeMidResponse;
+    const retryable = unreachable && !mayHaveApplied && transient;
     jsonOutput(
       {
         ok: false,

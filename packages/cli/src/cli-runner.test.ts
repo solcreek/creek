@@ -281,6 +281,25 @@ describe("runCli (JSON mode error conversion)", () => {
       expect(out.message).toContain("Check the result");
     });
 
+    it("is not retryable when a write's response broke off after it was answered", async () => {
+      // The POST resolved with 201 (counted), then its body broke off.
+      globalThis.fetch = vi.fn(async () => new Response("{}", { status: 201 }));
+      installRequestLedger();
+      await fetch("https://api.test/deployments", { method: "POST" });
+
+      const bodyBrokeOff = defineCommand({
+        meta: { name: "deploy" },
+        async run() {
+          throw new TypeError("terminated");
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(bodyBrokeOff, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ retryable: false, mayHaveApplied: true });
+      expect(out.message).toContain("Check the result");
+    });
+
     it("stays retryable when the run only read (GET)", async () => {
       globalThis.fetch = vi.fn(async () => new Response("{}", { status: 200 }));
       installRequestLedger();
@@ -322,25 +341,32 @@ describe("runCli (JSON mode error conversion)", () => {
   });
 
   it.each([
-    ["no cause", undefined],
+    // The connection dropped: transient.
+    ["no cause", undefined, true, "while reading the server's response"],
+    // The response itself was wrong: a retry repeats it.
     [
-      "an undici body error",
+      "a wrong content-length",
       Object.assign(new Error("x"), { code: "UND_ERR_RES_CONTENT_LENGTH_MISMATCH" }),
+      false,
+      "retrying will not help",
     ],
-  ])("keeps a body that broke off retryable with %s, never blaming the URL", async (_l, cause) => {
-    const midResponse = defineCommand({
-      meta: { name: "status" },
-      run() {
-        throw new TypeError("terminated", { cause });
-      },
-    });
-    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    await runExit(runCli(midResponse, [], { jsonMode: true }));
-    const out = JSON.parse(stdout);
-    expect(out).toMatchObject({ error: "api_unreachable", retryable: true });
-    expect(out.message).toContain("while reading the server's response");
-    expect(out.message).not.toContain("CREEK_API_URL");
-  });
+  ])(
+    "classifies a body that broke off with %s, never blaming the URL",
+    async (_l, cause, retryable, says) => {
+      const midResponse = defineCommand({
+        meta: { name: "status" },
+        run() {
+          throw new TypeError("terminated", { cause });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(midResponse, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ error: "api_unreachable", retryable });
+      expect(out.message).toContain(says);
+      expect(out.message).not.toContain("CREEK_API_URL");
+    },
+  );
 
   it("is not retryable when the cause gives no reason", async () => {
     const offline = defineCommand({
