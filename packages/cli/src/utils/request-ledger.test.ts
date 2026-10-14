@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchFailureReason,
   installRequestLedger,
+  isNetworkFailure,
   mutationsMaybeApplied,
   provablyNotSent,
   resetRequestLedger,
@@ -58,6 +60,39 @@ describe("provablyNotSent", () => {
   it("is false for anything that is not undici's fetch failure", () => {
     expect(provablyNotSent(new TypeError("fetch failed"))).toBe(false);
     expect(provablyNotSent(new Error("boom"))).toBe(false);
+  });
+
+  it("is false for a body that broke off: the request went out", () => {
+    const terminated = new TypeError("terminated", {
+      cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+    });
+    expect(provablyNotSent(terminated)).toBe(false);
+  });
+});
+
+describe("a response whose connection breaks while the body is read", () => {
+  // Measured on Node 24: fetch resolves on the headers, then reading the body
+  // rejects with TypeError("terminated"), cause UND_ERR_SOCKET.
+  let server: import("node:http").Server | undefined;
+  afterEach(async () => {
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = undefined;
+  });
+
+  it("is a network failure with its cause as the reason", async () => {
+    const { createServer } = await import("node:http");
+    server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "content-length": "1000" });
+      res.write('{"a":');
+      setTimeout(() => res.socket?.destroy(), 20);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+    const err = await response.json().catch((e: unknown) => e);
+    expect(isNetworkFailure(err)).toBe(true);
+    expect(fetchFailureReason(err)).toBe("UND_ERR_SOCKET");
   });
 });
 

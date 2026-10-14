@@ -301,6 +301,26 @@ describe("runCli (JSON mode error conversion)", () => {
     });
   });
 
+  it("treats a body that broke off (terminated) as a network failure, not internal_error", async () => {
+    const midResponse = defineCommand({
+      meta: { name: "status" },
+      run() {
+        throw new TypeError("terminated", {
+          cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+        });
+      },
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runExit(runCli(midResponse, [], { jsonMode: true }));
+    const out = JSON.parse(stdout);
+    expect(out).toMatchObject({
+      error: "api_unreachable",
+      reason: "UND_ERR_SOCKET",
+      retryable: true,
+    });
+    expect(out.message).toContain("while reading the server's response");
+  });
+
   it("is not retryable when the cause gives no reason", async () => {
     const offline = defineCommand({
       meta: { name: "offline" },

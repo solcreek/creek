@@ -75,9 +75,20 @@ const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
 let maybeApplied = 0;
 
-/** The reason undici gives for a failed fetch: `cause.code`, else `cause.message`. */
+/**
+ * Whether an error is undici's network failure: `fetch failed` before a
+ * response, or `terminated` when the connection breaks while the body is read
+ * (fetch resolved on the headers; measured on Node 24: cause UND_ERR_SOCKET).
+ */
+export function isNetworkFailure(err: unknown): err is TypeError {
+  return (
+    err instanceof TypeError && (err.message === "fetch failed" || err.message === "terminated")
+  );
+}
+
+/** The reason undici gives for a network failure: `cause.code`, else `cause.message`. */
 export function fetchFailureReason(err: unknown): string | undefined {
-  if (!(err instanceof TypeError) || err.message !== "fetch failed") return undefined;
+  if (!isNetworkFailure(err)) return undefined;
   const cause = err.cause as { code?: unknown; message?: unknown } | undefined;
   if (typeof cause?.code === "string") return cause.code;
   if (typeof cause?.message === "string") return cause.message;
@@ -86,6 +97,8 @@ export function fetchFailureReason(err: unknown): string | undefined {
 
 /** Whether a fetch rejection proves the request was never written. */
 export function provablyNotSent(err: unknown): boolean {
+  // A body that breaks off follows a response: the request went out.
+  if (!(err instanceof TypeError) || err.message !== "fetch failed") return false;
   const reason = fetchFailureReason(err);
   if (reason === undefined) return false;
   return NOT_SENT_CODES.has(reason) || NOT_SENT_MESSAGES.has(reason) || isTlsFailure(reason);

@@ -3,7 +3,11 @@ import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
 import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
 import { apiErrorFields } from "./utils/api-error.js";
-import { fetchFailureReason, mutationsMaybeApplied } from "./utils/request-ledger.js";
+import {
+  fetchFailureReason,
+  isNetworkFailure,
+  mutationsMaybeApplied,
+} from "./utils/request-ledger.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -70,13 +74,18 @@ const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
 
 /** What to tell the caller about an unreachable server. */
 function unreachableMessage(
+  failure: string,
   reason: string | undefined,
   retryable: boolean,
   mayHaveApplied: boolean,
 ): string {
-  const failed = `fetch failed${reason ? `: ${reason}` : ""}`;
+  const failed = `${failure}${reason ? `: ${reason}` : ""}`;
   if (retryable) {
-    return `Could not reach the server (${failed}). Nothing this command changes was applied: retry.`;
+    const what =
+      failure === "terminated"
+        ? "The connection broke while reading the server's response"
+        : "Could not reach the server";
+    return `${what} (${failed}). Nothing this command changes was applied: retry.`;
   }
   if (mayHaveApplied) {
     return `Lost the server (${failed}) after this command may have changed something. Check the result (e.g. creek status, creek deployments) before running it again.`;
@@ -160,10 +169,12 @@ export async function runCli(
     // only.
     const api = apiErrorFields(err);
     // Node's fetch rejects with TypeError("fetch failed") when a server can't
-    // be reached: not a CLI bug. undici keeps the actual reason (ECONNREFUSED,
-    // ENOTFOUND, a TLS error) on `cause`: it tells a bad URL or certificate
-    // from an outage.
-    const unreachable = err instanceof TypeError && err.message === "fetch failed";
+    // be reached, and reading a body rejects with TypeError("terminated")
+    // when the connection breaks mid-response: network, not a CLI bug.
+    // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error,
+    // UND_ERR_SOCKET) on `cause`: it tells a bad URL or certificate from an
+    // outage.
+    const unreachable = isNetworkFailure(err);
     const reason = fetchFailureReason(err);
     if (api.apiError || unreachable) {
       const text = err instanceof Error ? err.message : String(err);
@@ -181,7 +192,7 @@ export async function runCli(
         ok: false,
         error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
         message: unreachable
-          ? unreachableMessage(reason, retryable, mayHaveApplied)
+          ? unreachableMessage((err as TypeError).message, reason, retryable, mayHaveApplied)
           : err instanceof Error
             ? err.message
             : String(err),
