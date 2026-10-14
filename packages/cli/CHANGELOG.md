@@ -1,5 +1,36 @@
 # @solcreek/cli
 
+## 0.4.53
+
+Requires `@solcreek/sdk@0.4.24`. Publish the SDK tag `sdk@0.4.24` before
+`cli@0.4.53` / `creek@0.4.53`.
+
+### Errors agents can act on
+
+- **A refused API call keeps the API's error code and fields.** `--json`
+  errors from the Creek API add `status`, `apiError` (e.g.
+  `insufficient_scope`, `binding_conflict`) and `details` (e.g. the scopes a
+  key lacks); `error` stays the command's own code. An error no command
+  handled uses the API's code instead of `internal_error`, with no stack
+  trace. Human output names the required and granted scopes.
+- **A rejected key during `creek deploy --json`** prints
+  `error: "unauthorized"` instead of an empty stdout. `creek status` and the
+  GitHub deploy path report `not_found` only on a 404.
+- **An unreachable server is `api_unreachable`**, with `reason` (the network
+  cause, e.g. `ECONNREFUSED`, `ENOTFOUND`, a certificate error) and
+  `retryable`. `retryable: true` means re-running the whole command is safe:
+  the failure is transient and nothing the run changes can have been applied.
+  `mayHaveApplied: true` means a write of this run (this request or an earlier
+  step) may have been applied — check the result before running it again. A
+  response that breaks off mid-body is classified the same way.
+
+### Requests
+
+- **Writes are sent without following redirects.** A redirected write now
+  returns its 3xx instead of being followed. Creek's APIs never redirect a
+  write; a `CREEK_API_URL` pointing at an `http://` address the edge
+  redirects to `https://` now fails on writes.
+
 ## 0.4.52
 
 Requires `@solcreek/sdk@0.4.23`. Publish the SDK tag `sdk@0.4.23` before

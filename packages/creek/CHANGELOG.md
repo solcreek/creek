@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.53
+
+- Bundles [`@solcreek/cli@0.4.53`](../cli/CHANGELOG.md#0453) and requires
+  [`@solcreek/sdk@0.4.24`](../sdk/CHANGELOG.md#0424): `--json` errors carry the
+  API's code and fields (`apiError`, `details`), an unreachable server is
+  `api_unreachable` with `reason` and a command-wide `retryable` /
+  `mayHaveApplied`, and writes no longer follow redirects. Publish
+  `sdk@0.4.24` before `cli@0.4.53` / `creek@0.4.53`.
+
 ## 0.4.52
 
 - Bundles [`@solcreek/cli@0.4.52`](../cli/CHANGELOG.md#0452) and requires
