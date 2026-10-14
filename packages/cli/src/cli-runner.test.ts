@@ -184,7 +184,8 @@ describe("runCli (JSON mode error conversion)", () => {
     expect(JSON.parse(stdout)).toEqual({
       ok: false,
       error: "api_unreachable",
-      message: "Could not reach the server (fetch failed: ECONNREFUSED). Retry.",
+      message:
+        "Could not reach the server (fetch failed: ECONNREFUSED); the request was not sent. Retry.",
       reason: "ECONNREFUSED",
       retryable: true,
     });
@@ -198,6 +199,7 @@ describe("runCli (JSON mode error conversion)", () => {
   // the socket layer has one, else only a message.
   const RETRY = "Retry.";
   const FIX = "retrying will not help";
+  const MAYBE = "may have been applied";
   it.each([
     ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true, RETRY],
     [
@@ -211,6 +213,17 @@ describe("runCli (JSON mode error conversion)", () => {
     // Node 24 reports this for an unroutable address (measured: [100::1]).
     ["an unreachable host", { code: "EHOSTUNREACH" }, "EHOSTUNREACH", true, RETRY],
     ["a network that is down", { code: "ENETUNREACH" }, "ENETUNREACH", true, RETRY],
+    // Lost after the request may have been sent: re-running a mutation (a
+    // deploy) could apply it twice, so not retryable.
+    ["a reset connection", { code: "ECONNRESET" }, "ECONNRESET", false, MAYBE],
+    [
+      "a response timeout",
+      { code: "UND_ERR_HEADERS_TIMEOUT" },
+      "UND_ERR_HEADERS_TIMEOUT",
+      false,
+      MAYBE,
+    ],
+    ["a socket closed mid-request", { code: "UND_ERR_SOCKET" }, "UND_ERR_SOCKET", false, MAYBE],
     // A wrong host, or no network on macOS/Windows: not retried, and the
     // message names both rather than claiming a retry cannot help.
     ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false, "Check the network connection"],
@@ -239,6 +252,8 @@ describe("runCli (JSON mode error conversion)", () => {
       const out = JSON.parse(stdout);
       expect(out).toMatchObject({ error: "api_unreachable", reason, retryable });
       expect(out.message).toContain(says);
+      if (says === MAYBE) expect(out.mayHaveApplied).toBe(true);
+      else expect(out).not.toHaveProperty("mayHaveApplied");
     },
   );
 
