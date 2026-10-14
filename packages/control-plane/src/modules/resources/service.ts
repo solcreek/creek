@@ -22,6 +22,7 @@ import {
   DEPRECATED_ALIAS_TYPES,
   DEPRECATED_BINDING_ALIASES,
   INTERNAL_VARS,
+  aliasPartner,
   deprecatedAliasBindings,
 } from "@solcreek/sdk";
 import {
@@ -395,6 +396,17 @@ export async function ensureProjectBindings(
   }
 
   const existingByName = new Map(existingRows.results.map((b) => [b.bindingName, b]));
+  // The provisioned resource under each name, bound before this deploy or
+  // by it: what an alias partner below adopts.
+  const resourceByName = new Map<
+    string,
+    { resourceId: string; type: string | null; cfResourceId: string | null }
+  >(
+    existingRows.results.map((b) => [
+      b.bindingName,
+      { resourceId: b.resourceId, type: resourceBindingType(b), cfResourceId: b.cfResourceId },
+    ]),
+  );
 
   const result = new Map<string, ResolvedResourceBinding>();
 
@@ -443,6 +455,11 @@ export async function ensureProjectBindings(
       )
         .bind(cfId, cfType, Date.now(), existing.resourceId)
         .run();
+      resourceByName.set(req.bindingName, {
+        resourceId: existing.resourceId,
+        type: cfType,
+        cfResourceId: cfId,
+      });
 
       result.set(req.bindingName, {
         bindingName: req.bindingName,
@@ -452,28 +469,26 @@ export async function ensureProjectBindings(
       continue;
     }
 
-    // Migration safety: this requirement's exact name isn't bound, but if it's
-    // a PRIMARY name (e.g. DATABASE) whose DEPRECATED ALIAS (e.g. DB) is already
-    // bound to a provisioned resource, adopt that resource under the primary
-    // name too — never provision a fresh (empty) one. Without this, a project
-    // first deployed under the old name (DB) that now deploys under the new
-    // primary (DATABASE) gets a SECOND, empty database bound as DATABASE while
-    // its data stays in DB: a split-brain across two D1s.
+    // One resource under both names of a pair: this requirement's exact name
+    // isn't bound, but if its alias partner (DB for DATABASE, DATABASE for DB;
+    // KV and CACHE likewise) is bound to a provisioned resource, before this
+    // deploy or earlier in it, adopt that resource under this name too —
+    // never provision a fresh (empty) one. Without this, a project first
+    // deployed under DB that now deploys under DATABASE, or a bundle that
+    // declares both (a framework's Workers config names its D1 DB while
+    // `database = true` declares DATABASE), gets a SECOND, empty database:
+    // the app reads one while migrations go to the other.
     // Past this point the requirement's name is not bound: binding it (by
-    // adopting an alias's resource or creating one) changes the project.
+    // adopting a partner's resource or creating one) changes the project.
     if (!mayAddBindings) throw new BindingNotAllowedError(req.bindingName);
 
-    const aliasName = DEPRECATED_BINDING_ALIASES[req.bindingName];
-    const aliasBinding = aliasName ? existingByName.get(aliasName) : undefined;
-    // Only adopt when the alias's resource TYPE matches the requirement — a
-    // user could have named an unrelated resource with the alias (e.g.
+    const aliasName = aliasPartner(req.bindingName, req.type);
+    const aliasBinding = aliasName ? resourceByName.get(aliasName) : undefined;
+    // Only adopt when the partner's resource TYPE matches the requirement — a
+    // user could have named an unrelated resource with the partner name (e.g.
     // `creek storage attach --as DB`), and blindly adopting it would silently
     // bind DATABASE to an R2/KV. On a type mismatch, fall through to auto-create.
-    if (
-      aliasBinding &&
-      aliasBinding.cfResourceId &&
-      resourceBindingType(aliasBinding) === req.type
-    ) {
+    if (aliasBinding && aliasBinding.cfResourceId && aliasBinding.type === req.type) {
       // Bind only while the resource is still live, in one statement: the
       // alias could be detached and the resource deleted (its Cloudflare
       // resource queued for teardown) since it was read above. If so, fall
@@ -491,11 +506,15 @@ export async function ensureProjectBindings(
           cfType: req.type,
           cfResourceId: aliasBinding.cfResourceId,
         });
+        resourceByName.set(req.bindingName, aliasBinding);
         continue;
       }
-      // Gone: also drop the alias's own entry, seeded above from the
-      // bindings read earlier, so the worker isn't bound to it either.
-      if (aliasName) result.delete(aliasName);
+      // Gone: also drop the partner's own entry, so the worker isn't bound
+      // to it either.
+      if (aliasName) {
+        result.delete(aliasName);
+        resourceByName.delete(aliasName);
+      }
     }
 
     // No binding exists — auto-create resource + binding
@@ -534,6 +553,7 @@ export async function ensureProjectBindings(
     }
 
     result.set(req.bindingName, { bindingName: req.bindingName, cfType, cfResourceId: cfId });
+    resourceByName.set(req.bindingName, { resourceId, type: cfType, cfResourceId: cfId });
   }
 
   return result;

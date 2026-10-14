@@ -97,6 +97,83 @@ describe("ensureProjectBindings — alias adoption", () => {
   });
 });
 
+describe("ensureProjectBindings — one resource under DATABASE and DB", () => {
+  const resourcesOfKind = (kind: string) =>
+    count(`SELECT COUNT(*) AS n FROM resource WHERE kind = '${kind}'`);
+  const boundTo = (name: string) =>
+    (
+      testEnv.db.db
+        .prepare(
+          "SELECT resourceId FROM project_resource_binding WHERE projectId = 'proj-app' AND bindingName = ?",
+        )
+        .get(name) as { resourceId: string } | undefined
+    )?.resourceId;
+
+  test("a bundle declaring both creates one database and binds it under both names", async () => {
+    // database = true declares DATABASE; a framework's Workers config names its D1 DB.
+    const result = await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+      { type: "d1", bindingName: "DB" },
+    ]);
+
+    expect(resourcesOfKind("database")).toBe(1);
+    expect(boundTo("DB")).toBe(boundTo("DATABASE"));
+    expect(result.get("DB")?.cfResourceId).toBe(result.get("DATABASE")?.cfResourceId);
+  });
+
+  test("in either order", async () => {
+    await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DB" },
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+
+    expect(resourcesOfKind("database")).toBe(1);
+    expect(boundTo("DATABASE")).toBe(boundTo("DB"));
+  });
+
+  test("binds a newly declared DB to the database already bound as DATABASE", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+       VALUES ('res-main', '${TEST_TEAM.id}', 'database', 'main', 'main-d1-id', 'd1', 'active', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+       VALUES ('proj-app', 'DATABASE', 'res-main', ${now})`,
+    );
+
+    const result = await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+      { type: "d1", bindingName: "DB" },
+    ]);
+
+    expect(result.get("DB")?.cfResourceId).toBe("main-d1-id");
+    expect(boundTo("DB")).toBe("res-main");
+    expect(resourcesOfKind("database")).toBe(1);
+  });
+
+  test("does the same for CACHE and KV", async () => {
+    await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "kv", bindingName: "CACHE" },
+      { type: "kv", bindingName: "KV" },
+    ]);
+
+    expect(resourcesOfKind("cache")).toBe(1);
+    expect(boundTo("KV")).toBe(boundTo("CACHE"));
+  });
+
+  test("keeps a DB of another type apart from DATABASE", async () => {
+    await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
+      { type: "d1", bindingName: "DATABASE" },
+      { type: "r2", bindingName: "DB" },
+    ]);
+
+    expect(resourcesOfKind("database")).toBe(1);
+    expect(resourcesOfKind("storage")).toBe(1);
+    expect(boundTo("DB")).not.toBe(boundTo("DATABASE"));
+  });
+});
+
 describe("ensureProjectBindings — auto-created resource", () => {
   test("creates the resource and its binding", async () => {
     await ensureProjectBindings(testEnv.env, "proj-app", TEST_TEAM.id, [
