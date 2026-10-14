@@ -25,10 +25,13 @@ const NOT_SENT_CODES: ReadonlySet<string> = new Set([
 /** Causes undici raises before opening a connection; they carry no code. */
 const NOT_SENT_MESSAGES: ReadonlySet<string> = new Set(["bad port", "unknown scheme"]);
 /**
- * TLS failures: the handshake precedes the request. Node reports a failed
- * certificate verification under OpenSSL's X509 verify error names (Node's
- * src/crypto/crypto_common.cc), and its own TLS/SSL errors as ERR_TLS_* /
- * ERR_SSL_*.
+ * TLS failures raised before the request is written. Node verifies the
+ * certificate once, in the handshake (onConnectSecure, before secureConnect),
+ * and reports a failure under OpenSSL's X509 verify error names (Node's
+ * src/crypto/crypto_common.cc). Other ERR_TLS_* / ERR_SSL_* errors are not
+ * all handshake-only — a bad record MAC or an alert can hit an established,
+ * reused connection after the request went out — so only the handshake ones
+ * are listed (HANDSHAKE_TLS_CODES); the rest count as possibly sent.
  */
 const CERT_VERIFY_CODES: ReadonlySet<string> = new Set([
   "UNABLE_TO_GET_ISSUER_CERT",
@@ -59,8 +62,16 @@ const CERT_VERIFY_CODES: ReadonlySet<string> = new Set([
   "CERT_REJECTED",
   "HOSTNAME_MISMATCH",
 ]);
+/** Node's own TLS errors that only the handshake raises. */
+const HANDSHAKE_TLS_CODES: ReadonlySet<string> = new Set([
+  "ERR_TLS_CERT_ALTNAME_INVALID", // checkServerIdentity, before secureConnect
+  "ERR_SSL_WRONG_VERSION_NUMBER", // TLS to a plain-HTTP port (measured)
+  "ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE",
+  "ERR_SSL_UNSUPPORTED_PROTOCOL",
+  "ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION",
+]);
 const isTlsFailure = (reason: string) =>
-  CERT_VERIFY_CODES.has(reason) || /^ERR_(TLS|SSL)_/.test(reason);
+  CERT_VERIFY_CODES.has(reason) || HANDSHAKE_TLS_CODES.has(reason);
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
