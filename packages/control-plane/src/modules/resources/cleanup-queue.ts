@@ -226,7 +226,9 @@ function cleanupUrl(env: Env, row: QueueRow): string | null {
     case "d1":
       return `${account}/d1/database/${row.cfResourceId}`;
     case "r2":
-      return `${account}/r2/buckets/${row.cfResourceName}`;
+      // The bucket's ID is its name, already checked against the accepted
+      // names; cfResourceName may be the newer name a legacy bucket lacks.
+      return `${account}/r2/buckets/${row.cfResourceId}`;
     case "kv":
       return `${account}/storage/kv/namespaces/${row.cfResourceId}`;
     case "queue":

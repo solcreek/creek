@@ -136,6 +136,11 @@ describe("processResourceCleanupQueue", () => {
     await processResourceCleanupQueue(testEnv.env);
 
     expect(statuses()).toEqual(["legacy-d1:done", "creek-0f1e2d3c:done", "other-d1:failed"]);
+    // The legacy bucket is deleted by its own name, not the newer expected one.
+    expect(deletes).toEqual([
+      "/client/v4/accounts/acc/d1/database/legacy-d1",
+      "/client/v4/accounts/acc/r2/buckets/creek-0f1e2d3c",
+    ]);
   });
 
   it("refuses to delete a resource that isn't the one Creek provisioned", async () => {
