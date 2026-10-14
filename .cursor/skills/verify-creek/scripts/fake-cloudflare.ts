@@ -45,9 +45,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       headers: { "content-type": "application/json" },
     });
 
-  // Nothing exists until this run creates it: a single R2 bucket's GET is a
-  // 404 (getR2Bucket reads success as "exists"), and lists
-  // (find-before-create) come back empty.
+  // The fake keeps no state, so nothing ever exists: a single R2 bucket's GET
+  // is always a 404 (getR2Bucket reads success as "exists"), and lists
+  // (find-before-create) are always empty. Every lookup misses and
+  // provisioning always creates, even for a name created earlier in the run.
   if (method === "GET" && /\/r2\/buckets\/[^/?]+$/.test(path)) {
     return respond(404, {
       success: false,
