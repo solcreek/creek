@@ -16,6 +16,51 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
+describe("CreekClient errors", () => {
+  const client = new CreekClient("http://localhost:8787", "test-token");
+
+  test("keeps an error response's code, message and other fields", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, {
+        error: "insufficient_scope",
+        message: "This API key lacks the scope: env:write",
+        required: ["env:write"],
+        granted: ["project:read"],
+      }),
+    );
+    const err = await client.listEnvVars("site").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekApiError);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "insufficient_scope",
+      message: "This API key lacks the scope: env:write",
+      details: { required: ["env:write"], granted: ["project:read"] },
+    });
+  });
+
+  test("an error body that is not JSON gives code unknown and the status text", async () => {
+    mockFetch.mockResolvedValue(
+      new Response("<html>bad gateway</html>", { status: 502, statusText: "Bad Gateway" }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 502,
+      code: "unknown",
+      message: "Bad Gateway",
+      details: {},
+    });
+  });
+
+  test("a 401 is a CreekAuthError", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(401, { error: "unauthorized", message: "Invalid key" }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekAuthError);
+    expect((err as Error).message).toBe("Invalid key");
+  });
+});
+
 describe("CreekClient", () => {
   const client = new CreekClient("http://localhost:8787", "test-token");
 

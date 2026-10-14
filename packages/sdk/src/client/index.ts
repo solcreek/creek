@@ -9,7 +9,6 @@ import type {
   CreateProjectResponse,
   CreateDeploymentResponse,
   DeploymentStatusResponse,
-  ApiError,
   EnvTarget,
   LogEntry,
   LogQueryFilters,
@@ -51,14 +50,14 @@ export class CreekClient {
     const res = await fetch(`${this.baseUrl}${path}`, init);
 
     if (!res.ok) {
-      const err = (await res.json().catch(() => ({
-        error: "unknown",
-        message: res.statusText,
-      }))) as ApiError;
+      const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      const { error, message, ...details } = body ?? {};
+      const code = typeof error === "string" ? error : "unknown";
+      const text = typeof message === "string" ? message : res.statusText;
       if (res.status === 401) {
-        throw new CreekAuthError(err.message);
+        throw new CreekAuthError(text);
       }
-      throw new CreekApiError(res.status, err.error, err.message);
+      throw new CreekApiError(res.status, code, text, details);
     }
 
     return res.json() as Promise<T>;
@@ -525,10 +524,17 @@ export class CreekClient {
 }
 
 export class CreekApiError extends Error {
+  /**
+   * `details` holds the error response's other fields, for the error codes
+   * that carry them: `insufficient_scope` / `insufficient_role` (`required`,
+   * `granted`), `binding_conflict` (`conflicts`), a preview's refusal
+   * (`newBindings`).
+   */
   constructor(
     public status: number,
     public code: string,
     message: string,
+    public details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "CreekApiError";
