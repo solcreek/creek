@@ -223,6 +223,104 @@ describe("planBindings", () => {
     expect(plan.conflicts).toHaveLength(conflicts);
   });
 
+  it.each([
+    [
+      "an environment variable named like a bound resource",
+      [db],
+      [],
+      false,
+      { envKeys: ["DB"] },
+      1,
+    ],
+    [
+      "a [vars] value named like a declared binding",
+      [],
+      [{ type: "kv", bindingName: "CACHE" }],
+      false,
+      { varKeys: ["CACHE"] },
+      1,
+    ],
+    [
+      "an environment variable named like an alias the deploy emits",
+      [],
+      [{ type: "d1", bindingName: "DATABASE" }],
+      false,
+      { envKeys: ["DB"] },
+      1,
+    ],
+    [
+      "an environment variable named QUEUE beside the queue",
+      [],
+      [],
+      true,
+      { envKeys: ["QUEUE"] },
+      1,
+    ],
+    [
+      "an environment variable and a [vars] value of one name",
+      [],
+      [],
+      false,
+      { envKeys: ["TOKEN"], varKeys: ["TOKEN"] },
+      1,
+    ],
+    [
+      "an environment variable under a name Creek sets",
+      [],
+      [],
+      false,
+      { envKeys: ["CREEK_PROJECT_ID"] },
+      1,
+    ],
+    [
+      "a [vars] value under a name Creek sets",
+      [],
+      [],
+      false,
+      { varKeys: ["CREEK_REALTIME_URL"] },
+      1,
+    ],
+    [
+      "a binding under a name Creek sets",
+      [],
+      [{ type: "kv", bindingName: "CREEK_PROJECT_SLUG" }],
+      false,
+      {},
+      1,
+    ],
+    [
+      "an unsupported declaration's name taken by a variable",
+      [],
+      [{ type: "images", bindingName: "IMAGES" }],
+      false,
+      { envKeys: ["IMAGES"] },
+      1,
+    ],
+    [
+      "nothing for free names",
+      [db],
+      [{ type: "kv", bindingName: "CACHE" }],
+      true,
+      { envKeys: ["API_KEY"], varKeys: ["MODE"] },
+      0,
+    ],
+    [
+      "nothing for DB when DATABASE is not a D1",
+      [],
+      [{ type: "r2", bindingName: "DATABASE" }],
+      false,
+      { envKeys: ["DB"] },
+      0,
+    ],
+  ] as const)(
+    "text bindings: %s",
+    (_label, existing, requirements, wantsQueue, text, conflicts) => {
+      expect(planBindings(existing, requirements, wantsQueue, text).conflicts).toHaveLength(
+        conflicts,
+      );
+    },
+  );
+
   it("reports what it skips", () => {
     const plan = planBindings([], [{ type: "images", bindingName: "IMAGES" }], false);
     expect(plan.unsupported).toEqual([{ type: "images", bindingName: "IMAGES" }]);
@@ -284,6 +382,8 @@ describe("upload check and deploy job agree", () => {
       skipped: 0,
       provisionedAttached: 0,
       skippedName: 0,
+      textConflict: 0,
+      textAccepted: 0,
     };
     for (let i = 0; i < 400; i++) {
       const projectId = `p${i}`;
@@ -325,14 +425,21 @@ describe("upload check and deploy job agree", () => {
         .filter(() => rand() < 0.3)
         .map((bindingName) => ({ type: pick(types), bindingName }));
       const wantsQueue = rand() < 0.25;
+      // Text bindings: environment variables and [vars], drawn from the
+      // binding names, Creek's own names and free ones.
+      const textNames = [...names, "CREEK_PROJECT_ID", "CREEK_REALTIME_SECRET", "API_KEY", "TOKEN"];
+      const text = {
+        envKeys: textNames.filter(() => rand() < 0.08),
+        varKeys: textNames.filter(() => rand() < 0.08),
+      };
 
-      const label = `#${i} reqs=${JSON.stringify(requirements)} queue=${wantsQueue}`;
+      const label = `#${i} reqs=${JSON.stringify(requirements)} queue=${wantsQueue} text=${JSON.stringify(text)}`;
       const bindingRows = () =>
         f.sql<{ bindingName: string; resourceId: string }>(
           "SELECT bindingName, resourceId FROM project_resource_binding WHERE projectId = ? ORDER BY bindingName",
           projectId,
         );
-      const plan = await planDeployBindings(f.env, projectId, requirements, wantsQueue);
+      const plan = await planDeployBindings(f.env, projectId, requirements, wantsQueue, text);
       const resourceRows = () =>
         f.sql<{ id: string; cfResourceId: string | null }>(
           "SELECT id, kind, cfResourceId, cfResourceType FROM resource WHERE id LIKE ? ORDER BY id",
@@ -355,6 +462,7 @@ describe("upload check and deploy job agree", () => {
         const resolved = await ensureProjectBindings(f.env, projectId, owner.orgId, requirements, {
           mayAddBindings,
           wantsQueue,
+          text,
         });
         const queue = wantsQueue
           ? await ensureQueue(f.env, projectId, owner.orgId, { mayAddBindings })
@@ -365,6 +473,9 @@ describe("upload check and deploy job agree", () => {
       // 1. A conflict refuses the job in either mode, before any write.
       if (plan.conflicts.length > 0) {
         seen.conflict++;
+        if (plan.conflicts.some((c) => /environment variable|\[vars\]|Creek sets/.test(c))) {
+          seen.textConflict++;
+        }
         for (const mayAddBindings of [false, true]) {
           await expect(runJob(mayAddBindings), label).rejects.toThrow(BindingConflictError);
         }
@@ -407,12 +518,22 @@ describe("upload check and deploy job agree", () => {
           b.resourceId,
         );
       }
-      const emitted = buildBindings(resolved, [], {
+      const textBindings = [...text.envKeys, ...text.varKeys].map((key) => ({ key, value: "v" }));
+      const emitted = buildBindings(resolved, textBindings, {
         projectSlug: "s",
         projectId,
         realtimeUrl: "https://realtime.example",
+        realtimeSecret: "secret",
         queueName: queue?.cfResourceName,
       });
+      // The worker's env holds one binding per name: whatever the plan
+      // accepts uploads without a duplicate name.
+      const emittedNames = emitted.map((b) => b.name);
+      expect(
+        emittedNames.filter((n, at) => emittedNames.indexOf(n) !== at),
+        `${label} duplicate binding names`,
+      ).toEqual([]);
+      if (textBindings.length > 0) seen.textAccepted++;
       const wfpType = { d1: "d1", r2: "r2_bucket", kv: "kv_namespace", ai: "ai" } as const;
       for (const req of plan.requirements) {
         expect(
@@ -452,5 +573,7 @@ describe("upload check and deploy job agree", () => {
       if (plan.unsupported.length > 0) seen.skipped++;
     }
     for (const [kind, count] of Object.entries(seen)) expect(count, kind).toBeGreaterThan(0);
-  });
+    // 400 states against SQLite: about a second alone, longer beside the
+    // rest of the suite.
+  }, 60_000);
 });

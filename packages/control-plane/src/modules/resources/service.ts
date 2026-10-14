@@ -188,11 +188,16 @@ export interface BindingPlan {
  *   so the worker never gets something else under it: two types under one
  *   name, QUEUE beside the queue, a resource attached under the name, or a
  *   deprecated alias the deploy emits under it are all conflicts.
+ * - Text bindings (`text`: environment variables for the deploy's target,
+ *   the config's [vars]) and Creek's CREEK_* values share the worker's env:
+ *   a name used by two of them, or by one of them and a resource binding,
+ *   is a conflict.
  */
 export function planBindings(
   existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
   requirements: readonly { bindingName: string; type?: string }[],
   wantsQueue: boolean,
+  text: TextBindingNames = {},
 ): BindingPlan {
   const bound = new Map(existing.map((r) => [r.bindingName, r]));
   const plan: BindingPlan = { requirements: [], unsupported: [], added: [], conflicts: [] };
@@ -274,7 +279,62 @@ export function planBindings(
       );
     }
   }
+
+  // Text bindings share the worker's env with everything above: project
+  // environment variables (secret_text) and the config's [vars]
+  // (plain_text), beside Creek's own CREEK_* values. Two bindings under one
+  // name fail the Workers upload, after resources have been created, so
+  // refuse the name here. Resource names count as the skipped-name rule
+  // does: anything declared, attached, an alias the deploy emits, or the
+  // queue.
+  const reserved = new Set<string>(Object.values(INTERNAL_VARS));
+  const resourceNames = new Set<string>([
+    ...declared.keys(),
+    ...bound.keys(),
+    ...aliasOf.keys(),
+    ...(wantsQueue ? [BINDING_NAMES.queue] : []),
+  ]);
+  for (const name of resourceNames) {
+    if (reserved.has(name)) {
+      plan.conflicts.push(`${name} is a name Creek sets on every worker. Rename the binding.`);
+    }
+  }
+  const envKeys = new Set(text.envKeys ?? []);
+  for (const key of envKeys) {
+    if (reserved.has(key)) {
+      plan.conflicts.push(
+        `${key} is a name Creek sets on every worker, but the project has an environment variable named ${key}. Remove it (\`creek env rm ${key}\`).`,
+      );
+    } else if (resourceNames.has(key)) {
+      plan.conflicts.push(
+        `${key} is both a binding and a project environment variable. Rename one (\`creek env rm ${key}\`, then set it under another name).`,
+      );
+    }
+  }
+  for (const key of new Set(text.varKeys ?? [])) {
+    if (reserved.has(key)) {
+      plan.conflicts.push(
+        `${key} is a name Creek sets on every worker, but the config's [vars] declares it. Rename it.`,
+      );
+    } else if (resourceNames.has(key)) {
+      plan.conflicts.push(`${key} is both a binding and a [vars] value in the config. Rename one.`);
+    } else if (envKeys.has(key)) {
+      plan.conflicts.push(
+        `${key} is both a project environment variable and a [vars] value in the config. Keep one: remove the variable (\`creek env rm ${key}\`) or the [vars] entry.`,
+      );
+    }
+  }
   return plan;
+}
+
+/**
+ * The names of a deploy's text bindings, which share the worker's env with
+ * its resource bindings: the project's environment variables for the
+ * deploy's target, and the config's [vars].
+ */
+export interface TextBindingNames {
+  envKeys?: readonly string[];
+  varKeys?: readonly string[];
 }
 
 /** planBindings against the project's current bindings. Read-only. */
@@ -283,9 +343,10 @@ export async function planDeployBindings(
   projectId: string,
   requirements: readonly { bindingName: string; type?: string }[],
   wantsQueue: boolean,
+  text: TextBindingNames = {},
 ): Promise<BindingPlan> {
   const rows = await env.DB.prepare(PROJECT_BINDINGS_SQL).bind(projectId).all<ResolvedBinding>();
-  return planBindings(rows.results, requirements, wantsQueue);
+  return planBindings(rows.results, requirements, wantsQueue, text);
 }
 
 /**
@@ -311,7 +372,7 @@ export async function ensureProjectBindings(
   projectId: string,
   teamId: string,
   requirements: readonly { bindingName: string; type?: string }[],
-  opts: { mayAddBindings?: boolean; wantsQueue?: boolean } = {},
+  opts: { mayAddBindings?: boolean; wantsQueue?: boolean; text?: TextBindingNames } = {},
 ): Promise<Map<string, ResolvedResourceBinding>> {
   const mayAddBindings = opts.mayAddBindings !== false;
   // Fetch existing bindings for this project
@@ -319,7 +380,12 @@ export async function ensureProjectBindings(
     .bind(projectId)
     .all<ResolvedBinding>();
 
-  const plan = planBindings(existingRows.results, requirements, opts.wantsQueue === true);
+  const plan = planBindings(
+    existingRows.results,
+    requirements,
+    opts.wantsQueue === true,
+    opts.text,
+  );
   if (plan.conflicts.length > 0) throw new BindingConflictError(plan.conflicts);
   // Refuse before any write, with the same decision the upload check made.
   // The throw at the alias/create point below stays as a second line in case

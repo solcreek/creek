@@ -332,11 +332,25 @@ deployments.put(
       // (planBindings), so a bundle the job would refuse fails here, before
       // the bundle is staged and a deployment runs.
       const { planDeployBindings } = await import("../resources/service.js");
+      const { loadDeployEnvVars } = await import("../env/deploy-vars.js");
+      const { deployTargetFor } = await import("../env/targets.js");
+      const vars = (parsedBundle as { vars?: unknown }).vars;
       const plan = await planDeployBindings(
         c.env,
         project.id,
         requirements,
         Boolean(declared.queue),
+        {
+          envKeys: (
+            await loadDeployEnvVars(
+              c.env.DB,
+              project.id,
+              deployTargetFor(deployment.branch, project.productionBranch),
+            )
+          ).map((r) => r.key),
+          varKeys:
+            vars && typeof vars === "object" && !Array.isArray(vars) ? Object.keys(vars) : [],
+        },
       );
       if (plan.conflicts.length > 0) {
         return c.json(
