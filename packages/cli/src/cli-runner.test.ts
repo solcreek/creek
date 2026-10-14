@@ -165,6 +165,26 @@ describe("runCli (JSON mode error conversion)", () => {
     );
   });
 
+  it("reports an unreachable server as api_unreachable, not internal_error", async () => {
+    const offline = defineCommand({
+      meta: { name: "offline" },
+      run() {
+        throw new TypeError("fetch failed");
+      },
+    });
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(offline, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "api_unreachable",
+      message: "Could not reach the server (fetch failed). Check the network and retry.",
+    });
+    expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe("fetch failed\n");
+  });
+
   it("reports a rejected API key as unauthorized", async () => {
     const rejected = defineCommand({
       meta: { name: "rejected" },

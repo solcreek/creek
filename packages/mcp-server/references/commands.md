@@ -121,6 +121,8 @@ Act on `apiError`:
 | `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
+`error: "api_unreachable"` (no `status`) means the server could not be reached at all — a network problem, not the key: retry.
+
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.

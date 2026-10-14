@@ -111,7 +111,10 @@ export async function runCli(
     // its fields carry what a hint would say, and stderr gets the message
     // only.
     const api = apiErrorFields(err);
-    if (api.apiError) {
+    // Node's fetch rejects with TypeError("fetch failed") when a server can't
+    // be reached (refused, DNS, TLS, reset): retryable, and not a CLI bug.
+    const unreachable = err instanceof TypeError && err.message === "fetch failed";
+    if (api.apiError || unreachable) {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     } else {
       consola.error(err);
@@ -119,8 +122,12 @@ export async function runCli(
     jsonOutput(
       {
         ok: false,
-        error: api.apiError ?? "internal_error",
-        message: err instanceof Error ? err.message : String(err),
+        error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
+        message: unreachable
+          ? "Could not reach the server (fetch failed). Check the network and retry."
+          : err instanceof Error
+            ? err.message
+            : String(err),
         ...api,
       },
       1,
