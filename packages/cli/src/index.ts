@@ -31,6 +31,7 @@ import { restartCommand } from "./commands/restart.js";
 import { stopCommand } from "./commands/stop.js";
 import { dashboardCommand } from "./commands/dashboard.js";
 import { runCli, wantsJson } from "./cli-runner.js";
+import { installRequestLedger } from "./utils/request-ledger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -83,6 +84,9 @@ const main = defineCommand({
 
 const rawArgs = process.argv.slice(2);
 const jsonMode = wantsJson(rawArgs, process.stdout.isTTY ?? false);
+// Before any command runs: a network failure then knows whether this run
+// may already have changed something (utils/request-ledger.ts).
+installRequestLedger();
 runCli(main, rawArgs, { jsonMode }).catch((err) => {
   // Non-CLIError runtime failure that no command handled. Keep citty's
   // human behaviour: error to stderr, exit non-zero.

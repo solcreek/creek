@@ -3,6 +3,11 @@ import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
 import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
 import { apiErrorFields } from "./utils/api-error.js";
+import {
+  fetchFailureReason,
+  isNetworkFailure,
+  mutationsMaybeApplied,
+} from "./utils/request-ledger.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -40,58 +45,59 @@ export function wantsJson(rawArgs: string[], isTTY: boolean): boolean {
 }
 
 /**
- * Failures that happen before a connection exists — so the request never
- * reached the server — and can pass on their own: a refused connection, a
- * connect timeout, a network or route that is down, a temporary DNS failure.
- * Re-running the command is safe whatever it does: nothing was applied.
+ * Network failures that can pass on their own: a refused or reset
+ * connection, a timeout, a network or route that is down, a temporary DNS
+ * failure. Whether re-running the command is safe is a separate question,
+ * answered by the request ledger: it is, only when no mutating request of
+ * this run may have been applied.
  *
- * Not here, and so not retryable:
- * - a connection lost mid-request (ECONNRESET, EPIPE, ETIMEDOUT, undici's
- *   socket/headers/body errors): the server may have applied it — a deploy
- *   may exist — so re-running a mutation could do it twice;
- * - ENOTFOUND: a wrong host, or (macOS, Windows) no network at all;
- * - a TLS or certificate error, `bad port`, `unknown scheme`: configuration
- *   (CREEK_API_URL, a proxy's certificate) that fails the same way again.
+ * Not here, and so never retryable: ENOTFOUND (a wrong host, or on macOS and
+ * Windows no network at all), a TLS or certificate error, `bad port`,
+ * `unknown scheme` — configuration that fails the same way again.
  */
-const RETRYABLE_BEFORE_CONNECT: ReadonlySet<string> = new Set([
+const TRANSIENT_NETWORK_CODES: ReadonlySet<string> = new Set([
   "ECONNREFUSED",
+  "ECONNRESET",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "EPIPE",
   "EHOSTUNREACH",
   "ENETUNREACH",
   "ENETDOWN",
   "EAI_AGAIN",
   "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CLOSED",
 ]);
 
-/** What to tell the caller about an unreachable server, by cause. */
+/** What to tell the caller about an unreachable server. */
 function unreachableMessage(
+  failure: string,
   reason: string | undefined,
   retryable: boolean,
-  lostMidRequest: boolean,
+  mayHaveApplied: boolean,
 ): string {
-  const failed = `fetch failed${reason ? `: ${reason}` : ""}`;
+  const failed = `${failure}${reason ? `: ${reason}` : ""}`;
   if (retryable) {
-    return `Could not reach the server (${failed}); the request was not sent. Retry.`;
+    const what =
+      failure === "terminated"
+        ? "The connection broke while reading the server's response"
+        : "Could not reach the server";
+    return `${what} (${failed}). Nothing this command changes was applied: retry.`;
   }
-  if (lostMidRequest) {
-    return `Lost the connection to the server (${failed}). The request may have been applied: check the result (e.g. creek status, creek deployments) before running the command again.`;
+  if (mayHaveApplied) {
+    return `Lost the server (${failed}) after this command may have changed something. Check the result (e.g. creek status, creek deployments) before running it again.`;
+  }
+  if (failure === "terminated") {
+    return `The server's response broke off (${failed}) in a way a retry repeats. Report it; retrying will not help.`;
   }
   if (reason === "ENOTFOUND") {
     return `Could not reach the server (${failed}): the host was not found. Check the network connection, and CREEK_API_URL if you set one.`;
   }
   return `Could not reach the server (${failed}). Check the API URL (CREEK_API_URL) and certificates; retrying will not help.`;
 }
-
-/** A connection lost after the request may have been sent. */
-const LOST_MID_REQUEST: ReadonlySet<string> = new Set([
-  "ECONNRESET",
-  "ECONNABORTED",
-  "EPIPE",
-  "ETIMEDOUT",
-  "UND_ERR_SOCKET",
-  "UND_ERR_CLOSED",
-  "UND_ERR_HEADERS_TIMEOUT",
-  "UND_ERR_BODY_TIMEOUT",
-]);
 
 const HELP_BREADCRUMBS: Breadcrumb[] = [
   { command: "creek --help --json", description: "Machine-readable command schema" },
@@ -166,40 +172,41 @@ export async function runCli(
     // only.
     const api = apiErrorFields(err);
     // Node's fetch rejects with TypeError("fetch failed") when a server can't
-    // be reached: not a CLI bug. Whether re-running is safe depends on the
-    // cause (RETRYABLE_BEFORE_CONNECT, LOST_MID_REQUEST).
-    const unreachable = err instanceof TypeError && err.message === "fetch failed";
-    // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error)
-    // on `cause`: it tells a bad URL or certificate from an outage.
-    const cause = unreachable
-      ? (err.cause as { code?: unknown; message?: unknown } | undefined)
-      : undefined;
-    const reason =
-      typeof cause?.code === "string"
-        ? cause.code
-        : typeof cause?.message === "string"
-          ? cause.message
-          : undefined;
+    // be reached, and reading a body rejects with TypeError("terminated")
+    // when the connection breaks mid-response: network, not a CLI bug.
+    // undici keeps the actual reason (ECONNREFUSED, ENOTFOUND, a TLS error,
+    // UND_ERR_SOCKET) on `cause`: it tells a bad URL or certificate from an
+    // outage.
+    const unreachable = isNetworkFailure(err);
+    const reason = fetchFailureReason(err);
     if (api.apiError || unreachable) {
       const text = err instanceof Error ? err.message : String(err);
       process.stderr.write(`${reason ? `${text}: ${reason}` : text}\n`);
     } else {
       consola.error(err);
     }
-    const retryable = unreachable && reason !== undefined && RETRYABLE_BEFORE_CONNECT.has(reason);
-    const lostMidRequest = unreachable && reason !== undefined && LOST_MID_REQUEST.has(reason);
+    // Re-running is safe only if nothing this run did can have been applied:
+    // the failing request included, which the ledger has already counted.
+    const mayHaveApplied = unreachable && mutationsMaybeApplied() > 0;
+    // A body that broke off reached a server that answered, so never the URL
+    // or a certificate. With no cause or a transient one the connection
+    // dropped; other undici causes (a wrong content-length, a size limit)
+    // come from the response itself and repeat on a retry.
+    const brokeMidResponse = unreachable && (err as TypeError).message === "terminated";
+    const transient = reason !== undefined ? TRANSIENT_NETWORK_CODES.has(reason) : brokeMidResponse;
+    const retryable = unreachable && !mayHaveApplied && transient;
     jsonOutput(
       {
         ok: false,
         error: api.apiError ?? (unreachable ? "api_unreachable" : "internal_error"),
         message: unreachable
-          ? unreachableMessage(reason, retryable, lostMidRequest)
+          ? unreachableMessage((err as TypeError).message, reason, retryable, mayHaveApplied)
           : err instanceof Error
             ? err.message
             : String(err),
         ...(reason ? { reason } : {}),
         ...(unreachable ? { retryable } : {}),
-        ...(lostMidRequest ? { mayHaveApplied: true } : {}),
+        ...(mayHaveApplied ? { mayHaveApplied: true } : {}),
         ...api,
       },
       1,

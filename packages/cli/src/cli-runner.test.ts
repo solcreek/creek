@@ -3,6 +3,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekApiError, CreekAuthError } from "@solcreek/sdk";
 import { cliErrorToJson, wantsJson, runCli } from "./cli-runner.js";
+import { installRequestLedger, resetRequestLedger } from "./utils/request-ledger.js";
 
 describe("cliErrorToJson", () => {
   it("maps citty CLIError codes to structured errors", () => {
@@ -185,7 +186,7 @@ describe("runCli (JSON mode error conversion)", () => {
       ok: false,
       error: "api_unreachable",
       message:
-        "Could not reach the server (fetch failed: ECONNREFUSED); the request was not sent. Retry.",
+        "Could not reach the server (fetch failed: ECONNREFUSED). Nothing this command changes was applied: retry.",
       reason: "ECONNREFUSED",
       retryable: true,
     });
@@ -196,10 +197,10 @@ describe("runCli (JSON mode error conversion)", () => {
   });
 
   // Causes as Node 24's fetch reports them (measured 2026-10-13): code when
-  // the socket layer has one, else only a message.
-  const RETRY = "Retry.";
+  // the socket layer has one, else only a message. Nothing in these runs
+  // made a request, so retryability is the cause's alone.
+  const RETRY = "retry.";
   const FIX = "retrying will not help";
-  const MAYBE = "may have been applied";
   it.each([
     ["a refused connection", { code: "ECONNREFUSED" }, "ECONNREFUSED", true, RETRY],
     [
@@ -212,18 +213,7 @@ describe("runCli (JSON mode error conversion)", () => {
     ["a temporary DNS failure", { code: "EAI_AGAIN" }, "EAI_AGAIN", true, RETRY],
     // Node 24 reports this for an unroutable address (measured: [100::1]).
     ["an unreachable host", { code: "EHOSTUNREACH" }, "EHOSTUNREACH", true, RETRY],
-    ["a network that is down", { code: "ENETUNREACH" }, "ENETUNREACH", true, RETRY],
-    // Lost after the request may have been sent: re-running a mutation (a
-    // deploy) could apply it twice, so not retryable.
-    ["a reset connection", { code: "ECONNRESET" }, "ECONNRESET", false, MAYBE],
-    [
-      "a response timeout",
-      { code: "UND_ERR_HEADERS_TIMEOUT" },
-      "UND_ERR_HEADERS_TIMEOUT",
-      false,
-      MAYBE,
-    ],
-    ["a socket closed mid-request", { code: "UND_ERR_SOCKET" }, "UND_ERR_SOCKET", false, MAYBE],
+    ["a reset connection", { code: "ECONNRESET" }, "ECONNRESET", true, RETRY],
     // A wrong host, or no network on macOS/Windows: not retried, and the
     // message names both rather than claiming a retry cannot help.
     ["an unknown host", { code: "ENOTFOUND" }, "ENOTFOUND", false, "Check the network connection"],
@@ -237,7 +227,7 @@ describe("runCli (JSON mode error conversion)", () => {
     ["a blocked port", { message: "bad port" }, "bad port", false, FIX],
     ["a non-HTTP(S) API URL", { message: "unknown scheme" }, "unknown scheme", false, FIX],
   ])(
-    "marks %s retryable=%s only when it can pass on its own",
+    "marks %s retryable=%s when nothing was applied",
     async (_label, cause, reason, retryable, says) => {
       const offline = defineCommand({
         meta: { name: "offline" },
@@ -252,8 +242,129 @@ describe("runCli (JSON mode error conversion)", () => {
       const out = JSON.parse(stdout);
       expect(out).toMatchObject({ error: "api_unreachable", reason, retryable });
       expect(out.message).toContain(says);
-      if (says === MAYBE) expect(out.mayHaveApplied).toBe(true);
-      else expect(out).not.toHaveProperty("mayHaveApplied");
+      expect(out).not.toHaveProperty("mayHaveApplied");
+    },
+  );
+
+  describe("after this run may have changed something", () => {
+    // A command that makes several requests (creek deploy: create project,
+    // create deployment, upload): once a mutating request may have been
+    // applied, re-running the command could apply it again.
+    const realFetch = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = realFetch;
+      resetRequestLedger();
+    });
+
+    it("is not retryable, even when the failing request never reached a server", async () => {
+      globalThis.fetch = vi.fn(async () => new Response("{}", { status: 201 }));
+      installRequestLedger();
+      await fetch("https://api.test/projects", { method: "POST" });
+
+      const laterStepFails = defineCommand({
+        meta: { name: "deploy" },
+        async run() {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+          });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(laterStepFails, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({
+        error: "api_unreachable",
+        reason: "ECONNREFUSED",
+        retryable: false,
+        mayHaveApplied: true,
+      });
+      expect(out.message).toContain("Check the result");
+    });
+
+    it("is not retryable when a write's response broke off after it was answered", async () => {
+      // The POST resolved with 201 (counted), then its body broke off.
+      globalThis.fetch = vi.fn(async () => new Response("{}", { status: 201 }));
+      installRequestLedger();
+      await fetch("https://api.test/deployments", { method: "POST" });
+
+      const bodyBrokeOff = defineCommand({
+        meta: { name: "deploy" },
+        async run() {
+          throw new TypeError("terminated");
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(bodyBrokeOff, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ retryable: false, mayHaveApplied: true });
+      expect(out.message).toContain("Check the result");
+    });
+
+    it("stays retryable when the run only read (GET)", async () => {
+      globalThis.fetch = vi.fn(async () => new Response("{}", { status: 200 }));
+      installRequestLedger();
+      await fetch("https://api.test/projects");
+
+      const readThenFail = defineCommand({
+        meta: { name: "status" },
+        async run() {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+          });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(readThenFail, [], { jsonMode: true }));
+      expect(JSON.parse(stdout)).toMatchObject({ retryable: true });
+      expect(JSON.parse(stdout)).not.toHaveProperty("mayHaveApplied");
+    });
+  });
+
+  it("treats a body that broke off (terminated) as a network failure, not internal_error", async () => {
+    const midResponse = defineCommand({
+      meta: { name: "status" },
+      run() {
+        throw new TypeError("terminated", {
+          cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+        });
+      },
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await runExit(runCli(midResponse, [], { jsonMode: true }));
+    const out = JSON.parse(stdout);
+    expect(out).toMatchObject({
+      error: "api_unreachable",
+      reason: "UND_ERR_SOCKET",
+      retryable: true,
+    });
+    expect(out.message).toContain("while reading the server's response");
+  });
+
+  it.each([
+    // The connection dropped: transient.
+    ["no cause", undefined, true, "while reading the server's response"],
+    // The response itself was wrong: a retry repeats it.
+    [
+      "a wrong content-length",
+      Object.assign(new Error("x"), { code: "UND_ERR_RES_CONTENT_LENGTH_MISMATCH" }),
+      false,
+      "retrying will not help",
+    ],
+  ])(
+    "classifies a body that broke off with %s, never blaming the URL",
+    async (_l, cause, retryable, says) => {
+      const midResponse = defineCommand({
+        meta: { name: "status" },
+        run() {
+          throw new TypeError("terminated", { cause });
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runExit(runCli(midResponse, [], { jsonMode: true }));
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ error: "api_unreachable", retryable });
+      expect(out.message).toContain(says);
+      expect(out.message).not.toContain("CREEK_API_URL");
     },
   );
 
