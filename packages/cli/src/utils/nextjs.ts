@@ -310,7 +310,7 @@ export const ADAPTER_PKG = "@solcreek/adapter-creek";
 // `^0.2.2`, `npm install` would keep an already-locked 0.2.16 (it satisfies the
 // range), so bumping only the floor would loop into the legacy fallback. Pin the
 // floor here too so the refresh fetches the fixed build.
-export const ADAPTER_VERSION = "^0.2.21";
+export const ADAPTER_VERSION = "^0.2.22";
 // Zero-change Prisma-on-D1: the adapter's build-time swap imports
 // @prisma/adapter-d1 (an optional peer it doesn't ship), installed on demand.
 const PRISMA_D1_PKG = "@prisma/adapter-d1";
@@ -346,10 +346,14 @@ const PRISMA_D1_PKG = "@prisma/adapter-d1";
 //            to env.DB. Up to 0.2.20 they read only env.DB, so a project bound
 //            only under DATABASE (what database = true creates) got a 500 on
 //            every query.
+//   0.2.22 — Edge-runtime pages and routes work in webpack builds, which
+//            creek deploy runs. Up to 0.2.21 every edge pages API route, app
+//            route handler and edge page returned 500 ("No handler function
+//            found on module"), with or without middleware.
 // Kept at the latest because the reinstall cost is trivial and a cached copy
 // in the 0.2.2–0.2.5 window builds successfully but produces a broken worker.
 // Exported (with ADAPTER_VERSION/ADAPTER_PKG) for the lockstep invariant test.
-export const ADAPTER_MIN_VERSION = "0.2.21";
+export const ADAPTER_MIN_VERSION = "0.2.22";
 
 /**
  * Merge a dependency into .creek/package.json without clobbering deps that
