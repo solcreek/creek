@@ -78,6 +78,18 @@ describe("provisionSandboxResources: DATABASE and DB declared together", () => {
     }
   });
 
+  test("does not share a partner's resource of another type", async () => {
+    const { bindings } = await provisionSandboxResources(env, "abc123", [
+      { type: "kv", bindingName: "DB" },
+      { type: "d1", bindingName: "DATABASE" },
+    ]);
+    expect(createD1Database).toHaveBeenCalledTimes(1);
+    expect(bindings).toEqual([
+      { type: "kv_namespace", name: "DB", namespace_id: "kv:sbox-abc123-db" },
+      { type: "d1", name: "DATABASE", id: "d1:sbox-abc123-database" },
+    ]);
+  });
+
   test("CACHE and KV share one namespace", async () => {
     const { bindings, provisioned } = await provisionSandboxResources(env, "abc123", [
       { type: "kv", bindingName: "CACHE" },
