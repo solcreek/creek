@@ -30,17 +30,38 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (!url.startsWith("https://api.cloudflare.com/")) return realFetch(input, init);
 
-  const method = (init?.method ?? "GET").toUpperCase();
+  const method = (
+    init?.method ??
+    (input instanceof Request ? input.method : undefined) ??
+    "GET"
+  ).toUpperCase();
   const path = url.slice("https://api.cloudflare.com/client/v4".length);
   const metadata = await metadataOf(init?.body);
   appendFileSync(LOG, JSON.stringify({ method, path, ...(metadata ? { metadata } : {}) }) + "\n");
 
-  // Lists (find-before-create) come back empty; everything else succeeds with
-  // the fields provisioning and the asset upload read.
+  const respond = (status: number, body: object) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // Nothing exists until this run creates it: a single R2 bucket's GET is a
+  // 404 (getR2Bucket reads success as "exists"), and lists
+  // (find-before-create) come back empty.
+  if (method === "GET" && /\/r2\/buckets\/[^/?]+$/.test(path)) {
+    return respond(404, {
+      success: false,
+      errors: [{ code: 10006, message: "The specified bucket does not exist." }],
+      messages: [],
+      result: null,
+    });
+  }
+  // Everything else succeeds with the fields provisioning (D1 uuid, KV id,
+  // queue_id) and the asset upload (jwt, buckets) read.
   const id = `fake-${++counter}`;
   const result =
-    method === "GET" ? [] : { id, uuid: id, name: id, jwt: `fake-jwt-${counter}`, buckets: [] };
-  return new Response(JSON.stringify({ success: true, errors: [], messages: [], result }), {
-    headers: { "content-type": "application/json" },
-  });
+    method === "GET"
+      ? []
+      : { id, uuid: id, name: id, queue_id: id, jwt: `fake-jwt-${counter}`, buckets: [] };
+  return respond(200, { success: true, errors: [], messages: [], result });
 }) as typeof fetch;
