@@ -25,10 +25,8 @@ describe("provablyNotSent", () => {
     [{ code: "SELF_SIGNED_CERT_IN_CHAIN" }, true],
     [{ code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" }, true],
     [{ code: "ERR_TLS_CERT_ALTNAME_INVALID" }, true],
-    // Measured with Node's fetch: a local self-signed HTTPS server, and TLS
-    // to a plain-HTTP port.
+    // Measured with Node's fetch against a local self-signed HTTPS server.
     [{ code: "DEPTH_ZERO_SELF_SIGNED_CERT" }, true],
-    [{ code: "ERR_SSL_WRONG_VERSION_NUMBER" }, true],
     // From Node's X509_ERROR_CODE table (src/crypto/crypto_common.cc).
     [{ code: "INVALID_CA" }, true],
     [{ code: "PATH_LENGTH_EXCEEDED" }, true],
@@ -37,6 +35,11 @@ describe("provablyNotSent", () => {
     // TLS errors that can hit an established connection after the request
     // went out: possibly sent.
     [{ code: "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC" }, false],
+    // Raised at handshake too (measured: TLS to a plain-HTTP port), but the
+    // record layer raises it on an established connection as well.
+    [{ code: "ERR_SSL_WRONG_VERSION_NUMBER" }, false],
+    // A TLS 1.2 renegotiation after the request can fail with this alert.
+    [{ code: "ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE" }, false],
     [{ code: "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR" }, false],
     [{ code: "ERR_TLS_SESSION_ATTACK" }, false],
     // Possibly after the request was written.
