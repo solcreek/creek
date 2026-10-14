@@ -245,11 +245,12 @@ resources.delete(
     // recoverable after that. Both statements match the same live row, so a
     // missing or already-deleted resource queues nothing.
     //
-    // cfResourceId can come from the caller (POST /resources accepts one), so
-    // it is not proof the resource is this team's. The queue records the name
-    // Creek gives every resource it provisions, `creek-<first 8 of id>`, and
-    // the cleanup deletes only a resource that still carries it. Nothing is
-    // queued while another live row points at the same Cloudflare resource.
+    // A row's cfResourceId is not proof the resource is this team's: rows
+    // created before POST /resources refused caller-supplied IDs may point at
+    // any resource. The queue records the name Creek gives what it provisions
+    // for this row (provisionedName), and the cleanup deletes only a resource
+    // that still carries it, or the older `creek-<first 8 of id>` name. Nothing
+    // is queued while another live row points at the same Cloudflare resource.
     //
     // The binding check above only gives the 409 its message: a project can
     // attach the resource after it. Both statements therefore also require it
