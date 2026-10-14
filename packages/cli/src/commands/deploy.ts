@@ -2164,6 +2164,19 @@ async function deployAuthenticated(
     progress.section("Auth");
     const session = await client.getSession();
     if (!session?.user) {
+      // getSession() swallows the 401, so this is the rejected-key exit:
+      // JSON mode still owes stdout a result.
+      if (jsonMode) {
+        jsonOutput(
+          {
+            ok: false,
+            error: "unauthorized",
+            message: "Token is invalid or expired. Run `creek login` to re-authenticate.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
+      }
       consola.error("Token is invalid or expired. Run `creek login` to re-authenticate.");
       process.exit(1);
     }
