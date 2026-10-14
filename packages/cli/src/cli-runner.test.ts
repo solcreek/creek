@@ -145,7 +145,7 @@ describe("runCli (JSON mode error conversion)", () => {
       },
     });
     const error = vi.spyOn(consola, "error").mockImplementation(() => {});
-    vi.spyOn(consola, "info").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const code = await runExit(runCli(refused, [], { jsonMode: true }));
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toEqual({
@@ -156,8 +156,13 @@ describe("runCli (JSON mode error conversion)", () => {
       apiError: "binding_conflict",
       details: { conflicts: ["DB is both a binding and a project environment variable."] },
     });
-    // An API refusal is not a CLI crash: no stack trace on stderr.
+    // stdout is the JSON alone (asserted by JSON.parse above, with consola's
+    // info writer unmocked); an API refusal is not a CLI crash: stderr gets
+    // the message, no stack trace.
     expect(error).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe(
+      "DB is both a binding and a project environment variable.\n",
+    );
   });
 
   it("reports a rejected API key as unauthorized", async () => {
@@ -167,7 +172,7 @@ describe("runCli (JSON mode error conversion)", () => {
         throw new CreekAuthError("Invalid API key");
       },
     });
-    vi.spyOn(consola, "info").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const code = await runExit(runCli(rejected, [], { jsonMode: true }));
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toEqual({
@@ -177,6 +182,7 @@ describe("runCli (JSON mode error conversion)", () => {
       status: 401,
       apiError: "unauthorized",
     });
+    expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toBe("Invalid API key\n");
   });
 
   it("stdout is pure JSON (parseable, no usage text)", async () => {

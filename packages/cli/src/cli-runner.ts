@@ -2,7 +2,7 @@ import { runCommand, runMain } from "citty";
 import consola from "consola";
 import { jsonOutput, type Breadcrumb } from "./utils/output.js";
 import { buildHelpSchema, findUnknownFlags, unknownFlagMessage } from "./help-schema.js";
-import { apiErrorFields, apiErrorHints } from "./utils/api-error.js";
+import { apiErrorFields } from "./utils/api-error.js";
 
 type CittyCommand = Parameters<typeof runMain>[0];
 
@@ -104,13 +104,15 @@ export async function runCli(
       jsonOutput(structured, 1, HELP_BREADCRUMBS);
     }
     // A runtime error no command handled. In JSON mode the caller still needs
-    // a JSON result on stdout (an empty stdout doesn't parse); the error
-    // itself, with its stack, goes to stderr for whoever reads the logs. A
-    // failed API call keeps the API's own error code (`binding_conflict`,
-    // `insufficient_scope`, …) rather than reading as a CLI bug.
+    // a JSON result on stdout (an empty stdout doesn't parse), and nothing
+    // else may reach stdout. A CLI bug goes to stderr with its stack, for
+    // whoever reads the logs. A refused API call is not a bug: it keeps the
+    // API's own error code (`binding_conflict`, `insufficient_scope`, …),
+    // its fields carry what a hint would say, and stderr gets the message
+    // only.
     const api = apiErrorFields(err);
     if (api.apiError) {
-      for (const hint of apiErrorHints(err)) consola.info(hint);
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     } else {
       consola.error(err);
     }
