@@ -6,6 +6,7 @@ import {
   dryRunNextStep,
   hasDeployablePayload,
   deployCommand,
+  isCreekdTarget,
   productionSuccessBreadcrumbs,
 } from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
@@ -210,6 +211,24 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(parsed).toMatchObject({ ok: false, error: "not_authenticated" });
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(sandboxDeploy).not.toHaveBeenCalled();
+  });
+
+  it("signed out, --prod --dry-run on a creekd target is not refused (creekd has its own token)", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    writeFileSync(
+      join(dir, "creek.toml"),
+      '[project]\nname = "self-hosted"\ntarget = "creekd"\n\n[build]\ncommand = ""\noutput = "."\n',
+    );
+    expect(isCreekdTarget(dir)).toBe(true);
+    const out = await dryRunJson({ prod: true });
+    expect(out.error).toBeUndefined();
+    expect(out).toMatchObject({ mode: "dry-run", supported: true });
+  });
+
+  it("isCreekdTarget is false for a Cloudflare config and for no config", () => {
+    expect(isCreekdTarget(dir)).toBe(false);
+    writeFileSync(join(dir, "creek.toml"), '[project]\nname = "cf-app"\n');
+    expect(isCreekdTarget(dir)).toBe(false);
   });
 
   it("signed out, no target flag still plans a sandbox (implicit behaviour unchanged)", async () => {

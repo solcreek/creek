@@ -591,6 +591,20 @@ async function dryRunPlan(
 type DeployEnv = "production" | "sandbox" | "abort";
 
 /**
+ * Whether `dir`'s config deploys to a self-hosted creekd. Such deploys use
+ * CREEKD_TOKEN / CREEKCTL_TOKEN rather than the creek.dev session, so a
+ * signed-out `--prod` is fine there. An unreadable or missing config counts
+ * as not creekd (a Cloudflare deploy). Exported for tests.
+ */
+export function isCreekdTarget(dir: string): boolean {
+  try {
+    return resolveConfig(dir).target === "creekd";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * `creek deploy --prod` while signed out: exit `not_authenticated` with the
  * auth breadcrumbs (plus the sandbox alternative) instead of deploying a
  * sandbox the caller did not ask for.
@@ -845,7 +859,7 @@ export const deployCommand = defineCommand({
     prod: {
       type: "boolean",
       description:
-        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Requires sign-in: without a session the deploy (and --dry-run) exits not_authenticated instead of falling back to a sandbox. Mutually exclusive with --sandbox.",
+        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Requires sign-in for Cloudflare deploys: without a session the deploy (and --dry-run) exits not_authenticated instead of falling back to a sandbox (creekd targets use their own token and are exempt). Mutually exclusive with --sandbox.",
       default: false,
     },
     sandbox: {
@@ -880,9 +894,16 @@ export const deployCommand = defineCommand({
     // there is no way to reach it, so refuse instead of quietly handing the
     // caller a 60-minute sandbox they did not ask for. Checked before the
     // dry-run so the plan and the real run agree. A bare `creek deploy`
-    // (no flag) still falls back to a sandbox when signed out.
+    // (no flag) still falls back to a sandbox when signed out. A creekd
+    // target authenticates with its own token, never the Creek session, so
+    // it is exempt.
     if (args.prod === true && !getToken()) {
-      return refuseSignedOutProd(jsonMode);
+      const fromLocalConfig =
+        !args.template && !args["from-github"] && !(args.dir && isRepoUrl(args.dir));
+      const configDir = args.dir ? resolve(args.dir) : process.cwd();
+      if (!(fromLocalConfig && isCreekdTarget(configDir))) {
+        return refuseSignedOutProd(jsonMode);
+      }
     }
 
     // --- Dry-run short-circuit ---
