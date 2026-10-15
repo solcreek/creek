@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "./types.js";
 import {
   deployWithAssets,
@@ -60,13 +60,7 @@ routes.post("/deploy", async (c) => {
   const now = Date.now();
   const expiresAt = now + ttlMinutes * 60 * 1000;
 
-  // Resolve client IP — trust X-Forwarded-For only from internal services
-  const internalSecret = c.req.header("x-internal-secret");
-  const isTrustedInternal =
-    internalSecret && env.INTERNAL_SECRET && internalSecret === env.INTERNAL_SECRET;
-  const ip = isTrustedInternal
-    ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
-    : (c.req.header("cf-connecting-ip") ?? "unknown");
+  const { ip, isTrustedInternal } = resolveClient(c);
   const ipHash = await hashIp(ip, env);
 
   // Parse bundle
@@ -413,8 +407,9 @@ routes.post("/:id/report", async (c) => {
 
 routes.delete("/:id", async (c) => {
   const sandboxId = c.req.param("id");
-  const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-  const ipHash = await hashIp(ip, c.env);
+  // Same resolution as POST /deploy: a sandbox created through the MCP
+  // server is hashed under the forwarded client IP, so its delete must be.
+  const ipHash = await hashIp(resolveClient(c).ip, c.env);
 
   const sandbox = await c.env.DB.prepare("SELECT id, ipHash, status FROM deployments WHERE id = ?")
     .bind(sandboxId)
@@ -631,6 +626,22 @@ async function runSandboxDeploy(
 }
 
 // --- Helpers ---
+
+/**
+ * The end client's IP. X-Forwarded-For is trusted only from an internal
+ * service (the MCP server) that proves itself with X-Internal-Secret;
+ * otherwise the caller is whoever Cloudflare saw connect.
+ */
+function resolveClient(c: Context<SandboxEnv>): { ip: string; isTrustedInternal: boolean } {
+  const internalSecret = c.req.header("x-internal-secret");
+  const isTrustedInternal = Boolean(
+    internalSecret && c.env.INTERNAL_SECRET && internalSecret === c.env.INTERNAL_SECRET,
+  );
+  const ip = isTrustedInternal
+    ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
+    : (c.req.header("cf-connecting-ip") ?? "unknown");
+  return { ip, isTrustedInternal };
+}
 
 async function hashIp(ip: string, env: Env): Promise<string> {
   const salt = env.IP_HASH_SALT || "creek-sandbox-salt";

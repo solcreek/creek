@@ -157,7 +157,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ sandboxId }) => {
       const got = await sandboxFetch(
         `/api/sandbox/${encodeURIComponent(sandboxId)}`,
-        { method: "DELETE" },
+        // The sandbox API checks the creator's IP hash: forward the client
+        // IP exactly as deploy does, or every delete is a 403.
+        { method: "DELETE", headers: apiHeaders() },
         { extra: { sandboxId } },
       );
       if (!got.ok) return got.result;

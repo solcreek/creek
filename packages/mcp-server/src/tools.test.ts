@@ -654,6 +654,19 @@ describe("MCP result envelope — sandbox tools", () => {
     expect(parse(result)).toEqual({ ok: true, sandboxId: "sb-9", deleted: true });
   });
 
+  it("deploy_delete forwards the client IP like deploy, so the creator check can match", async () => {
+    let saw: Record<string, string> = {};
+    server.use(
+      http.delete(`${SANDBOX}/api/sandbox/sb-9`, ({ request }) => {
+        saw = Object.fromEntries(request.headers);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await registerAndCapture().get("deploy_delete")!({ sandboxId: "sb-9" });
+    expect(saw["x-forwarded-for"]).toBe("203.0.113.7");
+    expect(saw["x-internal-secret"]).toBe("test-internal-secret");
+  });
+
   it("deploy_delete keeps the API's error code", async () => {
     server.use(
       http.delete(`${SANDBOX}/api/sandbox/sb-9`, () =>
