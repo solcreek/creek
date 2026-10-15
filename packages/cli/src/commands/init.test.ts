@@ -137,6 +137,61 @@ describe("creek init --db (non-interactive)", () => {
   });
 });
 
+describe("creek init (existing creek.toml)", () => {
+  let dir: string;
+  let prevCwd: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "creek-init-test-"));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+    exitSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  function payload(): Record<string, unknown> {
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    return JSON.parse(out.slice(out.indexOf("{")));
+  }
+
+  const HAND_EDITED = '[project]\nname = "keep-me"\n\n[resources]\ncache = true\n';
+
+  it("refuses to overwrite an existing creek.toml without --force (non-interactive)", async () => {
+    writeFileSync(join(dir, "creek.toml"), HAND_EDITED);
+    await runInit({ name: "demo", yes: true });
+
+    expect(readFileSync(join(dir, "creek.toml"), "utf-8")).toBe(HAND_EDITED);
+    const p = payload();
+    expect(p).toMatchObject({ ok: false, error: "already_exists" });
+    const cmds = (p.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek init --force --json");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("--force replaces an existing creek.toml and reports replaced: true", async () => {
+    writeFileSync(join(dir, "creek.toml"), HAND_EDITED);
+    await runInit({ name: "demo", yes: true, force: true });
+
+    const toml = readFileSync(join(dir, "creek.toml"), "utf-8");
+    expect(toml).toContain('name = "demo"');
+    expect(payload()).toMatchObject({ ok: true, replaced: true });
+  });
+
+  it("reports replaced: false when there was no creek.toml", async () => {
+    await runInit({ name: "demo", yes: true });
+    expect(payload()).toMatchObject({ ok: true, replaced: false });
+  });
+});
+
 describe("creek init (vinext)", () => {
   let dir: string;
   let prevCwd: string;

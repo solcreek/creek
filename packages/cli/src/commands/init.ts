@@ -52,6 +52,12 @@ export const initCommand = defineCommand({
         'Out-of-band fingerprint paste (Path C). "sha256:<hex>" — pasted from provider console or paper bundle. Requires --adopt for the addr.',
       required: false,
     },
+    force: {
+      type: "boolean",
+      description:
+        "Replace an existing creek.toml. Without it, a non-interactive run (agents, CI, --json, --yes) refuses with already_exists; an interactive terminal asks first.",
+      default: false,
+    },
     ...globalArgs,
   },
   async run({ args }) {
@@ -72,11 +78,39 @@ export const initCommand = defineCommand({
     const cwd = process.cwd();
     const configPath = join(cwd, "creek.toml");
 
+    // An existing creek.toml may be hand-edited (resources, triggers,
+    // release, …). Only replace it when someone asked for that: --force,
+    // or a human answering the prompt in a terminal. A non-interactive run
+    // (agents, CI, --json, --yes) used to overwrite it silently and still
+    // report ok:true.
+    let replaced = false;
     if (existsSync(configPath)) {
-      if (!shouldAutoConfirm(args)) {
+      if (args.force === true) {
+        replaced = true;
+      } else if (!jsonMode && !shouldAutoConfirm(args)) {
         consola.warn("creek.toml already exists");
         const overwrite = await consola.prompt("Overwrite?", { type: "confirm" });
         if (!overwrite) return;
+        replaced = true;
+      } else {
+        const message =
+          "creek.toml already exists. Not overwriting it — pass --force to replace it with a freshly detected config.";
+        if (jsonMode) {
+          jsonOutput({ ok: false, error: "already_exists", message, path: configPath }, 1, [
+            {
+              command: "creek init --force --json",
+              description: "Replace the existing creek.toml (its current contents are lost)",
+            },
+            {
+              command: "creek deploy --dry-run --json",
+              description: "Keep the existing creek.toml and preview what it deploys",
+            },
+          ]);
+          return;
+        }
+        consola.error(message);
+        process.exit(1);
+        return;
       }
     }
 
@@ -233,6 +267,7 @@ export default app;
           database: useDb,
           databasePromptSkipped: dbPromptSkipped,
           path: configPath,
+          replaced,
           gitignoreAdded,
           ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}),
           ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}),
@@ -276,7 +311,7 @@ export default app;
       );
     }
 
-    consola.success(`Created creek.toml for "${name}"`);
+    consola.success(`${replaced ? "Replaced" : "Created"} creek.toml for "${name}"`);
 
     if (!jsonMode) {
       if (gitignoreAdded.length > 0) {
