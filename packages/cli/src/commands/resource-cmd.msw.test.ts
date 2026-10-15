@@ -92,7 +92,7 @@ const fakeControlPlane = [
         {
           error: "conflict",
           message: `Binding '${bindingName}' already exists for this project`,
-          existing: { resourceId: held.resourceId, kind: r.kind, name: r.name },
+          existing: { ...held, kind: r.kind, name: r.name },
         },
         { status: 409 },
       );
@@ -232,7 +232,8 @@ describe("attach, run twice", () => {
   it("the second run reports the binding that is already there", async () => {
     const res = seed("database", "mydb");
     const args = { name: "mydb", to: "app", as: "DB" };
-    expect((await db("attach", args)).out).toMatchObject({ ok: true, alreadyExists: false });
+    const first = await db("attach", args);
+    expect(first.out).toMatchObject({ ok: true, alreadyExists: false });
 
     const second = await db("attach", args);
 
@@ -240,8 +241,10 @@ describe("attach, run twice", () => {
     expect(second.out).toEqual({
       ok: true,
       alreadyExists: true,
-      binding: { project: "app", bindingName: "DB", resourceId: res.id },
+      binding: { projectId: "proj-app", bindingName: "DB", resourceId: res.id, createdAt: 2 },
     });
+    // A re-run's binding has exactly the keys of a fresh one.
+    expect(Object.keys(second.out.binding).sort()).toEqual(Object.keys(first.out.binding).sort());
   });
 
   it("a binding name held by another resource still fails, saying which", async () => {

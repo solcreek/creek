@@ -636,10 +636,11 @@ resourceBindings.post(
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
         // Say what holds the name, so a caller re-running an attach can tell
-        // "this resource is already attached here" from a real clash. Only
-        // {resourceId, kind, name}: this route needs resource:write alone.
+        // "this resource is already attached here" from a real clash. The
+        // binding (on the caller's own project) plus the resource's kind and
+        // name, nothing more: this route needs resource:write alone.
         const existing = await c.env.DB.prepare(
-          `SELECT b.resourceId, r.kind, r.name
+          `SELECT b.projectId, b.bindingName, b.resourceId, b.createdAt, r.kind, r.name
            FROM project_resource_binding b JOIN resource r ON r.id = b.resourceId
            WHERE b.projectId = ? AND b.bindingName = ?`,
         )

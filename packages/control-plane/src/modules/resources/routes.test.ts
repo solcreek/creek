@@ -580,9 +580,13 @@ describe("re-running a resource request says what already holds the name", () =>
 
     expect(res.status).toBe(409);
     const body = (await res.json()) as Conflict;
-    // Only {resourceId, kind, name}: the route needs resource:write alone.
+    // The binding on the caller's own project plus the resource's kind and
+    // name; nothing resource:read guards (Cloudflare ids, team).
     expect(body.existing).toEqual({
+      projectId: "proj-app",
+      bindingName: "DB",
       resourceId: "res-db",
+      createdAt: expect.any(Number),
       kind: "database",
       name: "res-db-name",
     });
