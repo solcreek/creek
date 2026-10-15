@@ -14,9 +14,23 @@ interface CliConfig {
 
 export const DEFAULT_API_URL = "https://api.creek.dev";
 
-/** Compare API URLs without a trailing slash. */
+/**
+ * An API URL as compared for key binding: its origin (scheme, lower-cased
+ * host, port with the scheme's default dropped) plus its path without
+ * trailing slashes. A string that is not a URL is compared as written.
+ */
+function normalizeApiUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname.replace(/\/+$/, "");
+  } catch {
+    return url.replace(/\/+$/, "");
+  }
+}
+
+/** Whether two API URLs name the same API. */
 export function sameApiUrl(a: string, b: string): boolean {
-  return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+  return normalizeApiUrl(a) === normalizeApiUrl(b);
 }
 
 // Resolved on each call (not at import), so HOME decides where the config
