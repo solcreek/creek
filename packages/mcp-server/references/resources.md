@@ -37,7 +37,7 @@ re-run (e.g. after a timeout). Read the flags, not just `ok`:
 | `create <NAME>` | Same kind, same name: `alreadyExists: true`, `resource` is the existing one (use its `id`) | Name held by another kind, or by a **deleted** resource (names stay reserved — choose another): `create_failed`, `apiError: "conflict"`, holder in `details.existing` (`id`, `kind`, `status`) |
 | `attach <NAME> --to P --as B` | Same resource already bound as `B`: `alreadyExists: true`, `binding` | `B` bound to another resource: `attach_failed`, `apiError: "conflict"`, `details.existing` (`resourceId`, `kind`, `name`) — detach it first or pick another `--as` |
 | `detach <NAME> --from P --as B` | `P` has no binding `B`: `alreadyAbsent: true` | Project `P` doesn't exist: `detach_failed`, `status: 404` |
-| `delete <NAME>` | Already deleted: `alreadyAbsent: true`, `resource` (status `deleted`) | The team never had that name: `not_found` (check for a typo) |
+| `delete <NAME>` | Already deleted, including by a concurrent delete (confirmed against the resource's own deleted record): `alreadyAbsent: true`, `resource` (status `deleted`) | The team never had that name: `not_found` (check for a typo). Changed while deleting: `delete_failed`, `apiError: "conflict"`, `details.retryable: true` — re-run |
 
 `detach` checks only the binding name: `alreadyAbsent` means nothing
 is bound as `B`, whichever resource it once was.

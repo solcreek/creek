@@ -450,25 +450,27 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         if (jsonMode) jsonOutput({ ok: true, alreadyAbsent: false }, 0);
         consola.success(`Deleted ${label} "${args.name}"`);
       } catch (err) {
-        // Live a moment ago, gone now: a concurrent delete got there first.
+        // Live a moment ago, 404 now. A 404 alone doesn't prove a concurrent
+        // delete got there first: report success only if the team's list
+        // shows this very resource deleted.
+        let notConfirmed = "";
         if (err instanceof CreekApiError && err.status === 404) {
-          const message = `${label} "${args.name}" was already deleted; nothing was deleted`;
-          // Same shape as the already-deleted path above.
-          if (jsonMode) {
-            jsonOutput(
-              {
-                ok: true,
-                alreadyAbsent: true,
-                resource: { ...resource, status: "deleted" },
-                message,
-              },
-              0,
-            );
+          const after = await client.listResources({ includeDeleted: true }).catch(() => null);
+          const now = after?.resources.find((r) => r.id === resource.id);
+          if (now?.status === "deleted") {
+            const message = `${label} "${args.name}" was already deleted; nothing was deleted`;
+            // Same shape as the already-deleted path above.
+            if (jsonMode) {
+              jsonOutput({ ok: true, alreadyAbsent: true, resource: now, message }, 0);
+            }
+            consola.success(message);
+            return;
           }
-          consola.success(message);
-          return;
+          notConfirmed = now
+            ? `; it still exists (status ${now.status}), nothing was deleted`
+            : "; could not confirm it was deleted";
         }
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = (err instanceof Error ? err.message : String(err)) + notConfirmed;
         if (jsonMode)
           jsonOutput(
             { ok: false, error: "delete_failed", message: msg, ...apiErrorFields(err) },

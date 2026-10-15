@@ -321,6 +321,29 @@ describe("delete, run twice", () => {
 
   it("a delete that loses to a concurrent one reports alreadyAbsent", async () => {
     const res = seed("database", "mydb");
+    // The other delete lands between this one's list and its DELETE: a real
+    // tombstone, then a 404.
+    server.use(
+      http.delete(`${API}/resources/${res.id}`, () => {
+        res.status = "deleted";
+        res.updatedAt = 9;
+        return HttpResponse.json({ error: "not_found" }, { status: 404 });
+      }),
+    );
+
+    const { code, out } = await db("delete", { name: "mydb" });
+
+    expect(code).toBe(0);
+    // The same shape as a re-run that finds it already deleted: the tombstone.
+    expect(out).toMatchObject({
+      ok: true,
+      alreadyAbsent: true,
+      resource: { id: res.id, kind: "database", name: "mydb", status: "deleted", updatedAt: 9 },
+    });
+  });
+
+  it("a 404 for a resource that is still active is an error, not alreadyAbsent", async () => {
+    const res = seed("database", "mydb");
     server.use(
       http.delete(`${API}/resources/${res.id}`, () =>
         HttpResponse.json({ error: "not_found" }, { status: 404 }),
@@ -329,13 +352,27 @@ describe("delete, run twice", () => {
 
     const { code, out } = await db("delete", { name: "mydb" });
 
-    expect(code).toBe(0);
-    // The same shape as a re-run that finds it already deleted.
-    expect(out).toMatchObject({
-      ok: true,
-      alreadyAbsent: true,
-      resource: { id: res.id, kind: "database", name: "mydb", status: "deleted" },
-    });
+    expect(code).toBe(1);
+    expect(out).toMatchObject({ ok: false, error: "delete_failed", status: 404 });
+    expect(out.message).toContain("still exists (status active)");
+    expect(out.alreadyAbsent).toBeUndefined();
+  });
+
+  it("a 404 when another resource now holds the name is not alreadyAbsent either", async () => {
+    // Same name, a different id: the tombstone must be this resource's.
+    const res = seed("database", "mydb");
+    server.use(
+      http.delete(`${API}/resources/${res.id}`, () => {
+        resources.splice(resources.indexOf(res), 1);
+        resources.push({ ...res, id: "res-other", status: "deleted" });
+        return HttpResponse.json({ error: "not_found" }, { status: 404 });
+      }),
+    );
+
+    const { code, out } = await db("delete", { name: "mydb" });
+
+    expect(code).toBe(1);
+    expect(out).toMatchObject({ ok: false, error: "delete_failed" });
   });
 
   it("--dry-run on an already-deleted one plans nothing", async () => {
