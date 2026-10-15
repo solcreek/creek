@@ -7,7 +7,8 @@ Deploy dry-run prints the deploy plan for the current directory without building
 - `dry-run-static` reports `wouldDeploy: true` for a directory with `index.html`.
 - `dry-run-empty` reports `wouldDeploy: false` for a tree with nothing deployable.
 - `dry-run-toml-only` reports `wouldDeploy: false` for `creek.toml` alone.
-- `dry-run-target-sandbox` selects sandbox when unsigned-in.
+- `dry-run-target-sandbox` selects sandbox when unsigned-in and no target flag is given.
+- `prod-signed-out` refuses `--prod` without a session (`not_authenticated`), in the dry-run and the real run alike.
 - `dry-run-no-network` succeeds while API URLs connection-refuse and writes no `~/.creek/config.json`.
 - `deploy-confirmation-gate` refuses a bare non-TTY `creek deploy` with `confirmation_required`.
 
@@ -30,12 +31,14 @@ Preconditions:
 - **Static payload.** Write `$VERIFY_CREEK_WORK/index.html` containing `<h1>verify-creek</h1>`, then run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/deploy-dry-run/static -- deploy --dry-run --json`. Exit code `0`. `wouldDeploy` is `true`, `target.type` is `sandbox`, `nextStep` is `creek deploy --sandbox --json`.
 - **No network.** Same successful run: `sideEffects.networkCalls` is `false`, `sideEffects.fileUploads` is `false`, `sideEffects.buildExecuted` is `false`. The command returned 0 with `CREEK_API_URL=http://127.0.0.1:1`. `$HOME/.creek/config.json` is absent. Copy `env.txt` from the evidence directory (it records the dead URL).
 - **Confirmation gate.** From the same static tree, run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/deploy-dry-run/gate -- deploy --json` (no `--dry-run`, no `--sandbox`, no `--prod`, no `--yes`). Exit code `1`. stdout JSON has `ok: false` and `error: "confirmation_required"`. The work directory still contains only the files you wrote; nothing was uploaded.
-- **Proof.** Keep the `static` stdout (plan + `wouldDeploy: true`) and `gate` stdout (`confirmation_required`) plus `env.txt` showing the dead API URL.
+- **Signed-out --prod.** From the same static tree, run `-- deploy --prod --dry-run --json` into `artifacts/deploy-dry-run/prod-signed-out`, then `-- deploy --prod --json`. Both exit `1` with `ok: false`, `error: "not_authenticated"`, and breadcrumbs `creek login --token <KEY> --json` and `creek deploy --sandbox --json`. Neither prints a plan with `target.type: "sandbox"`; nothing is uploaded and `$HOME/.creek/config.json` stays absent.
+- **Proof.** Keep the `static` stdout (plan + `wouldDeploy: true`), `gate` stdout (`confirmation_required`) and `prod-signed-out` stdout (`not_authenticated`) plus `env.txt` showing the dead API URL.
 
 ## Gotchas
 
 - `--dry-run` with `--template`, `--from-github`, or a GitHub repo URL returns `supported: false` and does not plan. That is not a failed dry-run of a local tree.
-- Signed-in dry-run would set `target.type` to `production` unless `--sandbox` is passed. This harness unsets `CREEK_TOKEN` so the default target is sandbox. A leaked token invalidates the sandbox assertion.
+- Signed-in dry-run would set `target.type` to `production` unless `--sandbox` is passed. This harness unsets `CREEK_TOKEN` so the default target is sandbox. A leaked token invalidates the sandbox assertion (and the signed-out `--prod` refusal).
+- A CLI before this change planned and ran a signed-out `--prod` as a sandbox deploy, with no warning.
 - `wouldDeploy: true` is not a deploy. Do not follow `nextStep` (`creek deploy --sandbox --json`) during this feature; that hits the public sandbox API.
 - The `confirmation_required` gate applies when stdout is not a TTY and the command has none of `--yes`, `--prod`, or `--sandbox`. This harness redirects stdout, so `creek deploy --json` exits 1 with that error. A signed-out TTY continues toward a sandbox deploy. A first-time Terms prompt can still appear on that path.
 - `creek.toml` is not a deployable payload by itself. Assert `wouldDeploy: false` on the toml-only tree before adding `index.html`.
