@@ -10,12 +10,12 @@ Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTT
 ## Discover commands
 
 ```bash
-creek --help --json                    # full command tree (args, dryRun, destructive)
+creek --help --json                    # full command tree (args, enum, aliases, dryRun, destructive)
 creek deploy --help --json             # one command
 creek env set --help --json            # nested subcommand
 ```
 
-Do not scrape human `--help`. `destructive: true` means the command has `--dry-run`.
+Do not scrape human `--help`. `destructive: true` means running the command may delete or overwrite existing data or change what is live: confirm with the user first. `dryRun: true` means it accepts `--dry-run` (not every destructive command does, and some additive ones do). An arg's `enum` lists the only values it accepts. A command reachable under another name lists it in `aliases` (`env rm` has `unset`).
 
 ## Default loop
 
@@ -45,7 +45,7 @@ creek deploy --prod --json
 - Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched, with a `deploymentId` — pass it to `wait_for_deployment` (or `get_deployment`), and on `deployment_failed` read `get_build_log`. If `deploymentId` is `null`, find the newest row for its `commitSha` with `list_deployments`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
 - Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
 - Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`, `storage delete`, `cache delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
-- Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`destructive: true` means `--dry-run` exists).
+- Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`dryRun: true` means `--dry-run` exists).
 - `creek rollback` without an id skips synthetic `triggerType=rollback` rows. Prefer the id from `creek rollback --dry-run --json` / `list_deployments`.
 
 ## MCP (https://mcp.creek.dev)

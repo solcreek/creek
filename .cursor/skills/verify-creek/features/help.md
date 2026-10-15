@@ -7,6 +7,7 @@ Help lets a user list Creek subcommands and flags as JSON, including which comma
 - `help-root` returns the root schema with every top-level subcommand.
 - `help-version` reports the same version as the installed `creek` package.
 - `help-deploy` marks `deploy` as `dryRun: true` / `destructive: true`.
+- `help-schema` reports each command's reviewed `destructive`, lists `env rm` once with `aliases: ["unset"]`, and gives `enum` for args with fixed values.
 - `help-unknown` rejects an unknown subcommand as structured JSON.
 
 ## How to get to it (user POV)
@@ -25,6 +26,7 @@ Preconditions:
 - **Root schema.** List commands. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/help/root -- --help --json`. Exit code `0`. stdout JSON has `ok: true`, `path: []`, `command.name` equal to `creek`, and `command.subcommands[].name` includes `deploy`, `init`, `doctor`, `whoami`, and `login`.
 - **Version.** Same payload: `command.version` equals the `version` field in `packages/creek/package.json`.
 - **Deploy subtree.** Inspect deploy flags. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/help/deploy -- deploy --help --json`. Exit code `0`. `command.name` is `deploy`, `command.dryRun` is `true`, `command.destructive` is `true`, and `command.args` is a list of objects whose `name` includes `dry-run`, `sandbox`, and `prod`.
+- **Destructive, aliases, enums.** From the root payload: the commands with `destructive: true` are exactly `cache delete`, `cache detach`, `db delete`, `db detach`, `db migrate`, `db seed`, `db shell`, `deploy`, `domains rm`, `env rm`, `env set`, `init`, `projects delete`, `restart`, `rollback`, `stop`, `storage delete`, `storage detach`. `env` lists `set`, `ls`, `rm` once each, with `rm` carrying `aliases: ["unset"]`; `-- env unset --help --json` returns `path: ["env","unset"]` and `command.name: "rm"`. `env set`/`rm --target` have `enum: ["all","production","preview"]`, `metrics --period` `["1h","6h","24h","7d","30d"]`, `dev --target` `["cf","creekd"]` (verified 2026-10-15).
 - **Unknown command.** Ask for a missing command. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/help/unknown -- nosuch --help --json`. Exit code `1`. stdout JSON has `ok: false` and `error: "unknown_command"`.
 - **Proof.** Keep the root, deploy, and unknown evidence directories. The version check is the root payload. `$HOME/.creek/config.json` is still absent.
 
@@ -33,3 +35,4 @@ Preconditions:
 - `creek --version` prints human text through citty and is not the JSON identity check. Use `--help --json` for `command.version`.
 - `--help --json` is intercepted before citty usage text. Assert JSON, not a usage banner.
 - A missing subcommand in the schema is a product change, not a harness miss. Record the names actually returned.
+- `destructive` is not `dryRun`: `projects delete`, `db shell` and `stop` are destructive without `--dry-run`. The reviewed list lives in `packages/cli/src/help-schema.test.ts`.

@@ -331,6 +331,7 @@ Creek is designed for programmatic use:
 - **Non-TTY auto-detection** — pipes, CI, and agents automatically get JSON output
 - **`--json --yes`** — explicit structured output, skip all prompts
 - **Exit codes** — `0` success, `1` failure
+- **`creek --help --json`** — the command tree as JSON. Each command has `destructive` (it may delete or overwrite data or change what is live: confirm first) and `dryRun` (it accepts `--dry-run`). Aliases are listed as `aliases` (`env rm` → `unset`), and an arg's `enum` lists its allowed values
 - **Error format** — `{"ok": false, "error": "...", "message": "..."}`. When the Creek API refused the call, it also has `status` (HTTP), `apiError` (the API's code, e.g. `insufficient_scope`, `binding_conflict`) and `details` (e.g. the scopes the key lacks)
 
 ```bash
