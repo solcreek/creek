@@ -395,6 +395,31 @@ describe("creek deploy destination matrix", () => {
     expect(JSON.stringify(out)).not.toContain("creek init");
   });
 
+  // An invalid creekd config must not fail open to a Cloudflare destination
+  // (signed-out --prod → not_authenticated, --sandbox → a Creek sandbox).
+  it.each([
+    { flags: { prod: true }, signedIn: false },
+    { flags: { sandbox: true }, signedIn: false },
+    { flags: { sandbox: true }, signedIn: true },
+    { flags: { yes: true }, signedIn: true },
+  ])(
+    "an invalid creekd creek.toml is invalid_config ($flags, signed in: $signedIn)",
+    async ({ flags, signedIn }) => {
+      auth.token = signedIn ? "test-token" : null;
+      writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+      // Valid TOML, invalid schema: project names are lowercase.
+      writeFileSync(
+        join(dir, "creek.toml"),
+        '[project]\nname = "Self Hosted"\ntarget = "creekd"\n\n[build]\ncommand = ""\noutput = "."\n',
+      );
+      for (const dryRun of [true, false]) {
+        const out = await runDeploy({ ...flags, ...(dryRun ? { "dry-run": true } : {}) });
+        expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+      }
+      for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
+    },
+  );
+
   it("prod_unsupported points at what works instead", async () => {
     auth.token = "test-token";
     setUp(dir, "directory");
