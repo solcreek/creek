@@ -9,6 +9,7 @@ Deploy dry-run prints the deploy plan for the current directory without building
 - `dry-run-toml-only` reports `wouldDeploy: false` for `creek.toml` alone.
 - `dry-run-target-sandbox` selects sandbox when unsigned-in and no target flag is given.
 - `prod-signed-out` refuses `--prod` without a session (`not_authenticated`), in the dry-run and the real run alike.
+- `destination` reports where the run will really go (`target.type` is `production`, `sandbox` or `creekd`, with `target.reason`); `--prod` on a sandbox-only path (`creek deploy <dir>`, `--template`, a bare build-output folder) is `prod_unsupported`, `--from-github --sandbox` is `sandbox_unsupported`, and `creek deploy <dir>` of a creekd project is `creekd_dir_unsupported` — in the dry-run and the real run alike. `packages/cli/src/commands/deploy-destination.test.ts` holds the full path × sign-in × flag matrix.
 - `dry-run-no-network` succeeds while API URLs connection-refuse and writes no `~/.creek/config.json`.
 - `deploy-confirmation-gate` refuses a bare non-TTY `creek deploy` with `confirmation_required`.
 
@@ -32,6 +33,7 @@ Preconditions:
 - **No network.** Same successful run: `sideEffects.networkCalls` is `false`, `sideEffects.fileUploads` is `false`, `sideEffects.buildExecuted` is `false`. The command returned 0 with `CREEK_API_URL=http://127.0.0.1:1`. `$HOME/.creek/config.json` is absent. Copy `env.txt` from the evidence directory (it records the dead URL).
 - **Confirmation gate.** From the same static tree, run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/deploy-dry-run/gate -- deploy --json` (no `--dry-run`, no `--sandbox`, no `--prod`, no `--yes`). Exit code `1`. stdout JSON has `ok: false` and `error: "confirmation_required"`. The work directory still contains only the files you wrote; nothing was uploaded.
 - **Signed-out --prod.** From the same static tree, run `-- deploy --prod --dry-run --json` into `artifacts/deploy-dry-run/prod-signed-out`, then `-- deploy --prod --json`. Both exit `1` with `ok: false`, `error: "not_authenticated"`, and breadcrumbs `creek login --token <KEY> --json` and `creek deploy --sandbox --json`. Neither prints a plan with `target.type: "sandbox"`; nothing is uploaded and `$HOME/.creek/config.json` stays absent.
+- **Destination.** With `site/index.html`: `-- deploy site --prod --json` and `-- deploy site --prod --dry-run --json` both exit `1` with `prod_unsupported` (breadcrumbs `creek init --json`, `creek deploy site --sandbox --json`); `-- deploy site --sandbox --dry-run --json` reports `target.type: "sandbox"` and `nextStep: "creek deploy site --sandbox --json"`. A directory whose `creek.toml` sets `target = "creekd"`: `-- deploy --prod --dry-run --json` from inside it reports `target.type: "creekd"`; `-- deploy <that dir> --yes --json` from outside exits `creekd_dir_unsupported`.
 - **Proof.** Keep the `static` stdout (plan + `wouldDeploy: true`), `gate` stdout (`confirmation_required`) and `prod-signed-out` stdout (`not_authenticated`) plus `env.txt` showing the dead API URL.
 
 ## Gotchas
