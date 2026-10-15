@@ -50,7 +50,9 @@ you meant to target.
 | Verify with markup assert | `creek verify <url> --json --contains "unique text"` |
 | Check status | `creek status --json` |
 | Check status (other project) | `creek status --project <SLUG> --json` |
-| Check sandbox | `creek status <SANDBOX_ID> --json` |
+| Check a deployment or sandbox by id | `creek status <ID> --json` (`type`: `deployment` or `sandbox`; deployment ids are looked up in `--project` or the cwd's project) |
+| Show one deployment | `creek deployments get <DEPLOYMENT_ID> --json` (status, final, failedStep, errorCode/errorHint, url, commitSha, branch) |
+| Wait for a deployment to finish | `creek deployments wait <DEPLOYMENT_ID> --timeout 5m --json` (exit 0 active; 1 `deployment_failed` / `deployment_cancelled`; 1 `timeout` + `retryable: true` — run it again) |
 | Claim sandbox | `creek claim <SANDBOX_ID> --json` |
 | List projects | `creek projects --json` |
 | List deployments | `creek deployments --json` |
@@ -91,7 +93,7 @@ you meant to target.
 | Read a deployment's build log | `creek deployments logs <DEPLOYMENT_ID> --json` |
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
-| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
+| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running: follow its `deploymentId` with `creek deployments wait <ID> --json`) |
 
 ## JSON Output Format
 
@@ -105,7 +107,8 @@ Every command returns structured JSON with breadcrumbs:
   "proof": { "ok": true, "status": 200, "title": "AX sim", "ttfbMs": 412 },
   "breadcrumbs": [
     { "command": "creek verify https://abcd1234.creeksandbox.com --json", "description": "Confirm the preview URL is live" },
-    { "command": "creek status abcd1234", "description": "Check sandbox status" }
+    { "command": "creek status abcd1234", "description": "Check sandbox status" },
+    { "command": "creek claim abcd1234", "description": "Claim as permanent project" }
   ]
 }
 ```
@@ -153,5 +156,28 @@ Act on `apiError`:
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
 `creek db|storage|cache create/attach/detach/delete` are safe to re-run. When the result is already in place they succeed (`ok: true`, exit 0) and say so: `alreadyExists: true` on `create` (with the existing `resource`) and `attach` (with the existing `binding`), `alreadyAbsent: true` on `detach` and `delete`. A fresh result carries `alreadyExists` / `alreadyAbsent: false`. A real clash still fails — see [resources](resources.md#re-running-commands).
+
+### Deploy results name the deployment
+
+Every `creek deploy --json` result carries `deploymentId` once a deployment exists — success, `deploy_failed`, `cancelled`, `timeout`, `verify_failed`, a cache hit (`turbo: true`) and `--from-github` — or `sandboxId` for a sandbox. Failures add `status`, `failedStep` and, when the server classified it, `errorCode` / `errorHint`. A deploy that is not over points at `creek deployments wait`:
+
+```json
+{
+  "ok": false,
+  "error": "timeout",
+  "message": "CLI stopped waiting after 2m; the deploy may still be in progress",
+  "deploymentId": "0b6f2c1e-…",
+  "project": "my-app",
+  "status": "deploying",
+  "breadcrumbs": [
+    { "command": "creek deployments wait 0b6f2c1e-… --json", "description": "Keep waiting for this deploy to finish (do not re-run deploy)" },
+    { "command": "creek deployments logs 0b6f2c1e-… --json", "description": "View the build log so far" }
+  ]
+}
+```
+
+`creek deployments get <id> --json` and `creek deployments wait <id> --json` return the fields of the MCP `get_deployment` tool: `project`, `deploymentId`, `version`, `status`, `terminal` / `final`, `branch`, `commitSha`, `triggerType`, `failedStep`, `errorMessage`, `errorCode`, `errorHint`, `url`, `previewUrl`, `isProduction`, `createdAt`. `wait` adds `waitedMs`; on `error: "timeout"` it adds `retryable: true` — run the same command again. A short id matches only the newest 20 deployments (`ambiguous_id` when it matches more than one); pass the full id otherwise.
+
+`creek status --json` (a project) reports `productionDeploymentId`, the deployment production serves.
 
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.
