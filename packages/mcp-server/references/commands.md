@@ -5,6 +5,14 @@ common multi-command flows.
 
 Discover the live tree with `creek --help --json` (or `creek <cmd> --help --json`). Do not scrape human usage text.
 
+Each command in the schema carries:
+- `destructive`: running it may delete or overwrite existing data or change what is live. Set per command and reviewed.
+- `dryRun`: it accepts `--dry-run`.
+- `aliases`: other names for the same command, e.g. `env rm` → `["unset"]`.
+- `args[].enum`: when present, the only values an arg accepts, e.g. `env set --target`.
+
+Destructive: `deploy`, `rollback`, `init`, `env set`/`rm`, `domains rm`, `projects delete`, `db|storage|cache detach`/`delete`, `db shell`/`migrate`/`seed`, `restart`, `stop`.
+
 Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.

@@ -118,7 +118,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const cmdName = kind === "database" ? "db" : kind === "cache" ? "cache" : kind;
 
   const ls = defineCommand({
-    meta: { name: "ls", description: `List ${label}s in the current team` },
+    meta: { name: "ls", destructive: false, description: `List ${label}s in the current team` },
     args: { ...globalArgs },
     async run({ args }) {
       const jsonMode = resolveJsonMode(args);
@@ -149,6 +149,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const create = defineCommand({
     meta: {
       name: "create",
+      destructive: false,
       description: `Create a new team ${label}. Backing infrastructure is auto-provisioned.`,
     },
     args: {
@@ -199,6 +200,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const attach = defineCommand({
     meta: {
       name: "attach",
+      destructive: false,
       description: `Attach a ${label} to a project under the given ENV var name`,
     },
     args: {
@@ -274,7 +276,11 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   });
 
   const detach = defineCommand({
-    meta: { name: "detach", description: `Remove a ${label} binding from a project` },
+    meta: {
+      name: "detach",
+      destructive: true,
+      description: `Remove a ${label} binding from a project`,
+    },
     args: {
       name: { type: "positional", description: `${label} name`, required: true },
       from: { type: "string", description: "Project slug to detach from", required: true },
@@ -317,6 +323,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const rename = defineCommand({
     meta: {
       name: "rename",
+      destructive: false,
       description: `Rename a ${label} (stable UUID is preserved; all bindings keep working)`,
     },
     args: {
@@ -358,6 +365,7 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
   const del = defineCommand({
     meta: {
       name: "delete",
+      destructive: true,
       description:
         kind === "storage"
           ? `Delete a ${label}; only an empty bucket is removed, so empty it first. Fails if any project still binds to it — detach first.`
