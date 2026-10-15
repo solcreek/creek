@@ -56,13 +56,15 @@ if [[ ! -d "$cwd" ]]; then
   exit 1
 fi
 
+# Exported here, not in the drive's subshell, so env.txt below records it.
+if [[ "$drive_token_set" == "1" ]]; then export CREEK_TOKEN="$drive_token"; fi
+
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/verify-creek-cmd.XXXXXX")"
 # Always capture; copy into --evidence if requested. tmp is command scratch,
 # not proof — cleanup of tmp happens even when evidence is kept.
 set +e
 (
   cd "$cwd"
-  if [[ "$drive_token_set" == "1" ]]; then export CREEK_TOKEN="$drive_token"; fi
   node "$VERIFY_CREEK_BIN" "$@"
 ) >"$tmp/stdout" 2>"$tmp/stderr"
 code=$?
