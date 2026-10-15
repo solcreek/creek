@@ -441,10 +441,10 @@ async function dryRunPlan(
   const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || explicitAssets;
   const explicitSandbox = args.sandbox === true;
   const explicitProd = args.prod === true;
-  // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
-  // logged-out --prod can't reach production, since there is no token);
+  // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox;
   // otherwise the authenticated path goes to production, whether via --prod
-  // or implicitly.
+  // or implicitly. A signed-out --prod never reaches here: the command
+  // refuses it (not_authenticated) before the dry-run.
   const targetType: "production" | "sandbox" =
     explicitSandbox || !authenticated ? "sandbox" : "production";
   // Signed in but no --prod: an interactive run confirms before deploying;
@@ -591,6 +591,22 @@ async function dryRunPlan(
 type DeployEnv = "production" | "sandbox" | "abort";
 
 /**
+ * `creek deploy --prod` while signed out: exit `not_authenticated` with the
+ * auth breadcrumbs (plus the sandbox alternative) instead of deploying a
+ * sandbox the caller did not ask for.
+ */
+function refuseSignedOutProd(jsonMode: boolean): never {
+  const message =
+    "--prod publishes to your team's production slot and requires sign-in. Not signed in, so nothing was deployed. Run `creek login --token <KEY> --json` (or `creek login`), or pass --sandbox for a 60-minute preview.";
+  const breadcrumbs: Breadcrumb[] = [
+    ...AUTH_BREADCRUMBS,
+    { command: AGENT_SANDBOX_DEPLOY, description: "Deploy to a 60-minute sandbox instead" },
+  ];
+  if (!jsonMode) consola.error(message);
+  return exitError(jsonMode, "not_authenticated", message, 1, breadcrumbs);
+}
+
+/**
  * Production-safety decision for the CF target. Decides whether an
  * authenticated `creek deploy` publishes to the team's production slot or
  * to an ephemeral sandbox, and surfaces production intent before it happens:
@@ -602,6 +618,8 @@ type DeployEnv = "production" | "sandbox" | "abort";
  *                                 production is deprecated (a future version
  *                                 will require --prod)
  *   not signed in              → sandbox (the only option without login)
+ *   not signed in, --prod      → error: production needs a session; the
+ *                                 command refuses this before calling here
  *
  * Returns "abort" when an interactive user declines the confirm.
  */
@@ -622,6 +640,9 @@ export async function resolveDeployEnv(opts: {
     throw new Error("resolveDeployEnv: prod and sandbox are mutually exclusive");
   }
   if (opts.sandbox) return "sandbox";
+  if (opts.prod && !opts.authenticated) {
+    throw new Error("resolveDeployEnv: --prod requires a signed-in session");
+  }
   if (!opts.authenticated) return "sandbox";
   if (opts.prod) return "production";
 
@@ -824,7 +845,7 @@ export const deployCommand = defineCommand({
     prod: {
       type: "boolean",
       description:
-        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Only takes effect when signed in; without a session the deploy falls back to a sandbox. Mutually exclusive with --sandbox.",
+        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Requires sign-in: without a session the deploy (and --dry-run) exits not_authenticated instead of falling back to a sandbox. Mutually exclusive with --sandbox.",
       default: false,
     },
     sandbox: {
@@ -853,6 +874,15 @@ export const deployCommand = defineCommand({
       // exitError only prints in JSON mode; surface the reason to a human too.
       if (!jsonMode) consola.error(message);
       return exitError(jsonMode, "conflicting_flags", message);
+    }
+
+    // An explicit --prod is a request for production. Without a session
+    // there is no way to reach it, so refuse instead of quietly handing the
+    // caller a 60-minute sandbox they did not ask for. Checked before the
+    // dry-run so the plan and the real run agree. A bare `creek deploy`
+    // (no flag) still falls back to a sandbox when signed out.
+    if (args.prod === true && !getToken()) {
+      return refuseSignedOutProd(jsonMode);
     }
 
     // --- Dry-run short-circuit ---

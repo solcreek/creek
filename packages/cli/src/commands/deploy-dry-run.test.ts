@@ -9,11 +9,26 @@ import {
   productionSuccessBreadcrumbs,
 } from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
+import { sandboxDeploy } from "../utils/sandbox.js";
 import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
   return { ...orig, getToken: () => null };
+});
+
+// The real-run test below must never reach the network or write ToS state.
+vi.mock("../utils/tos.js", () => ({
+  ensureTosAccepted: vi.fn(async () => ({ version: "test", acceptedAt: "test" })),
+}));
+vi.mock("../utils/sandbox.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../utils/sandbox.js")>();
+  return {
+    ...orig,
+    sandboxDeploy: vi.fn(async () => {
+      throw new Error("sandboxDeploy must not run in this test");
+    }),
+  };
 });
 
 describe("hasDeployablePayload", () => {
@@ -172,6 +187,35 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.wouldDeploy).toBe(false);
     expect(String(plan.nextStep)).toMatch(/creek doctor --json/);
     expect(String(plan.nextStep)).not.toContain("npx creek deploy");
+  });
+
+  it("signed out, --prod --dry-run refuses with not_authenticated instead of planning a sandbox", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const out = await dryRunJson({ prod: true });
+    expect(out).toMatchObject({ ok: false, error: "not_authenticated" });
+    expect(out.target).toBeUndefined();
+    const crumbs = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(crumbs).toContain("creek login --token <KEY> --json");
+    expect(crumbs).toContain(AGENT_SANDBOX_DEPLOY);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("signed out, a real --prod run refuses with not_authenticated before deploying", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: { prod: true, json: true },
+    });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const parsed = JSON.parse(out.slice(out.indexOf("{")));
+    expect(parsed).toMatchObject({ ok: false, error: "not_authenticated" });
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(sandboxDeploy).not.toHaveBeenCalled();
+  });
+
+  it("signed out, no target flag still plans a sandbox (implicit behaviour unchanged)", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const plan = await dryRunJson();
+    expect(plan.target).toMatchObject({ type: "sandbox" });
   });
 });
 
