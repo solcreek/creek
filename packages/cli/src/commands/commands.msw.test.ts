@@ -448,6 +448,36 @@ describe("creek env", () => {
     // The redeploy step must remain in the breadcrumbs.
     expect(JSON.stringify(out.breadcrumbs)).toContain("creek deploy");
   });
+
+  it("--project naming another project: set/ls/rm/unset never suggest a bare deploy", async () => {
+    // cwd is project "demo"; a bare `creek deploy` here would ship demo, not other.
+    server.use(
+      http.post(`${API}/projects/other/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+      http.get(`${API}/projects/other/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+      http.delete(`${API}/projects/other/env/K`, () => HttpResponse.json({ ok: true })),
+    );
+    const sub = envCommand.subCommands as Record<string, { run?: (c: never) => unknown }>;
+    const runs: [string, Record<string, unknown>][] = [
+      ["set", { key: "K", value: "v" }],
+      ["ls", { show: false }],
+      ["rm", { key: "K" }],
+      ["unset", { key: "K" }],
+    ];
+    for (const [name, args] of runs) {
+      stdout = "";
+      const code = await runExit(
+        Promise.resolve(sub[name].run!({ args: { ...args, project: "other", _: [] } } as never)),
+      );
+      expect(code, name).toBe(0);
+      const commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+      expect(
+        commands.filter((c: string) => /^creek deploy( |$)/.test(c)),
+        name,
+      ).toEqual([]);
+    }
+  });
 });
 
 describe("creek env in a wrangler-only project", () => {

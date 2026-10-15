@@ -179,6 +179,33 @@ export function resolveProject(
   return { slug: found.slug, source: found.source };
 }
 
+/**
+ * Whether a bare `creek deploy` run here would ship `slug`: deploy's own
+ * resolution (SDK `resolveConfig`), directory-name fallbacks included.
+ */
+export function bareDeployShips(slug: string, cwd: string = process.cwd()): boolean {
+  try {
+    return resolveConfig(cwd).projectName === slug;
+  } catch {
+    return false;
+  }
+}
+
+const BARE_DEPLOY = /^creek deploy( |$)/;
+
+/**
+ * A project command's breadcrumbs, minus any `creek deploy …` that would ship
+ * a different project than `slug`. A deploy breadcrumb runs from the cwd, so
+ * after `--project other` it would deploy whatever the cwd is; one that names
+ * its own `--project` is kept. Route every project command's breadcrumbs
+ * through this so a new command gets the rule for free.
+ */
+export function projectBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadcrumb[] {
+  const unsafe = (c: Breadcrumb) => BARE_DEPLOY.test(c.command) && !/ --project /.test(c.command);
+  if (!crumbs.some(unsafe) || bareDeployShips(slug)) return crumbs;
+  return crumbs.filter((c) => !unsafe(c));
+}
+
 /** {@link resolveProject}, for callers that need only the slug. */
 export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
   return resolveProject(argSlug, jsonMode).slug;

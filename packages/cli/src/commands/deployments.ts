@@ -4,7 +4,7 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectArg, resolveProjectSlug } from "../utils/command-context.js";
+import { projectArg, projectBreadcrumbs, resolveProjectSlug } from "../utils/command-context.js";
 
 // --- List (default behaviour) ---
 
@@ -50,10 +50,13 @@ const deploymentsList = defineCommand({
                 command: `creek rollback --project ${slug}`,
                 description: "Rollback to previous deployment",
               },
-              { command: `creek status`, description: "Check current project status" },
+              {
+                command: `creek status --project ${slug}`,
+                description: "Check current project status",
+              },
             ]
           : [{ command: `creek deploy`, description: "Create first deployment" }];
-      jsonOutput({ ok: true, project: slug, deployments }, 0, crumbs);
+      jsonOutput({ ok: true, project: slug, deployments }, 0, projectBreadcrumbs(slug, crumbs));
     }
 
     if (deployments.length === 0) {

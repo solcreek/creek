@@ -1,7 +1,13 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { requireClient, resolveProject, apiCall, projectArg } from "../utils/command-context.js";
+import {
+  requireClient,
+  resolveProject,
+  apiCall,
+  projectArg,
+  projectBreadcrumbs,
+} from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import type { EnvTarget } from "@solcreek/sdk";
 
@@ -117,10 +123,10 @@ const envSet = defineCommand({
           pendingDeploy: true,
         },
         0,
-        [
+        projectBreadcrumbs(slug, [
           { command: `creek env ls${pf} --json`, description: "List all environment variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
-        ],
+        ]),
       );
     consola.success(`Set ${args.key}${target === "all" ? "" : ` for ${target} deploys`}`);
     // Env vars are injected at deploy time, so a change to a live project does
@@ -178,7 +184,7 @@ const envGet = defineCommand({
           })),
         },
         0,
-        crumbs,
+        projectBreadcrumbs(slug, crumbs),
       );
     }
 
@@ -288,10 +294,10 @@ const envRm = defineCommand({
           pendingDeploy: true,
         },
         0,
-        [
+        projectBreadcrumbs(slug, [
           { command: `creek env ls${pf} --json`, description: "List remaining variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
-        ],
+        ]),
       );
     consola.success(`Removed ${args.key}${target ? ` (${target})` : ""}`);
     consola.info("Running deployments keep the old value until they are redeployed.");

@@ -10,6 +10,7 @@ import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 import {
   NO_PROJECT_MESSAGE,
   PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+  projectBreadcrumbs,
   projectFromDirectory,
   unnamedProjectMessage,
 } from "../utils/command-context.js";
@@ -317,9 +318,9 @@ async function runLastFailureDiagnosis(opts: {
         },
       },
       0,
-      [
+      projectBreadcrumbs(slug, [
         {
-          command: `creek deployments logs ${failed.id.slice(0, 8)} --json`,
+          command: `creek deployments logs ${failed.id.slice(0, 8)} --project ${slug} --json`,
           description: "Read the full build log",
         },
         {
@@ -330,7 +331,7 @@ async function runLastFailureDiagnosis(opts: {
           command: "creek deploy --sandbox --json",
           description: "Or preview the fix in a sandbox",
         },
-      ],
+      ]),
     );
     return;
   }

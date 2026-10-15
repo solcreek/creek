@@ -8,7 +8,12 @@ import {
   type ResolvedConfig,
 } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { projectArg, projectFromDirectory, resolveProject } from "../utils/command-context.js";
+import {
+  projectArg,
+  projectBreadcrumbs,
+  projectFromDirectory,
+  resolveProject,
+} from "../utils/command-context.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
@@ -131,14 +136,10 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
             ...apiErrorFields(err),
           },
           1,
-          [
-            // Deploying from here creates the cwd's project, which is only
-            // this one when the directory names it.
-            ...(resolved
-              ? [{ command: "creek deploy", description: "Deploy to create the project" }]
-              : []),
+          projectBreadcrumbs(slug, [
+            { command: "creek deploy", description: "Deploy to create the project" },
             { command: "creek projects", description: "List existing projects" },
-          ],
+          ]),
         );
       consola.error(`Project "${slug}" not found.`);
       process.exit(1);
@@ -185,15 +186,13 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
         createdAt: project.created_at,
       },
       0,
-      [
+      projectBreadcrumbs(slug, [
         {
           command: `creek deployments --project ${project.slug}`,
           description: "List deployment history",
         },
-        // A bare deploy ships the cwd's project: offer it only when that is
-        // the project reported here.
-        ...(resolved ? [{ command: "creek deploy", description: "Deploy a new version" }] : []),
-      ],
+        { command: "creek deploy", description: "Deploy a new version" },
+      ]),
     );
   }
 

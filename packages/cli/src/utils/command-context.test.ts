@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ArgsDef, CommandDef } from "citty";
 import {
   NO_PROJECT_MESSAGE,
+  projectBreadcrumbs,
   projectFromDirectory,
   resolveProject,
   resolveProjectSlug,
@@ -251,5 +252,52 @@ describe("the no_project hint names only flags the command accepts", () => {
         ),
     );
     expect(callers.filter((f) => !covered.has(f))).toEqual([]);
+  });
+});
+
+describe("projectBreadcrumbs: no bare deploy for a project the cwd isn't", () => {
+  const crumbs = [
+    { command: "creek env ls --project p --json", description: "list" },
+    { command: "creek deploy --prod --json", description: "deploy" },
+    { command: "creek deploy --sandbox --json", description: "sandbox" },
+    { command: "creek deploy --from-github --project p --prod --json", description: "gh" },
+    { command: "creek deployments --project p", description: "history" },
+  ];
+
+  it("drops bare deploys when the cwd deploys as another project", () => {
+    writeFileSync(join(dir, "creek.toml"), CREEK_TOML);
+    expect(projectBreadcrumbs("p", crumbs).map((c) => c.command)).toEqual([
+      "creek env ls --project p --json",
+      "creek deploy --from-github --project p --prod --json",
+      "creek deployments --project p",
+    ]);
+  });
+
+  it("drops them when the cwd is no project at all", () => {
+    expect(projectBreadcrumbs("p", crumbs)).toHaveLength(3);
+  });
+
+  it("keeps them when a bare deploy here ships that project", () => {
+    writeFileSync(join(dir, "creek.toml"), '[project]\nname = "p"\n');
+    expect(projectBreadcrumbs("p", crumbs)).toEqual(crumbs);
+  });
+
+  it("follows deploy's own resolution, directory-name fallback included", () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const dirSlug = projectFromDirectory()!.config.projectName;
+    expect(projectBreadcrumbs(dirSlug, crumbs)).toEqual(crumbs);
+    expect(projectBreadcrumbs("p", crumbs)).toHaveLength(3);
+  });
+
+  it("every project command that suggests `creek deploy` routes its breadcrumbs through it", () => {
+    const commandsDir = join(__dirname, "..", "commands");
+    const offenders = readdirSync(commandsDir).filter((f) => {
+      if (!f.endsWith(".ts") || f.includes(".test") || f === "deploy.ts") return false;
+      const src = readFileSync(join(commandsDir, f), "utf-8");
+      const isProjectCommand = /resolveProject(Slug)?\(|projectFromDirectory\(/.test(src);
+      const suggestsDeploy = /command: ["`]creek deploy[ "`]/.test(src);
+      return isProjectCommand && suggestsDeploy && !src.includes("projectBreadcrumbs(");
+    });
+    expect(offenders).toEqual([]);
   });
 });
