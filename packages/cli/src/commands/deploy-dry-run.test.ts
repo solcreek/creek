@@ -84,6 +84,19 @@ describe("dryRunNextStep", () => {
     expect(step).toContain(AGENT_SANDBOX_DEPLOY);
   });
 
+  it("never suggests a command the destination refuses when nothing is deployable", () => {
+    const creekd = dryRunNextStep({ blockingCount: 0, wouldDeploy: false, targetType: "creekd" });
+    expect(creekd).toContain("creek deploy --yes --json");
+    expect(creekd).not.toContain("--sandbox");
+    const dir = dryRunNextStep({
+      blockingCount: 0,
+      wouldDeploy: false,
+      targetType: "sandbox",
+      dir: "site",
+    });
+    expect(dir).toContain("creek deploy site --sandbox --json");
+  });
+
   it("emits a copy-pasteable --sandbox/--prod command, never a bare creek deploy", () => {
     expect(dryRunNextStep({ blockingCount: 0, wouldDeploy: true, targetType: "sandbox" })).toBe(
       AGENT_SANDBOX_DEPLOY,

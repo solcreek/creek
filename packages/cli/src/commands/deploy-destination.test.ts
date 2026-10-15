@@ -37,6 +37,7 @@ import { deployCommand, deployHandlers } from "./deploy.js";
 type Scenario =
   | "project-cf"
   | "project-creekd"
+  | "creekd-server"
   | "directory"
   | "directory-creekd"
   | "build-output"
@@ -62,6 +63,11 @@ const MATRIX: Record<Scenario, { out: Record<Flag, Outcome>; in: Record<Flag, Ou
     in: { prod: "production", sandbox: "sandbox", yes: "production", none: "production" },
   },
   "project-creekd": {
+    out: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
+    in: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
+  },
+  // Server-only creekd project: a worker entry, no package.json or HTML.
+  "creekd-server": {
     out: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
     in: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
   },
@@ -157,6 +163,13 @@ function setUp(dir: string, scenario: Scenario): Record<string, unknown> {
       writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
       writeFileSync(join(dir, "creek.toml"), CREEKD_TOML);
       return {};
+    case "creekd-server":
+      writeFileSync(
+        join(dir, "creek.toml"),
+        '[project]\nname = "api"\ntarget = "creekd"\n\n[build]\ncommand = ""\nworker = "server.js"\n',
+      );
+      writeFileSync(join(dir, "server.js"), "Bun.serve({ fetch: () => new Response('ok') });\n");
+      return {};
     case "directory":
       mkdirSync(join(dir, "site"));
       writeFileSync(join(dir, "site/index.html"), "<h1>hi</h1>");
@@ -242,6 +255,30 @@ describe("creek deploy destination matrix", () => {
     return out.includes("{") ? JSON.parse(out.slice(out.indexOf("{"))) : {};
   }
 
+  /**
+   * A plan's nextStep must never recommend a deploy the CLI would refuse:
+   * re-run the recommended `creek deploy …` as a dry run from the same place
+   * and assert it plans the same destination.
+   */
+  async function expectNextStepNotRefused(
+    plan: Record<string, unknown>,
+    base: Record<string, unknown>,
+  ): Promise<void> {
+    const step = typeof plan.nextStep === "string" ? plan.nextStep : "";
+    const match = /creek deploy( [^\s]+)*? --json/.exec(step);
+    if (!match) return;
+    const args: Record<string, unknown> = { ...base, "dry-run": true };
+    delete args.dir;
+    for (const tok of match[0].split(" ").slice(2)) {
+      if (tok === "--json") continue;
+      if (tok.startsWith("--")) args[tok.slice(2)] = true;
+      else args.dir = tok;
+    }
+    const again = await runDeploy(args);
+    expect(again.error, `nextStep "${match[0]}" is refused`).toBeUndefined();
+    expect(again.target).toMatchObject({ type: (plan.target as { type: string }).type });
+  }
+
   it.each(ROWS)(
     "$scenario, signed $state, --$flag → $outcome",
     async ({ scenario, state, flag, outcome }) => {
@@ -255,6 +292,7 @@ describe("creek deploy destination matrix", () => {
         expect(plan).toMatchObject({ ok: false, error: outcome });
       } else {
         expect(plan.target).toMatchObject({ type: outcome });
+        await expectNextStepNotRefused(plan, base);
       }
       for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
 
@@ -363,6 +401,22 @@ describe("creek deploy destination matrix", () => {
     expect(handlerSpies.deployDirectory).toHaveBeenCalledTimes(1);
     expect(handlerSpies.deployAuthenticated).not.toHaveBeenCalled();
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("a server-only creekd project is deployable and points at the creekd deploy", async () => {
+    setUp(dir, "creekd-server");
+    const plan = await runDeploy({ "dry-run": true });
+    expect(plan).toMatchObject({
+      target: { type: "creekd" },
+      wouldDeploy: true,
+      nextStep: "creek deploy --yes --json",
+    });
+    // Before the entry exists: not deployable (doctor's CK-WORKER-MISSING),
+    // and never a --sandbox suggestion.
+    rmSync(join(dir, "server.js"));
+    const empty = await runDeploy({ "dry-run": true });
+    expect(empty.wouldDeploy).toBe(false);
+    expect(String(empty.nextStep)).not.toContain("--sandbox");
   });
 
   it("the plan's nextStep follows the destination", async () => {

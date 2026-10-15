@@ -236,9 +236,27 @@ export function dryRunVinextOutput(cwd: string): {
 }
 
 /**
+ * The deploy command that reaches `targetType` from here. Never one that
+ * deployDestination would refuse: a creekd project has no sandbox, and an
+ * explicit directory must be named again.
+ */
+function deployCommandFor(
+  targetType: "production" | "sandbox" | "creekd",
+  dir: string | undefined,
+): string {
+  if (targetType === "creekd") return "creek deploy --yes --json";
+  if (dir) {
+    const flag = targetType === "production" ? "--prod" : "--sandbox";
+    return `creek deploy ${shellQuote(dir)} ${flag} --json`;
+  }
+  return targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
+}
+
+/**
  * Copy-pasteable next command after `creek deploy --dry-run`.
  * Non-TTY agents must pass --sandbox or --prod; a bare `creek deploy`
- * is refused with confirmation_required.
+ * is refused with confirmation_required. The command follows the
+ * destination, so it is never one the CLI would refuse.
  */
 export function dryRunNextStep(opts: {
   blockingCount: number;
@@ -251,15 +269,15 @@ export function dryRunNextStep(opts: {
     const n = opts.blockingCount;
     return `Fix ${n} blocking issue${n === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`;
   }
+  const command = deployCommandFor(opts.targetType, opts.dir);
   if (!opts.wouldDeploy) {
-    return `Nothing deployable yet. Add an index.html (static site) or a package.json, then: ${AGENT_SANDBOX_DEPLOY}`;
+    const add =
+      opts.targetType === "creekd"
+        ? "Add the server entry creek.toml [build].worker names (or a build that writes it)"
+        : "Add an index.html (static site) or a package.json";
+    return `Nothing deployable yet. ${add}, then: ${command}`;
   }
-  if (opts.targetType === "creekd") return "creek deploy --yes --json";
-  if (opts.dir) {
-    const flag = opts.targetType === "production" ? "--prod" : "--sandbox";
-    return `creek deploy ${shellQuote(opts.dir)} ${flag} --json`;
-  }
-  return opts.targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
+  return command;
 }
 
 export function sandboxSuccessBreadcrumbs(url: string, sandboxId: string): Breadcrumb[] {
@@ -466,7 +484,17 @@ async function dryRunPlan(
       explicitAssets = false;
     }
   }
-  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || explicitAssets;
+  // creekd runs the configured server entry (deployCreekd: [build].worker,
+  // else <output>/index.js), which needs no package.json or HTML.
+  const creekdEntry =
+    destination.kind === "creekd" && resolved
+      ? (resolved.workerEntry ?? `${resolved.buildOutput}/index.js`)
+      : null;
+  const hasPayload =
+    hasDeployablePayload(cwd) ||
+    !!buildOutputFallback ||
+    explicitAssets ||
+    (creekdEntry !== null && existsSync(resolve(cwd, creekdEntry)));
   // The destination is decided once (deployDestination) for both the plan
   // and the real run, which dispatches on it.
   const targetType = destination.kind;
