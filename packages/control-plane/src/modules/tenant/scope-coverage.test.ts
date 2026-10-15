@@ -72,6 +72,11 @@ const MANIFEST: Record<string, string> = {
   "GET /github/connections/by-project/:projectId": "github:read",
   "GET /github/connections": "github:read",
   "POST /github/scan/:owner/:repo": "github:write",
+  "GET /api-keys/self": "api-key-self",
+  "DELETE /api-keys/self": "api-key-self",
+  "POST /api-keys": "session-only",
+  "GET /api-keys": "session-only",
+  "DELETE /api-keys/:id": "session-only",
 };
 
 /** app.use() middleware paths. An ALL route anywhere else would be an unguarded endpoint. */
@@ -81,6 +86,7 @@ const MIDDLEWARE_PATHS = new Set([
   "/instant-deploy/*",
   "/github/*",
   "/resources/*",
+  "/api-keys/*",
 ]);
 
 function describeGuard(info: GuardInfo): string {

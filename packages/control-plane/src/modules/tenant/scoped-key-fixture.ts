@@ -22,7 +22,7 @@ export interface Fixture {
   ): Promise<{ userId: string; orgId: string; orgSlug: string; cookie: string }>;
   /** A key with no scopes stored — the pre-scopes behavior. */
   legacyKey(cookie: string): Promise<string>;
-  /** A scoped key, created server-side as the key-management route will. */
+  /** A scoped key, created server-side the way POST /api-keys does (minus its checks). */
   scopedKey(userId: string, teamId: string, scopes: readonly Scope[]): Promise<string>;
   /** Call the deployed Worker app. */
   call(
@@ -30,6 +30,13 @@ export interface Fixture {
     path: string,
     headers?: Record<string, string>,
     body?: unknown,
+  ): Promise<Response>;
+  /** Call the app with a body sent exactly as given (no content-type added). */
+  callRaw(
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    body: BodyInit | null,
   ): Promise<Response>;
   sql<T = Record<string, unknown>>(query: string, ...params: unknown[]): Promise<T[]>;
   /** Wait for work the app handed to executionCtx.waitUntil(). */
@@ -123,6 +130,9 @@ export function createFixture(opts: { migrationsUpTo?: string } = {}): Fixture {
         (init.headers as Record<string, string>)["content-type"] = "application/json";
       }
       return Promise.resolve(app.request(path, init, env, executionCtx));
+    },
+    callRaw(method, path, headers, body) {
+      return Promise.resolve(app.request(path, { method, headers, body }, env, executionCtx));
     },
     async settle() {
       while (pending.length) await Promise.all(pending.splice(0));

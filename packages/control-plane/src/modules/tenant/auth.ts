@@ -145,6 +145,12 @@ export function createAuth(env: Env): any {
         rateLimit: {
           enabled: false,
         },
+        // POST /api-keys tags each key it mints with a per-attempt nonce in
+        // metadata (written in the same INSERT), so a failed attempt can
+        // delete exactly its own row. Metadata is owner-writable through
+        // Better Auth's endpoints and never carries authorization (that is
+        // `permissions`, server-only); see api-keys/service.ts.
+        enableMetadata: true,
       }),
       organization({
         schema: {
