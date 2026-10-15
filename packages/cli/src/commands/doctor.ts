@@ -1,13 +1,17 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { runDoctor, type DoctorReport, type Finding } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import {
+  NO_PROJECT_MESSAGE,
+  PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+  projectFromDirectory,
+} from "../utils/command-context.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -40,7 +44,8 @@ export const doctorCommand = defineCommand({
     },
     project: {
       type: "string",
-      description: "Project slug for --last (default: read from creek.toml in cwd)",
+      description:
+        "Project slug for --last (default: the project the directory deploys as — creek.toml, else the wrangler config name)",
       required: false,
     },
     ...globalArgs,
@@ -88,14 +93,6 @@ export const doctorCommand = defineCommand({
     if (!report.ok) process.exit(1);
   },
 });
-
-function safeRead(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
 
 // ─── Human output ───────────────────────────────────────────────────────
 
@@ -232,19 +229,24 @@ async function runLastFailureDiagnosis(opts: {
     process.exit(1);
   }
 
-  // Resolve project slug — prefer --project, fall back to creek.toml
+  // Resolve project slug — prefer --project, else the project the directory
+  // deploys as (creek.toml, else the wrangler config name), like `creek deploy`.
   let slug = opts.project;
   if (!slug) {
-    const creekToml = join(opts.cwd, "creek.toml");
-    if (existsSync(creekToml)) {
-      const raw = safeRead(creekToml);
-      const match = raw?.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
-      if (match) slug = match[1];
+    try {
+      slug = projectFromDirectory(opts.cwd)?.slug;
+    } catch {
+      // An unreadable config names no project; fall through to no_project.
     }
   }
   if (!slug) {
-    const msg = "No project slug. Pass --project <slug> or run from a directory with creek.toml.";
-    if (opts.jsonMode) jsonOutput({ ok: false, error: "no_project", message: msg }, 1);
+    const msg = NO_PROJECT_MESSAGE;
+    if (opts.jsonMode)
+      jsonOutput(
+        { ok: false, error: "no_project", message: msg },
+        1,
+        PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+      );
     consola.error(msg);
     process.exit(1);
   }

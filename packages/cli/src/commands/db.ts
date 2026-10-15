@@ -3,7 +3,7 @@ import consola from "consola";
 import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import { CreekClient } from "@solcreek/sdk";
 import { createResourceCommand } from "./resource-cmd.js";
 import {
   detectMigrationDir,
@@ -15,6 +15,7 @@ import {
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import { projectFromDirectory } from "../utils/command-context.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -38,7 +39,7 @@ const shellCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory deploys as (creek.toml, else the wrangler config name) when neither a name nor --project is given.",
       required: false,
     },
     sql: {
@@ -124,7 +125,8 @@ const shellCommand = defineCommand({
  * target. Three inputs, in order:
  *   1. an explicit `name` positional (existing behaviour),
  *   2. `--project <slug>` → the single D1 bound to that project,
- *   3. neither → the project in ./creek.toml, same single-binding rule.
+ *   3. neither → the project the cwd deploys as (creek.toml, else the
+ *      wrangler config name), same single-binding rule.
  *
  * The point is to not force the user to look up the auto-generated DB
  * name (e.g. creek-97d8c075) when the project binds exactly one D1.
@@ -153,15 +155,15 @@ export async function resolveProjectDatabase(
   }
 
   // 2/3. Resolve via project bindings.
-  const slug = opts.project ?? projectFromCreekToml();
+  const slug = opts.project ?? projectFromCwd();
   if (!slug) {
-    const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory with creek.toml.`;
+    const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory (creek.toml or wrangler config).`;
     if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
     consola.error(msg);
     process.exit(1);
   }
 
-  // A stale/typo'd creek.toml project name (or one never deployed) makes
+  // A stale/typo'd project name (or one never deployed) makes
   // listBindings throw — turn that into a clean structured error instead of
   // a raw stack trace, and point at the explicit-name escape hatch.
   let bindings: Awaited<ReturnType<typeof client.listBindings>>["bindings"];
@@ -216,12 +218,13 @@ export async function resolveProjectDatabase(
 /** @deprecated Use {@link resolveProjectDatabase}. Kept for back-compat. */
 export const resolveShellDatabase = resolveProjectDatabase;
 
-/** Read the project name from ./creek.toml, or null if absent/unparseable. */
-function projectFromCreekToml(): string | null {
-  const configPath = resolve(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) return null;
+/**
+ * The project the cwd deploys as (creek.toml, else the wrangler config name —
+ * the same resolution `creek deploy` uses), or null if absent/unreadable.
+ */
+function projectFromCwd(): string | null {
   try {
-    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+    return projectFromDirectory()?.slug ?? null;
   } catch {
     return null;
   }
@@ -318,7 +321,7 @@ const migrateCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory deploys as (creek.toml, else the wrangler config name) when no name is given.",
       required: false,
     },
     dir: {
@@ -351,7 +354,7 @@ const migrateCommand = defineCommand({
     const client = new CreekClient(getApiUrl(), token);
 
     // 1. Resolve database → resource ID. Explicit name wins; otherwise infer
-    // the single database bound to the project (--project or ./creek.toml),
+    // the single database bound to the project (--project or the cwd's config),
     // so `creek db migrate` works from a project dir without repeating the
     // generated DB name.
     const db = await resolveProjectDatabase(client, {
