@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveConfig } from "@solcreek/sdk";
@@ -89,7 +89,42 @@ describe("creek init --db (non-interactive)", () => {
     const payload = JSON.parse(out.slice(out.indexOf("{")));
     expect(payload.database).toBe(false);
     expect(payload.databasePromptSkipped).toBe(true);
-    expect(JSON.stringify(payload.breadcrumbs)).toContain("creek init --db");
+    expect(JSON.stringify(payload.breadcrumbs)).toContain("--db");
+  });
+
+  it("shell-quotes a name with a space in the --db breadcrumb", async () => {
+    await runInit({ name: "my app", yes: true });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    const cmds = (payload.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek init 'my app' --db --force --json");
+  });
+
+  it("the --db breadcrumb works when run right after the first init", async () => {
+    await runInit({ name: "demo", yes: true });
+    const firstOut = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const first = JSON.parse(firstOut.slice(firstOut.indexOf("{")));
+    const crumb = (first.breadcrumbs as { command: string }[]).find((b) =>
+      b.command.includes("--db"),
+    );
+    expect(crumb).toBeDefined();
+
+    // Run the breadcrumb as written: `creek init <name> --db --force --json`.
+    const [, , ...rest] = crumb!.command.split(" ");
+    const args: Record<string, unknown> = { yes: true };
+    for (const tok of rest) {
+      if (tok.startsWith("--")) args[tok.slice(2)] = true;
+      else args.name = tok;
+    }
+    writeSpy.mockClear();
+    exitSpy.mockClear();
+    await runInit(args);
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const second = JSON.parse(out.slice(out.indexOf("{")));
+    expect(second).toMatchObject({ ok: true, database: true, name: "demo" });
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(readFileSync(join(dir, "creek.toml"), "utf-8")).toMatch(/database = true/);
   });
 
   it("flags a Node HTTP-server stack (Express) as a compatibility warning up front", async () => {
@@ -128,12 +163,118 @@ describe("creek init --db (non-interactive)", () => {
 
     const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
     const payload = JSON.parse(out.slice(out.indexOf("{")));
-    // init silently appended Creek + AI-agent entries before this fix.
     // The agent/CI path must learn that .gitignore was touched.
     expect(Array.isArray(payload.gitignoreAdded)).toBe(true);
     expect(payload.gitignoreAdded).toContain(".creek");
-    expect(payload.gitignoreAdded).toContain(".claude");
+    // Team-shared agent configuration stays committable.
+    expect(payload.gitignoreAdded).not.toContain(".claude");
+    expect(payload.gitignoreAdded).not.toContain(".cursor");
     expect(existsSync(join(dir, ".gitignore"))).toBe(true);
+  });
+});
+
+describe("creek init (existing creek.toml, static sites)", () => {
+  let dir: string;
+  let prevCwd: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "creek-init-test-"));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+    exitSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  function payload(): Record<string, unknown> {
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    return JSON.parse(out.slice(out.indexOf("{")));
+  }
+
+  const HAND_EDITED = '[project]\nname = "keep-me"\n\n[resources]\ncache = true\n';
+
+  it("refuses to overwrite an existing creek.toml without --force (non-interactive)", async () => {
+    writeFileSync(join(dir, "creek.toml"), HAND_EDITED);
+    await runInit({ name: "demo", yes: true });
+
+    expect(readFileSync(join(dir, "creek.toml"), "utf-8")).toBe(HAND_EDITED);
+    const p = payload();
+    expect(p).toMatchObject({ ok: false, error: "already_exists" });
+    const cmds = (p.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek init --force --json");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("--force replaces an existing creek.toml and reports replaced: true", async () => {
+    writeFileSync(join(dir, "creek.toml"), HAND_EDITED);
+    await runInit({ name: "demo", yes: true, force: true });
+
+    const toml = readFileSync(join(dir, "creek.toml"), "utf-8");
+    expect(toml).toContain('name = "demo"');
+    expect(payload()).toMatchObject({ ok: true, replaced: true });
+  });
+
+  it("reports replaced: false when there was no creek.toml", async () => {
+    await runInit({ name: "demo", yes: true });
+    expect(payload()).toMatchObject({ ok: true, replaced: false });
+  });
+
+  it("a plain static site (index.html, no package.json) deploys the directory as is", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    await runInit({ name: "site", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.source).toBe("creek.toml");
+    expect(resolved.buildCommand).toBe("");
+    expect(resolved.buildOutput).toBe(".");
+    expect(payload()).toMatchObject({
+      ok: true,
+      staticSite: true,
+      build: { command: "", output: "." },
+    });
+  });
+
+  it("a static site under public/ deploys public/", async () => {
+    mkdirSync(join(dir, "public"));
+    writeFileSync(join(dir, "public/index.html"), "<h1>hi</h1>");
+    await runInit({ name: "site", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.buildCommand).toBe("");
+    expect(resolved.buildOutput).toBe("public");
+  });
+
+  it("with both index.html and public/index.html, matches the SDK's static-site output", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>root</h1>");
+    mkdirSync(join(dir, "public"));
+    writeFileSync(join(dir, "public/index.html"), "<h1>public</h1>");
+    // What deploy would use with no creek.toml at all.
+    const implicit = resolveConfig(dir);
+    expect(implicit.source).toBe("index.html");
+
+    await runInit({ name: "site", yes: true });
+
+    expect(resolveConfig(dir).buildOutput).toBe(implicit.buildOutput);
+    expect(resolveConfig(dir).buildOutput).toBe("public");
+  });
+
+  it("a package.json project keeps the npm build defaults", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x" }));
+    await runInit({ name: "app", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.buildCommand).toBe("npm run build");
+    expect(resolved.buildOutput).toBe("dist");
+    expect(payload()).toMatchObject({ staticSite: false });
   });
 });
 

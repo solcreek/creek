@@ -1,4 +1,4 @@
-import { it, expect, afterEach } from "vitest";
+import { it, expect } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,23 +8,45 @@ function makeTmp(): string {
   return mkdtempSync(join(tmpdir(), "creek-gitignore-"));
 }
 
-afterEach(() => {});
+function ignoredLines(content: string): string[] {
+  return content
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+}
 
 it("creates .gitignore when none exists and returns what it added", () => {
   const dir = makeTmp();
   try {
     const added = ensureGitignoreEntries(dir);
     const content = readFileSync(join(dir, ".gitignore"), "utf-8");
-    expect(content).toContain(".creek");
-    expect(content).toContain(".claude");
-    expect(content).toContain(".windsurf");
-    expect(content).toContain(".cursor");
-    expect(content).toContain("# Creek & AI agent configs");
+    expect(ignoredLines(content)).toEqual([".creek", ".claude/settings.local.json"]);
     // Disclosure: the return value lists every entry written so init can
     // surface the .gitignore mutation instead of editing it silently.
-    expect(added).toContain(".creek");
-    expect(added).toContain(".claude");
-    expect(added.length).toBeGreaterThan(0);
+    expect(added).toEqual([".creek", ".claude/settings.local.json"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("never ignores team-shared agent configuration directories", () => {
+  const dir = makeTmp();
+  try {
+    ensureGitignoreEntries(dir);
+    const lines = ignoredLines(readFileSync(join(dir, ".gitignore"), "utf-8"));
+    for (const shared of [
+      ".claude",
+      ".cursor",
+      ".github/copilot*",
+      ".windsurf",
+      ".agents",
+      ".agent",
+      ".cline",
+      ".roo",
+      ".kiro",
+    ]) {
+      expect(lines).not.toContain(shared);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -33,17 +55,14 @@ it("creates .gitignore when none exists and returns what it added", () => {
 it("appends missing entries to existing .gitignore and returns only the new ones", () => {
   const dir = makeTmp();
   try {
-    writeFileSync(join(dir, ".gitignore"), "node_modules\n.env\n.claude\n");
+    writeFileSync(join(dir, ".gitignore"), "node_modules\n.env\n.creek\n");
     const added = ensureGitignoreEntries(dir);
     const content = readFileSync(join(dir, ".gitignore"), "utf-8");
     expect(content).toContain("node_modules");
-    expect(content).toContain(".creek");
-    expect(content).toContain(".windsurf");
-    const claudeCount = content.split("\n").filter((l) => l.trim() === ".claude").length;
-    expect(claudeCount).toBe(1);
-    // .claude was already present → not reported as added; .creek is new.
-    expect(added).not.toContain(".claude");
-    expect(added).toContain(".creek");
+    const creekCount = content.split("\n").filter((l) => l.trim() === ".creek").length;
+    expect(creekCount).toBe(1);
+    // .creek was already present → not reported as added.
+    expect(added).toEqual([".claude/settings.local.json"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

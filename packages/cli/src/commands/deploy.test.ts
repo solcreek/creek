@@ -289,6 +289,12 @@ describe("resolveDeployEnv (production-safety gate)", () => {
     expect(await resolveDeployEnv({ ...base, authenticated: false })).toBe("sandbox");
   });
 
+  test("signed out --prod is rejected rather than resolved to a sandbox", async () => {
+    await expect(resolveDeployEnv({ ...base, authenticated: false, prod: true })).rejects.toThrow(
+      /requires a signed-in session/,
+    );
+  });
+
   test("--prod is explicit production intent, no prompt or warning", async () => {
     const warn = vi.spyOn(consola, "warn").mockImplementation(() => {});
     const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(true as never);
