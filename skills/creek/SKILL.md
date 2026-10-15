@@ -42,7 +42,7 @@ creek deploy --prod --json
 - Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production database and every env var not marked `--target production`. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
 - Do not POST to `sandbox-api.creek.dev` yourself. Some egress IPs get Cloudflare 1010. Use the CLI or MCP.
-- Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
+- Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched, with a `deploymentId` — pass it to `wait_for_deployment` (or `get_deployment`), and on `deployment_failed` read `get_build_log`. If `deploymentId` is `null`, find the newest row for its `commitSha` with `list_deployments`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
 - Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
 - Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`, `storage delete`, `cache delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
 - Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`destructive: true` means `--dry-run` exists).
@@ -52,7 +52,9 @@ creek deploy --prod --json
 
 Sandbox, no auth: `deploy` (file map → preview URL + `proof`), `deploy_demo`, `deploy_status`, `deploy_delete`.
 
-Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `rollback`, `get_build_log`, resource CRUD, `query_database`): send the key on the **HTTP request**, not as a tool argument:
+Every MCP tool answers JSON: `{ ok: true, … }` or `{ ok: false, error, message, … }`. Branch on `error`. `api_unreachable` carries `retryable` — retry only when it is `true`. A sandbox failure after creation (`timeout`, `deploy_failed`, `verify_failed`) carries `sandboxId`: call `deploy_status` with it, do not deploy again.
+
+Authenticated tools (`list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`, `deploy_prod`, `list_deployments`, `get_deployment`, `wait_for_deployment`, `rollback`, `get_build_log`, resource CRUD, `query_database`): send the key on the **HTTP request**, not as a tool argument:
 
 ```json
 { "mcpServers": { "creek": { "url": "https://mcp.creek.dev", "headers": { "Authorization": "Bearer <CREEK_TOKEN>" } } } }

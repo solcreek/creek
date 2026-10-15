@@ -28,6 +28,18 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
 
 No API key needed for sandbox tools. Authenticated tools (build log, resources) read `Authorization: Bearer <key>` or `x-api-key` from this HTTP request — never as a tool argument.
 
+## Results
+
+Every tool answers with one JSON text block:
+
+- **Success:** `{ "ok": true, ... }` — the tool's fields sit next to `ok`.
+- **Failure:** `{ "ok": false, "error": "<code>", "message": "...", ... }`, and the MCP result has `isError: true`. An API error keeps the API's code (`not_found`, `insufficient_scope`, `binding_conflict`, `rate_limited`, …), its HTTP `status`, and its other fields under `details`.
+- **Network failure:** `{ "ok": false, "error": "api_unreachable", "message", "retryable" }`. `retryable` is `true` only when nothing can have been changed: a read, or a request refused before it was sent. Otherwise `retryable: false` and `mayHaveApplied: true` — check the effect (for example with `list_deployments`) before calling again.
+
+Branch on `ok` and `error`, never on the wording of `message`.
+
+Every tool also declares MCP annotations — `readOnlyHint`, `destructiveHint`, `idempotentHint` — so a client can ask the user before a destructive call. Read-only: the `list_*`, `get_*` and status tools and `wait_for_deployment`. Destructive: `deploy_delete`, `env_set`, `env_rm`, `deploy_prod`, `rollback`, `detach_resource`, `delete_resource`, `query_database`.
+
 ## Available Tools
 
 ### `deploy`
@@ -38,7 +50,14 @@ Deploy files to a sandbox preview (60 min).
 - `files` — `Record<string, string>` — file path to content (UTF-8 strings, not base64)
 - `source` — `string` (optional) — source identifier for tracking
 
-**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `expiresAt`, `proof` (`ok`, `status`, `title`, `ttfbMs`). If the preview URL is not live, `error` is `verify_failed` and the tool result is an error — the `url` is still included.
+**Output:** `{ ok: true, url, sandboxId, deployDurationMs, expiresAt, expiresInSeconds, proof }` — `proof` is `{ ok, status, title, ttfbMs }`.
+
+Every failure after the sandbox was created still carries its `sandboxId` — call `deploy_status` with it rather than deploying again:
+
+- `verify_failed` — the sandbox deployed but the preview URL is not live (`url` and `proof` included).
+- `deploy_failed` — the build failed (`failedStep`, `errorMessage`).
+- `sandbox_expired` — it expired before going live.
+- `timeout` — not live after 30 s (`sandboxStatus` is the last status seen); it may still finish.
 
 ### `deploy_demo`
 
@@ -46,7 +65,7 @@ Deploy a sample page instantly. Great for testing connectivity.
 
 **Input:** none
 
-**Output:** JSON with `url`, `sandboxId`, `deployDurationMs`, `proof` (same shape as `deploy`)
+**Output:** same as `deploy`, plus `message`.
 
 ### `deploy_status`
 
@@ -55,14 +74,16 @@ Check the status of a sandbox deployment.
 **Input:**
 - `sandboxId` — `string`
 
-**Output:** Full status object including `status`, `url`, `expiresInSeconds`, `claimable`
+**Output:** `{ ok: true, sandboxId, status, previewUrl, expiresInSeconds, claimable, failedStep, errorMessage, … }`. An unknown id is `{ ok: false, error: "not_found", status: 404, sandboxId }`.
 
 ### `deploy_delete`
 
-Delete a sandbox before it expires.
+Delete a sandbox before it expires. Only the client that created it can delete it (matched by IP).
 
 **Input:**
 - `sandboxId` — `string`
+
+**Output:** `{ ok: true, sandboxId, deleted: true }`. Errors: `forbidden` (another client created it), `already_expired`, `not_found`.
 
 ### `list_projects`
 
@@ -108,7 +129,7 @@ Trigger a production deploy of the latest commit on the project's GitHub product
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, triggered, branch, commitSha, pending: true }` — then poll `get_status` / `list_deployments` / `get_build_log`.
+**Output:** `{ ok, triggered, branch, commitSha, deploymentId, version, status, pending: true, nextStep }`. The trigger returns no id, so the tool looks for the new deployment for up to ~10 s; `deploymentId` is `null` if it did not appear in time (or the key lacks `project:read`) — then find it with `list_deployments`. Follow it with `wait_for_deployment`.
 
 Requires a GitHub connection. Projects without one get `not_found` / "Project has no GitHub connection".
 
@@ -120,11 +141,37 @@ Recent deployments, newest first.
 
 **Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt }] }` — pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
 
+### `get_deployment`
+
+Read one deployment.
+
+**Input:** `projectSlug`, `deploymentId` (8-char short id or full uuid)
+
+**Output:** `{ ok, project, deploymentId, version, status, terminal, branch, commitSha, triggerType, failedStep, errorMessage, errorCode, errorHint, url, previewUrl, isProduction, createdAt, nextStep? }`. `status` is in flight (`queued`, `building`, `uploading`, `deploying`) or final (`active`, `failed`, `cancelled`); `terminal` is `true` once it is final. `url` is set once the deployment is active. On failure `nextStep` points at `get_build_log`.
+
+### `wait_for_deployment`
+
+Wait until a deployment is final.
+
+**Input:** `projectSlug`, `deploymentId`, `timeoutSeconds?` (default 45, max 300 — keep it below your client's tool-call timeout)
+
+**Output:** the `get_deployment` fields with `ok: true` when it is `active`. Otherwise an error result with the same fields: `deployment_failed` (see `failedStep`, `errorCode`, then `get_build_log`), `deployment_cancelled`, or `timeout` with `retryable: true` when it is still running — call it again.
+
 ### `rollback`
 
 Roll production back to a previous active deployment.
 
 **Input:** `projectSlug`, required `deploymentId` (active non-rollback row from `list_deployments`), optional `message`
+
+### Resources
+
+- `list_resources` (`kind?`) → `{ ok, resources: [...] }`
+- `create_resource` (`kind`, `name`) → `{ ok, id, kind, name, … }`
+- `attach_resource` (`projectSlug`, `resourceId`, `bindingName`) → `{ ok, project, resourceId, bindingName }`
+- `detach_resource` (`projectSlug`, `bindingName`) → `{ ok, project, bindingName, detached: true }`
+- `rename_resource` (`resourceId`, `name`) → `{ ok, resourceId, name, … }`
+- `delete_resource` (`resourceId`) → `{ ok, resourceId, deleted: true }`
+- `query_database` (`resourceId`, `sql`, `params?`) → `{ ok, columns, rows, meta }`
 
 ## Example
 
@@ -147,10 +194,10 @@ Agent:
 | Build log (`get_build_log`) | `Authorization: Bearer` or `x-api-key` header |
 | Projects (`list_projects`, `get_status`) | same header |
 | Env (`env_ls`, `env_set`, `env_rm`) | same header |
-| Production (`deploy_prod`, `list_deployments`, `rollback`) | same header |
+| Production (`deploy_prod`, `list_deployments`, `get_deployment`, `wait_for_deployment`, `rollback`) | same header |
 | Resources (`list_resources`, `create_resource`, `attach_resource`, `detach_resource`, `delete_resource`, `rename_resource`, `query_database`) | same header |
 
-`deploy_prod` requires a GitHub connection on the project (same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched — poll `get_status` / `list_deployments` / `get_build_log`. `env_set` / `env_rm` do not restart the worker — follow with `deploy_prod`.
+`deploy_prod` requires a GitHub connection on the project (same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched, with the `deploymentId` to pass to `wait_for_deployment`; on failure read `get_build_log`. `env_set` / `env_rm` do not restart the worker — follow with `deploy_prod`.
 
 Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`~/.creek/config.json` or `CREEK_TOKEN`).
 

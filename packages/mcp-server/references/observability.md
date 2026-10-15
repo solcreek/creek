@@ -49,8 +49,14 @@ on failure.
 diagnose a deploy without going through the CLI. Input: project slug
 + deployment id (short or full). Auth is HTTP
 `Authorization: Bearer <key>` or `x-api-key` on the MCP request —
-not a tool argument. Output: summary + important lines (errors +
-failing-step lines) + full log.
+not a tool argument. Output: `{ ok: true, summary, importantLines,
+fullLog }` — the summary, the important lines (errors + failing-step
+lines), and the full log.
+
+To learn whether a deploy failed in the first place, `get_deployment`
+returns its status, `failedStep` and `errorCode`; `wait_for_deployment`
+waits until it is final and answers `deployment_failed` with the same
+fields.
 
 Pattern: user says "my deploy to Creek failed, can you fix it?" → agent
 calls `get_build_log` → reads the `errorCode` + `errorStep` → applies
