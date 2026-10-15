@@ -12,7 +12,7 @@ import consola from "consola";
 const auth = vi.hoisted(() => ({ token: null as string | null }));
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
-  return { ...orig, getToken: () => auth.token };
+  return { ...orig, getToken: () => auth.token, isSignedIn: () => Boolean(auth.token) };
 });
 // An interactive terminal, when a test asks for one. Off by default, so the
 // matrix runs as the agent/CI (non-TTY) environment it is about.
