@@ -15,6 +15,14 @@ import type {
   LogQueryResponse,
   MetricsResponse,
 } from "../types/index.js";
+import {
+  toDeploymentView,
+  type DeploymentView,
+  type WaitForDeploymentOptions,
+  type WaitForDeploymentResult,
+} from "./deployment.js";
+
+export * from "./deployment.js";
 
 export class CreekClient {
   private baseUrl: string;
@@ -25,12 +33,17 @@ export class CreekClient {
     this.token = token;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       "x-api-key": this.token,
     };
 
-    const init: RequestInit = { method, headers };
+    const init: RequestInit = { method, headers, ...(signal ? { signal } : {}) };
 
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
@@ -213,6 +226,110 @@ export class CreekClient {
     deploymentId: string,
   ): Promise<DeploymentStatusResponse> {
     return this.request("GET", `/projects/${projectId}/deployments/${deploymentId}`);
+  }
+
+  /**
+   * The full id of the deployment `idOrPrefix` names: a full uuid as is, a
+   * shorter prefix (the 8-char short id) matched against the project's
+   * newest 20 deployments. Throws CreekApiError 404 `not_found` when nothing
+   * matches and 409 `ambiguous_id` when more than one does.
+   */
+  async resolveDeploymentId(
+    projectSlug: string,
+    idOrPrefix: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (idOrPrefix.length >= 36) return idOrPrefix;
+    const list = await this.request<Deployment[]>(
+      "GET",
+      `/projects/${projectSlug}/deployments`,
+      undefined,
+      signal,
+    );
+    const matches = list.filter((d) => typeof d.id === "string" && d.id.startsWith(idOrPrefix));
+    if (matches.length === 0) {
+      throw new CreekApiError(
+        404,
+        "not_found",
+        `No deployment matches id prefix '${idOrPrefix}' in project '${projectSlug}' (only the newest 20 are searched; pass the full id for an older one).`,
+      );
+    }
+    if (matches.length > 1) {
+      throw new CreekApiError(
+        409,
+        "ambiguous_id",
+        `Id prefix '${idOrPrefix}' matches ${matches.length} deployments; pass more characters.`,
+        { matches: matches.map((d) => d.id) },
+      );
+    }
+    return matches[0].id;
+  }
+
+  /**
+   * One deployment as an agent acts on it: status, `terminal`/`final`,
+   * failedStep, errorCode/errorHint, url, commit and branch. Takes a full id
+   * or a short-id prefix (see {@link resolveDeploymentId}).
+   */
+  async getDeployment(projectSlug: string, idOrPrefix: string): Promise<DeploymentView> {
+    const id = await this.resolveDeploymentId(projectSlug, idOrPrefix);
+    const res = await this.getDeploymentStatus(projectSlug, id);
+    return toDeploymentView(projectSlug, id, res);
+  }
+
+  /**
+   * Poll a deployment until it reaches a final status (active, failed,
+   * cancelled) or the budget runs out. The budget covers everything: id
+   * resolution, each read (aborted at the deadline) and the pauses between.
+   * A budget that runs out returns `timedOut: true` with the last read; it
+   * never throws for that. API errors throw as usual.
+   */
+  async waitForDeployment(
+    projectSlug: string,
+    idOrPrefix: string,
+    options: WaitForDeploymentOptions = {},
+  ): Promise<WaitForDeploymentResult> {
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const intervalMs = options.intervalMs ?? 2_000;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    const remaining = () => Math.max(deadline - Date.now(), 1);
+    let view: DeploymentView | null = null;
+    const done = (timedOut: boolean): WaitForDeploymentResult => ({
+      view,
+      timedOut,
+      waitedMs: Date.now() - started,
+    });
+
+    let id: string;
+    try {
+      id = await this.resolveDeploymentId(
+        projectSlug,
+        idOrPrefix,
+        AbortSignal.timeout(remaining()),
+      );
+    } catch (err) {
+      if (isAbort(err)) return done(true);
+      throw err;
+    }
+
+    while (true) {
+      try {
+        const res = await this.request<DeploymentStatusResponse>(
+          "GET",
+          `/projects/${projectSlug}/deployments/${id}`,
+          undefined,
+          AbortSignal.timeout(remaining()),
+        );
+        view = toDeploymentView(projectSlug, id, res);
+      } catch (err) {
+        if (isAbort(err)) return done(true);
+        throw err;
+      }
+      options.onPoll?.(view);
+      if (view.terminal) return done(false);
+      if (Date.now() + intervalMs >= deadline) return done(true);
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
   }
 
   async promoteDeployment(projectId: string, deploymentId: string): Promise<{ ok: boolean }> {
@@ -531,6 +648,11 @@ export class CreekClient {
  * code (else `fallbackCode`), its `message` (else the status text), and its
  * other fields as `details`. A 401 is a CreekAuthError.
  */
+/** A request aborted by its signal (AbortSignal.timeout fires a TimeoutError). */
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
 async function apiErrorFrom(res: Response, fallbackCode: string): Promise<Error> {
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   const { error, message, ...details } = body ?? {};
