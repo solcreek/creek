@@ -256,6 +256,38 @@ describe("the no_project hint names only flags the command accepts", () => {
   });
 });
 
+describe("every project command reports projectSource", () => {
+  it("resolves through resolveProject/readDirectoryProject and emits projectSource", () => {
+    // resolveProjectSlug drops where the slug came from, so no command may
+    // use it; every module that resolves a project must emit projectSource
+    // and be in the table-driven MSW test ("every project command reports
+    // projectSource" in commands.msw.test.ts), which checks the real output.
+    const inMswTable = new Set([
+      "env.ts",
+      "status.ts",
+      "domains.ts",
+      "logs.ts",
+      "metrics.ts",
+      "queue.ts",
+      "deployments.ts",
+      "rollback.ts",
+      "doctor.ts",
+      "db.ts",
+    ]);
+    const commandsDir = join(__dirname, "..", "commands");
+    const problems: string[] = [];
+    for (const f of readdirSync(commandsDir)) {
+      if (!f.endsWith(".ts") || f.includes(".test")) continue;
+      const src = readFileSync(join(commandsDir, f), "utf-8");
+      if (!/resolveProject(Slug)?\(|readDirectoryProject\(/.test(src)) continue;
+      if (src.includes("resolveProjectSlug(")) problems.push(`${f}: uses resolveProjectSlug`);
+      if (!src.includes("projectSource")) problems.push(`${f}: never emits projectSource`);
+      if (!inMswTable.has(f)) problems.push(`${f}: missing from the MSW projectSource table`);
+    }
+    expect(problems).toEqual([]);
+  });
+});
+
 describe("config errors are never swallowed into no_project", () => {
   it("commands read the directory through readDirectoryProject/resolveProject", () => {
     // projectFromDirectory throws on a broken config; a command that catches

@@ -4,7 +4,7 @@ import { CreekClient, type MetricsResponse } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectArg, resolveProjectSlug } from "../utils/command-context.js";
+import { projectArg, resolveProject } from "../utils/command-context.js";
 
 const VALID_PERIODS = ["1h", "6h", "24h", "7d", "30d"] as const;
 type Period = (typeof VALID_PERIODS)[number];
@@ -47,7 +47,10 @@ export const metricsCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const { slug: projectSlug, source: projectSource } = resolveProject(
+      args.project as string | undefined,
+      jsonMode,
+    );
 
     const period = validatePeriod(args.period as string | undefined, jsonMode);
 
@@ -69,7 +72,7 @@ export const metricsCommand = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, project: projectSlug, ...response }, 0, [
+      jsonOutput({ ok: true, project: projectSlug, projectSource, ...response }, 0, [
         {
           command: `creek logs --project ${projectSlug} --since ${period}`,
           description: "Tail logs for the same window",

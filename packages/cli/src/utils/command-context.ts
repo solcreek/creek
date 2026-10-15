@@ -256,7 +256,11 @@ export function pasteableBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadc
   });
 }
 
-/** {@link resolveProject}, for callers that need only the slug. */
+/**
+ * {@link resolveProject}, slug only. Not for commands: every project command
+ * reports `projectSource` in its JSON (a test enforces it), so they call
+ * resolveProject.
+ */
 export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
   return resolveProject(argSlug, jsonMode).slug;
 }

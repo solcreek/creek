@@ -4,7 +4,7 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectArg, projectBreadcrumbs, resolveProjectSlug } from "../utils/command-context.js";
+import { projectArg, projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
 
 // --- List (default behaviour) ---
 
@@ -27,7 +27,7 @@ const deploymentsList = defineCommand({
       process.exit(1);
     }
 
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const client = new CreekClient(getApiUrl(), token);
 
     let deployments;
@@ -56,7 +56,11 @@ const deploymentsList = defineCommand({
               },
             ]
           : [{ command: `creek deploy`, description: "Create first deployment" }];
-      jsonOutput({ ok: true, project: slug, deployments }, 0, projectBreadcrumbs(slug, crumbs));
+      jsonOutput(
+        { ok: true, project: slug, projectSource, deployments },
+        0,
+        projectBreadcrumbs(slug, crumbs),
+      );
     }
 
     if (deployments.length === 0) {
@@ -105,7 +109,7 @@ const deploymentsLogs = defineCommand({
       process.exit(1);
     }
 
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const client = new CreekClient(getApiUrl(), token);
 
     // If the user passed a short id, look up the full uuid. GET endpoint
@@ -152,7 +156,7 @@ const deploymentsLogs = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, deploymentId: fullId, ...log }, 0);
+      jsonOutput({ ok: true, project: slug, projectSource, deploymentId: fullId, ...log }, 0);
     }
 
     if (!log.metadata) {

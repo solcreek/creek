@@ -229,7 +229,7 @@ async function runLastFailureDiagnosis(opts: {
   // directory's config gives (creek.toml, wrangler, package.json); never the
   // directory name. Same no_project / invalid_config exits as every project
   // command.
-  const { slug } = resolveProject(opts.project, opts.jsonMode, opts.cwd);
+  const { slug, source: projectSource } = resolveProject(opts.project, opts.jsonMode, opts.cwd);
 
   const client = new CreekClient(getApiUrl(), token);
 
@@ -249,7 +249,8 @@ async function runLastFailureDiagnosis(opts: {
   const failed = deployments.find((d) => d.status === "failed");
   if (!failed) {
     const msg = `No failed deployments for ${slug}. Last ${deployments.length} deploys succeeded.`;
-    if (opts.jsonMode) jsonOutput({ ok: true, project: slug, failed: null, message: msg }, 0);
+    if (opts.jsonMode)
+      jsonOutput({ ok: true, project: slug, projectSource, failed: null, message: msg }, 0);
     consola.log("");
     consola.log(`  ${c("⬡ creek doctor --last", "bold")}  ${c(slug, "dim")}`);
     consola.log(`  ${c("✓", "green")} ${msg}`);
@@ -280,6 +281,7 @@ async function runLastFailureDiagnosis(opts: {
       {
         ok: true,
         project: slug,
+        projectSource,
         failed: {
           id: failed.id,
           version: failed.version,

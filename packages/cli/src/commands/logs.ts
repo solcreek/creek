@@ -7,7 +7,7 @@ import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../ut
 import { matchesClientSide, describeFilters, safeStringify as ssExport } from "./logs-filter.js";
 import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectArg, resolveProjectSlug } from "../utils/command-context.js";
+import { projectArg, resolveProject, type ProjectSource } from "../utils/command-context.js";
 
 /**
  * `creek logs` — read structured tenant logs from R2 archive.
@@ -111,7 +111,10 @@ export const logsCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const { slug: projectSlug, source: projectSource } = resolveProject(
+      args.project as string | undefined,
+      jsonMode,
+    );
 
     const client = new CreekClient(getApiUrl(), token);
     const filters: LogQueryFilters = {
@@ -156,7 +159,7 @@ export const logsCommand = defineCommand({
     // when --follow streams in below, it continues chronologically).
     if (jsonMode) {
       for (const entry of response.entries) {
-        process.stdout.write(JSON.stringify(entry) + "\n");
+        process.stdout.write(JSON.stringify({ ...entry, projectSource }) + "\n");
       }
       if (response.truncated && !args.follow) {
         process.stderr.write(
@@ -185,7 +188,7 @@ export const logsCommand = defineCommand({
     // --follow → switch to WebSocket live tail.
     const seenAfter =
       response.entries.length > 0 ? Math.max(...response.entries.map((e) => e.timestamp)) : 0;
-    await follow(client, projectSlug, filters, seenAfter, jsonMode);
+    await follow(client, projectSlug, projectSource, filters, seenAfter, jsonMode);
   },
 });
 
@@ -210,6 +213,7 @@ export const logsCommand = defineCommand({
 async function follow(
   client: CreekClient,
   projectSlug: string,
+  projectSource: ProjectSource,
   filters: LogQueryFilters,
   initialSeenAfter: number,
   jsonMode: boolean,
@@ -289,7 +293,7 @@ async function follow(
         if (!matchesClientSide(entry, filters)) return;
         seenAfter = Math.max(seenAfter, entry.timestamp);
         if (jsonMode) {
-          process.stdout.write(JSON.stringify(entry) + "\n");
+          process.stdout.write(JSON.stringify({ ...entry, projectSource }) + "\n");
         } else {
           printEntry(entry);
         }

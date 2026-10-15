@@ -13,6 +13,12 @@ import { resolveShellDatabase } from "./db.js";
 import { projectsCommand } from "./projects.js";
 import { domainsCommand } from "./domains.js";
 import { doctorCommand } from "./doctor.js";
+import { logsCommand } from "./logs.js";
+import { metricsCommand } from "./metrics.js";
+import { queueCommand } from "./queue.js";
+import { deploymentsCommand } from "./deployments.js";
+import { rollbackCommand } from "./rollback.js";
+import { dbCommand } from "./db.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -97,6 +103,8 @@ describe("creek status (project)", () => {
           created_at: 0,
         }),
       ),
+      // The binding-drift check (cwd is this cf project).
+      http.get(`${API}/projects/demo/bindings`, () => HttpResponse.json({ bindings: [] })),
     );
     const code = await runExit(statusCommand.run!({ args: {} } as never));
     expect(code).toBe(0);
@@ -634,6 +642,124 @@ describe("project commands in a directory whose config names no project", () => 
   }
 });
 
+describe("every project command reports projectSource", () => {
+  // Table-driven: run each project command with --project from a directory
+  // with no config, and read projectSource from its JSON output. The source
+  // scan in command-context.test.ts makes sure a new project command lands
+  // in this table.
+  let dir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    dir = mkdtempSync(join(tmpdir(), "creek-project-source-"));
+    process.chdir(dir);
+    process.env.CREEK_TOKEN = "tok";
+    const dep = "00000000-0000-4000-8000-000000000001";
+    server.use(
+      http.post(`${API}/projects/p/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+      http.get(`${API}/projects/p/env`, () => HttpResponse.json([])),
+      http.delete(`${API}/projects/p/env/K`, () => HttpResponse.json({ ok: true })),
+      http.get(`${API}/projects/p`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "p",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+      http.get(`${API}/projects/p/domains`, () => HttpResponse.json([])),
+      http.get(`${API}/projects/p/logs`, () =>
+        HttpResponse.json({
+          entries: [{ v: 1, timestamp: 1, project: "p", outcome: "ok", logs: [], exceptions: [] }],
+          truncated: false,
+        }),
+      ),
+      http.get(`${API}/projects/p/metrics`, () => HttpResponse.json({ period: "24h" })),
+      http.post(`${API}/projects/p/queue/send`, () => HttpResponse.json({ queueId: "q1" })),
+      http.get(`${API}/projects/p/deployments`, () => HttpResponse.json([])),
+      http.get(`${API}/projects/p/deployments/${dep}/logs`, () =>
+        HttpResponse.json({ entries: [], metadata: null }),
+      ),
+      http.post(`${API}/projects/p/rollback`, () =>
+        HttpResponse.json({
+          ok: true,
+          deploymentId: "d2",
+          rolledBackTo: dep,
+          previousDeploymentId: "d1",
+          url: "https://p.test",
+        }),
+      ),
+      http.get(`${API}/projects/p/bindings`, () =>
+        HttpResponse.json({
+          bindings: [
+            {
+              bindingName: "DB",
+              resourceId: "res-1",
+              kind: "database",
+              name: "db-1",
+              status: "active",
+              createdAt: 0,
+            },
+          ],
+        }),
+      ),
+      http.post(`${API}/resources/res-1/query`, () =>
+        HttpResponse.json({
+          columns: [],
+          rows: [],
+          meta: { changes: 0, duration: 1, rows_read: 0, rows_written: 0 },
+        }),
+      ),
+    );
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  type Cmd = { run?: (c: never) => unknown; subCommands?: unknown };
+  const sub = (cmd: Cmd, name: string) => (cmd.subCommands as Record<string, Cmd>)[name];
+  const dep = "00000000-0000-4000-8000-000000000001";
+  const table: [string, () => Cmd, Record<string, unknown>][] = [
+    ["env set", () => sub(envCommand as Cmd, "set"), { key: "K", value: "v" }],
+    ["env ls", () => sub(envCommand as Cmd, "ls"), { show: false }],
+    ["env rm", () => sub(envCommand as Cmd, "rm"), { key: "K" }],
+    ["status", () => statusCommand as Cmd, {}],
+    ["domains ls", () => sub(domainsCommand as Cmd, "ls"), {}],
+    ["logs", () => logsCommand as Cmd, {}],
+    ["metrics", () => metricsCommand as Cmd, {}],
+    ["queue send", () => sub(queueCommand as Cmd, "send"), { message: "hi", parseJson: false }],
+    ["deployments list", () => sub(deploymentsCommand as Cmd, "list"), {}],
+    ["deployments logs", () => sub(deploymentsCommand as Cmd, "logs"), { id: dep, raw: false }],
+    ["rollback", () => rollbackCommand as Cmd, { deployment: dep }],
+    ["doctor --last", () => doctorCommand as Cmd, { last: true }],
+    ["db shell --sql", () => sub(dbCommand as Cmd, "shell"), { sql: "SELECT 1" }],
+    [
+      "db migrate (no files)",
+      () => sub(dbCommand as Cmd, "migrate"),
+      { dir: ".", "dry-run": false, resume: false },
+    ],
+  ];
+
+  for (const [name, cmd, args] of table) {
+    it(`creek ${name} --project p says projectSource: "flag"`, async () => {
+      try {
+        await cmd().run!({ args: { ...args, project: "p", _: [] } } as never);
+      } catch (err) {
+        if (!(err instanceof ExitSignal)) throw err;
+      }
+      // The first JSON document written. (Commands that wrap their success
+      // output in try/catch catch the stubbed process.exit and print a
+      // second, bogus error document after it; a real exit never returns.)
+      // For `logs --json` it is the first ndjson entry line.
+      const first = JSON.parse(stdout.split(/\n(?=\{)/)[0]);
+      expect(first).toMatchObject({ project: "p", projectSource: "flag" });
+      expect(first.ok, stdout).not.toBe(false);
+    });
+  }
+});
+
 describe("creek doctor --last with a malformed config", () => {
   let projDir: string;
   let prevCwd: string;
@@ -758,7 +884,12 @@ describe("db shell resolution (resolveShellDatabase)", () => {
       ),
     );
     const db = await resolveShellDatabase(client(), { project: "hivemind", jsonMode: true });
-    expect(db).toEqual({ id: "res-d1", name: "creek-97d8c075" });
+    expect(db).toEqual({
+      id: "res-d1",
+      name: "creek-97d8c075",
+      project: "hivemind",
+      projectSource: "flag",
+    });
   });
 
   it("with no name or --project, infers the project from a wrangler-only directory", async () => {
@@ -787,7 +918,12 @@ describe("db shell resolution (resolveShellDatabase)", () => {
         ),
       );
       const db = await resolveShellDatabase(client(), { jsonMode: true });
-      expect(db).toEqual({ id: "res-wr", name: "creek-wr" });
+      expect(db).toEqual({
+        id: "res-wr",
+        name: "creek-wr",
+        project: "wr-app",
+        projectSource: "wrangler",
+      });
     } finally {
       process.chdir(prevCwd);
       rmSync(projDir, { recursive: true, force: true });

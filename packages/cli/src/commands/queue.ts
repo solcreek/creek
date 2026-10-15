@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
-import { requireClient, resolveProjectSlug, projectArg } from "../utils/command-context.js";
+import { requireClient, resolveProject, projectArg } from "../utils/command-context.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const queueSend = defineCommand({
@@ -24,7 +24,10 @@ const queueSend = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const { slug, source: projectSource } = resolveProject(
+      args.project as string | undefined,
+      jsonMode,
+    );
 
     let payload: unknown = args.message;
     if (args.parseJson) {
@@ -50,7 +53,7 @@ const queueSend = defineCommand({
     try {
       const result = await client.sendQueueMessage(slug, payload);
       if (jsonMode) {
-        jsonOutput({ ok: true, project: slug, queueId: result.queueId }, 0, [
+        jsonOutput({ ok: true, project: slug, projectSource, queueId: result.queueId }, 0, [
           {
             command: `creek deployments --project ${slug}`,
             description: "View deployment history",

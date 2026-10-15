@@ -15,7 +15,11 @@ import {
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { exitNoProject, readDirectoryProject } from "../utils/command-context.js";
+import {
+  exitNoProject,
+  readDirectoryProject,
+  type ProjectSource,
+} from "../utils/command-context.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -67,7 +71,7 @@ const shellCommand = defineCommand({
 
     // Single query mode
     if (args.sql) {
-      await executeAndPrint(client, db.id, args.sql, jsonMode);
+      await executeAndPrint(client, db.id, args.sql, jsonMode, projectFields(db));
       return;
     }
 
@@ -121,6 +125,23 @@ const shellCommand = defineCommand({
 });
 
 /**
+ * A database to act on. `project`/`projectSource` are set when it was found
+ * through the project's bindings (not by name), so the JSON output can say
+ * which project was targeted and where that came from.
+ */
+export interface ResolvedDatabase {
+  id: string;
+  name: string;
+  project?: string;
+  projectSource?: ProjectSource;
+}
+
+/** The project fields a db command adds to its JSON output. */
+function projectFields(db: ResolvedDatabase): Record<string, unknown> {
+  return db.project ? { project: db.project, projectSource: db.projectSource } : {};
+}
+
+/**
  * Resolve which database a command (`db shell`, `db migrate`, …) should
  * target. Three inputs, in order:
  *   1. an explicit `name` positional (existing behaviour),
@@ -136,7 +157,7 @@ const shellCommand = defineCommand({
 export async function resolveProjectDatabase(
   client: CreekClient,
   opts: { name?: string; project?: string; jsonMode: boolean; usage?: string },
-): Promise<{ id: string; name: string }> {
+): Promise<ResolvedDatabase> {
   const { name, jsonMode } = opts;
   // How to name the DB explicitly — varies per command (shell vs migrate).
   const usage = opts.usage ?? "creek db shell <name>";
@@ -156,12 +177,14 @@ export async function resolveProjectDatabase(
 
   // 2/3. Resolve via project bindings.
   let slug = opts.project;
+  let projectSource: ProjectSource | undefined = slug ? "flag" : undefined;
   if (!slug) {
     // A broken config exits invalid_config; one that names no project exits
     // no_project with foundConfig, like every other project command.
     const found = readDirectoryProject(jsonMode);
     if (found?.slug === null) exitNoProject(found, jsonMode);
     slug = found?.slug;
+    projectSource = found?.source;
   }
   if (!slug) {
     const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory (creek.toml or wrangler config).`;
@@ -219,7 +242,7 @@ export async function resolveProjectDatabase(
     consola.error(msg);
     process.exit(1);
   }
-  return { id: dbs[0].resourceId, name: dbs[0].name };
+  return { id: dbs[0].resourceId, name: dbs[0].name, project: slug, projectSource };
 }
 
 /** @deprecated Use {@link resolveProjectDatabase}. Kept for back-compat. */
@@ -230,12 +253,13 @@ async function executeAndPrint(
   resourceId: string,
   sql: string,
   jsonMode: boolean,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   try {
     const result = await client.queryDatabase(resourceId, sql);
 
     if (jsonMode) {
-      jsonOutput({ ok: true, ...result }, 0);
+      jsonOutput({ ok: true, ...extra, ...result }, 0);
       return;
     }
 
@@ -375,7 +399,16 @@ const migrateCommand = defineCommand({
     const files = parseMigrationFiles(migrationDir);
     if (files.length === 0) {
       if (jsonMode)
-        jsonOutput({ ok: true, message: "No .sql files found", applied: 0, pending: 0 }, 0);
+        jsonOutput(
+          {
+            ok: true,
+            ...projectFields(db),
+            message: "No .sql files found",
+            applied: 0,
+            pending: 0,
+          },
+          0,
+        );
       consola.info(`No .sql files found in ${migrationDir}`);
       return;
     }
@@ -426,6 +459,7 @@ const migrateCommand = defineCommand({
         jsonOutput(
           {
             ok: true,
+            ...projectFields(db),
             dryRun: true,
             total: files.length,
             applied: appliedSet.size,
@@ -448,7 +482,16 @@ const migrateCommand = defineCommand({
     // 6. Apply pending
     if (pending.length === 0) {
       if (jsonMode)
-        jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
+        jsonOutput(
+          {
+            ok: true,
+            ...projectFields(db),
+            message: "up to date",
+            applied: appliedSet.size,
+            migrated: 0,
+          },
+          0,
+        );
       consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       return;
     }
@@ -553,7 +596,14 @@ const migrateCommand = defineCommand({
 
     if (jsonMode) {
       jsonOutput(
-        { ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated },
+        {
+          ok: true,
+          ...projectFields(db),
+          migrated,
+          resumed,
+          total: files.length,
+          applied: appliedSet.size + migrated,
+        },
         0,
       );
     }
