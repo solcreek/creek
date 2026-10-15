@@ -290,9 +290,11 @@ export default app;
           ...(dbPromptSkipped
             ? [
                 {
-                  command: "creek init --db",
+                  // --force: this run just wrote creek.toml, so a plain
+                  // re-run would stop at already_exists.
+                  command: `creek init ${name} --db --force --json`,
                   description:
-                    "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts",
+                    "Re-run with a database — replaces the creek.toml just written, adds [resources] and [build].worker, scaffolds worker/index.ts",
                 },
               ]
             : []),
@@ -339,7 +341,7 @@ export default app;
       }
       if (dbPromptSkipped) {
         consola.info(
-          "Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.",
+          `Skipped the database prompt (non-interactive). Re-run with \`creek init ${name} --db --force\` to add one — it replaces the creek.toml just written, adds [resources] and [build].worker, and scaffolds worker/index.ts.`,
         );
       }
       if (compatBlockers.length > 0) {

@@ -6,7 +6,7 @@ Init writes `creek.toml` (and optionally a worker scaffold) into the current dir
 
 - `init-toml` writes `creek.toml` with the given project name.
 - `init-gitignore` appends Creek's local-state entries (`.creek`, `.claude/settings.local.json`) and lists them as `gitignoreAdded`. Agent configuration directories (`.claude`, `.cursor`, `.github/copilot*`, …) are never ignored.
-- `init-no-db` skips the database prompt in non-interactive runs and breadcrumbs `creek init --db`.
+- `init-no-db` skips the database prompt in non-interactive runs and breadcrumbs `creek init <name> --db --force --json` (the first run just wrote `creek.toml`, so `--force` is needed).
 - `init-db` writes `[resources] database = true`, `[build].worker`, and `worker/index.ts`.
 - `init-overwrite` refuses an existing `creek.toml` in a non-interactive run (`--json`, `--yes`, non-TTY) with `already_exists`; `--force` replaces it and the JSON says `replaced: true`.
 - `init-static` writes `command = ""` and `output = "."` (or `"public"`) for a directory with `index.html` and no `package.json`, and reports `staticSite: true`.
@@ -29,7 +29,7 @@ Preconditions:
 - **Named init.** Create a project. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/init/named -- init verify-fixture --yes --json`. Exit code `0`. stdout JSON has `ok: true`, `name: "verify-fixture"`, `database: false`, `databasePromptSkipped: true`, and `path` ending in `creek.toml`.
 - **File on disk.** Read `$VERIFY_CREEK_WORK/creek.toml`. It contains `name = "verify-fixture"` and a `[build]` table. It does not contain `worker =` or `[resources]`.
 - **Gitignore disclosure.** Same JSON: `gitignoreAdded` is `[".creek", ".claude/settings.local.json"]`. `$VERIFY_CREEK_WORK/.gitignore` exists, contains `.creek`, and has no `.claude`, `.cursor` or `.github/copilot*` line. Copy both files into the evidence directory.
-- **No-db breadcrumb.** Same JSON: `breadcrumbs` contains a command `creek init --db`. `workerDependencies` is absent. `$VERIFY_CREEK_WORK/worker` does not exist.
+- **No-db breadcrumb.** Same JSON: `breadcrumbs` contains `creek init verify-fixture --db --force --json`. `workerDependencies` is absent. `$VERIFY_CREEK_WORK/worker` does not exist.
 - **Database scaffold.** In a second empty directory (or after removing `worker/` and re-init with `--yes`), run `creek.sh "$RUN_ENV" --cwd "$VERIFY_CREEK_WORK" --evidence .cursor/skills/verify-creek/artifacts/init/db -- init verify-fixture --db --yes --json`. Exit code `0`. JSON has `database: true` and `workerDependencies: ["hono","creek","d1-schema"]`. `$VERIFY_CREEK_WORK/worker/index.ts` exists. `creek.toml` contains `worker = "worker/index.ts"` and `database = true`. Copy `worker/index.ts` into the evidence directory.
 - **Overwrite refused.** In a directory whose `creek.toml` you wrote by hand (e.g. `[project]\nname = "keep-me"\n\n[resources]\ncache = true\n`), run `-- init demo --yes --json` into `artifacts/init/overwrite-refused`. Exit code `1`. JSON has `ok: false`, `error: "already_exists"`, and a breadcrumb `creek init --force --json`. `creek.toml` is byte-for-byte unchanged.
 - **Overwrite forced.** Same directory, `-- init demo --force --json`. Exit code `0`. JSON has `ok: true`, `replaced: true`; `creek.toml` now has `name = "demo"`.

@@ -89,7 +89,34 @@ describe("creek init --db (non-interactive)", () => {
     const payload = JSON.parse(out.slice(out.indexOf("{")));
     expect(payload.database).toBe(false);
     expect(payload.databasePromptSkipped).toBe(true);
-    expect(JSON.stringify(payload.breadcrumbs)).toContain("creek init --db");
+    expect(JSON.stringify(payload.breadcrumbs)).toContain("--db");
+  });
+
+  it("the --db breadcrumb works when run right after the first init", async () => {
+    await runInit({ name: "demo", yes: true });
+    const firstOut = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const first = JSON.parse(firstOut.slice(firstOut.indexOf("{")));
+    const crumb = (first.breadcrumbs as { command: string }[]).find((b) =>
+      b.command.includes("--db"),
+    );
+    expect(crumb).toBeDefined();
+
+    // Run the breadcrumb as written: `creek init <name> --db --force --json`.
+    const [, , ...rest] = crumb!.command.split(" ");
+    const args: Record<string, unknown> = { yes: true };
+    for (const tok of rest) {
+      if (tok.startsWith("--")) args[tok.slice(2)] = true;
+      else args.name = tok;
+    }
+    writeSpy.mockClear();
+    exitSpy.mockClear();
+    await runInit(args);
+
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const second = JSON.parse(out.slice(out.indexOf("{")));
+    expect(second).toMatchObject({ ok: true, database: true, name: "demo" });
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(readFileSync(join(dir, "creek.toml"), "utf-8")).toMatch(/database = true/);
   });
 
   it("flags a Node HTTP-server stack (Express) as a compatibility warning up front", async () => {
