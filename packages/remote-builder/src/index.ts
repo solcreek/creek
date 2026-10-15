@@ -10,6 +10,7 @@
 import { Container } from "@cloudflare/containers";
 import { deployToCreek } from "./creek-api.js";
 import { handleWebBuild } from "./web-build.js";
+import { secretEqual } from "./secret-equal.js";
 
 export class BuildContainer extends Container {
   defaultPort = 8080;
@@ -57,7 +58,7 @@ export default {
     // Internal auth check (required when INTERNAL_SECRET is set)
     if (env.INTERNAL_SECRET) {
       const secret = request.headers.get("x-internal-secret");
-      if (secret !== env.INTERNAL_SECRET) {
+      if (!secretEqual(secret, env.INTERNAL_SECRET)) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
     }

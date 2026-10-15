@@ -14,6 +14,7 @@
 
 import { Hono, type Context } from "hono";
 import type { Env } from "../../types.js";
+import { secretEqual } from "../../secret-equal.js";
 import type { AuthUser } from "../tenant/types.js";
 import { tenantMiddleware } from "../tenant/index.js";
 import { requirePermission } from "../tenant/permissions.js";
@@ -105,7 +106,7 @@ function isInternalAuth(c: {
   const header = c.req.header("Authorization") ?? "";
   if (!header.startsWith("Bearer ")) return false;
   const token = header.slice("Bearer ".length).trim();
-  return Boolean(c.env.INTERNAL_SECRET) && token === c.env.INTERNAL_SECRET;
+  return secretEqual(token, c.env.INTERNAL_SECRET);
 }
 
 // --- POST /builds/:id/logs ------------------------------------------

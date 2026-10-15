@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import type { Env } from "./types.js";
 import { missingKeyResult, resolveApiKey } from "./auth.js";
 import { provePreview } from "./proof.js";
@@ -15,10 +16,148 @@ export interface ToolContext {
   env: Env;
   clientIp: string;
   requestHeaders: Headers;
+  /** Polling budgets; tests shrink them. Defaults suit a Worker request. */
+  timing?: Partial<Timing>;
 }
+
+export interface Timing {
+  /** How long deploy / deploy_demo wait for a sandbox to go live. */
+  sandboxMaxWaitMs: number;
+  /** Interval between sandbox status polls. */
+  pollIntervalMs: number;
+  /** Interval between deployment status polls (wait_for_deployment). */
+  deployPollMs: number;
+  /** How long deploy_prod looks for the deployment its trigger created. */
+  deployLookupMs: number;
+}
+
+const DEFAULT_TIMING: Timing = {
+  sandboxMaxWaitMs: 30_000,
+  pollIntervalMs: 1_000,
+  deployPollMs: 3_000,
+  deployLookupMs: 10_000,
+};
+
+/**
+ * wait_for_deployment's budget. A Worker may wait on fetches and timers as
+ * long as the client stays connected (wall time does not count against
+ * CPU time), but MCP clients time a tool call out — the TypeScript SDK at
+ * 60 s by default — so the default stays below that.
+ */
+const DEFAULT_WAIT_SECONDS = 45;
+const MAX_WAIT_SECONDS = 300;
+
+const TERMINAL_DEPLOY_STATUSES: ReadonlySet<string> = new Set(["active", "failed", "cancelled"]);
+
+export interface DeploymentView {
+  project: string;
+  deploymentId: string;
+  version: unknown;
+  status: string | null;
+  terminal: boolean;
+  branch: unknown;
+  commitSha: unknown;
+  triggerType: unknown;
+  failedStep: string | null;
+  errorMessage: string | null;
+  errorCode: string | null;
+  errorHint: string | null;
+  url: string | null;
+  previewUrl: string | null;
+  isProduction: boolean;
+  createdAt: unknown;
+  nextStep?: string;
+}
+
+/** GET /projects/:slug/deployments/:id → what an agent acts on. */
+function deploymentView(
+  projectSlug: string,
+  requestedId: string,
+  body: Record<string, unknown>,
+): DeploymentView {
+  const d = asRecord(body.deployment);
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const id = str(d.id) ?? requestedId;
+  const status = str(d.status);
+  const productionUrl = str(body.url);
+  const previewUrl = str(body.previewUrl);
+  const view: DeploymentView = {
+    project: projectSlug,
+    deploymentId: id,
+    version: d.version ?? null,
+    status,
+    terminal: status !== null && TERMINAL_DEPLOY_STATUSES.has(status),
+    branch: d.branch ?? null,
+    commitSha: d.commitSha ?? null,
+    triggerType: d.triggerType ?? null,
+    failedStep: str(d.failedStep),
+    errorMessage: str(d.errorMessage),
+    errorCode: str(body.errorCode),
+    errorHint: str(body.errorHint),
+    // The production URL once it serves production; else this deployment's
+    // own immutable preview URL, which answers only once it is active.
+    url: productionUrl ?? (status === "active" ? previewUrl : null),
+    previewUrl,
+    isProduction: productionUrl !== null,
+    createdAt: d.createdAt ?? null,
+  };
+  if (status === "failed") {
+    view.nextStep = `Call get_build_log with projectSlug ${projectSlug} and deploymentId ${id}`;
+  } else if (!view.terminal) {
+    view.nextStep = `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${id}`;
+  }
+  return view;
+}
+
+/**
+ * MCP tool annotations: hints a client uses to decide what needs the
+ * user's confirmation. `readOnlyHint` — changes nothing; `destructiveHint`
+ * — may delete or overwrite something that already exists (production,
+ * a value, data); `idempotentHint` — calling again with the same
+ * arguments has no further effect. Every tool declares all three.
+ */
+const READ_ONLY: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+};
+
+export const ANNOTATIONS: Record<string, ToolAnnotations> = {
+  // Sandbox: each deploy creates a new, separate sandbox.
+  deploy: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  deploy_demo: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  deploy_status: READ_ONLY,
+  deploy_delete: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+
+  get_build_log: READ_ONLY,
+  list_projects: READ_ONLY,
+  get_status: READ_ONLY,
+  env_ls: READ_ONLY,
+  // Overwrites the key's existing value for that target.
+  env_set: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  env_rm: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  // Replaces what production serves; each call starts a new build.
+  deploy_prod: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  list_deployments: READ_ONLY,
+  get_deployment: READ_ONLY,
+  wait_for_deployment: READ_ONLY,
+  // Each call records a new rollback deployment.
+  rollback: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+
+  list_resources: READ_ONLY,
+  create_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  attach_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  detach_resource: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  delete_resource: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  rename_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // Arbitrary SQL: may write or drop.
+  query_database: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+};
 
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { env, clientIp, requestHeaders } = ctx;
+  const timing: Timing = { ...DEFAULT_TIMING, ...ctx.timing };
+  const sandboxTiming = { maxWaitMs: timing.sandboxMaxWaitMs, intervalMs: timing.pollIntervalMs };
 
   function requireKey(): string | null {
     return resolveApiKey(requestHeaders);
@@ -28,40 +167,110 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return { "x-api-key": apiKey, "Content-Type": "application/json" };
   }
 
-  function toolJson(data: unknown, isError = false) {
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-      ...(isError ? { isError: true as const } : {}),
-    };
+  function cpFetch(apiKey: string, path: string, init?: RequestInit, opts?: RequestOptions) {
+    const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+    return apiRequest(
+      "control plane",
+      `${base}${path}`,
+      {
+        ...init,
+        headers: { ...cpHeaders(apiKey), ...(init?.headers as Record<string, string> | undefined) },
+      },
+      opts,
+    );
   }
 
-  async function cpFetch(apiKey: string, path: string, init?: RequestInit) {
-    const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-    const res = await fetch(`${base}${path}`, {
-      ...init,
-      headers: { ...cpHeaders(apiKey), ...(init?.headers as Record<string, string> | undefined) },
-    });
-    const data = await res.json().catch(() => ({ message: res.statusText }));
-    if (!res.ok) {
-      // Keep the API's code and its other fields (`required` / `granted` on
-      // insufficient_scope, `conflicts` on binding_conflict) for the agent.
-      const { error, message, ...details } = (data ?? {}) as Record<string, unknown>;
+  function sandboxFetch(path: string, init?: RequestInit, opts?: RequestOptions) {
+    return apiRequest("sandbox API", `${env.SANDBOX_API_URL}${path}`, init, opts);
+  }
+
+  const deploymentsPath = (projectSlug: string) =>
+    `/projects/${encodeURIComponent(projectSlug)}/deployments`;
+
+  /** Resolve an 8-char short id to the full uuid (GET by id needs it). */
+  async function resolveDeploymentId(
+    apiKey: string,
+    projectSlug: string,
+    deploymentId: string,
+    deadline?: number,
+  ): Promise<{ ok: true; id: string } | { ok: false; result: ToolResult; timedOut?: true }> {
+    if (deploymentId.length >= 36) return { ok: true, id: deploymentId };
+    const listed = await cpFetch(apiKey, deploymentsPath(projectSlug), undefined, { deadline });
+    if (!listed.ok) return listed;
+    const list = Array.isArray(listed.data) ? (listed.data as Array<{ id?: unknown }>) : [];
+    const match = list.find((d) => typeof d.id === "string" && d.id.startsWith(deploymentId));
+    if (!match) {
       return {
-        ok: false as const,
-        status: res.status,
-        result: toolJson(
-          {
-            ok: false,
-            error: typeof error === "string" ? error : "api_error",
-            message: typeof message === "string" ? message : res.statusText,
-            status: res.status,
-            ...(Object.keys(details).length > 0 ? { details } : {}),
-          },
-          true,
+        ok: false,
+        result: errorResult(
+          "not_found",
+          `No deployment matches id prefix '${deploymentId}' in project '${projectSlug}'.`,
         ),
       };
     }
-    return { ok: true as const, data };
+    return { ok: true, id: match.id as string };
+  }
+
+  /**
+   * Poll the deployment list for the row the trigger created. handlePush
+   * inserts it in waitUntil, after deploy-latest has answered, so other new
+   * rows (a preview push, a teammate's deploy, another commit's webhook) can
+   * appear first: with a known commit, only a new row for that commit (and
+   * branch, when both are known) counts, and polling goes on until
+   * timing.deployLookupMs. Only when the trigger named no commit does the
+   * newest new row stand in, flagged as matchedBy "newest_row". List
+   * failures are skipped, since the deploy has already been triggered.
+   */
+  async function findNewDeployment(
+    apiKey: string,
+    projectSlug: string,
+    known: Set<unknown>,
+    commitSha: string | null,
+    branch: string | null,
+  ): Promise<{ row: Record<string, unknown>; matchedBy: "commit" | "newest_row" } | null> {
+    // Every request gets what is left of the budget: a stalled list read
+    // ends the lookup at the deadline instead of holding the tool call.
+    const deadline = Date.now() + timing.deployLookupMs;
+    while (true) {
+      const listed = await cpFetch(apiKey, deploymentsPath(projectSlug), undefined, { deadline });
+      if (!listed.ok && listed.timedOut) return null;
+      if (listed.ok && Array.isArray(listed.data)) {
+        const fresh = (listed.data as Array<Record<string, unknown>>)
+          .filter((d) => typeof d.id === "string" && !known.has(d.id))
+          .sort((a, b) => Number(b.version ?? 0) - Number(a.version ?? 0));
+        if (commitSha !== null) {
+          const match = fresh.find(
+            (d) =>
+              d.commitSha === commitSha &&
+              (branch === null || typeof d.branch !== "string" || d.branch === branch),
+          );
+          if (match) return { row: match, matchedBy: "commit" };
+        } else if (fresh[0]) {
+          return { row: fresh[0], matchedBy: "newest_row" };
+        }
+      }
+      if (Date.now() + timing.pollIntervalMs >= deadline) return null;
+      await sleep(timing.pollIntervalMs);
+    }
+  }
+
+  /** One deployment, shaped for an agent: status, why it failed, where it lives. */
+  async function readDeployment(
+    apiKey: string,
+    projectSlug: string,
+    deploymentId: string,
+    deadline?: number,
+  ): Promise<
+    { ok: true; view: DeploymentView } | { ok: false; result: ToolResult; timedOut?: true }
+  > {
+    const got = await cpFetch(
+      apiKey,
+      `${deploymentsPath(projectSlug)}/${encodeURIComponent(deploymentId)}`,
+      undefined,
+      { extra: { deploymentId }, deadline },
+    );
+    if (!got.ok) return got;
+    return { ok: true, view: deploymentView(projectSlug, deploymentId, asRecord(got.data)) };
   }
 
   /**
@@ -74,124 +283,116 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       "Content-Type": "application/json",
       "X-Forwarded-For": clientIp,
       "X-Internal-Secret": env.INTERNAL_SECRET,
+      // Rate-limit sandbox deploys per forwarded client IP, like a direct
+      // caller; without it a trusted internal caller is exempt.
+      "X-Creek-Rate-Limit": "client-ip",
     };
   }
   // ================================================================
   // Tier 1: No Auth (Sandbox) — any agent can use these
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "deploy",
-    "Deploy files to a sandbox preview (60 min, no account needed)",
     {
-      files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
-      source: z
-        .string()
-        .optional()
-        .describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
+      description: "Deploy files to a sandbox preview (60 min, no account needed)",
+      inputSchema: {
+        files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
+      },
+      annotations: ANNOTATIONS["deploy"],
     },
-    async ({ files, source }) => {
+    async ({ files }) => {
       // Convert string content to base64 for sandbox API
       const assets: Record<string, string> = {};
       for (const [path, content] of Object.entries(files)) {
         assets[path] = btoa(unescape(encodeURIComponent(content)));
       }
 
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
+      const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
         headers: apiHeaders(),
-        body: JSON.stringify({ assets, source: source ?? "mcp" }),
+        // Always "mcp": the source is the sandbox API's record of where a
+        // deploy came from, so a caller never chooses it. (A `source`
+        // argument from an older client is dropped by the schema.)
+        body: JSON.stringify({ assets, source: "mcp" }),
       });
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [
-            { type: "text" as const, text: `Deploy failed: ${err.message ?? res.statusText}` },
-          ],
-          isError: true,
-        };
-      }
-
-      const deploy = (await res.json()) as any;
+      if (!posted.ok) return posted.result;
 
       // Poll for active status
-      const status = await pollStatus(deploy.statusUrl);
-      return sandboxResult(status);
+      const live = await pollSandbox(asRecord(posted.data), sandboxTiming);
+      if (!live.ok) return live.result;
+      return sandboxResult(live.status);
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_demo",
-    "Deploy a sample Creek demo page instantly (zero files needed, great for testing)",
-    {},
+    {
+      description:
+        "Deploy a sample Creek demo page instantly (zero files needed, great for testing)",
+      inputSchema: {},
+      annotations: ANNOTATIONS["deploy_demo"],
+    },
     async () => {
       const html = `<!DOCTYPE html><html><head><title>Creek MCP Demo</title></head><body><h1>Deployed via MCP</h1><p>This site was deployed by an AI agent using Creek's MCP server.</p></body></html>`;
 
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
+      const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
-        headers: apiHeaders(),
+        // The sandbox API exempts a demo only on this header from a trusted
+        // caller; a body label decides nothing.
+        headers: { ...apiHeaders(), "X-Creek-Demo": "1" },
         body: JSON.stringify({
           assets: { "index.html": btoa(html) },
-          source: "mcp-demo",
+          source: "mcp",
         }),
       });
+      if (!posted.ok) return posted.result;
 
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Demo deploy failed: ${err.message}` }],
-          isError: true,
-        };
-      }
-
-      const deploy = (await res.json()) as any;
-      const status = await pollStatus(deploy.statusUrl);
-      return sandboxResult(status, { message: "Demo deployed successfully." });
+      const live = await pollSandbox(asRecord(posted.data), sandboxTiming);
+      if (!live.ok) return live.result;
+      return sandboxResult(live.status, { message: "Demo deployed successfully." });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_status",
-    "Check the status of a sandbox deployment",
     {
-      sandboxId: z.string().describe("Sandbox ID (e.g. 'a1b2c3d4')"),
+      description: "Check the status of a sandbox deployment",
+      inputSchema: {
+        sandboxId: z.string().describe("Sandbox ID (e.g. 'a1b2c3d4')"),
+      },
+      annotations: ANNOTATIONS["deploy_status"],
     },
     async ({ sandboxId }) => {
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/${sandboxId}/status`);
-
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Sandbox ${sandboxId} not found` }],
-          isError: true,
-        };
-      }
-
-      const status = await res.json();
-      return { content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }] };
+      const got = await sandboxFetch(
+        `/api/sandbox/${encodeURIComponent(sandboxId)}/status`,
+        undefined,
+        { extra: { sandboxId } },
+      );
+      if (!got.ok) return got.result;
+      return okResult({ sandboxId, ...asRecord(got.data) });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_delete",
-    "Delete a sandbox deployment before it expires",
     {
-      sandboxId: z.string().describe("Sandbox ID to delete"),
+      description: "Delete a sandbox deployment before it expires",
+      inputSchema: {
+        sandboxId: z.string().describe("Sandbox ID to delete"),
+      },
+      annotations: ANNOTATIONS["deploy_delete"],
     },
     async ({ sandboxId }) => {
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/${sandboxId}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Delete failed: ${err.message}` }],
-          isError: true,
-        };
-      }
-
-      return { content: [{ type: "text" as const, text: `Sandbox ${sandboxId} deleted.` }] };
+      const got = await sandboxFetch(
+        `/api/sandbox/${encodeURIComponent(sandboxId)}`,
+        // The sandbox API checks the creator's IP hash: forward the client
+        // IP exactly as deploy does, or every delete is a 403.
+        { method: "DELETE", headers: apiHeaders() },
+        { extra: { sandboxId } },
+      );
+      if (!got.ok) return got.result;
+      return okResult({ sandboxId, deleted: true });
     },
   );
 
@@ -199,38 +400,26 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 2: Authenticated (Creek account) — agent passes a Creek API key
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "get_build_log",
-    "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z
-        .string()
-        .describe("Project slug (shown by `creek projects` or `creek status`)"),
-      deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      description:
+        "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z
+          .string()
+          .describe("Project slug (shown by `creek projects` or `creek status`)"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      },
+      annotations: ANNOTATIONS["get_build_log"],
     },
     async ({ projectSlug, deploymentId }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      // Resolve short id → full id if needed. GET /logs requires full uuid.
-      let fullId = deploymentId;
-      if (fullId.length < 36) {
-        const listRes = await cpFetch(apiKey, `/projects/${projectSlug}/deployments`);
-        if (!listRes.ok) return listRes.result;
-        const list = listRes.data as Array<{ id: string }>;
-        const match = list.find((d) => d.id.startsWith(fullId));
-        if (!match) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.`,
-              },
-            ],
-            isError: true,
-          };
-        }
-        fullId = match.id;
-      }
+      // GET /logs requires the full uuid.
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
+      if (!resolved.ok) return resolved.result;
+      const fullId = resolved.id;
 
       const res = await cpFetch(apiKey, `/projects/${projectSlug}/deployments/${fullId}/logs`);
       if (!res.ok) return res.result;
@@ -289,15 +478,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           e.level === "error" || e.level === "fatal" || (failing !== null && e.step === failing),
       );
 
-      const payload = {
+      return okResult({
         summary,
         importantLines,
         fullLog: log.entries,
-      };
-
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-      };
+      });
     },
   );
 
@@ -305,10 +490,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 1.5: Project read + env (header auth, no apiKey tool arg)
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "list_projects",
-    "List projects in the authenticated team. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
-    {},
+    {
+      description:
+        "List projects in the authenticated team. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {},
+      annotations: ANNOTATIONS["list_projects"],
+    },
     async () => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
@@ -328,11 +517,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "get_status",
-    "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug (from list_projects)"),
+      description:
+        "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug (from list_projects)"),
+      },
+      annotations: ANNOTATIONS["get_status"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -368,11 +561,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_ls",
-    "List environment variable keys for a project, with the deploy target of each value (production, preview or all). Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
+      description:
+        "List environment variable keys for a project, with the deploy target of each value (production, preview or all). Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+      },
+      annotations: ANNOTATIONS["env_ls"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -393,17 +590,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_set",
-    "Set an environment variable on a project, for production deploys, preview (branch) deploys, or all (default). A key may hold one value per target; a deploy uses its own target's value, else the all value. Use target production for secrets previews must not see. Does not restart the worker — a deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
-      value: z.string().describe("Secret value (not logged in the tool result)"),
-      target: z
-        .enum(["all", "production", "preview"])
-        .optional()
-        .describe("Which deploys get this value. Default: all"),
+      description:
+        "Set an environment variable on a project, for production deploys, preview (branch) deploys, or all (default). A key may hold one value per target; a deploy uses its own target's value, else the all value. Use target production for secrets previews must not see. Does not restart the worker — a deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
+        value: z.string().describe("Secret value (not logged in the tool result)"),
+        target: z
+          .enum(["all", "production", "preview"])
+          .optional()
+          .describe("Which deploys get this value. Default: all"),
+      },
+      annotations: ANNOTATIONS["env_set"],
     },
     async ({ projectSlug, key, value, target }) => {
       const apiKey = requireKey();
@@ -440,16 +641,20 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_rm",
-    "Remove an environment variable from a project: one target's value (production, preview or all), or every value of the key when target is omitted. Does not restart the worker — a deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      key: z.string().describe("Env key to remove"),
-      target: z
-        .enum(["all", "production", "preview"])
-        .optional()
-        .describe("Remove only this target's value. Default: every value of the key"),
+      description:
+        "Remove an environment variable from a project: one target's value (production, preview or all), or every value of the key when target is omitted. Does not restart the worker — a deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        key: z.string().describe("Env key to remove"),
+        target: z
+          .enum(["all", "production", "preview"])
+          .optional()
+          .describe("Remove only this target's value. Default: every value of the key"),
+      },
+      annotations: ANNOTATIONS["env_rm"],
     },
     async ({ projectSlug, key, target }) => {
       const apiKey = requireKey();
@@ -496,40 +701,79 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_prod",
-    "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug (from list_projects)"),
+      description:
+        "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns once the build is dispatched, with the new deploymentId when it can be found (within ~10 s) — then call wait_for_deployment (or get_deployment) with it, and get_build_log if it fails. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug (from list_projects)"),
+      },
+      annotations: ANNOTATIONS["deploy_prod"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
+      // POST /github/deploy-latest dispatches the build in waitUntil and
+      // returns no deployment id. Snapshot the ids that exist now, then
+      // look for the row the build inserts — as `creek deploy --from-github`
+      // does. A key without project:read still triggers; it just gets no id.
+      const before = await cpFetch(apiKey, deploymentsPath(projectSlug));
+      if (!before.ok && before.status === null) return before.result; // unreachable, nothing sent
+      const known =
+        before.ok && Array.isArray(before.data)
+          ? new Set((before.data as Array<{ id?: unknown }>).map((d) => d.id))
+          : null;
+
       const got = await cpFetch(apiKey, "/github/deploy-latest", {
         method: "POST",
         body: JSON.stringify({ projectId: projectSlug }),
       });
       if (!got.ok) return got.result;
-      const data = got.data as { commitSha?: string; branch?: string };
-      return toolJson({
-        ok: true,
+      const data = asRecord(got.data);
+      const commitSha = typeof data.commitSha === "string" ? data.commitSha : null;
+      const branch = typeof data.branch === "string" ? data.branch : null;
+      const found = known
+        ? await findNewDeployment(apiKey, projectSlug, known, commitSha, branch)
+        : null;
+      const row = found?.row;
+      const deploymentId = typeof row?.id === "string" ? row.id : null;
+      return okResult({
         project: projectSlug,
         triggered: true,
-        branch: data.branch ?? null,
-        commitSha: data.commitSha ?? null,
+        branch,
+        commitSha,
+        deploymentId,
+        ...(found ? { matchedBy: found.matchedBy } : {}),
+        version: row?.version ?? null,
+        status: row?.status ?? null,
         pending: true,
-        nextStep: "Call get_status or list_deployments, then get_build_log if it fails",
+        nextStep: deploymentId
+          ? `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${deploymentId}`
+          : "Call list_deployments and take the newest row with this commitSha (and branch), then get_deployment or wait_for_deployment with its id",
         message:
-          "Build dispatched. Production will update when the remote build finishes. This tool does not wait for the deploy.",
+          found?.matchedBy === "newest_row"
+            ? "Build dispatched. The trigger named no commit, so deploymentId is the newest new deployment and may not be this trigger's: check its commitSha with get_deployment."
+            : deploymentId
+              ? "Build dispatched. Production updates when this deployment becomes active."
+              : known
+                ? "Build dispatched, but its deployment did not appear yet. If no new deployment ever appears, check that auto-deploy is enabled on the project's GitHub connection."
+                : !before.ok && before.status === 403
+                  ? "Build dispatched. This API key cannot list deployments (it lacks project:read), so the deployment id is unknown."
+                  : `Build dispatched, but the deployments could not be listed${before.ok ? "" : ` (status ${before.status})`}, so the deployment id is unknown.`,
       });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "list_deployments",
-    "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
+      description:
+        "List recent deployments for a project (newest first). Each row has branch and commitSha (to find the deployment a deploy_prod started), and triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+      },
+      annotations: ANNOTATIONS["list_deployments"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -542,6 +786,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         version: d.version,
         status: d.status,
         branch: d.branch ?? null,
+        commitSha: d.commitSha ?? d.commit_sha ?? null,
         triggerType: d.triggerType ?? d.trigger_type ?? null,
         createdAt: d.createdAt ?? d.created_at ?? null,
       }));
@@ -549,19 +794,118 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
-    "rollback",
-    "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
+  server.registerTool(
+    "get_deployment",
     {
-      projectSlug: z.string().describe("Project slug"),
-      deploymentId: z
-        .string()
-        .trim()
-        .min(1)
-        .describe(
-          "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
-        ),
-      message: z.string().optional().describe("Optional rollback reason"),
+      description:
+        "Read one deployment: status (in flight: queued, building, uploading, deploying; final: active, failed, cancelled), terminal (true once the status is final), failedStep, errorCode / errorHint on failure, and the live url once active. Use the deploymentId from deploy_prod or list_deployments (8-char short id or full uuid). Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      },
+      annotations: ANNOTATIONS["get_deployment"],
+    },
+    async ({ projectSlug, deploymentId }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
+      if (!resolved.ok) return resolved.result;
+      const read = await readDeployment(apiKey, projectSlug, resolved.id);
+      if (!read.ok) return read.result;
+      return okResult({ ...read.view });
+    },
+  );
+
+  server.registerTool(
+    "wait_for_deployment",
+    {
+      description: `Wait until a deployment finishes (active, failed or cancelled), polling for at most timeoutSeconds (default ${DEFAULT_WAIT_SECONDS}, max ${MAX_WAIT_SECONDS}). Returns ok: true with the live url when it is active; error deployment_failed (with failedStep, errorCode, and nextStep get_build_log) or deployment_cancelled otherwise. If it is still running at the timeout, error timeout with retryable: true — call again. Keep timeoutSeconds below your client's tool-call timeout. Authenticate with Authorization: Bearer <key> or x-api-key.`,
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+        timeoutSeconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_WAIT_SECONDS)
+          .optional()
+          .describe(`How long to wait, in seconds. Default ${DEFAULT_WAIT_SECONDS}`),
+      },
+      annotations: ANNOTATIONS["wait_for_deployment"],
+    },
+    async ({ projectSlug, deploymentId, timeoutSeconds }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const seconds = Math.min(
+        Math.max(timeoutSeconds ?? DEFAULT_WAIT_SECONDS, 1),
+        MAX_WAIT_SECONDS,
+      );
+      // The budget covers everything: id resolution, every read (each request
+      // is aborted at the deadline, body included) and the sleeps between.
+      const started = Date.now();
+      const deadline = started + seconds * 1000;
+      let id = deploymentId;
+      let last: DeploymentView | null = null;
+      const timedOut = () =>
+        errorResult(
+          "timeout",
+          `Deployment ${id} is still ${last?.status ?? "pending"} after ${seconds}s. It has not failed; call wait_for_deployment again.`,
+          {
+            ...(last ?? {
+              project: projectSlug,
+              deploymentId: id,
+              status: null,
+              terminal: false,
+            }),
+            retryable: true,
+            nextStep: `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${id}`,
+          },
+        );
+
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId, deadline);
+      if (!resolved.ok) return resolved.timedOut ? timedOut() : resolved.result;
+      id = resolved.id;
+
+      while (true) {
+        const read = await readDeployment(apiKey, projectSlug, id, deadline);
+        if (!read.ok) return read.timedOut ? timedOut() : read.result;
+        const view = read.view;
+        last = view;
+        if (view.status === "active") {
+          return okResult({ ...view, waitedMs: Date.now() - started });
+        }
+        if (view.status === "failed" || view.status === "cancelled") {
+          return errorResult(
+            view.status === "failed" ? "deployment_failed" : "deployment_cancelled",
+            view.status === "failed"
+              ? `Deployment ${view.deploymentId} failed${view.failedStep ? ` at ${view.failedStep}` : ""}: ${view.errorMessage ?? "no error message"}`
+              : `Deployment ${view.deploymentId} was cancelled.`,
+            { ...view },
+          );
+        }
+        if (Date.now() + timing.deployPollMs >= deadline) return timedOut();
+        await sleep(timing.deployPollMs);
+      }
+    },
+  );
+
+  server.registerTool(
+    "rollback",
+    {
+      description:
+        "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z
+          .string()
+          .trim()
+          .min(1)
+          .describe(
+            "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
+          ),
+        message: z.string().optional().describe("Optional rollback reason"),
+      },
+      annotations: ANNOTATIONS["rollback"],
     },
     async ({ projectSlug, deploymentId, message }) => {
       const apiKey = requireKey();
@@ -599,32 +943,43 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 2: Resource management
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "list_resources",
-    "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      kind: z
-        .enum(["database", "storage", "cache", "ai"])
-        .optional()
-        .describe("Filter by resource kind"),
+      description:
+        "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        kind: z
+          .enum(["database", "storage", "cache", "ai"])
+          .optional()
+          .describe("Filter by resource kind"),
+      },
+      annotations: ANNOTATIONS["list_resources"],
     },
     async ({ kind }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
       const res = await cpFetch(apiKey, "/resources");
       if (!res.ok) return res.result;
-      const data = res.data as { resources: any[] };
-      const filtered = kind ? data.resources.filter((r: any) => r.kind === kind) : data.resources;
-      return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
+      const data = asRecord(res.data);
+      const all = Array.isArray(data.resources)
+        ? (data.resources as Array<{ kind?: unknown }>)
+        : [];
+      const resources = kind ? all.filter((r) => r.kind === kind) : all;
+      return okResult({ resources });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "create_resource",
-    "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
-      name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
+      description:
+        "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
+        name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
+      },
+      annotations: ANNOTATIONS["create_resource"],
     },
     async ({ kind, name }) => {
       const apiKey = requireKey();
@@ -634,17 +989,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ kind, name }),
       });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
+      return okResult(asRecord(res.data));
     },
   );
 
-  server.tool(
+  server.registerTool(
     "attach_resource",
-    "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      resourceId: z.string().describe("Resource ID (from list_resources)"),
-      bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
+      description:
+        "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        resourceId: z.string().describe("Resource ID (from list_resources)"),
+        bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
+      },
+      annotations: ANNOTATIONS["attach_resource"],
     },
     async ({ projectSlug, resourceId, bindingName }) => {
       const apiKey = requireKey();
@@ -654,23 +1013,25 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ resourceId, bindingName }),
       });
       if (!res.ok) return res.result;
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Attached resource ${resourceId} → ${projectSlug} as env.${bindingName}`,
-          },
-        ],
-      };
+      return okResult({
+        project: projectSlug,
+        resourceId,
+        bindingName,
+        message: `Attached resource ${resourceId} to ${projectSlug} as env.${bindingName}. It takes effect on the next deploy.`,
+      });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "detach_resource",
-    "Remove a resource binding from a project. The resource itself is not deleted. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
+      description:
+        "Remove a resource binding from a project. The resource itself is not deleted. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
+      },
+      annotations: ANNOTATIONS["detach_resource"],
     },
     async ({ projectSlug, bindingName }) => {
       const apiKey = requireKey();
@@ -679,35 +1040,44 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         method: "DELETE",
       });
       if (!res.ok) return res.result;
-      return {
-        content: [
-          { type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` },
-        ],
-      };
+      return okResult({
+        project: projectSlug,
+        bindingName,
+        detached: true,
+        message: `Detached env.${bindingName} from ${projectSlug}. It takes effect on the next deploy.`,
+      });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "delete_resource",
-    "Delete a team-owned resource. This is permanent: the D1 database or KV namespace behind it is queued for deletion with all its data, and an R2 bucket is deleted only if it is empty. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID"),
+      description:
+        "Delete a team-owned resource. This is permanent: the D1 database or KV namespace behind it is queued for deletion with all its data, and an R2 bucket is deleted only if it is empty. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID"),
+      },
+      annotations: ANNOTATIONS["delete_resource"],
     },
     async ({ resourceId }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
       const res = await cpFetch(apiKey, `/resources/${resourceId}`, { method: "DELETE" });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
+      return okResult({ resourceId, deleted: true, ...asRecord(res.data) });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "rename_resource",
-    "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID"),
-      name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
+      description:
+        "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID"),
+        name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
+      },
+      annotations: ANNOTATIONS["rename_resource"],
     },
     async ({ resourceId, name }) => {
       const apiKey = requireKey();
@@ -717,19 +1087,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ name }),
       });
       if (!res.ok) return res.result;
-      return {
-        content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }],
-      };
+      return okResult({ resourceId, name, ...asRecord(res.data) });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "query_database",
-    "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
-      sql: z.string().describe("SQL query to execute"),
-      params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+      description:
+        "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
+        sql: z.string().describe("SQL query to execute"),
+        params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+      },
+      annotations: ANNOTATIONS["query_database"],
     },
     async ({ resourceId, sql, params }) => {
       const apiKey = requireKey();
@@ -739,7 +1111,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ sql, params: params ?? [] }),
       });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
+      return okResult(asRecord(res.data));
     },
   );
 }
@@ -780,6 +1152,220 @@ function suggestFixForCkCode(code: string | null): string | null {
 }
 
 // ================================================================
+// Result envelope
+// ================================================================
+//
+// Every tool answers with one JSON text block:
+//   success: { ok: true, ...data }
+//   failure: { ok: false, error, message, ...details } and isError: true
+// so an agent branches on `ok` / `error` instead of parsing prose.
+
+export type ToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: true;
+};
+
+export function toolJson(data: unknown, isError = false): ToolResult {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    ...(isError ? { isError: true as const } : {}),
+  };
+}
+
+export function okResult(data: Record<string, unknown> = {}): ToolResult {
+  // `ok` is the envelope's, not the API's: an upstream `ok` never wins.
+  const { ok: _ok, ...rest } = data;
+  return toolJson({ ok: true, ...rest });
+}
+
+export function errorResult(
+  error: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): ToolResult {
+  return toolJson({ ok: false, error, message, ...extra }, true);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+// ================================================================
+// Upstream requests (control plane, sandbox API)
+// ================================================================
+
+export interface RequestOptions {
+  /** Merged into the failure envelope (e.g. the sandboxId it concerns). */
+  extra?: Record<string, unknown>;
+  /**
+   * An earlier request in this tool call already changed something, so a
+   * network failure now is never retryable: re-running the tool repeats it.
+   */
+  applied?: boolean;
+  /**
+   * Epoch ms by which the request must be done, body included. Past it the
+   * request is aborted and the result is `timedOut` (error "timeout").
+   */
+  deadline?: number;
+}
+
+export type Fetched =
+  | { ok: true; status: number; data: unknown }
+  | { ok: false; status: number | null; result: ToolResult; timedOut?: true };
+
+const DEADLINE = Symbol("deadline");
+
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Fetch failure causes that prove the request was never written: name
+ * resolution and the TCP connect happen first. Same list as the CLI's
+ * request ledger (packages/cli/src/utils/request-ledger.ts). The Workers
+ * runtime rarely names a cause, so a failed mutation there is reported as
+ * possibly applied — the safe direction.
+ */
+const NOT_SENT_CODES: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+function failureReason(err: unknown): string | undefined {
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+  if (typeof cause?.code === "string") return cause.code;
+  if (typeof cause?.message === "string") return cause.message;
+  return undefined;
+}
+
+function unreachableResult(
+  service: string,
+  method: string,
+  err: unknown,
+  phase: "connect" | "body",
+  opts: RequestOptions,
+): ToolResult {
+  const reason = failureReason(err);
+  const notSent = phase === "connect" && reason !== undefined && NOT_SENT_CODES.has(reason);
+  // Retry only when nothing this tool call did can have been applied.
+  const retryable = !opts.applied && (SAFE_METHODS.has(method) || notSent);
+  const text = err instanceof Error ? err.message : String(err);
+  const advice = retryable
+    ? "Nothing was changed; retrying is safe."
+    : opts.applied
+      ? "An earlier step of this call was already applied; check its effect instead of re-running the tool."
+      : "The request may have been applied; check its effect before retrying.";
+  return errorResult(
+    "api_unreachable",
+    `Could not reach the Creek ${service} (${text}${reason ? `: ${reason}` : ""}). ${advice}`,
+    {
+      retryable,
+      ...(reason ? { reason } : {}),
+      ...(!retryable ? { mayHaveApplied: true } : {}),
+      ...opts.extra,
+    },
+  );
+}
+
+/**
+ * One request to a Creek API. Never throws: a network failure becomes
+ * `api_unreachable` (with `retryable`), an HTTP error keeps the API's
+ * `error` code, `message`, status and other fields (`required` / `granted`
+ * on insufficient_scope, `conflicts` on binding_conflict) as `details`.
+ */
+export async function apiRequest(
+  service: string,
+  url: string,
+  init: RequestInit = {},
+  opts: RequestOptions = {},
+): Promise<Fetched> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const timedOut = (): Fetched => ({
+    ok: false,
+    status: null,
+    timedOut: true,
+    result: errorResult("timeout", `The Creek ${service} did not answer within the time left.`, {
+      retryable: !opts.applied && SAFE_METHODS.has(method),
+      ...opts.extra,
+    }),
+  });
+
+  // With a deadline, abort the request when it passes, and stop waiting at
+  // that moment even if the fetch or the body read ignores the signal.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let signal: AbortSignal | undefined;
+  let expired: Promise<never> | undefined;
+  if (opts.deadline !== undefined) {
+    const remaining = opts.deadline - Date.now();
+    if (remaining <= 0) return timedOut();
+    const controller = new AbortController();
+    signal = controller.signal;
+    expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(DEADLINE);
+      }, remaining);
+    });
+    expired.catch(() => {}); // settled by a race, or after the request finished
+  }
+  const bounded = <T>(promise: Promise<T>): Promise<T> =>
+    expired ? Promise.race([promise, expired]) : promise;
+
+  try {
+    let res: Response;
+    try {
+      res = await bounded(fetch(url, signal ? { ...init, signal } : init));
+    } catch (err) {
+      if (err === DEADLINE || signal?.aborted) return timedOut();
+      return {
+        ok: false,
+        status: null,
+        result: unreachableResult(service, method, err, "connect", opts),
+      };
+    }
+    let text: string;
+    try {
+      text = await bounded(res.text());
+    } catch (err) {
+      if (err === DEADLINE || signal?.aborted) return timedOut();
+      // The connection broke while the body was read: the request was sent.
+      return {
+        ok: false,
+        status: null,
+        result: unreachableResult(service, method, err, "body", opts),
+      };
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: res.statusText };
+    }
+    if (!res.ok) {
+      const { error, message, ...details } = asRecord(data);
+      return {
+        ok: false,
+        status: res.status,
+        result: errorResult(
+          typeof error === "string" ? error : "api_error",
+          typeof message === "string" ? message : res.statusText || `HTTP ${res.status}`,
+          {
+            status: res.status,
+            ...(Object.keys(details).length > 0 ? { details } : {}),
+            ...opts.extra,
+          },
+        ),
+      };
+    }
+    return { ok: true, status: res.status, data };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+// ================================================================
 // Helpers
 // ================================================================
 
@@ -801,29 +1387,105 @@ async function sandboxResult(
     expiresAt: status.expiresAt,
     expiresInSeconds: status.expiresInSeconds,
     proof,
-    ...(!proof.ok ? { error: "verify_failed" } : extra),
   };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-    ...(!proof.ok ? { isError: true as const } : {}),
-  };
+  if (!proof.ok) {
+    return errorResult(
+      "verify_failed",
+      `Sandbox ${status.sandboxId} deployed, but its preview URL did not answer as a live site${proof.error ? ` (${proof.error})` : ""}.`,
+      payload,
+    );
+  }
+  return okResult({ ...payload, ...extra });
 }
 
-async function pollStatus(statusUrl: string, maxWait = 30_000): Promise<any> {
-  const start = Date.now();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  while (Date.now() - start < maxWait) {
-    const res = await fetch(statusUrl);
-    if (!res.ok) throw new Error(`Status check failed: ${res.status}`);
+/** The sandbox API's 202 answer to POST /api/sandbox/deploy. */
+interface SandboxCreated {
+  sandboxId?: string;
+  statusUrl?: string;
+  previewUrl?: string;
+}
 
-    const status = (await res.json()) as any;
-    if (status.status === "active") return status;
-    if (status.status === "failed")
-      throw new Error(`Deploy failed: ${status.errorMessage ?? "Unknown"}`);
-    if (status.status === "expired") throw new Error("Sandbox expired before activation");
-
-    await new Promise((r) => setTimeout(r, 1000));
+/**
+ * Poll a freshly created sandbox until it is active. Never throws: every
+ * other outcome (failed, expired, timed out, status unreadable) is an error
+ * result that still carries the sandboxId, so the agent can follow up with
+ * deploy_status / deploy_delete instead of deploying again. The sandbox
+ * exists by now, so nothing here is retryable.
+ */
+async function pollSandbox(
+  created: SandboxCreated,
+  timing: { maxWaitMs: number; intervalMs: number },
+): Promise<{ ok: true; status: any } | { ok: false; result: ToolResult }> {
+  const sandboxId =
+    created.sandboxId ?? /\/sandbox\/([^/]+)\/status$/.exec(created.statusUrl ?? "")?.[1] ?? null;
+  const ref = {
+    sandboxId,
+    ...(created.previewUrl ? { url: created.previewUrl } : {}),
+    nextStep: sandboxId
+      ? `Call deploy_status with sandboxId ${sandboxId}; do not deploy again.`
+      : "Do not deploy again; the sandbox may still go live.",
+  };
+  if (!created.statusUrl) {
+    return {
+      ok: false,
+      result: errorResult(
+        "api_error",
+        "The sandbox API accepted the deploy but returned no status URL.",
+        ref,
+      ),
+    };
   }
 
-  throw new Error("Deploy timed out");
+  // The budget covers each status request too (aborted at the deadline,
+  // body included): a stalled one ends in the timeout result below, which
+  // still carries the sandboxId, instead of outlasting the client's timeout.
+  const deadline = Date.now() + timing.maxWaitMs;
+  let last: string | null = null;
+  while (Date.now() < deadline) {
+    const got = await apiRequest("sandbox API", created.statusUrl, undefined, {
+      applied: true,
+      extra: ref,
+      deadline,
+    });
+    if (!got.ok && got.timedOut) break;
+    if (!got.ok) return { ok: false, result: got.result };
+    const status = asRecord(got.data) as any;
+    last = typeof status.status === "string" ? status.status : null;
+    if (last === "active") return { ok: true, status: { sandboxId, ...status } };
+    if (last === "failed") {
+      return {
+        ok: false,
+        result: errorResult(
+          "deploy_failed",
+          `Sandbox deploy failed: ${status.errorMessage ?? "unknown error"}`,
+          {
+            sandboxId,
+            failedStep: status.failedStep ?? null,
+            errorMessage: status.errorMessage ?? null,
+          },
+        ),
+      };
+    }
+    if (last === "expired") {
+      return {
+        ok: false,
+        result: errorResult("sandbox_expired", "The sandbox expired before it went live.", {
+          sandboxId,
+        }),
+      };
+    }
+    if (Date.now() + timing.intervalMs >= deadline) break;
+    await sleep(timing.intervalMs);
+  }
+
+  return {
+    ok: false,
+    result: errorResult(
+      "timeout",
+      `Sandbox${sandboxId ? ` ${sandboxId}` : ""} was not live after ${Math.round(timing.maxWaitMs / 1000)}s (last status: ${last ?? "unknown"}). It may still finish.`,
+      { ...ref, sandboxStatus: last, retryable: false },
+    ),
+  };
 }
