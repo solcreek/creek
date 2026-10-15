@@ -1430,3 +1430,108 @@ describe("MCP deploy_prod never presents another deployment as its own", () => {
     expect(payload.message).toContain("may not be this trigger");
   });
 });
+
+describe("MCP polling budgets hold when a response stalls", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const never = () => new Promise<Response>(() => {});
+  /** A response whose headers arrive but whose body never finishes. */
+  const stalledBody = () =>
+    Promise.resolve(new Response(new ReadableStream({ start() {} }), { status: 200 }));
+
+  /** Start a tool call and report whether it settled after `ms` of fake time. */
+  async function settleWithin(call: Promise<any>, ms: number) {
+    let out: any;
+    void call.then((r) => {
+      out = r;
+    });
+    await vi.advanceTimersByTimeAsync(ms);
+    return out;
+  }
+
+  it("wait_for_deployment: a stalled short-id lookup ends at timeoutSeconds", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      signal = init?.signal;
+      return never();
+    });
+    const call = registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP.slice(0, 8),
+      timeoutSeconds: 2,
+    });
+    const result = await settleWithin(call, 2_100);
+    expect(result).toBeDefined();
+    // The stalled request itself is aborted, not just abandoned.
+    expect(signal?.aborted).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "timeout",
+      deploymentId: DEP.slice(0, 8),
+      retryable: true,
+    });
+  });
+
+  it("wait_for_deployment: a read that never answers ends at timeoutSeconds with the last status", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      calls++ === 0
+        ? Promise.resolve(Response.json(deploymentBody({ status: "building" })))
+        : never(),
+    );
+    const call = registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+      timeoutSeconds: 3,
+    });
+    const result = await settleWithin(call, 3_100);
+    expect(result).toBeDefined();
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "timeout",
+      deploymentId: DEP,
+      status: "building",
+      retryable: true,
+    });
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("wait_for_deployment: a body that never finishes is cut off too", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, "fetch").mockImplementation(stalledBody);
+    const call = registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+      timeoutSeconds: 1,
+    });
+    const result = await settleWithin(call, 1_100);
+    expect(result).toBeDefined();
+    expect(parse(result)).toMatchObject({ error: "timeout", deploymentId: DEP });
+  });
+
+  it("deploy_prod: a stalled lookup after the trigger returns the null-id result in time", async () => {
+    vi.useFakeTimers();
+    let triggered = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (init?.method === "POST") {
+        triggered = true;
+        return Promise.resolve(Response.json({ ok: true, commitSha: "abc1234", branch: "main" }));
+      }
+      return triggered ? never() : Promise.resolve(Response.json([]));
+    });
+    const call = registerAndCapture(AUTH(), { deployLookupMs: 1_000 }).get("deploy_prod")!({
+      projectSlug: "hello",
+    });
+    const result = await settleWithin(call, 1_100);
+    expect(result).toBeDefined();
+    expect(result.isError).toBeUndefined();
+    const payload = parse(result);
+    expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
+    expect(payload.nextStep).toContain("list_deployments");
+  });
+});

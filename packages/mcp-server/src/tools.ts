@@ -192,9 +192,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     apiKey: string,
     projectSlug: string,
     deploymentId: string,
-  ): Promise<{ ok: true; id: string } | { ok: false; result: ToolResult }> {
+    deadline?: number,
+  ): Promise<{ ok: true; id: string } | { ok: false; result: ToolResult; timedOut?: true }> {
     if (deploymentId.length >= 36) return { ok: true, id: deploymentId };
-    const listed = await cpFetch(apiKey, deploymentsPath(projectSlug));
+    const listed = await cpFetch(apiKey, deploymentsPath(projectSlug), undefined, { deadline });
     if (!listed.ok) return listed;
     const list = Array.isArray(listed.data) ? (listed.data as Array<{ id?: unknown }>) : [];
     const match = list.find((d) => typeof d.id === "string" && d.id.startsWith(deploymentId));
@@ -227,9 +228,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     commitSha: string | null,
     branch: string | null,
   ): Promise<{ row: Record<string, unknown>; matchedBy: "commit" | "newest_row" } | null> {
+    // Every request gets what is left of the budget: a stalled list read
+    // ends the lookup at the deadline instead of holding the tool call.
     const deadline = Date.now() + timing.deployLookupMs;
     while (true) {
-      const listed = await cpFetch(apiKey, deploymentsPath(projectSlug));
+      const listed = await cpFetch(apiKey, deploymentsPath(projectSlug), undefined, { deadline });
+      if (!listed.ok && listed.timedOut) return null;
       if (listed.ok && Array.isArray(listed.data)) {
         const fresh = (listed.data as Array<Record<string, unknown>>)
           .filter((d) => typeof d.id === "string" && !known.has(d.id))
@@ -245,7 +249,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           return { row: fresh[0], matchedBy: "newest_row" };
         }
       }
-      if (Date.now() + timing.pollIntervalMs > deadline) return null;
+      if (Date.now() + timing.pollIntervalMs >= deadline) return null;
       await sleep(timing.pollIntervalMs);
     }
   }
@@ -255,12 +259,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     apiKey: string,
     projectSlug: string,
     deploymentId: string,
-  ): Promise<{ ok: true; view: DeploymentView } | { ok: false; result: ToolResult }> {
+    deadline?: number,
+  ): Promise<
+    { ok: true; view: DeploymentView } | { ok: false; result: ToolResult; timedOut?: true }
+  > {
     const got = await cpFetch(
       apiKey,
       `${deploymentsPath(projectSlug)}/${encodeURIComponent(deploymentId)}`,
       undefined,
-      { extra: { deploymentId } },
+      { extra: { deploymentId }, deadline },
     );
     if (!got.ok) return got;
     return { ok: true, view: deploymentView(projectSlug, deploymentId, asRecord(got.data)) };
@@ -832,15 +839,37 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         Math.max(timeoutSeconds ?? DEFAULT_WAIT_SECONDS, 1),
         MAX_WAIT_SECONDS,
       );
-      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
-      if (!resolved.ok) return resolved.result;
-
+      // The budget covers everything: id resolution, every read (each request
+      // is aborted at the deadline, body included) and the sleeps between.
       const started = Date.now();
       const deadline = started + seconds * 1000;
+      let id = deploymentId;
+      let last: DeploymentView | null = null;
+      const timedOut = () =>
+        errorResult(
+          "timeout",
+          `Deployment ${id} is still ${last?.status ?? "pending"} after ${seconds}s. It has not failed; call wait_for_deployment again.`,
+          {
+            ...(last ?? {
+              project: projectSlug,
+              deploymentId: id,
+              status: null,
+              terminal: false,
+            }),
+            retryable: true,
+            nextStep: `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${id}`,
+          },
+        );
+
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId, deadline);
+      if (!resolved.ok) return resolved.timedOut ? timedOut() : resolved.result;
+      id = resolved.id;
+
       while (true) {
-        const read = await readDeployment(apiKey, projectSlug, resolved.id);
-        if (!read.ok) return read.result;
+        const read = await readDeployment(apiKey, projectSlug, id, deadline);
+        if (!read.ok) return read.timedOut ? timedOut() : read.result;
         const view = read.view;
+        last = view;
         if (view.status === "active") {
           return okResult({ ...view, waitedMs: Date.now() - started });
         }
@@ -853,17 +882,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
             { ...view },
           );
         }
-        if (Date.now() + timing.deployPollMs > deadline) {
-          return errorResult(
-            "timeout",
-            `Deployment ${view.deploymentId} is still ${view.status ?? "pending"} after ${seconds}s. It has not failed; call wait_for_deployment again.`,
-            {
-              ...view,
-              retryable: true,
-              nextStep: `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${view.deploymentId}`,
-            },
-          );
-        }
+        if (Date.now() + timing.deployPollMs >= deadline) return timedOut();
         await sleep(timing.deployPollMs);
       }
     },
@@ -1184,11 +1203,18 @@ export interface RequestOptions {
    * network failure now is never retryable: re-running the tool repeats it.
    */
   applied?: boolean;
+  /**
+   * Epoch ms by which the request must be done, body included. Past it the
+   * request is aborted and the result is `timedOut` (error "timeout").
+   */
+  deadline?: number;
 }
 
 export type Fetched =
   | { ok: true; status: number; data: unknown }
-  | { ok: false; status: number | null; result: ToolResult };
+  | { ok: false; status: number | null; result: ToolResult; timedOut?: true };
+
+const DEADLINE = Symbol("deadline");
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -1255,50 +1281,87 @@ export async function apiRequest(
   opts: RequestOptions = {},
 ): Promise<Fetched> {
   const method = (init.method ?? "GET").toUpperCase();
-  let res: Response;
+  const timedOut = (): Fetched => ({
+    ok: false,
+    status: null,
+    timedOut: true,
+    result: errorResult("timeout", `The Creek ${service} did not answer within the time left.`, {
+      retryable: !opts.applied && SAFE_METHODS.has(method),
+      ...opts.extra,
+    }),
+  });
+
+  // With a deadline, abort the request when it passes, and stop waiting at
+  // that moment even if the fetch or the body read ignores the signal.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let signal: AbortSignal | undefined;
+  let expired: Promise<never> | undefined;
+  if (opts.deadline !== undefined) {
+    const remaining = opts.deadline - Date.now();
+    if (remaining <= 0) return timedOut();
+    const controller = new AbortController();
+    signal = controller.signal;
+    expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(DEADLINE);
+      }, remaining);
+    });
+    expired.catch(() => {}); // settled by a race, or after the request finished
+  }
+  const bounded = <T>(promise: Promise<T>): Promise<T> =>
+    expired ? Promise.race([promise, expired]) : promise;
+
   try {
-    res = await fetch(url, init);
-  } catch (err) {
-    return {
-      ok: false,
-      status: null,
-      result: unreachableResult(service, method, err, "connect", opts),
-    };
+    let res: Response;
+    try {
+      res = await bounded(fetch(url, signal ? { ...init, signal } : init));
+    } catch (err) {
+      if (err === DEADLINE || signal?.aborted) return timedOut();
+      return {
+        ok: false,
+        status: null,
+        result: unreachableResult(service, method, err, "connect", opts),
+      };
+    }
+    let text: string;
+    try {
+      text = await bounded(res.text());
+    } catch (err) {
+      if (err === DEADLINE || signal?.aborted) return timedOut();
+      // The connection broke while the body was read: the request was sent.
+      return {
+        ok: false,
+        status: null,
+        result: unreachableResult(service, method, err, "body", opts),
+      };
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: res.statusText };
+    }
+    if (!res.ok) {
+      const { error, message, ...details } = asRecord(data);
+      return {
+        ok: false,
+        status: res.status,
+        result: errorResult(
+          typeof error === "string" ? error : "api_error",
+          typeof message === "string" ? message : res.statusText || `HTTP ${res.status}`,
+          {
+            status: res.status,
+            ...(Object.keys(details).length > 0 ? { details } : {}),
+            ...opts.extra,
+          },
+        ),
+      };
+    }
+    return { ok: true, status: res.status, data };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
-  let text: string;
-  try {
-    text = await res.text();
-  } catch (err) {
-    // The connection broke while the body was read: the request was sent.
-    return {
-      ok: false,
-      status: null,
-      result: unreachableResult(service, method, err, "body", opts),
-    };
-  }
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { message: res.statusText };
-  }
-  if (!res.ok) {
-    const { error, message, ...details } = asRecord(data);
-    return {
-      ok: false,
-      status: res.status,
-      result: errorResult(
-        typeof error === "string" ? error : "api_error",
-        typeof message === "string" ? message : res.statusText || `HTTP ${res.status}`,
-        {
-          status: res.status,
-          ...(Object.keys(details).length > 0 ? { details } : {}),
-          ...opts.extra,
-        },
-      ),
-    };
-  }
-  return { ok: true, status: res.status, data };
 }
 
 // ================================================================
