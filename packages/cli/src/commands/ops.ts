@@ -167,8 +167,8 @@ async function health(jsonMode: boolean) {
     checks["sandbox-api"] = `unreachable: ${err instanceof Error ? err.message : String(err)}`;
   }
 
+  const failing = Object.entries(checks).filter(([, v]) => v !== "ok");
   if (jsonMode) {
-    const failing = Object.entries(checks).filter(([, v]) => v !== "ok");
     if (failing.length === 0) jsonOutput({ ok: true, checks });
     jsonOutput(
       {
@@ -187,6 +187,8 @@ async function health(jsonMode: boolean) {
     console.log(`  ${icon} ${name}: ${status}`);
   }
   console.log();
+  // Same exit code as --json: a script can check health without parsing.
+  if (failing.length > 0) process.exit(1);
 }
 
 function timeAgo(iso: string): string {
