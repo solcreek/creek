@@ -27,12 +27,15 @@ export interface Timing {
   pollIntervalMs: number;
   /** Interval between deployment status polls (wait_for_deployment). */
   deployPollMs: number;
+  /** How long deploy_prod looks for the deployment its trigger created. */
+  deployLookupMs: number;
 }
 
 const DEFAULT_TIMING: Timing = {
   sandboxMaxWaitMs: 30_000,
   pollIntervalMs: 1_000,
   deployPollMs: 3_000,
+  deployLookupMs: 10_000,
 };
 
 /**
@@ -205,6 +208,35 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       };
     }
     return { ok: true, id: match.id as string };
+  }
+
+  /**
+   * Poll the deployment list for a row that is not in `known`, preferring
+   * the triggered commit. Returns null after timing.deployLookupMs; list
+   * failures are skipped, since the deploy has already been triggered.
+   */
+  async function findNewDeployment(
+    apiKey: string,
+    projectSlug: string,
+    known: Set<unknown>,
+    commitSha: string | null,
+  ): Promise<Record<string, unknown> | null> {
+    const deadline = Date.now() + timing.deployLookupMs;
+    while (true) {
+      const listed = await cpFetch(apiKey, deploymentsPath(projectSlug));
+      if (listed.ok && Array.isArray(listed.data)) {
+        const fresh = (listed.data as Array<Record<string, unknown>>).filter(
+          (d) => typeof d.id === "string" && !known.has(d.id),
+        );
+        const sameCommit = fresh.filter((d) => commitSha !== null && d.commitSha === commitSha);
+        const pick = (sameCommit.length > 0 ? sameCommit : fresh).sort(
+          (a, b) => Number(b.version ?? 0) - Number(a.version ?? 0),
+        )[0];
+        if (pick) return pick;
+      }
+      if (Date.now() + timing.pollIntervalMs > deadline) return null;
+      await sleep(timing.pollIntervalMs);
+    }
   }
 
   /** One deployment, shaped for an agent: status, why it failed, where it lives. */
@@ -651,7 +683,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     "deploy_prod",
     {
       description:
-        "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
+        "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns once the build is dispatched, with the new deploymentId when it can be found (within ~10 s) — then call wait_for_deployment (or get_deployment) with it, and get_build_log if it fails. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
       inputSchema: {
         projectSlug: z.string().describe("Project slug (from list_projects)"),
       },
@@ -660,22 +692,43 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
+      // POST /github/deploy-latest dispatches the build in waitUntil and
+      // returns no deployment id. Snapshot the ids that exist now, then
+      // look for the row the build inserts — as `creek deploy --from-github`
+      // does. A key without project:read still triggers; it just gets no id.
+      const before = await cpFetch(apiKey, deploymentsPath(projectSlug));
+      if (!before.ok && before.status === null) return before.result; // unreachable, nothing sent
+      const known =
+        before.ok && Array.isArray(before.data)
+          ? new Set((before.data as Array<{ id?: unknown }>).map((d) => d.id))
+          : null;
+
       const got = await cpFetch(apiKey, "/github/deploy-latest", {
         method: "POST",
         body: JSON.stringify({ projectId: projectSlug }),
       });
       if (!got.ok) return got.result;
-      const data = got.data as { commitSha?: string; branch?: string };
-      return toolJson({
-        ok: true,
+      const data = asRecord(got.data);
+      const commitSha = typeof data.commitSha === "string" ? data.commitSha : null;
+      const found = known ? await findNewDeployment(apiKey, projectSlug, known, commitSha) : null;
+      const deploymentId = typeof found?.id === "string" ? found.id : null;
+      return okResult({
         project: projectSlug,
         triggered: true,
         branch: data.branch ?? null,
-        commitSha: data.commitSha ?? null,
+        commitSha,
+        deploymentId,
+        version: found?.version ?? null,
+        status: found?.status ?? null,
         pending: true,
-        nextStep: "Call get_status or list_deployments, then get_build_log if it fails",
-        message:
-          "Build dispatched. Production will update when the remote build finishes. This tool does not wait for the deploy.",
+        nextStep: deploymentId
+          ? `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${deploymentId}`
+          : "Call list_deployments: the new deployment is the newest row with this commitSha. Then wait_for_deployment with its id",
+        message: deploymentId
+          ? "Build dispatched. Production updates when this deployment becomes active."
+          : known
+            ? "Build dispatched, but its deployment did not appear yet. If no new deployment ever appears, check that auto-deploy is enabled on the project's GitHub connection."
+            : "Build dispatched. This API key cannot list deployments (project:read), so the deployment id is unknown.",
       });
     },
   );

@@ -33,7 +33,13 @@ function registerAndCapture(
     clientIp: "203.0.113.7",
     requestHeaders: headers,
     // Short polling budgets so timeouts resolve in milliseconds.
-    timing: { sandboxMaxWaitMs: 200, pollIntervalMs: 10, deployPollMs: 10, ...timing },
+    timing: {
+      sandboxMaxWaitMs: 200,
+      pollIntervalMs: 10,
+      deployPollMs: 10,
+      deployLookupMs: 200,
+      ...timing,
+    },
   };
   registerTools(fakeServer as never, ctx);
   return handlers;
@@ -480,10 +486,12 @@ describe("MCP authenticated tools", () => {
         posted = await request.json();
         return HttpResponse.json({ ok: true, commitSha: "abc1234deadbeef", branch: "main" });
       }),
+      // deploy_prod now also reads the list to find the new deployment's id.
+      http.get("https://cp.test/projects/hello/deployments", () => HttpResponse.json([])),
     );
-    const deploy = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
-      "deploy_prod",
-    )!;
+    const deploy = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" }), {
+      deployLookupMs: 30,
+    }).get("deploy_prod")!;
     const result = await deploy({ projectSlug: "hello" });
     expect(posted).toEqual({ projectId: "hello" });
     expect(JSON.parse(result.content[0].text)).toMatchObject({
@@ -1202,5 +1210,109 @@ describe("MCP wait_for_deployment", () => {
       retryable: true,
       deploymentId: DEP,
     });
+  });
+});
+
+describe("MCP deploy_prod returns the deployment it started", () => {
+  const OLD = { id: "old-dep", version: 6, status: "active", commitSha: "0000000" };
+  const NEW = { id: DEP, version: 7, status: "queued", commitSha: "abc1234" };
+
+  it("finds the new row after the trigger and points at wait_for_deployment", async () => {
+    let triggered = false;
+    let listsAfterTrigger = 0;
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () => {
+        if (!triggered) return HttpResponse.json([OLD]);
+        // handlePush inserts the row a moment after the trigger returns.
+        return HttpResponse.json(++listsAfterTrigger < 2 ? [OLD] : [NEW, OLD]);
+      }),
+      http.post("https://cp.test/github/deploy-latest", () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true, commitSha: "abc1234", branch: "main" });
+      }),
+    );
+    const result = await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" });
+    expect(result.isError).toBeUndefined();
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: true,
+      triggered: true,
+      commitSha: "abc1234",
+      deploymentId: DEP,
+      version: 7,
+      status: "queued",
+    });
+    expect(payload.nextStep).toContain("wait_for_deployment");
+    expect(payload.nextStep).toContain(DEP);
+  });
+
+  it("prefers the row for the triggered commit over another new row", async () => {
+    let triggered = false;
+    const other = { id: "other", version: 8, status: "queued", commitSha: "fffffff" };
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json(triggered ? [other, NEW, OLD] : [OLD]),
+      ),
+      http.post("https://cp.test/github/deploy-latest", () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true, commitSha: "abc1234", branch: "main" });
+      }),
+    );
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" }),
+    );
+    expect(payload.deploymentId).toBe(DEP);
+  });
+
+  it("without a new row in time it still succeeds, with deploymentId null", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () => HttpResponse.json([OLD])),
+      http.post("https://cp.test/github/deploy-latest", () =>
+        HttpResponse.json({ ok: true, commitSha: "abc1234", branch: "main" }),
+      ),
+    );
+    const result = await registerAndCapture(AUTH(), { deployLookupMs: 30 }).get("deploy_prod")!({
+      projectSlug: "hello",
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = parse(result);
+    expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
+    expect(payload.nextStep).toContain("list_deployments");
+  });
+
+  it("does not trigger when the control plane is unreachable before it", async () => {
+    let triggered = false;
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () => HttpResponse.error()),
+      http.post("https://cp.test/github/deploy-latest", () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" });
+    expect(triggered).toBe(false);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: true,
+    });
+  });
+
+  it("a key that cannot list deployments still triggers, without an id", async () => {
+    let triggered = false;
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json({ error: "insufficient_scope" }, { status: 403 }),
+      ),
+      http.post("https://cp.test/github/deploy-latest", () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true, commitSha: "abc1234", branch: "main" });
+      }),
+    );
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" }),
+    );
+    expect(triggered).toBe(true);
+    expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
   });
 });
