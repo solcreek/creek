@@ -179,10 +179,17 @@ envVars.delete(
           )
     ).run();
 
+    // `missing` tells this 404 apart from the project's: the project exists
+    // and the key (or its target's value) is not set, so a client re-running
+    // a removal can report it as already absent. Rows are deleted outright,
+    // so a key removed earlier and one never set look the same here.
     if (!result.meta.changes) {
       return c.json(
         {
           error: "not_found",
+          missing: "envvar",
+          key,
+          ...(target ? { target } : {}),
           message: `Environment variable '${key}'${target ? ` (${target})` : ""} not found`,
         },
         404,
