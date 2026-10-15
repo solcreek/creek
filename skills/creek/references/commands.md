@@ -176,7 +176,7 @@ Every `creek deploy --json` result carries `deploymentId` once a deployment exis
 }
 ```
 
-`creek deployments get <id> --json` and `creek deployments wait <id> --json` return the fields of the MCP `get_deployment` tool: `project`, `deploymentId`, `version`, `status`, `terminal` / `final`, `branch`, `commitSha`, `triggerType`, `failedStep`, `errorMessage`, `errorCode`, `errorHint`, `url`, `previewUrl`, `isProduction`, `createdAt`. `wait` adds `waitedMs`; on `error: "timeout"` it adds `retryable: true` — run the same command again. A short id matches only the newest 20 deployments (`ambiguous_id` when it matches more than one); pass the full id otherwise.
+`creek deployments get <id> --json` and `creek deployments wait <id> --json` return the fields of the MCP `get_deployment` tool: `project`, `deploymentId`, `version`, `status`, `terminal` / `final`, `branch`, `commitSha`, `triggerType`, `failedStep`, `errorMessage`, `errorCode`, `errorHint`, `url`, `previewUrl`, `isProduction`, `createdAt`. `wait` adds `waitedMs`; on `error: "timeout"` it adds `retryable: true` — run the same command again. `wait` retries a dropped connection, a 5xx or a 429 until the timeout; a server error that lasts ends in `error: "api_error"` with `retryable: true` and the same `wait` as breadcrumb, a network failure in `api_unreachable`. A short id matches only the newest 20 deployments (`ambiguous_id` when it matches more than one); pass the full id otherwise.
 
 `creek status --json` (a project) reports `productionDeploymentId`, the deployment production serves.
 

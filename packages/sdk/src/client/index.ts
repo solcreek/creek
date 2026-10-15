@@ -302,31 +302,38 @@ export class CreekClient {
       waitedMs: Date.now() - started,
     });
 
-    let id: string;
-    try {
-      id = await this.resolveDeploymentId(
-        projectSlug,
-        idOrPrefix,
-        AbortSignal.timeout(remaining()),
-      );
-    } catch (err) {
-      if (isAbort(err)) return done(true);
-      throw err;
-    }
+    // One read, retried on a transient failure (a dropped connection, a 5xx,
+    // a 429) until the deadline: waiting only reads, so a retry is always
+    // safe. Null means the deadline cut a read off; the last transient error
+    // is thrown when it is still failing at the deadline.
+    const TIMED_OUT = Symbol("timed out");
+    const read = async <T>(fn: (signal: AbortSignal) => Promise<T>) => {
+      while (true) {
+        try {
+          return await fn(AbortSignal.timeout(remaining()));
+        } catch (err) {
+          if (isAbort(err)) return TIMED_OUT;
+          const left = deadline - Date.now();
+          if (!isTransient(err) || left <= 0) throw err;
+          await new Promise((r) => setTimeout(r, Math.min(intervalMs, left)));
+        }
+      }
+    };
+
+    const id = await read((signal) => this.resolveDeploymentId(projectSlug, idOrPrefix, signal));
+    if (id === TIMED_OUT) return done(true);
 
     while (true) {
-      try {
-        const res = await this.request<DeploymentStatusResponse>(
+      const res = await read((signal) =>
+        this.request<DeploymentStatusResponse>(
           "GET",
           `/projects/${projectSlug}/deployments/${id}`,
           undefined,
-          AbortSignal.timeout(remaining()),
-        );
-        view = toDeploymentView(projectSlug, id, res);
-      } catch (err) {
-        if (isAbort(err)) return done(true);
-        throw err;
-      }
+          signal,
+        ),
+      );
+      if (res === TIMED_OUT) return done(true);
+      view = toDeploymentView(projectSlug, id, res);
       options.onPoll?.(view);
       if (view.terminal) return done(false);
       // Use the whole budget: the last pause is cut short so one more read
@@ -655,6 +662,15 @@ export class CreekClient {
  */
 /** How long a deployment read that starts at the wait's deadline may take. */
 const READ_GRACE_MS = 500;
+
+/**
+ * A failure that can pass on its own: fetch's TypeError (the server was not
+ * reached, or the connection broke mid-response), a 5xx, or a 429.
+ */
+function isTransient(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  return err instanceof CreekApiError && (err.status >= 500 || err.status === 429);
+}
 
 /** A request aborted by its signal (AbortSignal.timeout fires a TimeoutError). */
 function isAbort(err: unknown): boolean {

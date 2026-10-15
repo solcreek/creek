@@ -21,6 +21,7 @@ import {
   waitCommand,
 } from "../utils/deployment-follow.js";
 import { formatWaited, parseWaitDuration } from "./deploy.js";
+import { isNetworkFailure } from "../utils/request-ledger.js";
 
 // --- List (default behaviour) ---
 
@@ -368,6 +369,33 @@ const deploymentsWait = defineCommand({
         },
       });
     } catch (err) {
+      // The SDK already retried transient failures until the deadline. A
+      // network failure keeps the runner's api_unreachable classification
+      // (retryable: a wait only reads); a server error is retryable too.
+      if (isNetworkFailure(err)) throw err;
+      if (err instanceof CreekApiError && (err.status >= 500 || err.status === 429)) {
+        const message = `The API kept failing while waiting (${err.message}). Waiting only reads: run the wait again.`;
+        if (jsonMode)
+          jsonOutput(
+            {
+              ok: false,
+              error: "api_error",
+              message,
+              retryable: true,
+              project: slug,
+              projectSource,
+              deploymentId: args.id,
+              lastStatus,
+              ...apiErrorFields(err),
+            },
+            1,
+            pasteableBreadcrumbs(slug, [
+              { command: waitCommand(args.id), description: "Keep waiting for the deploy" },
+            ]),
+          );
+        consola.error(message);
+        process.exit(1);
+      }
       exitLookupError(jsonMode, err, slug);
     }
 

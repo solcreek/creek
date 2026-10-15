@@ -207,6 +207,41 @@ describe("creek deployments wait <id>", () => {
     expect(commands()[0]).toBe(`creek deployments wait ${FULL} --json`);
   });
 
+  it("rides out a 502 and keeps waiting", async () => {
+    let reads = 0;
+    server.use(
+      http.get(`${API}/projects/site/deployments/${FULL}`, () =>
+        ++reads === 1
+          ? HttpResponse.json({ error: "bad_gateway", message: "Bad Gateway" }, { status: 502 })
+          : HttpResponse.json(deployment({ status: "active" })),
+      ),
+    );
+    const code = await runExit(sub("wait").run!({ args: { id: FULL, timeout: "10s" } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, status: "active" });
+  });
+
+  it("a server error that lasts to --timeout is retryable, with the wait to paste", async () => {
+    server.use(
+      http.get(`${API}/projects/site/deployments/${FULL}`, () =>
+        HttpResponse.json(
+          { error: "unavailable", message: "Service Unavailable" },
+          { status: 503 },
+        ),
+      ),
+    );
+    const code = await runExit(sub("wait").run!({ args: { id: FULL, timeout: "1s" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "api_error",
+      retryable: true,
+      deploymentId: FULL,
+      status: 503,
+    });
+    expect(commands()).toEqual([`creek deployments wait ${FULL} --json`]);
+  });
+
   it("rejects an unparseable --timeout before any request", async () => {
     const code = await runExit(sub("wait").run!({ args: { id: FULL, timeout: "soon" } } as never));
     expect(code).toBe(1);

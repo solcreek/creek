@@ -432,6 +432,34 @@ describe("following a deployment", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  test("waitForDeployment retries a 502 and a dropped connection, then reads on", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(502, { error: "bad_gateway", message: "Bad Gateway" }))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(jsonResponse(200, statusBody({ status: "active" })));
+    const result = await waitOnFakeClock({ intervalMs: 10, timeoutMs: 100 });
+    expect(result).toMatchObject({ timedOut: false, view: { status: "active" } });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  test("waitForDeployment throws the transient error that lasts past the deadline", async () => {
+    mockFetch.mockImplementation(async () =>
+      jsonResponse(503, { error: "unavailable", message: "Service Unavailable" }),
+    );
+    vi.useFakeTimers();
+    try {
+      const pending = client
+        .waitForDeployment("site", FULL, { intervalMs: 20, timeoutMs: 50 })
+        .catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await pending).toMatchObject({ status: 503 });
+      // Retried until the deadline, not given up on the first failure.
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("waitForDeployment: a read that hangs past the budget is a timeout, not an error", async () => {
     mockFetch.mockImplementation(
       (_url: string, init: RequestInit) =>
