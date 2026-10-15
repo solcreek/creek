@@ -13,6 +13,7 @@ import { DevServer } from "../dev/server.js";
 export const devCommand = defineCommand({
   meta: {
     name: "dev",
+    destructive: false,
     description:
       "Start local development server. Auto-detects target from creek.toml (cf = Miniflare, creekd = sandbox VM with real Postgres/Redis).",
   },
@@ -27,6 +28,7 @@ export const devCommand = defineCommand({
       type: "string",
       description: "Deploy target override: cf (Miniflare) or creekd (sandbox VM)",
       required: false,
+      enum: DEPLOY_TARGETS,
     },
     reset: {
       type: "boolean",

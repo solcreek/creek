@@ -27,6 +27,7 @@ type Period = (typeof VALID_PERIODS)[number];
 export const metricsCommand = defineCommand({
   meta: {
     name: "metrics",
+    destructive: false,
     description:
       "Read request + error metrics for a project. One-shot query — pair with --json for agent use or `| jq` piping.",
   },
@@ -35,6 +36,7 @@ export const metricsCommand = defineCommand({
     period: {
       type: "string",
       description: `Time window. One of: ${VALID_PERIODS.join(", ")}. Default: 24h`,
+      enum: VALID_PERIODS,
     },
     ...globalArgs,
   },

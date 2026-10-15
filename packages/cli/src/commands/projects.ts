@@ -12,7 +12,7 @@ import { requireClient, apiCall } from "../utils/command-context.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const projectsList = defineCommand({
-  meta: { name: "list", description: "List all projects" },
+  meta: { name: "list", destructive: false, description: "List all projects" },
   args: { ...globalArgs },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
@@ -47,6 +47,7 @@ const projectsList = defineCommand({
 const projectsDelete = defineCommand({
   meta: {
     name: "delete",
+    destructive: true,
     description:
       "Delete a project (by slug or id). Does not delete its team-owned databases/buckets.",
   },
@@ -121,6 +122,7 @@ const SUBCOMMANDS = {
 export const projectsCommand = defineCommand({
   meta: {
     name: "projects",
+    destructive: false,
     description: "List and manage projects",
   },
   subCommands: SUBCOMMANDS,
