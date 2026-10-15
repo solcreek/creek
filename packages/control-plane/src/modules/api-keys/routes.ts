@@ -10,7 +10,6 @@ import { loadApiKeyGrant, type ApiKeyGrant } from "../tenant/api-key-grant.js";
 import { resolveTeam } from "../tenant/resolve.js";
 import { apiKeySelfRoute, isApiKeyRequest, sessionOnlyRoute } from "../tenant/scope-guard.js";
 import {
-  KeyMintError,
   describeKey,
   findMemberTeam,
   listKeys,
@@ -209,10 +208,12 @@ apiKeys.post("/", sessionOnlyRoute, async (c) => {
       expiresIn: input.expiresIn,
     });
   } catch (err) {
+    // The detail (possibly a database error) goes to the log, not the caller.
     console.error("[api-keys] create failed:", err);
-    const message =
-      err instanceof KeyMintError ? err.message : "API key creation failed; no key was created";
-    return c.json({ error: "key_create_failed", message }, 500);
+    return c.json(
+      { error: "key_create_failed", message: "API key creation failed; no key was created" },
+      500,
+    );
   }
 
   const view = (await describeKey(c.env.DB, minted.id, user.id))!;
