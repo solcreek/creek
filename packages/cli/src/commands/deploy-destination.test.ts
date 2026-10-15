@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import consola from "consola";
 
 // Where every `creek deploy` invocation goes, over the whole matrix of path ×
 // sign-in × target flag. Each row is checked twice: the --dry-run plan's
@@ -12,6 +13,20 @@ const auth = vi.hoisted(() => ({ token: null as string | null }));
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
   return { ...orig, getToken: () => auth.token };
+});
+// An interactive terminal, when a test asks for one. Off by default, so the
+// matrix runs as the agent/CI (non-TTY) environment it is about.
+const tty = vi.hoisted(() => ({ value: false }));
+vi.mock("../utils/output.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../utils/output.js")>();
+  return {
+    ...orig,
+    get isTTY() {
+      return tty.value;
+    },
+    resolveJsonMode: (args: { json?: boolean }) => args.json === true || !tty.value,
+    shouldAutoConfirm: (args: { yes?: boolean }) => args.yes === true || !tty.value,
+  };
 });
 vi.mock("../utils/tos.js", () => ({
   ensureTosAccepted: vi.fn(async () => ({ version: "test", acceptedAt: "test" })),
@@ -215,6 +230,7 @@ describe("creek deploy destination matrix", () => {
     rmSync(dir, { recursive: true, force: true });
     vi.restoreAllMocks();
     auth.token = null;
+    tty.value = false;
   });
 
   async function runDeploy(args: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -265,6 +281,89 @@ describe("creek deploy destination matrix", () => {
       void stderrSpy;
     },
   );
+
+  // No target flag in an interactive terminal: the real dispatch, including
+  // the production confirm (resolveDeployEnv), for every path.
+  const SANDBOX_ONLY_HANDLERS = new Set(["deployDirectory", "deployTemplate", "deploySandbox"]);
+  const INTERACTIVE_ROWS = (Object.keys(MATRIX) as Scenario[]).flatMap((scenario) =>
+    (["out", "in"] as const).map((state) => ({
+      scenario,
+      state,
+      outcome: MATRIX[scenario][state].none,
+    })),
+  );
+
+  it.each(INTERACTIVE_ROWS)(
+    "interactive, no flag: $scenario, signed $state → $outcome",
+    async ({ scenario, state, outcome }) => {
+      tty.value = true;
+      auth.token = state === "in" ? "test-token" : null;
+      const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(true as never);
+      vi.spyOn(consola, "error").mockImplementation(() => {});
+      vi.spyOn(consola, "warn").mockImplementation(() => {});
+      vi.spyOn(consola, "info").mockImplementation(() => {});
+      const base = setUp(dir, scenario);
+      const refused = !["production", "sandbox", "creekd"].includes(outcome);
+
+      exitSpy.mockClear();
+      await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+        args: { ...base },
+      });
+      const called = Object.entries(handlerSpies)
+        .filter(([, spy]) => spy.mock.calls.length > 0)
+        .map(([name]) => name);
+
+      if (refused) {
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(called).toEqual([]);
+        return;
+      }
+      const handler = expectedHandler(scenario, outcome);
+      expect(called).toEqual([handler]);
+      // The production confirm fires exactly when a local project is about to
+      // reach production without --prod (repo-url confirms after its clone,
+      // inside the spied handler; --from-github has no confirm).
+      const confirms = scenario === "project-cf" && outcome === "production";
+      expect(prompt).toHaveBeenCalledTimes(confirms ? 1 : 0);
+      // A sandbox-only handler must mean a sandbox destination, and nothing
+      // reached the production deploy.
+      if (SANDBOX_ONLY_HANDLERS.has(handler)) {
+        expect(outcome).toBe("sandbox");
+        expect(handlerSpies.deployAuthenticated).not.toHaveBeenCalled();
+      }
+      if (outcome === "production" && scenario === "project-cf") {
+        expect(handlerSpies.deploySandbox).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("interactive, no flag: declining the production confirm deploys nothing", async () => {
+    tty.value = true;
+    auth.token = "test-token";
+    const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(false as never);
+    vi.spyOn(consola, "info").mockImplementation(() => {});
+    setUp(dir, "project-cf");
+    await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: {},
+    });
+    expect(prompt).toHaveBeenCalledTimes(1);
+    for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+  });
+
+  it("interactive, no flag, signed in: a directory upload is a sandbox, not production", async () => {
+    tty.value = true;
+    auth.token = "test-token";
+    const prompt = vi.spyOn(consola, "prompt").mockResolvedValue(true as never);
+    vi.spyOn(consola, "info").mockImplementation(() => {});
+    setUp(dir, "directory");
+    await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: { dir: "site" },
+    });
+    expect(handlerSpies.deployDirectory).toHaveBeenCalledTimes(1);
+    expect(handlerSpies.deployAuthenticated).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
+  });
 
   it("the plan's nextStep follows the destination", async () => {
     auth.token = "test-token";
