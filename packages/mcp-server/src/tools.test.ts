@@ -544,6 +544,23 @@ describe("MCP authenticated tools", () => {
     expect(payload.deployments[1]).toMatchObject({ id: "d1", triggerType: "rollback" });
   });
 
+  it("list_deployments carries commitSha and branch, so deploy_prod's recovery step works", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([
+          { id: "d2", version: 2, status: "queued", branch: "main", commitSha: "abc1234" },
+          { id: "d1", version: 1, status: "active" },
+        ]),
+      ),
+    );
+    const list = registerAndCapture(new Headers({ authorization: "Bearer ck_live_test" })).get(
+      "list_deployments",
+    )!;
+    const payload = JSON.parse((await list({ projectSlug: "hello" })).content[0].text);
+    expect(payload.deployments[0]).toMatchObject({ branch: "main", commitSha: "abc1234" });
+    expect(payload.deployments[1]).toMatchObject({ branch: null, commitSha: null });
+  });
+
   it("rollback POSTs the required deploymentId even if other fields are empty", async () => {
     let posted: unknown;
     server.use(

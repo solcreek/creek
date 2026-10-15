@@ -139,7 +139,7 @@ Recent deployments, newest first.
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, project, deployments: [{ id, version, status, branch, triggerType, createdAt }] }` — pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
+**Output:** `{ ok, project, deployments: [{ id, version, status, branch, commitSha, triggerType, createdAt }] }` (`branch` / `commitSha` are `null` when unknown). To find the deployment a `deploy_prod` started, take the newest row with its `commitSha` and `branch`. For `rollback`, pick an active row whose `triggerType` is not `rollback` as the `rollback` target.
 
 ### `get_deployment`
 

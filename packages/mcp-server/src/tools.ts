@@ -761,7 +761,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     "list_deployments",
     {
       description:
-        "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
+        "List recent deployments for a project (newest first). Each row has branch and commitSha (to find the deployment a deploy_prod started), and triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
       inputSchema: {
         projectSlug: z.string().describe("Project slug"),
       },
@@ -778,6 +778,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         version: d.version,
         status: d.status,
         branch: d.branch ?? null,
+        commitSha: d.commitSha ?? d.commit_sha ?? null,
         triggerType: d.triggerType ?? d.trigger_type ?? null,
         createdAt: d.createdAt ?? d.created_at ?? null,
       }));
