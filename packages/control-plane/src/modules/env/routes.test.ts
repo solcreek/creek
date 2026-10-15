@@ -141,6 +141,27 @@ describe("DELETE /projects/:id/env/:key", () => {
     expect(row).toBeUndefined();
   });
 
+  test("a key that is not set is a 404 that says the key is missing, not the project", async () => {
+    seedTestProject();
+
+    const res = await req("DELETE", `/projects/${PROJECT_ID}/env/NEVER_SET?target=preview`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({
+      error: "not_found",
+      missing: "envvar",
+      key: "NEVER_SET",
+      target: "preview",
+    });
+  });
+
+  test("a missing project is a 404 without missing: envvar", async () => {
+    const res = await req("DELETE", "/projects/nonexistent/env/ANY_KEY");
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.error).toBe("not_found");
+    expect(json.missing).toBeUndefined();
+  });
+
   test("member role cannot delete env vars (403)", async () => {
     // Re-seed with member role
     testEnv.db.db.exec("DELETE FROM member");
