@@ -20,6 +20,8 @@ import { SCOPES, type Scope } from "./scopes.js";
  *                                             API key is refused
  *   apiKeySelfRoute                         — API keys only, acting on the
  *                                             key that makes the request
+ *   authenticatedRoute                      — any session or key, no scope;
+ *                                             static metadata only
  *
  * Guards only act on API-key requests. A dashboard session or a legacy key
  * (no scopes stored) passes through unchanged; role checks for those are
@@ -37,7 +39,8 @@ export type GuardInfo =
   | { kind: "auth-routes" }
   | { kind: "platform-admin" }
   | { kind: "session-only" }
-  | { kind: "api-key-self" };
+  | { kind: "api-key-self" }
+  | { kind: "authenticated" };
 
 const GUARDS = new WeakMap<Function, GuardInfo>();
 
@@ -222,6 +225,21 @@ export const apiKeySelfRoute = markGuard(
     );
   }) as MiddlewareHandler,
   { kind: "api-key-self" },
+);
+
+/**
+ * Guard: any authenticated caller — a session or any API key (scoped,
+ * legacy, whatever it holds) — with no scope needed. Only for static,
+ * team-independent metadata such as the scope catalog. The route's own
+ * auth middleware authenticates; this refuses a request it let through
+ * without a user, so the route can't be mounted unauthenticated by mistake.
+ */
+export const authenticatedRoute = markGuard(
+  (async (c, next) => {
+    if ((c as Context<{ Variables: { user?: unknown } }>).get("user")) return next();
+    return c.json({ error: "unauthorized", message: "Missing or invalid authentication" }, 401);
+  }) as MiddlewareHandler,
+  { kind: "authenticated" },
 );
 
 /**

@@ -8,7 +8,13 @@ import { recordAudit, recordAuditOrThrow } from "../audit/service.js";
 import { createAuth } from "../tenant/auth.js";
 import { loadApiKeyGrant, type ApiKeyGrant } from "../tenant/api-key-grant.js";
 import { resolveTeam } from "../tenant/resolve.js";
-import { apiKeySelfRoute, isApiKeyRequest, sessionOnlyRoute } from "../tenant/scope-guard.js";
+import {
+  apiKeySelfRoute,
+  authenticatedRoute,
+  isApiKeyRequest,
+  sessionOnlyRoute,
+} from "../tenant/scope-guard.js";
+import { buildScopeCatalog } from "./catalog.js";
 import {
   describeKey,
   discardKey,
@@ -29,12 +35,14 @@ import {
  *
  *   GET    /api-keys/self   — a key reads itself (any key; no scope needed)
  *   DELETE /api-keys/self   — a key revokes itself
+ *   GET    /api-keys/scopes — the scope catalog (any session or key; static)
  *   POST   /api-keys        — a signed-in user mints a scoped key (session only)
  *   GET    /api-keys        — a signed-in user lists their keys (session only)
  *   DELETE /api-keys/:id    — a signed-in user revokes one of their keys (session only)
  *
  * No route here takes a team from x-creek-team, and none needs a scope: a
- * key can only act on itself, and everything else is for sessions.
+ * key can only act on itself or read the static catalog, and everything
+ * else is for sessions.
  */
 
 type ApiKeysEnv = {
@@ -164,6 +172,43 @@ apiKeys.delete("/self", apiKeySelfRoute, async (c) => {
   }
   await auditRevoke(c.env.DB, c.get("auditCtx"), user, revoked, "self");
   return c.json({ revoked: true, id: revoked.id });
+});
+
+// --- Anyone signed in ---------------------------------------------------------
+
+/** The catalog body and its ETag, built once per isolate: it only changes with a deploy. */
+let catalogCache: Promise<{ body: string; etag: string }> | undefined;
+
+function catalogResponse(): Promise<{ body: string; etag: string }> {
+  catalogCache ??= (async () => {
+    const body = JSON.stringify(buildScopeCatalog());
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    return { body, etag: `"${hex.slice(0, 32)}"` };
+  })().catch((err) => {
+    catalogCache = undefined;
+    throw err;
+  });
+  return catalogCache;
+}
+
+/** Whether an If-None-Match header names this ETag (or is "*"). */
+function etagMatches(ifNoneMatch: string | undefined, etag: string): boolean {
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch
+    .split(",")
+    .map((t) => t.trim().replace(/^W\//, ""))
+    .some((t) => t === etag || t === "*");
+}
+
+apiKeys.get("/scopes", authenticatedRoute, async (c) => {
+  const { body, etag } = await catalogResponse();
+  // private: the response needs authentication, so shared caches keep out.
+  const headers = { ETag: etag, "Cache-Control": "private, max-age=300" };
+  if (etagMatches(c.req.header("if-none-match"), etag)) {
+    return c.body(null, 304, headers);
+  }
+  return c.body(body, 200, { ...headers, "Content-Type": "application/json" });
 });
 
 // --- Signed-in users ----------------------------------------------------------
