@@ -493,3 +493,32 @@ describe("creek env --target", () => {
     expect(json()).toMatchObject({ ok: true, key: "K", target: "preview", removedValues: 1 });
   });
 });
+
+describe("creek env ls: values are write-only", () => {
+  it("lists keys and targets and no value field", async () => {
+    // The API's `value` is mask(key) — the key name masked, not the secret.
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "DATABASE_URL", target: "all", value: "DATA****" }]),
+      ),
+    );
+    expect(await runExit(lsCmd.run!({ args: {} } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, valuesWriteOnly: true });
+    expect(json().vars).toEqual([{ key: "DATABASE_URL", target: "all" }]);
+  });
+
+  it("--show refuses with values_write_only instead of printing a placeholder", async () => {
+    let listed = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () => {
+        listed = true;
+        return HttpResponse.json([{ key: "DATABASE_URL", target: "all", value: "DATA****" }]);
+      }),
+    );
+    expect(await runExit(lsCmd.run!({ args: { show: true } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "values_write_only" });
+    expect(json().message).toContain("write-only");
+    expect(stdout).not.toContain("DATA****");
+    expect(listed).toBe(false);
+  });
+});

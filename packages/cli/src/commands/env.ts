@@ -159,17 +159,27 @@ const envSet = defineCommand({
   },
 });
 
-function redact(value: string): string {
-  if (value.length <= 4) return "••••";
-  return value.slice(0, 2) + "•".repeat(Math.min(value.length - 4, 20)) + value.slice(-2);
-}
+/**
+ * Values are write-only: the API stores them encrypted and returns only
+ * each key and target. (Its list also sends a `value` that is a masked
+ * copy of the key *name*, not of the value; printing it read as a redacted
+ * secret, so it is not shown.) `--show` used to print that placeholder as
+ * if it were the plaintext; it now refuses, so nobody acts on a value they
+ * don't have.
+ */
+const VALUES_WRITE_ONLY =
+  "Environment variable values are write-only: Creek stores them encrypted and never returns them. `creek env ls` lists keys and targets; to change a value, set it again with `creek env set`.";
 
 const envGet = defineCommand({
-  meta: { name: "ls", description: "List environment variables" },
+  meta: {
+    name: "ls",
+    description: "List environment variable keys and targets (values are write-only)",
+  },
   args: {
     show: {
       type: "boolean",
-      description: "Show values in plaintext (default: redacted)",
+      description:
+        "Not supported: values are write-only and are never returned. Exits 1 with values_write_only",
       default: false,
     },
     ...projectArg,
@@ -177,10 +187,18 @@ const envGet = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    const pf = projectFlag(args.project);
+    if (args.show) {
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "values_write_only", message: VALUES_WRITE_ONLY }, 1, [
+          { command: `creek env ls${pf} --json`, description: "List keys and targets" },
+        ]);
+      consola.error(VALUES_WRITE_ONLY);
+      process.exit(1);
+    }
     const client = requireClient(jsonMode);
     const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
-    const pf = projectFlag(args.project);
 
     if (jsonMode) {
       const crumbs: Breadcrumb[] = [
@@ -201,11 +219,8 @@ const envGet = defineCommand({
           ok: true,
           project: slug,
           projectSource,
-          vars: vars.map((v) => ({
-            key: v.key,
-            target: v.target ?? "all",
-            value: args.show ? v.value : redact(v.value),
-          })),
+          valuesWriteOnly: true,
+          vars: vars.map((v) => ({ key: v.key, target: v.target ?? "all" })),
         },
         0,
         projectBreadcrumbs(slug, crumbs),
@@ -218,13 +233,9 @@ const envGet = defineCommand({
     }
 
     for (const v of vars) {
-      const displayed = args.show ? v.value : redact(v.value);
-      consola.log(`  ${v.key} = ${displayed}  (${v.target ?? "all"})`);
+      consola.log(`  ${v.key}  (${v.target ?? "all"})`);
     }
-
-    if (!args.show) {
-      consola.info("  (use --show to reveal values)");
-    }
+    consola.info("  Values are write-only and are never shown.");
   },
 });
 
