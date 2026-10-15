@@ -1314,6 +1314,24 @@ describe("MCP deploy_prod returns the deployment it started", () => {
     );
     expect(triggered).toBe(true);
     expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
+    expect(payload.message).toContain("project:read");
+  });
+
+  it("blames project:read only on a 403, not on any list failure", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json({ error: "internal" }, { status: 500 }),
+      ),
+      http.post("https://cp.test/github/deploy-latest", () =>
+        HttpResponse.json({ ok: true, commitSha: "abc1234", branch: "main" }),
+      ),
+    );
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" }),
+    );
+    expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
+    expect(payload.message).not.toContain("project:read");
+    expect(payload.message).toContain("status 500");
   });
 });
 

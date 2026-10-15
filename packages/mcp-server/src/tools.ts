@@ -747,7 +747,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
               ? "Build dispatched. Production updates when this deployment becomes active."
               : known
                 ? "Build dispatched, but its deployment did not appear yet. If no new deployment ever appears, check that auto-deploy is enabled on the project's GitHub connection."
-                : "Build dispatched. This API key cannot list deployments (project:read), so the deployment id is unknown.",
+                : !before.ok && before.status === 403
+                  ? "Build dispatched. This API key cannot list deployments (it lacks project:read), so the deployment id is unknown."
+                  : `Build dispatched, but the deployments could not be listed${before.ok ? "" : ` (status ${before.status})`}, so the deployment id is unknown.`,
       });
     },
   );
