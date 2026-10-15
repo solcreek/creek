@@ -50,9 +50,11 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
-| Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
+| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; the CLI rejects `--parse-json` as `unknown_flag`) |
+| Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
-| Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
+| Trigger a cron firing in dev | type `cron` + Enter in the running `creek dev` terminal (only when `[triggers] cron` is set; there is no `--trigger-cron` flag) |
+| Send a queue message in dev | type `queue <JSON-OR-TEXT>` + Enter in the running `creek dev` terminal (only when `[triggers] queue = true`) |
 | List team databases | `creek db ls --json` |
 | Create a team database | `creek db create <NAME> --json` |
 | Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DATABASE --json` |
@@ -66,6 +68,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Read a deployment's build log | `creek deployments logs <DEPLOYMENT_ID> --json` |
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
+| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
 
 ## JSON Output Format
 

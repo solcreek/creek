@@ -1,6 +1,6 @@
 # Creek CLI — Common Workflows
 
-Non-interactive environments (agents, CI, pipes) **must** pass `--sandbox` or `--prod`. `--json` alone is not enough; the CLI returns `confirmation_required`.
+Non-interactive environments (agents, CI, pipes) **must** pass `--sandbox` or `--prod` (`--yes` also passes, but then the target follows sign-in state). `--json` alone is not enough; the CLI returns `confirmation_required`.
 
 ## First deploy (no account)
 
