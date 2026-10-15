@@ -309,6 +309,24 @@ describe("MCP whoami", () => {
     });
   });
 
+  it("an older control plane's 403 route_not_scoped is server_unsupported too", async () => {
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json(
+          { error: "route_not_scoped", message: "This endpoint does not accept API keys" },
+          { status: 403 },
+        ),
+      ),
+    );
+    const result = await registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!({});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: false,
+      error: "server_unsupported",
+      status: 403,
+    });
+  });
+
   it("a refused key keeps the API's error; an older control plane is server_unsupported", async () => {
     server.use(
       http.get("https://cp.test/api-keys/self", () =>

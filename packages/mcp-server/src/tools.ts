@@ -509,7 +509,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const got = await cpFetch(apiKey, "/api-keys/self");
       if (!got.ok) {
         // A control plane that predates key management: say so plainly.
-        if (got.status === 404 || got.status === 405) {
+        // It answers 404/405, or 403 route_not_scoped when its route gate
+        // matches no guarded endpoint (same rule as the SDK's
+        // isApiKeySelfUnsupported).
+        const code = asRecord(JSON.parse(got.result.content[0]?.text ?? "{}")).error;
+        if (got.status === 404 || got.status === 405 || code === "route_not_scoped") {
           return errorResult(
             "server_unsupported",
             "This Creek control plane cannot describe API keys (no GET /api-keys/self).",
