@@ -59,8 +59,15 @@ export function isAuthKeyCreatePath(pathname: string): boolean {
 /**
  * Apply the cap to Better Auth's own POST /api/auth/api-key/create, which
  * mints a legacy (full-access) key and would otherwise step around it.
- * `run` calls Better Auth. Requests that are not a key create, and requests
- * with no session (Better Auth answers those), pass straight through.
+ * `run` calls Better Auth. Requests that are not a key create pass straight
+ * through, and so do requests with no session: `getUserId` resolves null
+ * for those, and Better Auth refuses them on its own.
+ *
+ * Fails closed. `getUserId` must throw (never resolve null) when the session
+ * cannot be looked up; that, or a failing count before the mint, refuses
+ * the request with 500 without calling Better Auth. After the mint, a key
+ * that cannot be checked is deleted, or, if its id cannot be read, never
+ * handed out.
  */
 export async function enforceKeyCapOnAuthCreate(
   c: Context,
@@ -71,10 +78,16 @@ export async function enforceKeyCapOnAuthCreate(
   if (c.req.method.toUpperCase() !== "POST" || !isAuthKeyCreatePath(new URL(c.req.url).pathname)) {
     return run();
   }
-  const userId = await getUserId();
-  if (!userId) return run();
-
-  const before = await countActiveKeys(db, userId);
+  let userId: string | null;
+  let before: number;
+  try {
+    userId = await getUserId();
+    if (!userId) return run();
+    before = await countActiveKeys(db, userId);
+  } catch (err) {
+    console.error("[api-keys] cap check before creating a key failed:", err);
+    return createFailed(c);
+  }
   if (before >= MAX_ACTIVE_KEYS) return keyLimitResponse(c, before);
 
   const res = await run();
@@ -85,7 +98,12 @@ export async function enforceKeyCapOnAuthCreate(
   } catch {
     id = undefined;
   }
-  if (typeof id !== "string") return res;
+  if (typeof id !== "string") {
+    // The key cannot be found to count or delete; withhold it. Its secret
+    // never leaves, so nobody can use it.
+    console.error("[api-keys] CRITICAL: a created key's id could not be read; secret withheld");
+    return createFailed(c);
+  }
 
   let after: number;
   try {
@@ -93,16 +111,20 @@ export async function enforceKeyCapOnAuthCreate(
   } catch (err) {
     console.error(`[api-keys] cap check after creating key ${id} failed:`, err);
     await deleteOwnKey(db, id, userId);
-    return c.json(
-      { error: "key_create_failed", message: "API key creation failed; no key was created" },
-      500,
-    );
+    return createFailed(c);
   }
   if (after > MAX_ACTIVE_KEYS) {
     await deleteOwnKey(db, id, userId);
     return keyLimitResponse(c, after - 1);
   }
   return res;
+}
+
+function createFailed(c: Context): Response {
+  return c.json(
+    { error: "key_create_failed", message: "API key creation failed; no key was created" },
+    500,
+  );
 }
 
 async function deleteOwnKey(db: D1Database, id: string, userId: string): Promise<void> {

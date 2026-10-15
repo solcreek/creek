@@ -100,10 +100,22 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
       c,
       c.env.DB,
       async () => {
-        const session = await auth.api
-          .getSession({ headers: c.req.raw.headers, query: { disableCookieCache: true } })
-          .catch(() => null);
-        return (session?.user?.id as string | undefined) ?? null;
+        // No session (null, or Better Auth's 401/403) is "no user": Better
+        // Auth refuses the create itself. Any other failure throws, and the
+        // cap refuses the request rather than letting the create through.
+        let session: { user?: { id?: unknown } } | null;
+        try {
+          session = await auth.api.getSession({
+            headers: c.req.raw.headers,
+            query: { disableCookieCache: true },
+          });
+        } catch (err) {
+          const status = (err as { statusCode?: unknown }).statusCode;
+          if (status !== 401 && status !== 403) throw err;
+          session = null;
+        }
+        const id = session?.user?.id;
+        return typeof id === "string" && id.length > 0 ? id : null;
       },
       () => auth.handler(c.req.raw),
     );
