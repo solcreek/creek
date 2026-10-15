@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekApiError, CreekClient } from "@solcreek/sdk";
+import { CreekApiError, CreekClient, type DeploymentView } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import {
   formatDetectionSummary,
@@ -9,23 +9,28 @@ import {
 } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import {
+  pasteableBreadcrumbs,
   projectArg,
   projectBreadcrumbs,
   projectFromDirectory,
   resolveProject,
+  type ProjectSource,
 } from "../utils/command-context.js";
+import { deploymentFollowCrumbs, printDeployment } from "../utils/deployment-follow.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
-    description: "Check deployment or sandbox status",
+    description:
+      "Check a project's status, or one deployment or sandbox by id (JSON `type` says which: project, deployment or sandbox)",
   },
   args: {
     id: {
       type: "positional",
-      description: "Sandbox ID (optional — defaults to current project)",
+      description:
+        "Deployment id (full or 8-char short, looked up in --project or this directory's project) or sandbox id. Optional — defaults to the current project",
       required: false,
     },
     ...projectArg,
@@ -34,9 +39,10 @@ export const statusCommand = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
 
-    // If an ID is provided, check sandbox status (no auth needed)
+    // An id names a deployment of the project (when there is one to look in)
+    // or a sandbox (no auth needed).
     if (args.id) {
-      return await sandboxStatus(args.id, jsonMode);
+      return await idStatus(args.id, args.project as string | undefined, jsonMode);
     }
 
     // Otherwise, check the project's status (needs auth + --project or a
@@ -45,24 +51,94 @@ export const statusCommand = defineCommand({
   },
 });
 
-async function sandboxStatus(sandboxId: string, jsonMode: boolean) {
-  const sandboxApiUrl = getSandboxApiUrl();
-  const res = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
+/**
+ * `creek status <id>`: a deployment of the project (--project, else the one
+ * this directory names; needs a login), else a sandbox. A full uuid is only
+ * ever a deployment. An 8-char id could be either; a deployment of the
+ * project wins. The JSON `type` says which one it found.
+ */
+async function idStatus(id: string, projectArgSlug: string | undefined, jsonMode: boolean) {
+  const token = getToken();
+  let project: { slug: string; source: ProjectSource } | null = projectArgSlug
+    ? { slug: projectArgSlug, source: "flag" }
+    : null;
+  if (!project) {
+    try {
+      const local = projectFromDirectory();
+      if (local?.slug) project = { slug: local.slug, source: local.source };
+    } catch {
+      // An unreadable config names no project; the id can still be a sandbox.
+    }
+  }
 
-  if (!res.ok) {
+  let lookupError: unknown = null;
+  if (token && project) {
+    const client = new CreekClient(getApiUrl(), token);
+    let view: DeploymentView | null = null;
+    try {
+      view = await client.getDeployment(project.slug, id);
+    } catch (err) {
+      // 404: no such deployment (or project) — try the id as a sandbox.
+      if (!(err instanceof CreekApiError && err.status === 404)) lookupError = err;
+    }
+    if (view) {
+      if (jsonMode)
+        jsonOutput(
+          { ok: true, type: "deployment", projectSource: project.source, ...view },
+          0,
+          deploymentFollowCrumbs(view),
+        );
+      printDeployment(view);
+      return;
+    }
+  }
+
+  const isUuid = id.length >= 36;
+  const sandbox = isUuid ? null : await fetchSandbox(id);
+  if (sandbox) return printSandbox(id, sandbox, jsonMode);
+
+  if (lookupError) {
+    const message = lookupError instanceof Error ? lookupError.message : String(lookupError);
+    const code =
+      lookupError instanceof CreekApiError && lookupError.code === "ambiguous_id"
+        ? "ambiguous_id"
+        : "api_error";
     if (jsonMode)
-      jsonOutput({ ok: false, error: "not_found", message: "Sandbox not found" }, 1, [
-        {
-          command: "creek deploy --template landing",
-          description: "Deploy a new sandbox from a template",
-        },
-      ]);
-    consola.error("Sandbox not found. It may have expired.");
+      jsonOutput({ ok: false, error: code, message, ...apiErrorFields(lookupError) }, 1);
+    consola.error(message);
+    for (const hint of apiErrorHints(lookupError)) consola.info(hint);
     process.exit(1);
   }
 
-  const status = (await res.json()) as Record<string, unknown>;
+  const searched =
+    token && project
+      ? `No deployment of project "${project.slug}"${isUuid ? "" : " and no sandbox"} matches '${id}'.`
+      : `No sandbox matches '${id}'; it may have expired. To look up a deployment id, ${token ? "pass --project <slug> or run from the project's directory" : "run `creek login` first"}.`;
+  if (jsonMode)
+    jsonOutput({ ok: false, error: "not_found", message: searched }, 1, [
+      ...(token && project
+        ? pasteableBreadcrumbs(project.slug, [
+            { command: "creek deployments --json", description: "List recent deployment ids" },
+          ])
+        : []),
+      {
+        command: "creek deploy --template landing",
+        description: "Deploy a new sandbox from a template",
+      },
+    ]);
+  consola.error(searched);
+  process.exit(1);
+}
 
+/** The sandbox's status body, or null when the sandbox API does not know it. */
+async function fetchSandbox(sandboxId: string): Promise<Record<string, unknown> | null> {
+  const sandboxApiUrl = getSandboxApiUrl();
+  const res = await fetch(`${sandboxApiUrl}/api/sandbox/${encodeURIComponent(sandboxId)}/status`);
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
+}
+
+function printSandbox(sandboxId: string, status: Record<string, unknown>, jsonMode: boolean) {
   if (jsonMode) {
     const crumbs = (status as { claimable?: boolean }).claimable
       ? [{ command: `creek claim ${sandboxId}`, description: "Claim as permanent project" }]
@@ -175,6 +251,11 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
         )
       : [];
 
+  // The API sends the raw row, whose column is camelCase; the snake_case
+  // name is the SDK's legacy type and is never set by the API.
+  const productionDeploymentId =
+    project.productionDeploymentId ?? project.production_deployment_id ?? null;
+
   if (jsonMode) {
     jsonOutput(
       {
@@ -184,15 +265,23 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
         projectSource,
         config: resolved?.source ?? null,
         framework: project.framework,
-        productionDeploymentId: project.production_deployment_id,
+        productionDeploymentId,
         bindings: resolved ? resolved.bindings.map((b) => b.type) : [],
         undeclaredBindings,
         cron: resolved?.cron ?? [],
         queue: resolved?.queue ?? false,
-        createdAt: project.created_at,
+        createdAt: project.createdAt ?? project.created_at ?? null,
       },
       0,
       projectBreadcrumbs(slug, [
+        ...(productionDeploymentId
+          ? [
+              {
+                command: `creek deployments get ${productionDeploymentId} --project ${project.slug} --json`,
+                description: "Show the deployment production serves",
+              },
+            ]
+          : []),
         {
           command: `creek deployments --project ${project.slug}`,
           description: "List deployment history",
@@ -202,13 +291,13 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
     );
   }
 
-  const deployed = project.production_deployment_id ? "deployed" : "not deployed";
+  const deployed = productionDeploymentId ? "deployed" : "not deployed";
 
   consola.log(`\n  Project ${project.slug}`);
   if (resolved) consola.log(`  Config:  ${formatDetectionSummary(resolved)}`);
   consola.log(`  Status:  ${deployed}`);
-  if (project.production_deployment_id) {
-    consola.log(`  Deploy:  ${project.production_deployment_id.slice(0, 8)}`);
+  if (productionDeploymentId) {
+    consola.log(`  Deploy:  ${productionDeploymentId.slice(0, 8)}`);
   }
   if (resolved && resolved.cron.length > 0) {
     consola.log(`  Cron:    ${resolved.cron.join(", ")}`);

@@ -724,6 +724,13 @@ describe("every project command reports projectSource", () => {
       http.get(`${API}/projects/p/deployments/${dep}/logs`, () =>
         HttpResponse.json({ entries: [], metadata: null }),
       ),
+      http.get(`${API}/projects/p/deployments/${dep}`, () =>
+        HttpResponse.json({
+          deployment: { id: dep, status: "active", version: 1 },
+          url: "https://p-team.test",
+          previewUrl: "https://p-00000000-team.test",
+        }),
+      ),
       http.post(`${API}/projects/p/rollback`, () =>
         HttpResponse.json({
           ok: true,
@@ -775,6 +782,8 @@ describe("every project command reports projectSource", () => {
     ["queue send", () => sub(queueCommand as Cmd, "send"), { message: "hi", parseJson: false }],
     ["deployments list", () => sub(deploymentsCommand as Cmd, "list"), {}],
     ["deployments logs", () => sub(deploymentsCommand as Cmd, "logs"), { id: dep, raw: false }],
+    ["deployments get", () => sub(deploymentsCommand as Cmd, "get"), { id: dep }],
+    ["deployments wait", () => sub(deploymentsCommand as Cmd, "wait"), { id: dep }],
     ["rollback", () => rollbackCommand as Cmd, { deployment: dep }],
     ["doctor --last", () => doctorCommand as Cmd, { last: true }],
     ["db shell --sql", () => sub(dbCommand as Cmd, "shell"), { sql: "SELECT 1" }],

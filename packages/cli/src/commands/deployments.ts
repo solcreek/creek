@@ -1,10 +1,26 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import {
+  CreekApiError,
+  CreekClient,
+  type DeploymentView,
+  type WaitForDeploymentResult,
+} from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectArg, projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
+import {
+  pasteableBreadcrumbs,
+  projectArg,
+  projectBreadcrumbs,
+  resolveProject,
+} from "../utils/command-context.js";
+import {
+  deploymentFollowCrumbs,
+  printDeployment,
+  waitCommand,
+} from "../utils/deployment-follow.js";
+import { formatWaited, parseWaitDuration } from "./deploy.js";
 
 // --- List (default behaviour) ---
 
@@ -228,6 +244,195 @@ const deploymentsLogs = defineCommand({
   },
 });
 
+// --- Get / wait: follow one deployment to its result ---
+
+/** A failed lookup: `not_found`, `ambiguous_id`, or `api_error` with the API's fields. */
+function exitLookupError(jsonMode: boolean, err: unknown, slug: string): never {
+  const msg = err instanceof Error ? err.message : "Failed to read the deployment";
+  const code =
+    err instanceof CreekApiError && (err.code === "not_found" || err.code === "ambiguous_id")
+      ? err.code
+      : "api_error";
+  if (jsonMode)
+    jsonOutput(
+      { ok: false, error: code, message: msg, project: slug, ...apiErrorFields(err) },
+      1,
+      code === "api_error"
+        ? []
+        : pasteableBreadcrumbs(slug, [
+            { command: "creek deployments --json", description: "List recent deployment ids" },
+          ]),
+    );
+  consola.error(msg);
+  for (const hint of apiErrorHints(err)) consola.info(hint);
+  process.exit(1);
+}
+
+function requireToken(jsonMode: boolean): string {
+  const token = getToken();
+  if (!token) {
+    if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+    consola.error("Not authenticated. Run `creek login` first.");
+    process.exit(1);
+  }
+  return token;
+}
+
+const deploymentsGet = defineCommand({
+  meta: {
+    name: "get",
+    description:
+      "Show one deployment: status, final (true once active, failed or cancelled), failedStep, errorCode/errorHint, url, commit and branch. Same fields as the MCP get_deployment tool.",
+  },
+  args: {
+    id: {
+      type: "positional",
+      description: "Deployment id (8-char short id or full uuid)",
+      required: true,
+    },
+    ...projectArg,
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const token = requireToken(jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
+    const client = new CreekClient(getApiUrl(), token);
+
+    let view: DeploymentView;
+    try {
+      view = await client.getDeployment(slug, args.id);
+    } catch (err) {
+      exitLookupError(jsonMode, err, slug);
+    }
+
+    if (jsonMode) {
+      jsonOutput({ ok: true, projectSource, ...view }, 0, deploymentFollowCrumbs(view));
+    }
+    printDeployment(view);
+  },
+});
+
+const DEFAULT_WAIT = "2m";
+const WAIT_POLL_MS = 2_000;
+
+const deploymentsWait = defineCommand({
+  meta: {
+    name: "wait",
+    description:
+      "Wait until a deployment is final. Exits 0 when it is active; 1 with error deployment_failed (failedStep, errorCode, errorHint) or deployment_cancelled; 1 with error timeout and retryable: true when it is still running at --timeout — run it again.",
+  },
+  args: {
+    id: {
+      type: "positional",
+      description: "Deployment id (8-char short id or full uuid)",
+      required: true,
+    },
+    timeout: {
+      type: "string",
+      description: `How long to wait: 90s, 5m, 1h (default ${DEFAULT_WAIT}, max 60m)`,
+      valueHint: "duration",
+    },
+    ...projectArg,
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const timeoutArg = (args.timeout as string | undefined) ?? DEFAULT_WAIT;
+    const timeoutMs = parseWaitDuration(timeoutArg);
+    if (timeoutMs === null) {
+      const message = `Invalid --timeout '${timeoutArg}'. Use a duration such as 90s, 5m or 1h.`;
+      if (jsonMode) jsonOutput({ ok: false, error: "invalid_timeout", message }, 1);
+      consola.error(message);
+      process.exit(1);
+    }
+    const token = requireToken(jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
+    const client = new CreekClient(getApiUrl(), token);
+
+    let lastStatus: string | null = null;
+    let result: WaitForDeploymentResult;
+    try {
+      result = await client.waitForDeployment(slug, args.id, {
+        timeoutMs,
+        intervalMs: WAIT_POLL_MS,
+        onPoll: (v) => {
+          if (!jsonMode && v.status !== lastStatus) {
+            consola.info(`  ${v.deploymentId.slice(0, 8)}  ${v.status ?? "unknown"}`);
+          }
+          lastStatus = v.status;
+        },
+      });
+    } catch (err) {
+      exitLookupError(jsonMode, err, slug);
+    }
+
+    const waited = formatWaited(result.waitedMs);
+    const view = result.view;
+    if (result.timedOut || !view) {
+      // A full id when the read resolved one; else what the caller passed.
+      const id = view?.deploymentId ?? args.id;
+      const message = `Deployment ${id} is still ${view?.status ?? "pending"} after ${formatWaited(timeoutMs)}. It has not failed; run the wait again.`;
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "timeout",
+            message,
+            retryable: true,
+            projectSource,
+            ...(view ?? { project: slug, deploymentId: id, status: null, terminal: false }),
+            waitedMs: result.waitedMs,
+          },
+          1,
+          pasteableBreadcrumbs(slug, [
+            { command: waitCommand(id), description: "Keep waiting for the deploy to finish" },
+            {
+              command: `creek deployments logs ${id} --json`,
+              description: "Read the build log so far",
+            },
+          ]),
+        );
+      consola.warn(message);
+      consola.info(`  Keep waiting:  creek deployments wait ${id} --timeout 10m`);
+      process.exit(1);
+    }
+
+    if (view.status === "active") {
+      if (jsonMode)
+        jsonOutput(
+          { ok: true, projectSource, ...view, waitedMs: result.waitedMs },
+          0,
+          deploymentFollowCrumbs(view),
+        );
+      consola.success(`  Deployment ${view.deploymentId.slice(0, 8)} is active (${waited})`);
+      printDeployment(view);
+      return;
+    }
+
+    const failed = view.status === "failed";
+    const message = failed
+      ? `Deployment ${view.deploymentId} failed${view.failedStep ? ` at ${view.failedStep}` : ""}: ${view.errorMessage ?? "no message"}`
+      : `Deployment ${view.deploymentId} was ${view.status}.`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: failed ? "deployment_failed" : "deployment_cancelled",
+          message,
+          projectSource,
+          ...view,
+          waitedMs: result.waitedMs,
+        },
+        1,
+        deploymentFollowCrumbs(view),
+      );
+    consola.error(message);
+    printDeployment(view);
+    process.exit(1);
+  },
+});
+
 function groupByStep<T extends { step: string }>(entries: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const e of entries) {
@@ -252,10 +457,12 @@ function stepDuration(lines: Array<{ ts: number }>): string | null {
 
 // --- Public export ---
 
+const SUBCOMMANDS = { list: 1, get: 1, wait: 1, logs: 1 };
+
 export const deploymentsCommand = defineCommand({
   meta: {
     name: "deployments",
-    description: "List deployments and read build logs",
+    description: "List deployments, follow one to its result, and read build logs",
   },
   args: {
     ...projectArg,
@@ -263,12 +470,17 @@ export const deploymentsCommand = defineCommand({
   },
   subCommands: {
     list: deploymentsList,
+    get: deploymentsGet,
+    wait: deploymentsWait,
     logs: deploymentsLogs,
   },
-  // Default behaviour (no subcommand) = list. Citty resolves
-  // subcommands first, so this only fires when the user types
-  // `creek deployments` with no trailing verb.
+  // Default behaviour (no subcommand) = list. Citty runs a parent's run()
+  // after a subcommand that returned (human mode), so skip it when the first
+  // bare token named a subcommand; otherwise `deployments get <id>` would
+  // print the list after the deployment.
   async run(ctx) {
+    const first = (ctx.rawArgs ?? []).find((a) => !a.startsWith("-"));
+    if (first && first in SUBCOMMANDS) return;
     const run = deploymentsList.run;
     if (!run) return;
     return run(ctx as Parameters<NonNullable<typeof deploymentsList.run>>[0]);
