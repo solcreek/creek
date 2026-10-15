@@ -28,6 +28,9 @@ let deploymentBody: Record<string, unknown> = {};
 let sandboxStatus: Record<string, unknown> = {};
 /** Whether POST /github/deploy-latest has run (the list then shows its row). */
 let githubTriggered = false;
+let listsAfterTrigger = 0;
+/** A newer deploy of another commit shows up before the triggered one. */
+let otherRowFirst = false;
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -74,11 +77,21 @@ beforeAll(async () => {
       // Before the trigger: one old row. After: the row the push created.
       const old = { id: "old-row", version: 1, status: "active", createdAt: 1 };
       const d = deploymentBody.deployment as Record<string, unknown>;
-      return json(
-        githubTriggered
-          ? [{ ...d, version: 2, branch: "main", commitSha: "abc1234def56", createdAt: 2 }, old]
-          : [old],
-      );
+      if (!githubTriggered) return json([old]);
+      listsAfterTrigger++;
+      const mine = { ...d, version: 2, branch: "main", commitSha: "abc1234def56", createdAt: 2 };
+      // Someone else's deploy of another commit, newer than ours. With
+      // `otherRowFirst`, it is the only new row on the first poll.
+      const other = {
+        id: "other-row",
+        version: 3,
+        status: "active",
+        branch: "main",
+        commitSha: "fff0000aaa11",
+        createdAt: 3,
+      };
+      if (!otherRowFirst) return json([mine, old]);
+      return json(listsAfterTrigger === 1 ? [other, old] : [other, mine, old]);
     }
     return json({ ok: true });
   });
@@ -95,6 +108,8 @@ let home: string;
 
 beforeEach(() => {
   githubTriggered = false;
+  listsAfterTrigger = 0;
+  otherRowFirst = false;
   app = mkdtempSync(join(tmpdir(), "creek-follow-id-"));
   home = mkdtempSync(join(tmpdir(), "creek-follow-home-"));
   mkdirSync(join(app, "dist"));
@@ -234,6 +249,22 @@ describe.skipIf(!existsSync(CLI))("creek deploy --json names the deployment", ()
       errorCode: "CK-BUILD",
     });
     expect(crumbs(r.out)).toContain(`creek deployments logs ${DEP} --json`);
+    expect(r.out).toMatchObject({ matchedBy: "commit" });
+  });
+
+  test("--from-github follows the triggered commit's row, not another new row that landed first", async () => {
+    otherRowFirst = true;
+    deploymentBody = {
+      deployment: { id: DEP, status: "failed", failedStep: "build", errorMessage: "npm ERR" },
+      url: null,
+      previewUrl: `${base}/`,
+    };
+    const r = await deploy(["--from-github", "--project", "app", "--prod", "--json"], {
+      CREEK_TOKEN: "test-token",
+    });
+    expect(r.out).toMatchObject({ deploymentId: DEP, matchedBy: "commit" });
+    expect(r.out).not.toHaveProperty("commitMatched");
+    expect(listsAfterTrigger).toBeGreaterThan(1);
   });
 
   test("a sandbox that fails after it was created carries sandboxId", async () => {

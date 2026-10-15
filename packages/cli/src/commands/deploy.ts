@@ -1458,6 +1458,35 @@ export function findNewDeployment(
 }
 
 /**
+ * Which new row a `--from-github` trigger created. handlePush inserts it in
+ * waitUntil, so another new row (a preview push, a teammate's deploy) can
+ * appear first: with a known commit only a row for that commit (and branch,
+ * when both are known) counts, until `pastDeadline`. Then, or when the
+ * trigger named no commit, the newest new row stands in, as "newest_row".
+ * Null means keep polling. Same rule as the MCP deploy_prod tool.
+ */
+export function pickTriggeredDeployment(
+  fresh: CliDeployment[],
+  commitSha: string | null | undefined,
+  branch: string | null | undefined,
+  pastDeadline: boolean,
+): { row: CliDeployment; matchedBy: "commit" | "newest_row" } | null {
+  const sorted = [...fresh].sort((a, b) => b.createdAt - a.createdAt);
+  if (commitSha) {
+    const match = sorted.find(
+      (d) =>
+        typeof d.commitSha === "string" &&
+        d.commitSha.length > 0 &&
+        (commitSha.startsWith(d.commitSha) || d.commitSha.startsWith(commitSha)) &&
+        (!branch || typeof d.branch !== "string" || d.branch === branch),
+    );
+    if (match) return { row: match, matchedBy: "commit" };
+    if (!pastDeadline) return null;
+  }
+  return sorted[0] ? { row: sorted[0], matchedBy: "newest_row" } : null;
+}
+
+/**
  * Trigger a deploy that uses the project's github_connection instead of a
  * local build. Polls the deployments list until the new row settles and
  * streams status transitions to the terminal.
@@ -1580,7 +1609,20 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   const rowAppearDeadline = startedAt + 20_000;
   const overallDeadline = startedAt + 15 * 60_000; // 15 min hard cap
   let targetDeployment: CliDeployment | null = null;
+  let matchedBy: "commit" | "newest_row" = "commit";
   let lastStatus: string | null = null;
+  // How the followed row was chosen, in every result: like MCP deploy_prod's
+  // matchedBy. A newest-row stand-in for a known commit says so, with both
+  // commits, so the caller can tell it may be someone else's deploy.
+  const matchFields = (): Record<string, unknown> =>
+    matchedBy === "commit" || !triggerResult.commitSha
+      ? { matchedBy }
+      : {
+          matchedBy,
+          commitMatched: false,
+          expectedCommitSha: triggerResult.commitSha,
+          commitSha: targetDeployment?.commitSha ?? null,
+        };
 
   while (Date.now() < overallDeadline) {
     let list: CliDeployment[];
@@ -1597,22 +1639,22 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     // but we don't require it (rollback/promote could race, but extremely
     // unlikely in the narrow window between snapshot + poll).
     if (!targetDeployment) {
-      // Prefer the new row for the commit the trigger named: another new
-      // row (a preview push, a teammate's deploy) can land first.
-      const fresh = list
-        .filter((d) => d.createdAt > previousLatestCreatedAt)
-        .sort((a, b) => b.createdAt - a.createdAt);
-      const sha = triggerResult.commitSha;
-      const candidate =
-        fresh.find(
-          (d) =>
-            typeof d.commitSha === "string" &&
-            !!sha &&
-            (sha.startsWith(d.commitSha) || d.commitSha.startsWith(sha)),
-        ) ?? fresh[0];
+      const picked = pickTriggeredDeployment(
+        list.filter((d) => d.createdAt > previousLatestCreatedAt),
+        triggerResult.commitSha,
+        triggerResult.branch,
+        Date.now() > rowAppearDeadline,
+      );
+      const candidate = picked?.row ?? null;
 
-      if (candidate) {
+      if (picked && candidate) {
         targetDeployment = candidate;
+        matchedBy = picked.matchedBy;
+        if (!jsonMode && matchedBy === "newest_row" && triggerResult.commitSha) {
+          consola.warn(
+            `  No new deployment for ${triggerResult.commitSha.slice(0, 7)} appeared; following the newest one (${candidate.commitSha?.slice(0, 7) ?? "unknown commit"}), which may not be this trigger's.`,
+          );
+        }
         if (!jsonMode) {
           consola.info(`  v${candidate.version} ${candidate.branch ?? ""}`.trim());
         }
@@ -1688,6 +1730,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         buildTimeS: parseFloat(elapsedS),
         mode: "production",
         source: "github",
+        ...matchFields(),
         rollbackCommand: `creek rollback --project ${projectSlug}`,
       },
       human: () => {
@@ -1706,7 +1749,12 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
       waitedMs: Date.now() - startedAt,
       deploymentId: targetDeployment.id,
       project: projectSlug,
-      extra: { project: projectSlug, status: targetDeployment.status, source: "github" },
+      extra: {
+        project: projectSlug,
+        status: targetDeployment.status,
+        source: "github",
+        ...matchFields(),
+      },
     });
   }
 
@@ -1734,6 +1782,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         project: projectSlug,
         status: targetDeployment.status,
         source: "github",
+        ...matchFields(),
         failedStep: targetDeployment.failedStep,
         errorMessage: failureMsg,
         ...reason,
