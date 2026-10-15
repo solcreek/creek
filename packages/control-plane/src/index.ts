@@ -44,6 +44,7 @@ import {
   publicRoute,
 } from "./modules/tenant/scope-guard.js";
 import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
+import { refuseClientKeyMetadata } from "./modules/tenant/api-key-metadata.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -88,6 +89,9 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   // other route refuses, so whoami doesn't report a session it can't use.
   const refused = await refuseUnusableKeySession(c);
   if (refused) return refused;
+  // API key metadata is server-only (POST /api-keys tags keys with it).
+  const metadata = await refuseClientKeyMetadata(c);
+  if (metadata) return metadata;
   try {
     const auth = createAuth(c.env);
     return await auth.handler(c.req.raw);
