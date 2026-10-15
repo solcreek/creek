@@ -330,7 +330,12 @@ describe("delete, run twice", () => {
     const { code, out } = await db("delete", { name: "mydb" });
 
     expect(code).toBe(0);
-    expect(out).toMatchObject({ ok: true, alreadyAbsent: true });
+    // The same shape as a re-run that finds it already deleted.
+    expect(out).toMatchObject({
+      ok: true,
+      alreadyAbsent: true,
+      resource: { id: res.id, kind: "database", name: "mydb", status: "deleted" },
+    });
   });
 
   it("--dry-run on an already-deleted one plans nothing", async () => {

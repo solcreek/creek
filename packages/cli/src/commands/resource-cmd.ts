@@ -453,7 +453,18 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
         // Live a moment ago, gone now: a concurrent delete got there first.
         if (err instanceof CreekApiError && err.status === 404) {
           const message = `${label} "${args.name}" was already deleted; nothing was deleted`;
-          if (jsonMode) jsonOutput({ ok: true, alreadyAbsent: true, message }, 0);
+          // Same shape as the already-deleted path above.
+          if (jsonMode) {
+            jsonOutput(
+              {
+                ok: true,
+                alreadyAbsent: true,
+                resource: { ...resource, status: "deleted" },
+                message,
+              },
+              0,
+            );
+          }
           consola.success(message);
           return;
         }
