@@ -399,24 +399,35 @@ describe("following a deployment", () => {
     expect(seen).toEqual(["deploying", "active"]);
   });
 
+  // The budget tests run on fake timers: the clock (Date.now) and the pauses
+  // between reads advance only when the test says so, so the number of reads
+  // does not depend on how busy the machine is.
+  async function waitOnFakeClock(opts: { intervalMs: number; timeoutMs: number }) {
+    vi.useFakeTimers();
+    try {
+      const pending = client.waitForDeployment("site", FULL, opts);
+      await vi.advanceTimersByTimeAsync(opts.timeoutMs);
+      return await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
   test("waitForDeployment stops at the budget with the last status, without throwing", async () => {
     mockFetch.mockImplementation(async () => jsonResponse(200, statusBody()));
-    const result = await client.waitForDeployment("site", FULL, {
-      intervalMs: 20,
-      timeoutMs: 50,
-    });
+    const result = await waitOnFakeClock({ intervalMs: 20, timeoutMs: 50 });
     expect(result.timedOut).toBe(true);
     expect(result.view).toMatchObject({ status: "deploying", terminal: false });
+    // Reads at 0, 20, 40 and the deadline (50).
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(result.waitedMs).toBe(50);
   });
 
   test("waitForDeployment uses the whole budget when it is shorter than the interval", async () => {
     mockFetch.mockImplementation(async () => jsonResponse(200, statusBody()));
-    const result = await client.waitForDeployment("site", FULL, {
-      intervalMs: 2000,
-      timeoutMs: 150,
-    });
+    const result = await waitOnFakeClock({ intervalMs: 2000, timeoutMs: 150 });
     expect(result.timedOut).toBe(true);
-    expect(result.waitedMs).toBeGreaterThanOrEqual(150);
+    expect(result.waitedMs).toBe(150);
     // A first read, then one more at the deadline.
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
