@@ -241,6 +241,19 @@ describe("creek env rm, run twice", () => {
     expect(deletes).toBe(2);
   });
 
+  it("a key that can't exist (padded, lowercase) is invalid_key, not alreadyAbsent", async () => {
+    liveServer();
+    for (const key of [" OLD_KEY", "OLD_KEY ", "old_key"]) {
+      stdout = "";
+      expect(await runExit(rmCmd.run!({ args: { key } } as never)), key).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "invalid_key", key });
+      expect(json().alreadyAbsent).toBeUndefined();
+    }
+    // Nothing was sent, and the real key is still set.
+    expect(deletes).toBe(0);
+    expect(rows.some((r) => r.key === "OLD_KEY")).toBe(true);
+  });
+
   it("`unset` re-run behaves the same", async () => {
     liveServer();
     const unset = (

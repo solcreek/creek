@@ -62,6 +62,9 @@ function appliesOn(target: EnvTarget): string {
 
 const ALREADY_ABSENT = Symbol("already-absent");
 
+/** The API's key rule (control-plane env routes, POST). */
+const ENV_KEY_SHAPE = /^[A-Z_][A-Z0-9_]*$/;
+
 /**
  * Whether a failed delete means the key (or its target's value) isn't set on
  * an existing project, not that the project is missing or the call failed.
@@ -255,6 +258,16 @@ const envRm = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const target = parseTarget(jsonMode, args.target);
+    // The API has only ever stored keys of this shape (env set enforces it),
+    // so any other key — padded, lowercase — was never set. Say so before any
+    // request: on the server it would 404 and read as alreadyAbsent while the
+    // key the user meant stays set.
+    if (!ENV_KEY_SHAPE.test(args.key)) {
+      const message = `"${args.key}" is not a valid key (uppercase letters, digits and underscores, e.g. DATABASE_URL), so it was never set. Nothing was removed.`;
+      if (jsonMode) jsonOutput({ ok: false, error: "invalid_key", key: args.key, message }, 1);
+      consola.error(message);
+      process.exit(1);
+    }
     const client = requireClient(jsonMode);
     const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const targetFlag = target ? ` --target ${target}` : "";
