@@ -315,13 +315,14 @@ describe("creek domains rm, run twice", () => {
     expect(deletes).toBe(1);
   });
 
-  it("matches the hostname case-insensitively and reports it normalized", async () => {
+  it("matches the hostname case-insensitively and removes the listed domain", async () => {
     liveServer();
-    rows = [];
     expect(await runExit(rmCmd.run!({ args: { hostname: "Course.Example.COM" } } as never))).toBe(
       0,
     );
-    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: true });
+    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: false, removed: true });
+    expect(deletes).toBe(1);
+    expect(rows).toEqual([]);
   });
 
   it("a padded hostname still finds and removes the listed domain", async () => {
