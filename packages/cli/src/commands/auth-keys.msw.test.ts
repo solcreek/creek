@@ -437,20 +437,49 @@ describe("creek logout", () => {
     );
     const error = vi.spyOn(consola, "error").mockImplementation(() => {});
     expect(await run(logoutCommand, { revoke: true })).toBe(1);
-    expect(json()).toMatchObject({
+    const out = json();
+    expect(out).toMatchObject({
       ok: false,
       error: "revoke_failed",
       configCleared: false,
+      mayHaveApplied: true,
       keys: [
         { source: "env:CREEK_TOKEN", revoked: true },
-        { source: "config", revoked: false, reason: "revoke_failed", status: 503 },
+        {
+          source: "config",
+          revoked: false,
+          reason: "revoke_failed",
+          status: 503,
+          mayHaveApplied: true,
+        },
       ],
     });
+    // A failed response does not prove the key survived: no validity claim.
+    expect(out.keyStillValid).toBeUndefined();
+    expect(out.message).toContain("could not be confirmed");
+    expect(out.message).not.toContain("still valid");
+    expect(out.breadcrumbs[0].command).toBe("creek whoami --json");
     expect(calls).toEqual([`DELETE self ${LEGACY_KEY}`]);
     expect(readConfig().token).toBe(SCOPED_KEY);
     expect(error.mock.calls.map((c) => String(c[0]))).toContainEqual(
-      expect.stringContaining("Could not revoke the saved key crk_sk_live_ScOp…"),
+      expect.stringContaining("Could not confirm revoking the saved key crk_sk_live_ScOp…"),
     );
+  });
+
+  it("--revoke whose connection drops keeps the saved key and does not call it valid", async () => {
+    saveConfig({ token: SCOPED_KEY });
+    server.use(http.delete(`${API}/api-keys/self`, () => HttpResponse.error()));
+    expect(await run(logoutCommand, { revoke: true })).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: false,
+      error: "revoke_failed",
+      mayHaveApplied: true,
+      configCleared: false,
+      keys: [{ source: "config", mayHaveApplied: true }],
+    });
+    expect(out.keyStillValid).toBeUndefined();
+    expect(readConfig().token).toBe(SCOPED_KEY);
   });
 
   it("--revoke with an empty CREEK_TOKEN still revokes the saved key", async () => {
@@ -559,6 +588,16 @@ describe("creek keys", () => {
     stdout = "";
     expect(await run(sub("revoke"), { self: true })).toBe(0);
     expect(json()).toMatchObject({ ok: true, revoked: false, reason: "already_invalid" });
+  });
+
+  it("keys revoke --self whose connection drops says the outcome is unknown", async () => {
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    server.use(http.delete(`${API}/api-keys/self`, () => HttpResponse.error()));
+    expect(await run(sub("revoke"), { self: true })).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({ ok: false, error: "revoke_failed", mayHaveApplied: true });
+    expect(out.message).toContain("could not be confirmed");
+    expect(out.breadcrumbs[0].command).toBe("creek whoami --json");
   });
 
   it("keys revoke --self --dry-run revokes nothing", async () => {

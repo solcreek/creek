@@ -120,7 +120,19 @@ export type RevokeResult =
       error: "server_unsupported" | "revoke_failed";
       message: string;
       status?: number;
+      /**
+       * revoke_failed: the DELETE may have revoked the key before the
+       * connection dropped or the response failed; the outcome is unknown.
+       * (server_unsupported proves nothing was revoked.)
+       */
+      mayHaveApplied: boolean;
     };
+
+/** Where to look when a revocation's outcome is unknown. */
+export const CHECK_KEY_BREADCRUMB = {
+  command: "creek whoami --json",
+  description: "Check whether the key still works (session_expired means it was revoked)",
+};
 
 /**
  * DELETE /api-keys/self, never throwing. A 401 means the key is already
@@ -146,14 +158,16 @@ export async function revokeSelf(client: CreekClient): Promise<RevokeResult> {
         error: "server_unsupported",
         message:
           "This Creek API cannot revoke a key from the CLI (no DELETE /api-keys/self). Revoke it in the dashboard.",
+        mayHaveApplied: false,
       };
     }
     const status = (err as { status?: unknown }).status;
     return {
       ok: false,
       error: "revoke_failed",
-      message: `Revoking the API key failed: ${err instanceof Error ? err.message : String(err)}.`,
+      message: `The revocation could not be confirmed (${err instanceof Error ? err.message : String(err)}); the key may or may not have been revoked.`,
       ...(typeof status === "number" ? { status } : {}),
+      mayHaveApplied: true,
     };
   }
 }

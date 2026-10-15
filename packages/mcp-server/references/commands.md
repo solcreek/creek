@@ -146,7 +146,9 @@ holds — `CREEK_TOKEN`'s and the saved one — and reports each in
 re-run: a key already revoked or expired reports
 `revoked: false, reason: "already_invalid"`. The saved key is removed only
 once it is revoked or already invalid; any other failure exits 1 and keeps
-it. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
+it. `mayHaveApplied: true` (a dropped connection or failed response) means
+the key may or may not have been revoked: check with `creek whoami --json`
+before retrying. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
 
 ## JSON Output Format
 

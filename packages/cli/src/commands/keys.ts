@@ -10,7 +10,13 @@ import {
 } from "../utils/output.js";
 import { requireClient } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import { describeTokenSource, keyLines, lookupKey, revokeSelf } from "../utils/api-key.js";
+import {
+  CHECK_KEY_BREADCRUMB,
+  describeTokenSource,
+  keyLines,
+  lookupKey,
+  revokeSelf,
+} from "../utils/api-key.js";
 
 /**
  * `creek keys` — the API key the CLI is using.
@@ -213,13 +219,18 @@ const revokeCommand = defineCommand({
             error: result.error,
             message: result.message,
             revoked: false,
+            ...(result.mayHaveApplied ? { mayHaveApplied: true } : {}),
             ...(result.status ? { status: result.status } : {}),
             dashboardUrl: `${getDashboardUrl()}/api-keys`,
           },
           1,
-          [{ command: "creek keys revoke --self --json", description: "Retry" }],
+          [
+            ...(result.mayHaveApplied ? [CHECK_KEY_BREADCRUMB] : []),
+            { command: "creek keys revoke --self --json", description: "Retry" },
+          ],
         );
       consola.error(result.message);
+      if (result.mayHaveApplied) consola.info("Check with `creek whoami --json`.");
       process.exit(1);
     }
 

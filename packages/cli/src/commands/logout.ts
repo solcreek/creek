@@ -9,7 +9,7 @@ import {
   readCliConfig,
 } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { keyHint, revokeSelf } from "../utils/api-key.js";
+import { CHECK_KEY_BREADCRUMB, keyHint, revokeSelf } from "../utils/api-key.js";
 
 /**
  * `creek logout [--revoke]`.
@@ -44,6 +44,8 @@ export interface KeyRevocation {
   keyId?: string;
   message?: string;
   status?: number;
+  /** The revocation may have happened; its outcome is unknown (revoke_failed). */
+  mayHaveApplied?: true;
 }
 
 export function keyPrefix(token: string): string {
@@ -77,6 +79,7 @@ async function revokeKey(key: HeldKey): Promise<KeyRevocation> {
       reason: result.error,
       message: result.message,
       ...(result.status ? { status: result.status } : {}),
+      ...(result.mayHaveApplied ? { mayHaveApplied: true } : {}),
     };
   }
   return result.revoked
@@ -91,6 +94,7 @@ function humanLine(r: KeyRevocation): string {
   const what = `${SOURCE_LABEL[r.source]} ${r.keyPrefix}`;
   if (r.revoked) return `Revoked the ${what}${r.keyId ? ` (id ${r.keyId})` : ""}.`;
   if (r.reason === "already_invalid") return `The ${what} was already invalid.`;
+  if (r.mayHaveApplied) return `Could not confirm revoking the ${what}: ${r.message ?? r.reason}`;
   return `Could not revoke the ${what}: ${r.message ?? r.reason}`;
 }
 
@@ -225,7 +229,13 @@ async function revokeAndLogout(
   if (failed.length > 0) {
     const kept = failed.map((r) => `the ${SOURCE_LABEL[r.source]} ${r.keyPrefix}`).join(" and ");
     const dashboardUrl = `${getDashboardUrl()}/api-keys`;
-    const message = `Could not revoke ${kept}; ${failed.length > 1 ? "they are" : "it is"} still valid${saved && !isDead(saved) ? " and the saved key was kept" : ""}. Retry, or revoke in the dashboard: ${dashboardUrl}`;
+    // Only an API without the endpoint proves nothing was revoked; a broken
+    // or failed response leaves the outcome unknown.
+    const unknown = failed.some((r) => r.mayHaveApplied);
+    const keptNote = saved && !isDead(saved) ? " The saved key was kept for a retry." : "";
+    const message = unknown
+      ? `The revocation of ${kept} could not be confirmed: it may or may not have been revoked.${keptNote} Check with \`creek whoami --json\`, then retry, or revoke in the dashboard: ${dashboardUrl}`
+      : `Could not revoke ${kept}; ${failed.length > 1 ? "they are" : "it is"} still valid.${keptNote} Revoke in the dashboard: ${dashboardUrl}`;
     if (jsonMode)
       jsonOutput(
         {
@@ -236,13 +246,16 @@ async function revokeAndLogout(
           configCleared,
           tokenSource,
           revoked: keys.some((r) => r.revoked),
-          keyStillValid: true,
+          ...(unknown ? { mayHaveApplied: true } : { keyStillValid: true }),
           keys,
           dashboardUrl,
           ...(warning ? { warning } : {}),
         },
         1,
-        [{ command: "creek logout --revoke --json", description: "Retry" }],
+        [
+          ...(unknown ? [CHECK_KEY_BREADCRUMB] : []),
+          { command: "creek logout --revoke --json", description: "Retry" },
+        ],
       );
     consola.error(message);
     if (warning) consola.warn(warning);
