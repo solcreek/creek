@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { registerTools, type ToolContext } from "./tools.js";
@@ -33,7 +33,10 @@ function registerAndCapture(headers: Headers = new Headers()): Map<string, Handl
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  vi.restoreAllMocks();
+});
 afterAll(() => server.close());
 
 describe("MCP deploy tool", () => {
@@ -79,7 +82,12 @@ describe("MCP deploy tool", () => {
     const deploy = registerAndCapture().get("deploy")!;
     const result = await deploy({ files: { "a.txt": "x" } });
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("rate limited");
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      ok: false,
+      error: "api_error",
+      message: "rate limited",
+      status: 429,
+    });
   });
 
   it("marks isError when the preview URL is not live", async () => {
@@ -154,9 +162,12 @@ describe("MCP deploy_demo tool", () => {
     const result = await deployDemo({});
     expect(result.isError).toBe(true);
     const payload = JSON.parse(result.content[0].text);
+    expect(payload.ok).toBe(false);
     expect(payload.error).toBe("verify_failed");
     expect(payload.proof.ok).toBe(false);
-    expect(payload.message).toBeUndefined();
+    // Envelope: a failure carries its own message, never the success one.
+    expect(payload.message).not.toBe("Demo deployed successfully.");
+    expect(payload.message).toContain("sb-demo-fail");
   });
 });
 
@@ -200,7 +211,11 @@ describe("MCP authenticated tools", () => {
     const result = await list({});
     expect(result.isError).toBeUndefined();
     expect(saw["x-api-key"]).toBe("ck_live_test");
-    expect(JSON.parse(result.content[0].text)[0].name).toBe("db");
+    // Envelope: the array is wrapped as `resources` (was a bare array).
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      ok: true,
+      resources: [{ id: "r1", kind: "database", name: "db" }],
+    });
   });
 
   it("passes the API's error code, status and fields through to the agent", async () => {
@@ -573,5 +588,253 @@ describe("MCP authenticated tools", () => {
       key: "API_TOKEN",
       pendingDeploy: true,
     });
+  });
+});
+
+// ----------------------------------------------------------------
+// One result envelope for every tool
+// ----------------------------------------------------------------
+
+const AUTH = () => new Headers({ authorization: "Bearer ck_live_test" });
+const parse = (result: { content: Array<{ text: string }> }) => JSON.parse(result.content[0].text);
+
+/** A fetch rejection the way Node's undici reports an unreachable host. */
+function fetchFailed(code?: string): TypeError {
+  const err = new TypeError("fetch failed");
+  if (code) (err as { cause?: unknown }).cause = { code };
+  return err;
+}
+
+describe("MCP result envelope — sandbox tools", () => {
+  it("deploy_status wraps the status in { ok: true }", async () => {
+    server.use(
+      http.get(`${SANDBOX}/api/sandbox/abc123/status`, () =>
+        HttpResponse.json({ status: "active", sandboxId: "abc123", expiresInSeconds: 60 }),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy_status")!({ sandboxId: "abc123" });
+    expect(parse(result)).toMatchObject({
+      ok: true,
+      sandboxId: "abc123",
+      status: "active",
+      expiresInSeconds: 60,
+    });
+  });
+
+  it("deploy_status returns a JSON not_found error with the sandboxId", async () => {
+    server.use(
+      http.get(`${SANDBOX}/api/sandbox/gone/status`, () =>
+        HttpResponse.json({ error: "not_found", message: "Sandbox not found" }, { status: 404 }),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy_status")!({ sandboxId: "gone" });
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toEqual({
+      ok: false,
+      error: "not_found",
+      message: "Sandbox not found",
+      status: 404,
+      sandboxId: "gone",
+    });
+  });
+
+  it("deploy_delete returns { ok: true, deleted: true }", async () => {
+    server.use(
+      http.delete(`${SANDBOX}/api/sandbox/sb-9`, () =>
+        HttpResponse.json({ ok: true, message: "Sandbox deleted" }),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy_delete")!({ sandboxId: "sb-9" });
+    expect(result.isError).toBeUndefined();
+    expect(parse(result)).toEqual({ ok: true, sandboxId: "sb-9", deleted: true });
+  });
+
+  it("deploy_delete keeps the API's error code", async () => {
+    server.use(
+      http.delete(`${SANDBOX}/api/sandbox/sb-9`, () =>
+        HttpResponse.json(
+          { error: "forbidden", message: "Only the sandbox creator can delete it" },
+          { status: 403 },
+        ),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy_delete")!({ sandboxId: "sb-9" });
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "forbidden",
+      status: 403,
+      sandboxId: "sb-9",
+    });
+  });
+
+  it("deploy reports an unreachable sandbox API as api_unreachable, not a throw", async () => {
+    server.use(http.post(`${SANDBOX}/api/sandbox/deploy`, () => HttpResponse.error()));
+    const result = await registerAndCapture().get("deploy")!({ files: { "a.txt": "x" } });
+    expect(result.isError).toBe(true);
+    // A POST that failed without a cause may have reached the server.
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: false,
+      mayHaveApplied: true,
+    });
+  });
+});
+
+describe("MCP result envelope — authenticated tools", () => {
+  it("a failed read (GET) is api_unreachable and retryable", async () => {
+    server.use(http.get("https://cp.test/projects", () => HttpResponse.error()));
+    const result = await registerAndCapture(AUTH()).get("list_projects")!({});
+    expect(result.isError).toBe(true);
+    const payload = parse(result);
+    expect(payload).toMatchObject({ ok: false, error: "api_unreachable", retryable: true });
+    expect(payload.message).toContain("control plane");
+    expect(payload.mayHaveApplied).toBeUndefined();
+  });
+
+  it("a mutation that may have been sent is not retryable", async () => {
+    server.use(http.post("https://cp.test/projects/hello/env", () => HttpResponse.error()));
+    const result = await registerAndCapture(AUTH()).get("env_set")!({
+      projectSlug: "hello",
+      key: "A",
+      value: "b",
+    });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: false,
+      mayHaveApplied: true,
+    });
+  });
+
+  it("a mutation refused at connect (ECONNREFUSED) is retryable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(fetchFailed("ECONNREFUSED"));
+    const result = await registerAndCapture(AUTH()).get("create_resource")!({
+      kind: "database",
+      name: "db",
+    });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: true,
+      reason: "ECONNREFUSED",
+    });
+  });
+
+  it("a mutation whose response broke off is not retryable", async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError("terminated"));
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(body, { status: 200 }));
+    const result = await registerAndCapture(AUTH()).get("delete_resource")!({ resourceId: "r1" });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: false,
+    });
+  });
+
+  it("create_resource and query_database answer { ok: true, ...data }", async () => {
+    server.use(
+      http.post("https://cp.test/resources", () =>
+        HttpResponse.json({ id: "r1", kind: "database", name: "db" }, { status: 201 }),
+      ),
+      http.post("https://cp.test/resources/r1/query", () =>
+        HttpResponse.json({ columns: ["n"], rows: [{ n: 1 }], meta: { changes: 0 } }),
+      ),
+    );
+    const tools = registerAndCapture(AUTH());
+    expect(parse(await tools.get("create_resource")!({ kind: "database", name: "db" }))).toEqual({
+      ok: true,
+      id: "r1",
+      kind: "database",
+      name: "db",
+    });
+    expect(
+      parse(await tools.get("query_database")!({ resourceId: "r1", sql: "select 1 as n" })),
+    ).toMatchObject({ ok: true, columns: ["n"], rows: [{ n: 1 }] });
+  });
+
+  it("attach / detach / rename / delete answer JSON, not prose", async () => {
+    server.use(
+      http.post("https://cp.test/projects/hello/bindings", () =>
+        HttpResponse.json(
+          { projectId: "p1", bindingName: "DB", resourceId: "r1" },
+          { status: 201 },
+        ),
+      ),
+      http.delete("https://cp.test/projects/hello/bindings/DB", () =>
+        HttpResponse.json({ ok: true }),
+      ),
+      http.patch("https://cp.test/resources/r1", () =>
+        HttpResponse.json({ id: "r1", name: "main", updatedAt: 5 }),
+      ),
+      http.delete("https://cp.test/resources/r1", () =>
+        HttpResponse.json({ id: "r1", status: "deleted" }),
+      ),
+    );
+    const tools = registerAndCapture(AUTH());
+    expect(
+      parse(
+        await tools.get("attach_resource")!({
+          projectSlug: "hello",
+          resourceId: "r1",
+          bindingName: "DB",
+        }),
+      ),
+    ).toMatchObject({ ok: true, project: "hello", resourceId: "r1", bindingName: "DB" });
+    expect(
+      parse(await tools.get("detach_resource")!({ projectSlug: "hello", bindingName: "DB" })),
+    ).toMatchObject({ ok: true, project: "hello", bindingName: "DB", detached: true });
+    expect(parse(await tools.get("rename_resource")!({ resourceId: "r1", name: "main" }))).toEqual({
+      ok: true,
+      resourceId: "r1",
+      name: "main",
+      id: "r1",
+      updatedAt: 5,
+    });
+    expect(parse(await tools.get("delete_resource")!({ resourceId: "r1" }))).toMatchObject({
+      ok: true,
+      resourceId: "r1",
+      deleted: true,
+    });
+  });
+
+  it("get_build_log: an unknown id prefix is a JSON not_found, a log is { ok: true }", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([{ id: "11111111-2222-3333-4444-555555555555" }]),
+      ),
+      http.get(
+        "https://cp.test/projects/hello/deployments/11111111-2222-3333-4444-555555555555/logs",
+        () =>
+          HttpResponse.json({
+            entries: [{ ts: 1, step: "build", stream: "stderr", level: "error", msg: "boom" }],
+            metadata: {
+              deploymentId: "11111111-2222-3333-4444-555555555555",
+              status: "failed",
+              startedAt: 1,
+              endedAt: 2,
+              bytes: 4,
+              lines: 1,
+              truncated: false,
+              errorCode: null,
+              errorStep: "build",
+              r2Key: "k",
+            },
+          }),
+      ),
+    );
+    const log = registerAndCapture(AUTH()).get("get_build_log")!;
+    const missing = await log({ projectSlug: "hello", deploymentId: "99999999" });
+    expect(missing.isError).toBe(true);
+    expect(parse(missing)).toMatchObject({ ok: false, error: "not_found" });
+
+    const found = parse(await log({ projectSlug: "hello", deploymentId: "11111111" }));
+    expect(found).toMatchObject({ ok: true, summary: { status: "failed", errorStep: "build" } });
+    expect(found.importantLines).toHaveLength(1);
   });
 });

@@ -28,40 +28,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return { "x-api-key": apiKey, "Content-Type": "application/json" };
   }
 
-  function toolJson(data: unknown, isError = false) {
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-      ...(isError ? { isError: true as const } : {}),
-    };
+  function cpFetch(apiKey: string, path: string, init?: RequestInit, opts?: RequestOptions) {
+    const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
+    return apiRequest(
+      "control plane",
+      `${base}${path}`,
+      {
+        ...init,
+        headers: { ...cpHeaders(apiKey), ...(init?.headers as Record<string, string> | undefined) },
+      },
+      opts,
+    );
   }
 
-  async function cpFetch(apiKey: string, path: string, init?: RequestInit) {
-    const base = env.CONTROL_PLANE_URL.replace(/\/$/, "");
-    const res = await fetch(`${base}${path}`, {
-      ...init,
-      headers: { ...cpHeaders(apiKey), ...(init?.headers as Record<string, string> | undefined) },
-    });
-    const data = await res.json().catch(() => ({ message: res.statusText }));
-    if (!res.ok) {
-      // Keep the API's code and its other fields (`required` / `granted` on
-      // insufficient_scope, `conflicts` on binding_conflict) for the agent.
-      const { error, message, ...details } = (data ?? {}) as Record<string, unknown>;
-      return {
-        ok: false as const,
-        status: res.status,
-        result: toolJson(
-          {
-            ok: false,
-            error: typeof error === "string" ? error : "api_error",
-            message: typeof message === "string" ? message : res.statusText,
-            status: res.status,
-            ...(Object.keys(details).length > 0 ? { details } : {}),
-          },
-          true,
-        ),
-      };
-    }
-    return { ok: true as const, data };
+  function sandboxFetch(path: string, init?: RequestInit, opts?: RequestOptions) {
+    return apiRequest("sandbox API", `${env.SANDBOX_API_URL}${path}`, init, opts);
   }
 
   /**
@@ -97,23 +78,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         assets[path] = btoa(unescape(encodeURIComponent(content)));
       }
 
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
+      const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
         headers: apiHeaders(),
         body: JSON.stringify({ assets, source: source ?? "mcp" }),
       });
+      if (!posted.ok) return posted.result;
 
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [
-            { type: "text" as const, text: `Deploy failed: ${err.message ?? res.statusText}` },
-          ],
-          isError: true,
-        };
-      }
-
-      const deploy = (await res.json()) as any;
+      const deploy = posted.data as any;
 
       // Poll for active status
       const status = await pollStatus(deploy.statusUrl);
@@ -128,7 +100,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async () => {
       const html = `<!DOCTYPE html><html><head><title>Creek MCP Demo</title></head><body><h1>Deployed via MCP</h1><p>This site was deployed by an AI agent using Creek's MCP server.</p></body></html>`;
 
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/deploy`, {
+      const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -136,16 +108,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           source: "mcp-demo",
         }),
       });
+      if (!posted.ok) return posted.result;
 
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Demo deploy failed: ${err.message}` }],
-          isError: true,
-        };
-      }
-
-      const deploy = (await res.json()) as any;
+      const deploy = posted.data as any;
       const status = await pollStatus(deploy.statusUrl);
       return sandboxResult(status, { message: "Demo deployed successfully." });
     },
@@ -158,17 +123,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       sandboxId: z.string().describe("Sandbox ID (e.g. 'a1b2c3d4')"),
     },
     async ({ sandboxId }) => {
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/${sandboxId}/status`);
-
-      if (!res.ok) {
-        return {
-          content: [{ type: "text" as const, text: `Sandbox ${sandboxId} not found` }],
-          isError: true,
-        };
-      }
-
-      const status = await res.json();
-      return { content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }] };
+      const got = await sandboxFetch(
+        `/api/sandbox/${encodeURIComponent(sandboxId)}/status`,
+        undefined,
+        { extra: { sandboxId } },
+      );
+      if (!got.ok) return got.result;
+      return okResult({ sandboxId, ...asRecord(got.data) });
     },
   );
 
@@ -179,19 +140,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       sandboxId: z.string().describe("Sandbox ID to delete"),
     },
     async ({ sandboxId }) => {
-      const res = await fetch(`${env.SANDBOX_API_URL}/api/sandbox/${sandboxId}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({ message: res.statusText }))) as any;
-        return {
-          content: [{ type: "text" as const, text: `Delete failed: ${err.message}` }],
-          isError: true,
-        };
-      }
-
-      return { content: [{ type: "text" as const, text: `Sandbox ${sandboxId} deleted.` }] };
+      const got = await sandboxFetch(
+        `/api/sandbox/${encodeURIComponent(sandboxId)}`,
+        { method: "DELETE" },
+        { extra: { sandboxId } },
+      );
+      if (!got.ok) return got.result;
+      return okResult({ sandboxId, deleted: true });
     },
   );
 
@@ -216,18 +171,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (fullId.length < 36) {
         const listRes = await cpFetch(apiKey, `/projects/${projectSlug}/deployments`);
         if (!listRes.ok) return listRes.result;
-        const list = listRes.data as Array<{ id: string }>;
-        const match = list.find((d) => d.id.startsWith(fullId));
+        const list = Array.isArray(listRes.data) ? (listRes.data as Array<{ id: string }>) : [];
+        const match = list.find((d) => typeof d.id === "string" && d.id.startsWith(fullId));
         if (!match) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.`,
-              },
-            ],
-            isError: true,
-          };
+          return errorResult(
+            "not_found",
+            `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.`,
+          );
         }
         fullId = match.id;
       }
@@ -289,15 +239,11 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           e.level === "error" || e.level === "fatal" || (failing !== null && e.step === failing),
       );
 
-      const payload = {
+      return okResult({
         summary,
         importantLines,
         fullLog: log.entries,
-      };
-
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-      };
+      });
     },
   );
 
@@ -613,9 +559,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!apiKey) return missingKeyResult();
       const res = await cpFetch(apiKey, "/resources");
       if (!res.ok) return res.result;
-      const data = res.data as { resources: any[] };
-      const filtered = kind ? data.resources.filter((r: any) => r.kind === kind) : data.resources;
-      return { content: [{ type: "text" as const, text: JSON.stringify(filtered, null, 2) }] };
+      const data = asRecord(res.data);
+      const all = Array.isArray(data.resources)
+        ? (data.resources as Array<{ kind?: unknown }>)
+        : [];
+      const resources = kind ? all.filter((r) => r.kind === kind) : all;
+      return okResult({ resources });
     },
   );
 
@@ -634,7 +583,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ kind, name }),
       });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
+      return okResult(asRecord(res.data));
     },
   );
 
@@ -654,14 +603,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ resourceId, bindingName }),
       });
       if (!res.ok) return res.result;
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Attached resource ${resourceId} → ${projectSlug} as env.${bindingName}`,
-          },
-        ],
-      };
+      return okResult({
+        project: projectSlug,
+        resourceId,
+        bindingName,
+        message: `Attached resource ${resourceId} to ${projectSlug} as env.${bindingName}. It takes effect on the next deploy.`,
+      });
     },
   );
 
@@ -679,11 +626,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         method: "DELETE",
       });
       if (!res.ok) return res.result;
-      return {
-        content: [
-          { type: "text" as const, text: `Detached env.${bindingName} from ${projectSlug}` },
-        ],
-      };
+      return okResult({
+        project: projectSlug,
+        bindingName,
+        detached: true,
+        message: `Detached env.${bindingName} from ${projectSlug}. It takes effect on the next deploy.`,
+      });
     },
   );
 
@@ -698,7 +646,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!apiKey) return missingKeyResult();
       const res = await cpFetch(apiKey, `/resources/${resourceId}`, { method: "DELETE" });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: `Deleted resource ${resourceId}` }] };
+      return okResult({ resourceId, deleted: true, ...asRecord(res.data) });
     },
   );
 
@@ -717,9 +665,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ name }),
       });
       if (!res.ok) return res.result;
-      return {
-        content: [{ type: "text" as const, text: `Renamed resource ${resourceId} → "${name}"` }],
-      };
+      return okResult({ resourceId, name, ...asRecord(res.data) });
     },
   );
 
@@ -739,7 +685,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         body: JSON.stringify({ sql, params: params ?? [] }),
       });
       if (!res.ok) return res.result;
-      return { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] };
+      return okResult(asRecord(res.data));
     },
   );
 }
@@ -780,6 +726,176 @@ function suggestFixForCkCode(code: string | null): string | null {
 }
 
 // ================================================================
+// Result envelope
+// ================================================================
+//
+// Every tool answers with one JSON text block:
+//   success: { ok: true, ...data }
+//   failure: { ok: false, error, message, ...details } and isError: true
+// so an agent branches on `ok` / `error` instead of parsing prose.
+
+export type ToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: true;
+};
+
+export function toolJson(data: unknown, isError = false): ToolResult {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    ...(isError ? { isError: true as const } : {}),
+  };
+}
+
+export function okResult(data: Record<string, unknown> = {}): ToolResult {
+  // `ok` is the envelope's, not the API's: an upstream `ok` never wins.
+  const { ok: _ok, ...rest } = data;
+  return toolJson({ ok: true, ...rest });
+}
+
+export function errorResult(
+  error: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): ToolResult {
+  return toolJson({ ok: false, error, message, ...extra }, true);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+// ================================================================
+// Upstream requests (control plane, sandbox API)
+// ================================================================
+
+export interface RequestOptions {
+  /** Merged into the failure envelope (e.g. the sandboxId it concerns). */
+  extra?: Record<string, unknown>;
+  /**
+   * An earlier request in this tool call already changed something, so a
+   * network failure now is never retryable: re-running the tool repeats it.
+   */
+  applied?: boolean;
+}
+
+export type Fetched =
+  | { ok: true; status: number; data: unknown }
+  | { ok: false; status: number | null; result: ToolResult };
+
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Fetch failure causes that prove the request was never written: name
+ * resolution and the TCP connect happen first. Same list as the CLI's
+ * request ledger (packages/cli/src/utils/request-ledger.ts). The Workers
+ * runtime rarely names a cause, so a failed mutation there is reported as
+ * possibly applied — the safe direction.
+ */
+const NOT_SENT_CODES: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+function failureReason(err: unknown): string | undefined {
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+  if (typeof cause?.code === "string") return cause.code;
+  if (typeof cause?.message === "string") return cause.message;
+  return undefined;
+}
+
+function unreachableResult(
+  service: string,
+  method: string,
+  err: unknown,
+  phase: "connect" | "body",
+  opts: RequestOptions,
+): ToolResult {
+  const reason = failureReason(err);
+  const notSent = phase === "connect" && reason !== undefined && NOT_SENT_CODES.has(reason);
+  // Retry only when nothing this tool call did can have been applied.
+  const retryable = !opts.applied && (SAFE_METHODS.has(method) || notSent);
+  const text = err instanceof Error ? err.message : String(err);
+  const advice = retryable
+    ? "Nothing was changed; retrying is safe."
+    : opts.applied
+      ? "An earlier step of this call was already applied; check its effect instead of re-running the tool."
+      : "The request may have been applied; check its effect before retrying.";
+  return errorResult(
+    "api_unreachable",
+    `Could not reach the Creek ${service} (${text}${reason ? `: ${reason}` : ""}). ${advice}`,
+    {
+      retryable,
+      ...(reason ? { reason } : {}),
+      ...(!retryable ? { mayHaveApplied: true } : {}),
+      ...opts.extra,
+    },
+  );
+}
+
+/**
+ * One request to a Creek API. Never throws: a network failure becomes
+ * `api_unreachable` (with `retryable`), an HTTP error keeps the API's
+ * `error` code, `message`, status and other fields (`required` / `granted`
+ * on insufficient_scope, `conflicts` on binding_conflict) as `details`.
+ */
+export async function apiRequest(
+  service: string,
+  url: string,
+  init: RequestInit = {},
+  opts: RequestOptions = {},
+): Promise<Fetched> {
+  const method = (init.method ?? "GET").toUpperCase();
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    return {
+      ok: false,
+      status: null,
+      result: unreachableResult(service, method, err, "connect", opts),
+    };
+  }
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    // The connection broke while the body was read: the request was sent.
+    return {
+      ok: false,
+      status: null,
+      result: unreachableResult(service, method, err, "body", opts),
+    };
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { message: res.statusText };
+  }
+  if (!res.ok) {
+    const { error, message, ...details } = asRecord(data);
+    return {
+      ok: false,
+      status: res.status,
+      result: errorResult(
+        typeof error === "string" ? error : "api_error",
+        typeof message === "string" ? message : res.statusText || `HTTP ${res.status}`,
+        {
+          status: res.status,
+          ...(Object.keys(details).length > 0 ? { details } : {}),
+          ...opts.extra,
+        },
+      ),
+    };
+  }
+  return { ok: true, status: res.status, data };
+}
+
+// ================================================================
 // Helpers
 // ================================================================
 
@@ -801,12 +917,15 @@ async function sandboxResult(
     expiresAt: status.expiresAt,
     expiresInSeconds: status.expiresInSeconds,
     proof,
-    ...(!proof.ok ? { error: "verify_failed" } : extra),
   };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
-    ...(!proof.ok ? { isError: true as const } : {}),
-  };
+  if (!proof.ok) {
+    return errorResult(
+      "verify_failed",
+      `Sandbox ${status.sandboxId} deployed, but its preview URL did not answer as a live site${proof.error ? ` (${proof.error})` : ""}.`,
+      payload,
+    );
+  }
+  return okResult({ ...payload, ...extra });
 }
 
 async function pollStatus(statusUrl: string, maxWait = 30_000): Promise<any> {
