@@ -36,19 +36,49 @@ export const resources = new Hono<ResourcesEnv>();
 const ALLOWED_KINDS = new Set(["database", "storage", "cache", "ai"]);
 const NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;
 
-function nameConflict(c: Context<ResourcesEnv>, name: string) {
-  return c.json(
-    { error: "conflict", message: `A resource named '${name}' already exists in this team` },
-    409,
-  );
+const RESOURCE_COLUMNS =
+  "id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt";
+
+/**
+ * The team's resource holding `name`, deleted or not: names stay taken.
+ * Only what a caller needs to decide: the 409 that returns it is guarded by
+ * resource:write alone, so it must not reveal what resource:read guards
+ * (Cloudflare ids, team, timestamps).
+ */
+function resourceNamed(env: Env, teamId: string, name: string) {
+  return env.DB.prepare(`SELECT id, kind, name, status FROM resource WHERE teamId = ? AND name = ?`)
+    .bind(teamId, name)
+    .first<{ id: string; kind: string; name: string; status: string }>();
+}
+
+/**
+ * 409 for a taken name. `existing` ({id, kind, name, status}) is the resource
+ * holding it, so a caller re-running a create can tell "already made, same
+ * kind" (use its id) from a real clash (another kind, or a deleted resource
+ * whose name stays reserved).
+ */
+function nameConflict(
+  c: Context<ResourcesEnv>,
+  name: string,
+  existing: { kind: string; status: string } | null,
+) {
+  const message = !existing
+    ? `A resource named '${name}' already exists in this team`
+    : existing.status === "deleted"
+      ? `The name '${name}' belongs to a deleted ${existing.kind} and can't be reused; choose another name`
+      : `A ${existing.kind} named '${name}' already exists in this team`;
+  return c.json({ error: "conflict", message, ...(existing ? { existing } : {}) }, 409);
 }
 
 resources.get("/", requireScopes("resource:read"), requirePermission("project:read"), async (c) => {
   const teamId = c.get("teamId");
+  // `?include=deleted` adds deleted resources (status "deleted"), so a caller
+  // re-running a delete can tell "already deleted" from "never existed".
+  const withDeleted = c.req.query("include") === "deleted";
   const rows = await c.env.DB.prepare(
-    `SELECT id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt
+    `SELECT ${RESOURCE_COLUMNS}
      FROM resource
-     WHERE teamId = ? AND status != 'deleted'
+     WHERE teamId = ? ${withDeleted ? "" : "AND status != 'deleted'"}
      ORDER BY createdAt DESC`,
   )
     .bind(teamId)
@@ -113,10 +143,8 @@ resources.post(
     // Names are unique per team (deleted rows included, as the index is), so
     // check before provisioning: a name that's taken would otherwise leave a
     // freshly provisioned Cloudflare resource that nothing references.
-    const taken = await c.env.DB.prepare(`SELECT 1 FROM resource WHERE teamId = ? AND name = ?`)
-      .bind(teamId, body.name)
-      .first();
-    if (taken) return nameConflict(c, body.name);
+    const taken = await resourceNamed(c.env, teamId, body.name);
+    if (taken) return nameConflict(c, body.name, taken);
 
     // Auto-provision the CF resource if it's a provisionable type.
     const cfName = provisionedName(id);
@@ -153,7 +181,7 @@ resources.post(
       }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
-        return nameConflict(c, body.name);
+        return nameConflict(c, body.name, await resourceNamed(c.env, teamId, body.name));
       }
       throw err;
     }
@@ -271,10 +299,11 @@ resources.delete(
     // attach the resource after it. Both statements therefore also require it
     // to be unbound, and attach inserts only for a live resource, so D1's
     // serialized writes settle the race one way or the other.
-    const now = Date.now();
-    const [, res] = await c.env.DB.batch([
-      c.env.DB.prepare(
-        `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+    const softDelete = async () => {
+      const now = Date.now();
+      const [, res] = await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
        SELECT type, cfResourceId, 'creek-' || substr(replace(id, '-', ''), 1, 26), 'pending', 'resource_deleted', ?
        FROM (
          -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
@@ -291,34 +320,52 @@ resources.delete(
              AND other.status != 'deleted'
          )
          AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = r.id)`,
-      ).bind(Math.floor(now / 1000), id, teamId),
-      c.env.DB.prepare(
-        `UPDATE resource SET status = 'deleted', updatedAt = ?
+        ).bind(Math.floor(now / 1000), id, teamId),
+        c.env.DB.prepare(
+          `UPDATE resource SET status = 'deleted', updatedAt = ?
        WHERE id = ? AND teamId = ? AND status != 'deleted'
          AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = resource.id)`,
-      ).bind(now, id, teamId),
-    ]);
-    if (!res.meta.changes) {
-      // Either it's gone, or a project attached it since the check above.
-      const bound = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM project_resource_binding b
-       JOIN resource r ON r.id = b.resourceId
-       WHERE r.id = ? AND r.teamId = ? AND r.status != 'deleted'`,
+        ).bind(now, id, teamId),
+      ]);
+      return res.meta.changes > 0;
+    };
+
+    // When the delete changed nothing, say why from the row as it is now,
+    // never from a guess: a 404 tells a caller the resource is gone. A
+    // project can attach (blocking the delete) and detach again before this
+    // looks, leaving the resource live and unbound; then delete again, once.
+    for (let attempt = 1; ; attempt++) {
+      if (await softDelete()) return c.json({ id, status: "deleted" });
+
+      const row = await c.env.DB.prepare(
+        `SELECT r.status,
+                (SELECT COUNT(*) FROM project_resource_binding b WHERE b.resourceId = r.id) AS n
+         FROM resource r WHERE r.id = ? AND r.teamId = ?`,
       )
         .bind(id, teamId)
-        .first<{ n: number }>();
-      if ((bound?.n ?? 0) > 0) {
+        .first<{ status: string; n: number }>();
+      if (!row || row.status === "deleted") return c.json({ error: "not_found" }, 404);
+      if (row.n > 0) {
         return c.json(
           {
             error: "has_bindings",
-            message: `Resource is attached to ${bound?.n} project(s). Detach first.`,
+            message: `Resource is attached to ${row.n} project(s). Detach first.`,
           },
           409,
         );
       }
-      return c.json({ error: "not_found" }, 404);
+      if (attempt >= 2) {
+        return c.json(
+          {
+            error: "conflict",
+            retryable: true,
+            message:
+              "The resource changed while it was being deleted (a project attached or detached it); it was not deleted. Retry.",
+          },
+          409,
+        );
+      }
     }
-    return c.json({ id, status: "deleted" });
   },
 );
 
@@ -588,10 +635,26 @@ resourceBindings.post(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
+        // Say what holds the name, so a caller re-running an attach can tell
+        // "this resource is already attached here" from a real clash. The
+        // binding (on the caller's own project) plus the resource's kind and
+        // name, nothing more: this route needs resource:write alone.
+        const existing = await c.env.DB.prepare(
+          `SELECT b.projectId, b.bindingName, b.resourceId, b.createdAt, r.kind, r.name
+           FROM project_resource_binding b JOIN resource r ON r.id = b.resourceId
+           WHERE b.projectId = ? AND b.bindingName = ?`,
+        )
+          .bind(project.id, body.bindingName)
+          .first<{ resourceId: string; kind: string; name: string }>();
         return c.json(
           {
             error: "conflict",
-            message: `Binding '${body.bindingName}' already exists for this project`,
+            message: !existing
+              ? `Binding '${body.bindingName}' already exists for this project`
+              : existing.resourceId === body.resourceId
+                ? `${existing.kind} '${existing.name}' is already attached to this project as '${body.bindingName}'`
+                : `Binding '${body.bindingName}' already exists for this project, attached to ${existing.kind} '${existing.name}'`,
+            ...(existing ? { existing } : {}),
           },
           409,
         );
@@ -619,14 +682,31 @@ resourceBindings.delete(
     const teamId = c.get("teamId");
     const slug = c.req.param("slug") ?? "";
     const project = await getProjectForTeam(c.env, teamId, slug);
-    if (!project) return c.json({ error: "not_found" }, 404);
+    // `missing` names what wasn't found, so a caller can tell a binding that
+    // is already gone (nothing to do) from a project that doesn't exist.
+    if (!project) {
+      return c.json(
+        { error: "not_found", missing: "project", message: `No project '${slug}' in this team` },
+        404,
+      );
+    }
 
+    const bindingName = c.req.param("name") ?? "";
     const res = await c.env.DB.prepare(
       `DELETE FROM project_resource_binding WHERE projectId = ? AND bindingName = ?`,
     )
-      .bind(project.id, c.req.param("name"))
+      .bind(project.id, bindingName)
       .run();
-    if (!res.meta.changes) return c.json({ error: "not_found", message: "binding" }, 404);
+    if (!res.meta.changes) {
+      return c.json(
+        {
+          error: "not_found",
+          missing: "binding",
+          message: `Project '${slug}' has no binding named '${bindingName}'; nothing was detached`,
+        },
+        404,
+      );
+    }
     return c.json({ ok: true });
   },
 );

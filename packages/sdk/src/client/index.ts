@@ -375,7 +375,12 @@ export class CreekClient {
 
   // --- Resources v2 (team-owned) ---
 
-  async listResources(): Promise<{
+  /**
+   * The team's resources. `includeDeleted` adds deleted ones (status
+   * "deleted"); their names stay reserved, so a re-run delete can tell
+   * "already deleted" from "never existed".
+   */
+  async listResources(options: { includeDeleted?: boolean } = {}): Promise<{
     resources: Array<{
       id: string;
       teamId: string;
@@ -388,7 +393,10 @@ export class CreekClient {
       updatedAt: number;
     }>;
   }> {
-    return this.request("GET", "/resources");
+    return this.request(
+      "GET",
+      options.includeDeleted ? "/resources?include=deleted" : "/resources",
+    );
   }
 
   /**

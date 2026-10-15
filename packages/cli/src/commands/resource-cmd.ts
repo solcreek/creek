@@ -9,7 +9,7 @@
 
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import { CreekApiError, CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import {
   globalArgs,
@@ -76,6 +76,36 @@ async function findByName(
   );
 }
 
+/**
+ * What the API says already holds the name on a 409 conflict (`existing`):
+ * the resource on create, the binding on attach. Null for any other error,
+ * or an API too old to say.
+ */
+function conflictExisting(err: unknown): Record<string, unknown> | null {
+  if (!(err instanceof CreekApiError) || err.status !== 409 || err.code !== "conflict") {
+    return null;
+  }
+  const existing = err.details.existing;
+  return existing && typeof existing === "object" ? (existing as Record<string, unknown>) : null;
+}
+
+/** A detach's 404 for a binding that isn't there (not for a missing project). */
+function isMissingBinding(err: unknown): boolean {
+  if (!(err instanceof CreekApiError) || err.status !== 404) return false;
+  // Older APIs said only `message: "binding"`.
+  return err.details.missing === "binding" || err.message === "binding";
+}
+
+// Re-running a command must be safe and say what happened. A create or
+// attach whose result already exists exactly as asked succeeds with
+// `alreadyExists: true` and the existing id; one that clashes with something
+// else (another kind, another resource, a deleted name) still fails, with
+// what holds the name in `details.existing`. A detach or delete of something
+// already gone succeeds with `alreadyAbsent: true`, so an agent retrying
+// after a timeout converges instead of seeing a failure; a delete still
+// fails `not_found` for a name the team never had, so a typo isn't reported
+// as a deletion. Fresh results carry `alreadyExists` / `alreadyAbsent: false`.
+
 export function createResourceCommand(opts: ResourceCmdOptions) {
   const { kind, label, defaultBinding } = opts;
   // What deleting does to the data. Cloudflare deletes a D1 database or KV
@@ -136,12 +166,23 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
 
       try {
         const created = await client.createResource({ kind, name: args.name });
-        if (jsonMode) jsonOutput({ ok: true, resource: created }, 0);
+        if (jsonMode) jsonOutput({ ok: true, alreadyExists: false, resource: created }, 0);
         consola.success(`Created ${label} "${created.name}" (${created.id.slice(0, 8)})`);
         consola.info(
           `  Attach with: creek ${cmdName} attach ${created.name} --to <project> --as ${defaultBinding}`,
         );
       } catch (err) {
+        const existing = conflictExisting(err);
+        if (existing && existing.kind === kind && existing.status !== "deleted") {
+          if (jsonMode) jsonOutput({ ok: true, alreadyExists: true, resource: existing }, 0);
+          consola.success(
+            `${label} "${args.name}" already exists (${String(existing.id).slice(0, 8)}); nothing was created`,
+          );
+          consola.info(
+            `  Attach with: creek ${cmdName} attach ${args.name} --to <project> --as ${defaultBinding}`,
+          );
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         if (jsonMode)
           jsonOutput(
@@ -197,9 +238,28 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
           resourceId: resource.id,
           bindingName: args.as,
         });
-        if (jsonMode) jsonOutput({ ok: true, binding }, 0);
+        if (jsonMode) jsonOutput({ ok: true, alreadyExists: false, binding }, 0);
         consola.success(`Attached "${resource.name}" → ${args.to} as env.${args.as}`);
       } catch (err) {
+        const existing = conflictExisting(err);
+        if (existing && existing.resourceId === resource.id) {
+          // The same shape as a fresh attach's binding.
+          const { projectId, bindingName, resourceId, createdAt } = existing;
+          if (jsonMode) {
+            jsonOutput(
+              {
+                ok: true,
+                alreadyExists: true,
+                binding: { projectId, bindingName, resourceId, createdAt },
+              },
+              0,
+            );
+          }
+          consola.success(
+            `"${resource.name}" is already attached to ${args.to} as env.${args.as}; nothing changed`,
+          );
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         if (jsonMode)
           jsonOutput(
@@ -232,9 +292,15 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
 
       try {
         await client.detachBinding(args.from, args.as);
-        if (jsonMode) jsonOutput({ ok: true }, 0);
+        if (jsonMode) jsonOutput({ ok: true, alreadyAbsent: false }, 0);
         consola.success(`Detached env.${args.as} from ${args.from}`);
       } catch (err) {
+        if (isMissingBinding(err)) {
+          const message = `${args.from} has no binding env.${args.as}; nothing was detached`;
+          if (jsonMode) jsonOutput({ ok: true, alreadyAbsent: true, message }, 0);
+          consola.success(message);
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         if (jsonMode)
           jsonOutput(
@@ -307,9 +373,37 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       const token = requireToken(jsonMode);
       const client = new CreekClient(getApiUrl(), token);
 
-      const resource = await findByName(client, args.name, kind, jsonMode);
+      // Deleted resources included: their names stay reserved, so a name
+      // that only a deleted resource holds was deleted, not mistyped.
+      const { resources } = await apiCall(jsonMode, "api_error", () =>
+        client.listResources({ includeDeleted: true }),
+      );
+      const named = resources.filter((r) => r.name === args.name && r.kind === kind);
+      const resource = named.find((r) => r.status !== "deleted");
       if (!resource) {
-        const msg = `No ${label} named "${args.name}"`;
+        const deleted = named[0];
+        if (deleted) {
+          const message = `${label} "${args.name}" was already deleted; nothing was deleted`;
+          if (isDryRun(args)) {
+            emitDryRunPlan(jsonMode, {
+              command: `creek ${cmdName} delete ${args.name}`,
+              wouldExecute: false,
+              alreadyAbsent: true,
+              resourceId: deleted.id,
+              name: args.name,
+              kind,
+              sideEffects: [],
+              nextStep: `creek ${cmdName} ls --json`,
+            });
+            return;
+          }
+          if (jsonMode) {
+            jsonOutput({ ok: true, alreadyAbsent: true, resource: deleted, message }, 0);
+          }
+          consola.success(message);
+          return;
+        }
+        const msg = `No ${label} named "${args.name}" in this team; nothing was deleted`;
         if (jsonMode) jsonOutput({ ok: false, error: "not_found", message: msg }, 1);
         consola.error(msg);
         process.exit(1);
@@ -353,10 +447,30 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
 
       try {
         await client.deleteResource(resource.id);
-        if (jsonMode) jsonOutput({ ok: true }, 0);
+        if (jsonMode) jsonOutput({ ok: true, alreadyAbsent: false }, 0);
         consola.success(`Deleted ${label} "${args.name}"`);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        // Live a moment ago, 404 now. A 404 alone doesn't prove a concurrent
+        // delete got there first: report success only if the team's list
+        // shows this very resource deleted.
+        let notConfirmed = "";
+        if (err instanceof CreekApiError && err.status === 404) {
+          const after = await client.listResources({ includeDeleted: true }).catch(() => null);
+          const now = after?.resources.find((r) => r.id === resource.id);
+          if (now?.status === "deleted") {
+            const message = `${label} "${args.name}" was already deleted; nothing was deleted`;
+            // Same shape as the already-deleted path above.
+            if (jsonMode) {
+              jsonOutput({ ok: true, alreadyAbsent: true, resource: now, message }, 0);
+            }
+            consola.success(message);
+            return;
+          }
+          notConfirmed = now
+            ? `; it still exists (status ${now.status}), nothing was deleted`
+            : "; could not confirm it was deleted";
+        }
+        const msg = (err instanceof Error ? err.message : String(err)) + notConfirmed;
         if (jsonMode)
           jsonOutput(
             { ok: false, error: "delete_failed", message: msg, ...apiErrorFields(err) },
