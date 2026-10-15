@@ -243,13 +243,14 @@ export function createResourceCommand(opts: ResourceCmdOptions) {
       } catch (err) {
         const existing = conflictExisting(err);
         if (existing && existing.resourceId === resource.id) {
-          const { projectId, bindingName, resourceId, createdAt } = existing;
+          // The API says only {resourceId, kind, name} about what holds the
+          // name; the project and binding name are the ones asked for.
           if (jsonMode) {
             jsonOutput(
               {
                 ok: true,
                 alreadyExists: true,
-                binding: { projectId, bindingName, resourceId, createdAt },
+                binding: { project: args.to, bindingName: args.as, resourceId: resource.id },
               },
               0,
             );

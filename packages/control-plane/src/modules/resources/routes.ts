@@ -39,17 +39,23 @@ const NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;
 const RESOURCE_COLUMNS =
   "id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt";
 
-/** The team's resource holding `name`, deleted or not: names stay taken. */
+/**
+ * The team's resource holding `name`, deleted or not: names stay taken.
+ * Only what a caller needs to decide: the 409 that returns it is guarded by
+ * resource:write alone, so it must not reveal what resource:read guards
+ * (Cloudflare ids, team, timestamps).
+ */
 function resourceNamed(env: Env, teamId: string, name: string) {
-  return env.DB.prepare(`SELECT ${RESOURCE_COLUMNS} FROM resource WHERE teamId = ? AND name = ?`)
+  return env.DB.prepare(`SELECT id, kind, name, status FROM resource WHERE teamId = ? AND name = ?`)
     .bind(teamId, name)
-    .first<{ id: string; kind: string; status: string }>();
+    .first<{ id: string; kind: string; name: string; status: string }>();
 }
 
 /**
- * 409 for a taken name. `existing` is the resource holding it, so a caller
- * re-running a create can tell "already made, same kind" (use its id) from a
- * real clash (another kind, or a deleted resource whose name stays reserved).
+ * 409 for a taken name. `existing` ({id, kind, name, status}) is the resource
+ * holding it, so a caller re-running a create can tell "already made, same
+ * kind" (use its id) from a real clash (another kind, or a deleted resource
+ * whose name stays reserved).
  */
 function nameConflict(
   c: Context<ResourcesEnv>,
@@ -611,9 +617,10 @@ resourceBindings.post(
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
         // Say what holds the name, so a caller re-running an attach can tell
-        // "this resource is already attached here" from a real clash.
+        // "this resource is already attached here" from a real clash. Only
+        // {resourceId, kind, name}: this route needs resource:write alone.
         const existing = await c.env.DB.prepare(
-          `SELECT b.projectId, b.bindingName, b.resourceId, b.createdAt, r.kind, r.name
+          `SELECT b.resourceId, r.kind, r.name
            FROM project_resource_binding b JOIN resource r ON r.id = b.resourceId
            WHERE b.projectId = ? AND b.bindingName = ?`,
         )

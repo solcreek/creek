@@ -63,7 +63,11 @@ const fakeControlPlane = [
     const existing = resources.find((r) => r.name === name);
     if (existing) {
       return HttpResponse.json(
-        { error: "conflict", message: `A ${existing.kind} named '${name}' exists`, existing },
+        {
+          error: "conflict",
+          message: `A ${existing.kind} named '${name}' exists`,
+          existing: { id: existing.id, kind: existing.kind, name, status: existing.status },
+        },
         { status: 409 },
       );
     }
@@ -88,7 +92,7 @@ const fakeControlPlane = [
         {
           error: "conflict",
           message: `Binding '${bindingName}' already exists for this project`,
-          existing: { ...held, kind: r.kind, name: r.name },
+          existing: { resourceId: held.resourceId, kind: r.kind, name: r.name },
         },
         { status: 409 },
       );
@@ -236,7 +240,7 @@ describe("attach, run twice", () => {
     expect(second.out).toEqual({
       ok: true,
       alreadyExists: true,
-      binding: { projectId: "proj-app", bindingName: "DB", resourceId: res.id, createdAt: 2 },
+      binding: { project: "app", bindingName: "DB", resourceId: res.id },
     });
   });
 

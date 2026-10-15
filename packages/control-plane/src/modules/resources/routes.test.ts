@@ -465,11 +465,12 @@ describe("re-running a resource request says what already holds the name", () =>
     expect(res.status).toBe(409);
     const body = (await res.json()) as Conflict;
     expect(body.error).toBe("conflict");
-    expect(body.existing).toMatchObject({
+    // Only what a caller needs to decide; the route needs resource:write
+    // alone, so nothing resource:read guards (Cloudflare ids, team, times).
+    expect(body.existing).toEqual({
       id: first.id,
       kind: "database",
       name: "twice",
-      cfResourceId: first.cfResourceId,
       status: "active",
     });
   });
@@ -509,6 +510,16 @@ describe("re-running a resource request says what already holds the name", () =>
 
     expect(await ids("/resources")).toEqual(["res-live"]);
     expect(await ids("/resources?include=deleted")).toEqual(["res-dead", "res-live"]);
+
+    // Deleted rows carry the same columns as the normal list, nothing more.
+    const rows = (
+      (await (await req("GET", "/resources?include=deleted")).json()) as {
+        resources: Array<Record<string, unknown>>;
+      }
+    ).resources;
+    const live = rows.find((r) => r.id === "res-live")!;
+    const dead = rows.find((r) => r.id === "res-dead")!;
+    expect(Object.keys(dead).sort()).toEqual(Object.keys(live).sort());
   });
 
   test("a second attach's 409 carries the binding, pointing at the same resource", async () => {
@@ -521,9 +532,8 @@ describe("re-running a resource request says what already holds the name", () =>
 
     expect(res.status).toBe(409);
     const body = (await res.json()) as Conflict;
-    expect(body.existing).toMatchObject({
-      projectId: "proj-app",
-      bindingName: "DB",
+    // Only {resourceId, kind, name}: the route needs resource:write alone.
+    expect(body.existing).toEqual({
       resourceId: "res-db",
       kind: "database",
       name: "res-db-name",
