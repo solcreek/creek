@@ -9,7 +9,8 @@ exits 1 if any probe disagrees.
 Usage: api-key-probe.py URL KEYS_JSON DB_PATH
   KEYS_JSON: {"read": "<project:read,env:read key>", "envwrite": "...",
               "preview": "<deploy:preview key>", "legacy": "...",
-              "project": "<slug>", "otherTeam": "<slug of another team the owner is in>"}
+              "project": "<slug>", "otherTeam": "<slug of another team the owner is in>",
+              "drop": "<optional: a key the probe revokes through DELETE /api-keys/self>"}
 """
 import http.client
 import json
@@ -172,6 +173,23 @@ for declared, queue in [([{"type": "kv", "bindingName": "PROBE_CACHE"}], False),
 probe("preview key deploys a bundle that adds nothing", "PUT",
       f"/projects/{P}/deployments/{DEP}/bundle", key("preview"), (202, None), body=bundle([]),
       unchanged=["resource", "project_resource_binding"])
+
+# --- Key management: a key reads and revokes itself; the rest is session-only --
+probe("scoped key reads itself", "GET", "/api-keys/self", key("read"), (200, None))
+probe("legacy key reads itself", "GET", "/api-keys/self", key("legacy"), (200, None))
+for path in ["/api-keys", "/api-keys/", "//api-keys", "/api-keys/./", "/API-KEYS",
+             "/api-keys?x=/self", "/api-keys/self/..", "/api-keys%2F"]:
+    for who in ["read", "legacy"]:
+        probe(f"{who} key cannot mint a key via POST {path}", "POST", path, key(who), ("not2xx", None),
+              body={"name": "escalate", "team": K["otherTeam"], "scopes": "full"}, unchanged=["apikey"])
+probe("key cannot list keys", "GET", "/api-keys", key("legacy"), (403, "api_key_not_allowed"))
+with sqlite3.connect(DB) as db:
+    OTHER_KEY = db.execute("SELECT id FROM apikey ORDER BY createdAt LIMIT 1").fetchone()[0]
+probe("key cannot revoke a key by id, even its owner's", "DELETE", f"/api-keys/{OTHER_KEY}",
+      key("legacy"), (403, "api_key_not_allowed"), unchanged=["apikey"])
+if "drop" in K:
+    probe("a key revokes itself", "DELETE", "/api-keys/self", key("drop"), (200, None))
+    probe("the revoked key is refused", "GET", "/api-keys/self", key("drop"), (401, "unauthorized"))
 
 failed = results.count(False)
 print(json.dumps({"summary": True, "probes": len(results), "failed": failed}))

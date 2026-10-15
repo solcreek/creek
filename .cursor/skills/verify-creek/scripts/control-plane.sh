@@ -7,7 +7,7 @@
 #
 #   control-plane.sh start   RUN_ENV           → prints the path of local.env
 #   control-plane.sh signup  RUN_ENV EMAIL     → prints {"userId","orgId","orgSlug"}
-#   control-plane.sh key     RUN_ENV EMAIL legacy|SCOPE[,SCOPE...] [TEAM_SLUG]  → prints the key
+#   control-plane.sh key     RUN_ENV EMAIL legacy|PRESET|SCOPE[,SCOPE...] [TEAM_SLUG]  → prints the key
 #   control-plane.sh sql     RUN_ENV "SQL"     → runs SQL on the local database
 #   control-plane.sh stop    RUN_ENV
 #
@@ -101,28 +101,36 @@ signup)
   ;;
 key)
   email="${3:?email}"
-  scopes="${4:?legacy or a comma-separated scope list}"
+  scopes="${4:?legacy, a preset name, or a comma-separated scope list}"
   url=$(cp_url)
-  # Mint through Better Auth with the user's dashboard session, exactly as
-  # the dashboard does today.
-  created=$(curl -sf -b "$CP_DIR/cookies-$email" -H 'content-type: application/json' -H "origin: $url" \
-    -d '{"name":"verify-creek"}' "$url/api/auth/api-key/create")
-  key=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
-  id=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-  if [[ "$scopes" != "legacy" ]]; then
-    # Until the key-management route exists, store the scopes the way it will:
-    # server-side, in the permissions column, pinned to the user's team.
-    # Pinned to TEAM_SLUG if given, else the user's first team.
+  if [[ "$scopes" == "legacy" ]]; then
+    # A legacy (unscoped, full-access) key: minted through Better Auth with
+    # the user's dashboard session, as the dashboard does today.
+    created=$(curl -sS --fail-with-body -b "$CP_DIR/cookies-$email" -H 'content-type: application/json' \
+      -H "origin: $url" -d '{"name":"verify-creek"}' "$url/api/auth/api-key/create")
+  else
+    # A scoped key: POST /api-keys with the user's dashboard session, pinned
+    # to TEAM_SLUG if given, else the user's first team. A value without a
+    # colon is a preset name (read-only, agent-preview, ci-deploy, full).
     team_slug="${5:-}"
-    org=$(sqlite3 "$CP_DB" "SELECT m.organizationId FROM member m JOIN user u ON u.id = m.userId
-      JOIN organization o ON o.id = m.organizationId
-      WHERE u.email = '$email' AND ('$team_slug' = '' OR o.slug = '$team_slug')
-      ORDER BY m.createdAt LIMIT 1")
-    [[ -n "$org" ]] || { echo "verify-creek: $email is not in team '${team_slug:-<first>}'" >&2; exit 1; }
-    perms=$(python3 -c 'import json,sys; s=[x for x in sys.argv[1].split(",") if x]; print(json.dumps({"creek": s, "creekTeam": [sys.argv[2]]}))' "$scopes" "$org")
-    sqlite3 "$CP_DB" "UPDATE apikey SET permissions = '$perms' WHERE id = '$id'"
+    if [[ -z "$team_slug" ]]; then
+      team_slug=$(sqlite3 "$CP_DB" "SELECT o.slug FROM member m JOIN user u ON u.id = m.userId
+        JOIN organization o ON o.id = m.organizationId
+        WHERE u.email = '$email' ORDER BY m.createdAt LIMIT 1")
+      [[ -n "$team_slug" ]] || { echo "verify-creek: $email has no team" >&2; exit 1; }
+    fi
+    body=$(python3 -c '
+import json, sys
+scopes, team = sys.argv[1], sys.argv[2]
+value = [x for x in scopes.split(",") if x] if ":" in scopes else scopes
+print(json.dumps({"name": "verify-creek", "team": team, "scopes": value}))' "$scopes" "$team_slug")
+    created=$(curl -sS --fail-with-body -b "$CP_DIR/cookies-$email" -H 'content-type: application/json' \
+      -H "origin: $url" -d "$body" "$url/api-keys") || {
+      echo "verify-creek: POST /api-keys failed: $created" >&2
+      exit 1
+    }
   fi
-  echo "$key"
+  printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])'
   ;;
 sql)
   sqlite3 -json "$CP_DB" "${3:?SQL}"
