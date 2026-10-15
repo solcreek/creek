@@ -1,5 +1,11 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { CreekClient, CreekApiError, CreekAuthError, isApiKeySelfUnsupported } from "./index.js";
+import {
+  CreekClient,
+  CreekApiError,
+  CreekAuthError,
+  isApiKeySelfUnsupported,
+  toDeploymentView,
+} from "./index.js";
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -351,5 +357,227 @@ describe("CreekClient — the API key in use (/api-keys/self)", () => {
     expect(down).toBeInstanceOf(CreekApiError);
     expect(isApiKeySelfUnsupported(down)).toBe(false);
     expect(isApiKeySelfUnsupported(new TypeError("fetch failed"))).toBe(false);
+  });
+});
+
+describe("following a deployment", () => {
+  const client = new CreekClient("http://localhost:8787", "test-token");
+  const FULL = "0123abcd-0000-4000-8000-000000000001";
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: FULL,
+    projectId: "p1",
+    version: 3,
+    status: "deploying",
+    branch: "main",
+    commitSha: "abc1234",
+    commitMessage: null,
+    triggerType: "cli",
+    failedStep: null,
+    errorMessage: null,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ...over,
+  });
+  const statusBody = (over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+    deployment: row(over),
+    url: null,
+    previewUrl: "https://site-0123abcd-team.bycreek.com",
+    ...extra,
+  });
+  const paths = () => mockFetch.mock.calls.map((c) => new URL(c[0] as string).pathname);
+
+  test("resolveDeploymentId matches an uppercase id or prefix against the lowercase ids", async () => {
+    expect(await client.resolveDeploymentId("site", FULL.toUpperCase())).toBe(FULL);
+    mockFetch.mockResolvedValue(jsonResponse(200, [row()]));
+    expect(await client.resolveDeploymentId("site", "0123ABCD")).toBe(FULL);
+  });
+
+  test("resolveDeploymentId takes a full id as is, without a request", async () => {
+    expect(await client.resolveDeploymentId("site", FULL)).toBe(FULL);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("an id that is not a uuid or a hex prefix is invalid_id, and nothing is fetched", async () => {
+    const traversal = "../../../../../api/auth/get-session?x"; // 37 characters
+    for (const bad of [traversal, traversal.slice(0, 36), "../x", "0123abcd#frag", "abc?d=1", ""]) {
+      await expect(client.getDeployment("site", bad)).rejects.toMatchObject({
+        status: 400,
+        code: "invalid_id",
+      });
+      await expect(client.waitForDeployment("site", bad, { timeoutMs: 100 })).rejects.toMatchObject(
+        {
+          code: "invalid_id",
+        },
+      );
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("ids and slugs are encoded into the path", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, statusBody()));
+    await client.getDeploymentStatus("a/b", "x?y#z");
+    expect(String(mockFetch.mock.calls[0][0])).toBe(
+      "http://localhost:8787/projects/a%2Fb/deployments/x%3Fy%23z",
+    );
+  });
+
+  test("resolveDeploymentId matches a short id against the list", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, [row(), row({ id: "ffff0000-x" })]));
+    expect(await client.resolveDeploymentId("site", "0123abcd")).toBe(FULL);
+    expect(paths()).toEqual(["/projects/site/deployments"]);
+  });
+
+  test("resolveDeploymentId: no match is a 404 not_found, two matches a 409 ambiguous_id", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, [row()]));
+    await expect(client.resolveDeploymentId("site", "ffff")).rejects.toMatchObject({
+      status: 404,
+      code: "not_found",
+    });
+    mockFetch.mockResolvedValue(jsonResponse(200, [row(), row({ id: "0123abcd-other" })]));
+    await expect(client.resolveDeploymentId("site", "0123")).rejects.toMatchObject({
+      status: 409,
+      code: "ambiguous_id",
+      details: { matches: [FULL, "0123abcd-other"] },
+    });
+  });
+
+  test("getDeployment returns the MCP get_deployment fields", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(
+        200,
+        statusBody(
+          { status: "failed", failedStep: "activate", errorMessage: "boom" },
+          { errorCode: "CK-ACTIVATE", errorHint: "Retry" },
+        ),
+      ),
+    );
+    const view = await client.getDeployment("site", FULL);
+    expect(view).toEqual({
+      project: "site",
+      deploymentId: FULL,
+      version: 3,
+      status: "failed",
+      terminal: true,
+      final: true,
+      branch: "main",
+      commitSha: "abc1234",
+      triggerType: "cli",
+      failedStep: "activate",
+      errorMessage: "boom",
+      errorCode: "CK-ACTIVATE",
+      errorHint: "Retry",
+      url: null,
+      previewUrl: "https://site-0123abcd-team.bycreek.com",
+      isProduction: false,
+      createdAt: 1000,
+    });
+    expect(paths()).toEqual([`/projects/site/deployments/${FULL}`]);
+  });
+
+  test("toDeploymentView: the url is production's, else the preview once active", () => {
+    const prod = toDeploymentView(
+      "site",
+      FULL,
+      statusBody({ status: "active" }, { url: "https://site-team.bycreek.com" }) as never,
+    );
+    expect(prod).toMatchObject({ url: "https://site-team.bycreek.com", isProduction: true });
+    const preview = toDeploymentView("site", FULL, statusBody({ status: "active" }) as never);
+    expect(preview.url).toBe("https://site-0123abcd-team.bycreek.com");
+    const building = toDeploymentView("site", FULL, statusBody() as never);
+    expect(building).toMatchObject({ url: null, terminal: false, final: false });
+  });
+
+  test("waitForDeployment polls until a final status", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, statusBody()))
+      .mockResolvedValueOnce(jsonResponse(200, statusBody({ status: "active" })));
+    const seen: Array<string | null> = [];
+    const result = await client.waitForDeployment("site", FULL, {
+      intervalMs: 1,
+      timeoutMs: 5000,
+      onPoll: (v) => seen.push(v.status),
+    });
+    expect(result.timedOut).toBe(false);
+    expect(result.view?.status).toBe("active");
+    expect(seen).toEqual(["deploying", "active"]);
+  });
+
+  // The budget tests run on fake timers: the clock (Date.now) and the pauses
+  // between reads advance only when the test says so, so the number of reads
+  // does not depend on how busy the machine is.
+  async function waitOnFakeClock(opts: { intervalMs: number; timeoutMs: number }) {
+    vi.useFakeTimers();
+    try {
+      const pending = client.waitForDeployment("site", FULL, opts);
+      await vi.advanceTimersByTimeAsync(opts.timeoutMs);
+      return await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  test("waitForDeployment stops at the budget with the last status, without throwing", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse(200, statusBody()));
+    const result = await waitOnFakeClock({ intervalMs: 20, timeoutMs: 50 });
+    expect(result.timedOut).toBe(true);
+    expect(result.view).toMatchObject({ status: "deploying", terminal: false });
+    // Reads at 0, 20, 40 and the deadline (50).
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(result.waitedMs).toBe(50);
+  });
+
+  test("waitForDeployment uses the whole budget when it is shorter than the interval", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse(200, statusBody()));
+    const result = await waitOnFakeClock({ intervalMs: 2000, timeoutMs: 150 });
+    expect(result.timedOut).toBe(true);
+    expect(result.waitedMs).toBe(150);
+    // A first read, then one more at the deadline.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("waitForDeployment retries a 502 and a dropped connection, then reads on", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(502, { error: "bad_gateway", message: "Bad Gateway" }))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(jsonResponse(200, statusBody({ status: "active" })));
+    const result = await waitOnFakeClock({ intervalMs: 10, timeoutMs: 100 });
+    expect(result).toMatchObject({ timedOut: false, view: { status: "active" } });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  test("waitForDeployment throws the transient error that lasts past the deadline", async () => {
+    mockFetch.mockImplementation(async () =>
+      jsonResponse(503, { error: "unavailable", message: "Service Unavailable" }),
+    );
+    vi.useFakeTimers();
+    try {
+      const pending = client
+        .waitForDeployment("site", FULL, { intervalMs: 20, timeoutMs: 50 })
+        .catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await pending).toMatchObject({ status: 503 });
+      // Retried until the deadline, not given up on the first failure.
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("waitForDeployment: a read that hangs past the budget is a timeout, not an error", async () => {
+    mockFetch.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+        }),
+    );
+    const result = await client.waitForDeployment("site", FULL, { timeoutMs: 30 });
+    expect(result).toMatchObject({ timedOut: true, view: null });
+  });
+
+  test("waitForDeployment surfaces an API error", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(404, { error: "not_found", message: "gone" }));
+    await expect(client.waitForDeployment("site", FULL, { timeoutMs: 1000 })).rejects.toMatchObject(
+      { status: 404, code: "not_found" },
+    );
   });
 });

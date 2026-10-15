@@ -25,7 +25,8 @@ creek deploy --prod --json
 ## Update & rollback
 
 ```bash
-creek deploy --prod --json             # Deploy new version
+creek deploy --prod --json             # Deploy new version; the result names deploymentId
+creek deployments wait <ID> --json     # Follow it to active / failed (after a timeout)
 creek deployments --json               # View history
 creek rollback --dry-run --json        # See which deployment would become production
 creek rollback --json                  # Previous real deploy (skips triggerType=rollback rows)

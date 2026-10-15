@@ -15,6 +15,14 @@ import type {
   LogQueryResponse,
   MetricsResponse,
 } from "../types/index.js";
+import {
+  toDeploymentView,
+  type DeploymentView,
+  type WaitForDeploymentOptions,
+  type WaitForDeploymentResult,
+} from "./deployment.js";
+
+export * from "./deployment.js";
 
 export class CreekClient {
   private baseUrl: string;
@@ -25,12 +33,17 @@ export class CreekClient {
     this.token = token;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       "x-api-key": this.token,
     };
 
-    const init: RequestInit = { method, headers };
+    const init: RequestInit = { method, headers, ...(signal ? { signal } : {}) };
 
     if (body !== undefined) {
       if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
@@ -235,7 +248,138 @@ export class CreekClient {
     projectId: string,
     deploymentId: string,
   ): Promise<DeploymentStatusResponse> {
-    return this.request("GET", `/projects/${projectId}/deployments/${deploymentId}`);
+    return this.request(
+      "GET",
+      `/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deploymentId)}`,
+    );
+  }
+
+  /**
+   * The full id of the deployment `idOrPrefix` names: a full uuid as is, a
+   * shorter prefix (the 8-char short id) matched against the project's
+   * newest 20 deployments. Throws CreekApiError 404 `not_found` when nothing
+   * matches and 409 `ambiguous_id` when more than one does.
+   */
+  async resolveDeploymentId(
+    projectSlug: string,
+    idOrPrefix: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // Only a uuid or a prefix of one: anything else would be put in a URL
+    // path, where `../`, `?` or `#` could send this authenticated GET
+    // somewhere else.
+    if (!isDeploymentIdOrPrefix(idOrPrefix)) {
+      throw new CreekApiError(
+        400,
+        "invalid_id",
+        `'${idOrPrefix}' is not a deployment id: pass the full uuid or its 8-char short id (hex).`,
+      );
+    }
+    // Ids are stored lowercase; the check above accepts either case.
+    const wanted = idOrPrefix.toLowerCase();
+    if (wanted.length === 36) return wanted;
+    const list = await this.request<Deployment[]>(
+      "GET",
+      `/projects/${encodeURIComponent(projectSlug)}/deployments`,
+      undefined,
+      signal,
+    );
+    const matches = list.filter((d) => typeof d.id === "string" && d.id.startsWith(wanted));
+    if (matches.length === 0) {
+      throw new CreekApiError(
+        404,
+        "not_found",
+        `No deployment matches id prefix '${idOrPrefix}' in project '${projectSlug}' (only the newest 20 are searched; pass the full id for an older one).`,
+      );
+    }
+    if (matches.length > 1) {
+      throw new CreekApiError(
+        409,
+        "ambiguous_id",
+        `Id prefix '${idOrPrefix}' matches ${matches.length} deployments; pass more characters.`,
+        { matches: matches.map((d) => d.id) },
+      );
+    }
+    return matches[0].id;
+  }
+
+  /**
+   * One deployment as an agent acts on it: status, `terminal`/`final`,
+   * failedStep, errorCode/errorHint, url, commit and branch. Takes a full id
+   * or a short-id prefix (see {@link resolveDeploymentId}).
+   */
+  async getDeployment(projectSlug: string, idOrPrefix: string): Promise<DeploymentView> {
+    const id = await this.resolveDeploymentId(projectSlug, idOrPrefix);
+    const res = await this.getDeploymentStatus(projectSlug, id);
+    return toDeploymentView(projectSlug, id, res);
+  }
+
+  /**
+   * Poll a deployment until it reaches a final status (active, failed,
+   * cancelled) or the budget runs out. The budget covers everything: id
+   * resolution, each read (aborted at the deadline, or 500 ms after it for a
+   * read that starts there) and the pauses between.
+   * A budget that runs out returns `timedOut: true` with the last read; it
+   * never throws for that. API errors throw as usual.
+   */
+  async waitForDeployment(
+    projectSlug: string,
+    idOrPrefix: string,
+    options: WaitForDeploymentOptions = {},
+  ): Promise<WaitForDeploymentResult> {
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const intervalMs = options.intervalMs ?? 2_000;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    // A read started at the deadline still gets a short grace to answer.
+    const remaining = () => Math.max(deadline - Date.now(), READ_GRACE_MS);
+    let view: DeploymentView | null = null;
+    const done = (timedOut: boolean): WaitForDeploymentResult => ({
+      view,
+      timedOut,
+      waitedMs: Date.now() - started,
+    });
+
+    // One read, retried on a transient failure (a dropped connection, a 5xx,
+    // a 429) until the deadline: waiting only reads, so a retry is always
+    // safe. Null means the deadline cut a read off; the last transient error
+    // is thrown when it is still failing at the deadline.
+    const TIMED_OUT = Symbol("timed out");
+    const read = async <T>(fn: (signal: AbortSignal) => Promise<T>) => {
+      while (true) {
+        try {
+          return await fn(AbortSignal.timeout(remaining()));
+        } catch (err) {
+          if (isAbort(err)) return TIMED_OUT;
+          const left = deadline - Date.now();
+          if (!isTransient(err) || left <= 0) throw err;
+          await new Promise((r) => setTimeout(r, Math.min(intervalMs, left)));
+        }
+      }
+    };
+
+    const id = await read((signal) => this.resolveDeploymentId(projectSlug, idOrPrefix, signal));
+    if (id === TIMED_OUT) return done(true);
+
+    while (true) {
+      const res = await read((signal) =>
+        this.request<DeploymentStatusResponse>(
+          "GET",
+          `/projects/${encodeURIComponent(projectSlug)}/deployments/${encodeURIComponent(id)}`,
+          undefined,
+          signal,
+        ),
+      );
+      if (res === TIMED_OUT) return done(true);
+      view = toDeploymentView(projectSlug, id, res);
+      options.onPoll?.(view);
+      if (view.terminal) return done(false);
+      // Use the whole budget: the last pause is cut short so one more read
+      // lands at the deadline instead of giving up an interval early.
+      const left = deadline - Date.now();
+      if (left <= 0) return done(true);
+      await new Promise((r) => setTimeout(r, Math.min(intervalMs, left)));
+    }
   }
 
   async promoteDeployment(projectId: string, deploymentId: string): Promise<{ ok: boolean }> {
@@ -393,7 +537,10 @@ export class CreekClient {
     } | null;
     message?: string;
   }> {
-    return this.request("GET", `/projects/${projectSlug}/deployments/${deploymentId}/logs`);
+    return this.request(
+      "GET",
+      `/projects/${encodeURIComponent(projectSlug)}/deployments/${encodeURIComponent(deploymentId)}/logs`,
+    );
   }
 
   // --- Resources v2 (team-owned) ---
@@ -597,6 +744,33 @@ export function isApiKeySelfUnsupported(err: unknown): boolean {
  * code (else `fallbackCode`), its `message` (else the status text), and its
  * other fields as `details`. A 401 is a CreekAuthError.
  */
+/** How long a deployment read that starts at the wait's deadline may take. */
+const READ_GRACE_MS = 500;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A full deployment uuid, or a prefix of one (hex digits and its dashes). */
+export function isDeploymentIdOrPrefix(id: string): boolean {
+  if (id.length === 36) return UUID.test(id);
+  if (id.length === 0 || id.length > 36) return false;
+  // A prefix of a uuid: the full shape, cut short.
+  return UUID.test(id + "00000000-0000-0000-0000-000000000000".slice(id.length));
+}
+
+/**
+ * A failure that can pass on its own: fetch's TypeError (the server was not
+ * reached, or the connection broke mid-response), a 5xx, or a 429.
+ */
+function isTransient(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  return err instanceof CreekApiError && (err.status >= 500 || err.status === 429);
+}
+
+/** A request aborted by its signal (AbortSignal.timeout fires a TimeoutError). */
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
 async function apiErrorFrom(res: Response, fallbackCode: string): Promise<Error> {
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   const { error, message, ...details } = body ?? {};

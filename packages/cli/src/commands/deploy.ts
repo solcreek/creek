@@ -70,6 +70,7 @@ import {
   type Breadcrumb,
 } from "../utils/output.js";
 import { pasteableBreadcrumbs } from "../utils/command-context.js";
+import { humanCommand } from "../utils/deployment-follow.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import {
@@ -327,9 +328,16 @@ export function productionProofPayload(
   return {
     ok: false,
     error: "verify_failed",
+    message: verifyFailedMessage(url, proof),
     url,
     ...(proof ? { proof } : {}),
   };
+}
+
+/** Why a deploy whose upload succeeded still reports verify_failed. */
+export function verifyFailedMessage(url: string, proof: VerifyResult | null): string {
+  const why = proof ? (proof.error ?? `HTTP ${proof.status}`) : "not checked";
+  return `Deployed, but ${url} did not answer with a 2xx/3xx (${why}). Re-check with: creek verify ${url} --json`;
 }
 
 /**
@@ -427,6 +435,7 @@ async function dryRunPlan(
     if (jsonMode) {
       jsonOutput(
         {
+          ok: true,
           mode: "dry-run",
           supported: false,
           unsupportedMode,
@@ -564,7 +573,7 @@ async function dryRunPlan(
   };
 
   if (jsonMode) {
-    jsonOutput(plan, 0, []);
+    jsonOutput({ ok: true, ...plan }, 0, []);
     return;
   }
 
@@ -765,6 +774,9 @@ export function parseWaitDuration(input: string | undefined): number | null {
  * no timeout, so it can never block reporting the deploy outcome + exiting.
  * Exported for tests.
  */
+/** How long a failed deploy's best-effort reason read (errorCode/hint) may take. */
+const REASON_READ_TIMEOUT_MS = 3000;
+
 export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 }
@@ -791,9 +803,12 @@ export function reportWaitTimeout(opts: {
 }): never {
   const waited = formatWaited(opts.waitedMs);
   const crumbs: Breadcrumb[] = [
-    { command: `creek status`, description: "Check whether the deploy finished" },
     {
-      command: `creek deployments logs ${opts.deploymentId}`,
+      command: `creek deployments wait ${opts.deploymentId} --json`,
+      description: "Keep waiting for this deploy to finish (do not re-run deploy)",
+    },
+    {
+      command: `creek deployments logs ${opts.deploymentId} --json`,
       description: "View the build log so far",
     },
   ];
@@ -814,8 +829,9 @@ export function reportWaitTimeout(opts: {
   consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
   // The server keeps deploying; a longer --wait lets the CLI observe the end.
   consola.info(`  Wait longer:   creek deploy … --wait 15m`);
-  consola.info(`  Check status:  creek status`);
-  consola.info(`  View the log:  creek deployments logs ${opts.deploymentId}`);
+  const human = (command: string) => (opts.project ? humanCommand(opts.project, command) : command);
+  consola.info(`  Keep waiting:  ${human(`creek deployments wait ${opts.deploymentId}`)}`);
+  consola.info(`  View the log:  ${human(`creek deployments logs ${opts.deploymentId}`)}`);
   return process.exit(1);
 }
 
@@ -1087,7 +1103,7 @@ export const deployCommand = defineCommand({
       if (!existsSync(cwd)) {
         if (jsonMode)
           jsonOutput(
-            { error: "not_found", message: `Directory not found: ${args.dir}` },
+            { ok: false, error: "not_found", message: `Directory not found: ${args.dir}` },
             1,
             NO_PROJECT_BREADCRUMBS,
           );
@@ -1176,7 +1192,7 @@ export const deployCommand = defineCommand({
     // --- Nothing found → guide the user ---
     if (jsonMode)
       jsonOutput(
-        { error: "no_project", message: "No project found in this directory" },
+        { ok: false, error: "no_project", message: "No project found in this directory" },
         1,
         NO_PROJECT_BREADCRUMBS,
       );
@@ -1214,7 +1230,7 @@ async function deployCreekd(
   } catch {
     const msg = `Cannot reach creekd at ${getCreekdUrl()}. Is it running?`;
     if (jsonMode)
-      jsonOutput({ error: "creekd_unreachable", message: msg }, 1, [
+      jsonOutput({ ok: false, error: "creekd_unreachable", message: msg }, 1, [
         { command: "creekd", description: "Start the daemon" },
       ]);
     consola.error(msg);
@@ -1336,7 +1352,7 @@ async function deployCreekd(
         },
         watchSummary && !watchSummary.ok ? 1 : 0,
         [
-          { command: `creek top ${resolved.projectName}`, description: "Check app status" },
+          { command: "creek top --json", description: "Check app status" },
           { command: `creek logs --server ${resolved.projectName}`, description: "View app logs" },
           { command: `creek exec -- bun run seed.ts`, description: "Run one-off command" },
         ],
@@ -1362,7 +1378,7 @@ async function deployCreekd(
       consola.info(`  http://localhost:${port}`);
       console.log("");
       consola.info("  Next steps:");
-      consola.info(`    creek top ${resolved.projectName}      Check status`);
+      consola.info(`    creek top                 Check status`);
       consola.info(`    creek logs --server ${resolved.projectName}     View logs`);
       consola.info(`    creekctl events ${resolved.projectName}   Stream events`);
     }
@@ -1421,6 +1437,7 @@ export interface CliDeployment {
   version: number;
   status: string;
   branch: string | null;
+  commitSha?: string | null;
   failedStep: string | null;
   errorMessage: string | null;
   createdAt: number;
@@ -1446,6 +1463,35 @@ export function findNewDeployment(
 }
 
 /**
+ * Which new row a `--from-github` trigger created. handlePush inserts it in
+ * waitUntil, so another new row (a preview push, a teammate's deploy) can
+ * appear first: with a known commit only a row for that commit (and branch,
+ * when both are known) counts, until `pastDeadline`. Then, or when the
+ * trigger named no commit, the newest new row stands in, as "newest_row".
+ * Null means keep polling. Same rule as the MCP deploy_prod tool.
+ */
+export function pickTriggeredDeployment(
+  fresh: CliDeployment[],
+  commitSha: string | null | undefined,
+  branch: string | null | undefined,
+  pastDeadline: boolean,
+): { row: CliDeployment; matchedBy: "commit" | "newest_row" } | null {
+  const sorted = [...fresh].sort((a, b) => b.createdAt - a.createdAt);
+  if (commitSha) {
+    const match = sorted.find(
+      (d) =>
+        typeof d.commitSha === "string" &&
+        d.commitSha.length > 0 &&
+        (commitSha.startsWith(d.commitSha) || d.commitSha.startsWith(commitSha)) &&
+        (!branch || typeof d.branch !== "string" || d.branch === branch),
+    );
+    if (match) return { row: match, matchedBy: "commit" };
+    if (!pastDeadline) return null;
+  }
+  return sorted[0] ? { row: sorted[0], matchedBy: "newest_row" } : null;
+}
+
+/**
  * Trigger a deploy that uses the project's github_connection instead of a
  * local build. Polls the deployments list until the new row settles and
  * streams status transitions to the terminal.
@@ -1461,7 +1507,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   if (!token) {
     if (jsonMode)
       jsonOutput(
-        { error: "not_authenticated", message: "Run `creek login` first." },
+        { ok: false, error: "not_authenticated", message: "Run `creek login` first." },
         1,
         AUTH_BREADCRUMBS,
       );
@@ -1486,6 +1532,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     if (jsonMode)
       jsonOutput(
         {
+          ok: false,
           error: "validation",
           message: "Could not determine target project. Pass --project <slug>.",
         },
@@ -1567,7 +1614,20 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   const rowAppearDeadline = startedAt + 20_000;
   const overallDeadline = startedAt + 15 * 60_000; // 15 min hard cap
   let targetDeployment: CliDeployment | null = null;
+  let matchedBy: "commit" | "newest_row" = "commit";
   let lastStatus: string | null = null;
+  // How the followed row was chosen, in every result: like MCP deploy_prod's
+  // matchedBy. A newest-row stand-in for a known commit says so, with both
+  // commits, so the caller can tell it may be someone else's deploy.
+  const matchFields = (): Record<string, unknown> =>
+    matchedBy === "commit" || !triggerResult.commitSha
+      ? { matchedBy }
+      : {
+          matchedBy,
+          commitMatched: false,
+          expectedCommitSha: triggerResult.commitSha,
+          commitSha: targetDeployment?.commitSha ?? null,
+        };
 
   while (Date.now() < overallDeadline) {
     let list: CliDeployment[];
@@ -1584,12 +1644,22 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     // but we don't require it (rollback/promote could race, but extremely
     // unlikely in the narrow window between snapshot + poll).
     if (!targetDeployment) {
-      const candidate = list
-        .filter((d) => d.createdAt > previousLatestCreatedAt)
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      const picked = pickTriggeredDeployment(
+        list.filter((d) => d.createdAt > previousLatestCreatedAt),
+        triggerResult.commitSha,
+        triggerResult.branch,
+        Date.now() > rowAppearDeadline,
+      );
+      const candidate = picked?.row ?? null;
 
-      if (candidate) {
+      if (picked && candidate) {
         targetDeployment = candidate;
+        matchedBy = picked.matchedBy;
+        if (!jsonMode && matchedBy === "newest_row" && triggerResult.commitSha) {
+          consola.warn(
+            `  No new deployment for ${triggerResult.commitSha.slice(0, 7)} appeared; following the newest one (${candidate.commitSha?.slice(0, 7) ?? "unknown commit"}), which may not be this trigger's.`,
+          );
+        }
         if (!jsonMode) {
           consola.info(`  v${candidate.version} ${candidate.branch ?? ""}`.trim());
         }
@@ -1599,6 +1669,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         if (jsonMode)
           jsonOutput(
             {
+              ok: false,
               error: "no_deployment",
               message: "Deployment row did not appear within 20s. Check server logs.",
             },
@@ -1641,7 +1712,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   if (!targetDeployment) {
     if (jsonMode)
       jsonOutput(
-        { error: "timeout", message: "Timed out waiting for deployment" },
+        { ok: false, error: "timeout", message: "Timed out waiting for deployment" },
         1,
         NO_PROJECT_BREADCRUMBS,
       );
@@ -1664,6 +1735,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         buildTimeS: parseFloat(elapsedS),
         mode: "production",
         source: "github",
+        ...matchFields(),
         rollbackCommand: `creek rollback --project ${projectSlug}`,
       },
       human: () => {
@@ -1674,19 +1746,69 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     return;
   }
 
+  // The 15-minute cap ran out with the deployment still in flight: it has
+  // not failed, so report a timeout that names it, like the other deploy paths.
+  if (!CLI_TERMINAL_STATUSES.has(targetDeployment.status)) {
+    return reportWaitTimeout({
+      jsonMode,
+      waitedMs: Date.now() - startedAt,
+      deploymentId: targetDeployment.id,
+      project: projectSlug,
+      extra: {
+        project: projectSlug,
+        status: targetDeployment.status,
+        source: "github",
+        ...matchFields(),
+      },
+    });
+  }
+
   // Failed / cancelled
   const failureMsg = targetDeployment.errorMessage || `Deployment ${targetDeployment.status}`;
   if (jsonMode) {
+    // The list row has no classified reason; the status read does.
+    // Bounded: a hung read must not hold back a failure that is already known.
+    let reason: { errorCode?: string; errorHint?: string } = {};
+    try {
+      const res = await withTimeout(
+        client.getDeploymentStatus(projectSlug, targetDeployment.id),
+        REASON_READ_TIMEOUT_MS,
+        null,
+      );
+      if (res)
+        reason = {
+          ...(res.errorCode ? { errorCode: res.errorCode } : {}),
+          ...(res.errorHint ? { errorHint: res.errorHint } : {}),
+        };
+    } catch {
+      // Best effort: the failure itself is already known.
+    }
+    const cancelled = targetDeployment.status === "cancelled";
     jsonOutput(
       {
         ok: false,
+        error: cancelled ? "cancelled" : "deploy_failed",
+        message: failureMsg,
         deploymentId: targetDeployment.id,
+        project: projectSlug,
         status: targetDeployment.status,
+        source: "github",
+        ...matchFields(),
         failedStep: targetDeployment.failedStep,
         errorMessage: failureMsg,
+        ...reason,
       },
       1,
-      NO_PROJECT_BREADCRUMBS,
+      pasteableBreadcrumbs(projectSlug, [
+        {
+          command: `creek deployments logs ${targetDeployment.id} --json`,
+          description: "Read the build log to see why it failed",
+        },
+        {
+          command: `creek deployments get ${targetDeployment.id} --json`,
+          description: "Show the deployment",
+        },
+      ]),
     );
   } else {
     consola.error(
@@ -1798,7 +1920,7 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
   } catch (err) {
     if (err instanceof RepoUrlError || err instanceof GitCloneError) {
       if (jsonMode)
-        jsonOutput({ error: "repo_deploy_failed", message: err.message }, 1, [
+        jsonOutput({ ok: false, error: "repo_deploy_failed", message: err.message }, 1, [
           { command: "npx create-creek-app", description: "Create a new project from a template" },
         ]);
       consola.error(err.message);
@@ -1846,7 +1968,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
       jsonOutput(
         {
           ok: proof.ok,
-          ...(proof.ok ? {} : { error: "verify_failed" }),
+          ...(proof.ok
+            ? {}
+            : { error: "verify_failed", message: verifyFailedMessage(status.previewUrl, proof) }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -1871,27 +1995,53 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
     if (!proof.ok) process.exit(1);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Deploy failed";
     // A timeout is usually deterministic (upload volume), so don't lead with a
     // naked "retry" — point at the cause first. Tagged via the error's `code`
-    // so it survives across module boundaries. Other failures keep the simple
-    // retry hint.
+    // so it survives across module boundaries.
     const deterministic = (err as { code?: string })?.code === "deploy_timeout";
-    const crumbs =
-      deterministic && result
-        ? [
-            {
-              command: `creek status ${result.sandboxId}`,
-              description: "Check what the deploy is stuck on",
-            },
-            { command: AGENT_SANDBOX_DEPLOY, description: "Retry only if the cause was transient" },
-          ]
-        : [{ command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" }];
-    if (jsonMode)
-      jsonOutput({ ok: false, error: "deploy_failed", deterministic, message }, 1, crumbs);
-    consola.error(message);
-    process.exit(1);
+    reportSandboxFailure(jsonMode, err, result?.sandboxId ?? null, { deterministic });
   }
+}
+
+/**
+ * A sandbox deploy that failed. The sandbox is named once it exists, and
+ * `creek status <sandboxId>` follows it. A failed API call's own fields go
+ * last (apiErrorFields), so a network failure reads as what it is, with
+ * honest retryable / mayHaveApplied. Re-running the deploy is suggested only
+ * when that says retryable: otherwise the first POST may already have created
+ * a sandbox, and a retry would make another.
+ */
+function reportSandboxFailure(
+  jsonMode: boolean,
+  err: unknown,
+  sandboxId: string | null,
+  extra: Record<string, unknown> = {},
+): never {
+  const message = err instanceof Error ? err.message : "Sandbox deploy failed";
+  const fields: Record<string, unknown> = {
+    ok: false,
+    error: "deploy_failed",
+    message,
+    ...extra,
+    ...(sandboxId ? { sandboxId } : {}),
+    ...apiErrorFields(err),
+  };
+  if (jsonMode) {
+    const crumbs: Breadcrumb[] = [];
+    if (sandboxId) {
+      crumbs.push({
+        command: `creek status ${sandboxId} --json`,
+        description: "Check what the sandbox is doing",
+      });
+    }
+    if (fields.retryable === true) {
+      crumbs.push({ command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" });
+    }
+    jsonOutput(fields, 1, crumbs);
+  }
+  consola.error(message);
+  if (sandboxId) consola.info(`  Check it:  creek status ${sandboxId}`);
+  process.exit(1);
 }
 
 // ============================================================================
@@ -2022,8 +2172,9 @@ async function deploySandbox(
   const sandboxCompatFlags =
     sandboxAdapterCompat?.compatibilityFlags ??
     (resolved && resolved.compatibilityFlags.length > 0 ? resolved.compatibilityFlags : undefined);
+  let result: Awaited<ReturnType<typeof sandboxDeploy>> | undefined;
   try {
-    const result = await sandboxDeploy(
+    result = await sandboxDeploy(
       {
         manifest: {
           assets: fileList,
@@ -2062,7 +2213,9 @@ async function deploySandbox(
       jsonOutput(
         {
           ok: proof.ok,
-          ...(proof.ok ? {} : { error: "verify_failed" }),
+          ...(proof.ok
+            ? {}
+            : { error: "verify_failed", message: verifyFailedMessage(status.previewUrl, proof) }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -2097,13 +2250,7 @@ async function deploySandbox(
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
     if (!proof.ok) process.exit(1);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Sandbox deploy failed";
-    if (jsonMode)
-      jsonOutput({ ok: false, error: "deploy_failed", message }, 1, [
-        { command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" },
-      ]);
-    consola.error(message);
-    process.exit(1);
+    reportSandboxFailure(jsonMode, err, result?.sandboxId ?? null);
   }
 }
 
@@ -2519,7 +2666,24 @@ async function deployAuthenticated(
         : {}),
     };
 
-    await stageDeploymentBundle(client, project.id, deployment.id, bundle);
+    try {
+      await stageDeploymentBundle(client, project.id, deployment.id, bundle);
+    } catch (err) {
+      // The deployment row exists: an API refusal reports its id. A network
+      // failure keeps the runner's own report (retryable / mayHaveApplied).
+      if (!(err instanceof CreekApiError) || !jsonMode) throw err;
+      jsonOutput(
+        {
+          ok: false,
+          error: "upload_failed",
+          message: err.message,
+          deploymentId: deployment.id,
+          project: project.slug,
+          ...apiErrorFields(err),
+        },
+        1,
+      );
+    }
 
     // Kick off migration-drift detection now, in parallel with the deploy, so a
     // "N migrations pending" warning can land in the build log even if the
@@ -2709,6 +2873,9 @@ async function deployAuthenticated(
               ok: false,
               error: "deploy_failed",
               message: msg,
+              deploymentId: deployment.id,
+              project: project.slug,
+              status: "failed",
               failedStep: failed_step,
               // Stable reason code + hint so an agent can branch on the failure.
               // Named errorCode/errorHint to mirror the API status response —
@@ -2717,7 +2884,11 @@ async function deployAuthenticated(
               ...(errorHint ? { errorHint } : {}),
             },
             1,
-            [
+            pasteableBreadcrumbs(project.slug, [
+              {
+                command: `creek deployments logs ${deployment.id} --json`,
+                description: "Read the build log to see why it failed",
+              },
               {
                 command: `creek deployments --project ${project.slug}`,
                 description: "Check previous deployments",
@@ -2726,7 +2897,7 @@ async function deployAuthenticated(
                 command: `creek rollback --project ${project.slug}`,
                 description: "Rollback to previous version",
               },
-            ],
+            ]),
           );
         consola.error(`Deploy failed${step}${errorCode ? ` [${errorCode}]` : ""}: ${msg}`);
         // The classified hint is the actionable next step — surface it plainly.
@@ -2736,9 +2907,18 @@ async function deployAuthenticated(
 
       if (status === "cancelled") {
         if (jsonMode)
-          jsonOutput({ ok: false, error: "cancelled", message: "Deploy was cancelled" }, 1, [
-            { command: "creek deploy", description: "Retry deploy" },
-          ]);
+          jsonOutput(
+            {
+              ok: false,
+              error: "cancelled",
+              message: "Deploy was cancelled",
+              deploymentId: deployment.id,
+              project: project.slug,
+              status: "cancelled",
+            },
+            1,
+            [{ command: "creek deploy", description: "Retry deploy" }],
+          );
         consola.warn("Deploy was cancelled");
         process.exit(1);
       }
@@ -2762,6 +2942,7 @@ async function deployAuthenticated(
       waitedMs: POLL_TIMEOUT,
       deploymentId: deployment.id,
       project: project.slug,
+      extra: { project: project.slug, status: lastStatus || null },
     });
   } catch (err) {
     if (err instanceof CreekAuthError) {
@@ -3076,18 +3257,33 @@ export async function tryTurboDeploy(
         // build. This is a terminal failure: exit non-zero (and emit
         // structured JSON) rather than returning "handled", which would let
         // the caller return and exit 0 — a failed deploy reading as success.
-        const errMsg = status.deployment.errorMessage || "unknown";
+        const errMsg = status.deployment.errorMessage || (s === "cancelled" ? s : "unknown");
         if (jsonMode) {
           jsonOutput(
             {
               ok: false,
+              // deploy_failed for a cancel too, as before: `status` says which.
               error: "deploy_failed",
               message: `Deploy from cache failed: ${errMsg}`,
               deploymentId: res.deployment.id,
               project: project.slug,
+              status: s,
+              turbo: true,
+              failedStep: status.deployment.failedStep ?? null,
+              ...(status.errorCode ? { errorCode: status.errorCode } : {}),
+              ...(status.errorHint ? { errorHint: status.errorHint } : {}),
             },
             1,
-            [],
+            // No "rebuild" crumb: this function knows neither the deploy's
+            // source (a repo-URL deploy builds a temp clone, not the cwd)
+            // nor its target flag, and a bare `creek deploy` is refused in a
+            // non-TTY run.
+            pasteableBreadcrumbs(project.slug, [
+              {
+                command: `creek deployments logs ${res.deployment.id} --json`,
+                description: "Read the build log to see why it failed",
+              },
+            ]),
           );
         }
         consola.error(`  Deploy from cache failed: ${errMsg}`);

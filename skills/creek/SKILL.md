@@ -35,12 +35,28 @@ creek deploy --prod --json
 
 `--yes` skips prompts (ToS). It is **not** implied by `--json`. `--sandbox`, `--prod` **or** `--yes` unblocks a non-TTY deploy, but `--yes` leaves the target implicit: signed in it deploys to **production** (with a deprecation warning on stderr), signed out to a sandbox. Prefer `--sandbox` / `--prod` so the destination is explicit.
 
-`creek deploy --prod` waits up to 2 minutes for the deploy to finish. `--wait 15m` (or `900s`, `1h`, bare ms; clamped to 1s–60m) waits longer. `error: "timeout"` means the **CLI** stopped waiting, not that the deploy failed — it may still be running and go live. Check with `creek status --json` / `creek deployments --json` (and `creek deployments logs <ID> --json`) before redeploying.
+`creek deploy --prod` waits up to 2 minutes for the deploy to finish. `--wait 15m` (or `900s`, `1h`, bare ms; clamped to 1s–60m) waits longer. `error: "timeout"` means the **CLI** stopped waiting, not that the deploy failed — it may still be running and go live.
+
+## Follow a deploy to its result (one id)
+
+Every `creek deploy --json` result names what it created: `deploymentId` (production, `--from-github`, cache hit, failure, timeout) or `sandboxId` (sandbox). Follow it with that id, never by redeploying:
+
+```bash
+creek deployments wait <deploymentId> --json   # until active / failed / cancelled (default --timeout 2m)
+creek deployments get <deploymentId> --json    # one read: status, final, failedStep, errorCode, url, commitSha, branch
+creek status <id> --json                       # deployment or sandbox id; `type` says which
+creek deployments logs <deploymentId> --json   # why it failed
+```
+
+- `wait` exits 0 when `active`; 1 with `deployment_failed` (`failedStep`, `errorCode`, `errorHint`) or `deployment_cancelled`; 1 with `error: "timeout"`, `retryable: true` and the last `status` when still running — run the same `wait` again.
+- On a deploy `timeout`, the first breadcrumb is that `wait` command, `--project` included when needed. Paste it.
+- Ids: the full uuid or the 8-char short id (short ids match the newest 20 deployments). The fields match the MCP `get_deployment` / `wait_for_deployment` tools (`final` is the same as `terminal`).
 
 ## Do not
 
 - Do not run `creek deploy` or `creek deploy --json` without `--sandbox`, `--prod` or `--yes` in a non-TTY. You will get `confirmation_required`.
-- Do not treat a deploy `timeout` as a failure and redeploy blindly. Check `creek status --json` first; pass a longer `--wait` next time.
+- Do not treat a deploy `timeout` as a failure and redeploy blindly. Run `creek deployments wait <deploymentId> --json` with the id from the result.
+- Do not re-run a sandbox deploy whose failure carries `sandboxId`: check `creek status <sandboxId> --json`. Re-run only when the result says `retryable: true`.
 - Do not treat dry-run `wouldDeploy: true` as a license to omit the flags in `nextStep`.
 - Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production database and every env var not marked `--target production`. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.

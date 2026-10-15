@@ -4,6 +4,7 @@ import { CreekAuthError, CreekApiError } from "@solcreek/sdk";
 import {
   patchBareNodeImports,
   findNewDeployment,
+  pickTriggeredDeployment,
   makeProgress,
   sameOriginApiHint,
   workerFirstManifest,
@@ -454,6 +455,50 @@ function d(id: string, createdAt: number, status = "queued"): CliDeployment {
     url: null,
   };
 }
+
+describe("pickTriggeredDeployment (--from-github)", () => {
+  const row = (id: string, createdAt: number, commitSha: string | null, branch = "main") => ({
+    ...d(id, createdAt),
+    commitSha,
+    branch,
+  });
+  const SHA = "abc1234def567890";
+
+  test("keeps polling while new rows exist but none is for the triggered commit", () => {
+    const fresh = [row("teammate", 300, "fff0000aaa11")];
+    expect(pickTriggeredDeployment(fresh, SHA, "main", false)).toBeNull();
+  });
+
+  test("takes the triggered commit's row over a newer one", () => {
+    const fresh = [row("teammate", 300, "fff0000aaa11"), row("mine", 200, "abc1234def56")];
+    expect(pickTriggeredDeployment(fresh, SHA, "main", false)).toMatchObject({
+      row: { id: "mine" },
+      matchedBy: "commit",
+    });
+  });
+
+  test("a row for that commit on another branch does not count", () => {
+    const fresh = [row("preview", 300, "abc1234def56", "feature")];
+    expect(pickTriggeredDeployment(fresh, SHA, "main", false)).toBeNull();
+  });
+
+  test("past the deadline, the newest new row stands in, flagged newest_row", () => {
+    const fresh = [row("older", 200, "fff0000aaa11"), row("teammate", 300, "eee0000aaa11")];
+    expect(pickTriggeredDeployment(fresh, SHA, "main", true)).toMatchObject({
+      row: { id: "teammate" },
+      matchedBy: "newest_row",
+    });
+    expect(pickTriggeredDeployment([], SHA, "main", true)).toBeNull();
+  });
+
+  test("a trigger that names no commit takes the newest new row at once", () => {
+    const fresh = [row("a", 200, null), row("b", 300, null)];
+    expect(pickTriggeredDeployment(fresh, null, null, false)).toMatchObject({
+      row: { id: "b" },
+      matchedBy: "newest_row",
+    });
+  });
+});
 
 describe("findNewDeployment", () => {
   test("returns null when no deployment is newer than snapshot", () => {
