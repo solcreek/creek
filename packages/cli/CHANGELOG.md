@@ -1,5 +1,26 @@
 # @solcreek/cli
 
+## 0.4.54
+
+Requires `@solcreek/sdk@0.4.24`, already published.
+
+### Next.js
+
+- **More Next.js apps deploy and run.** Deploys now build with
+  `@solcreek/adapter-creek@0.2.24`. Before, each of these failed the build or
+  returned 500:
+  - a server action posted to an edge page;
+  - a `.wasm` import in middleware or an edge route;
+  - `experimental.serverSourceMaps`;
+  - a Web Worker (`new Worker(new URL(...))`);
+  - an `ImageResponse` from `next/og` in a node-runtime route, such as an
+    `opengraph-image`;
+  - a pages route that renders its own `RouterContext.Provider`.
+
+  A soft navigation to a page under a route group (`app/(shop)/...`) no longer
+  fails in the browser. An older adapter cached in `.creek` is replaced on the
+  next deploy.
+
 ## 0.4.53
 
 Requires `@solcreek/sdk@0.4.24`. Publish the SDK tag `sdk@0.4.24` before
