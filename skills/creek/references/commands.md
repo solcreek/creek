@@ -94,7 +94,7 @@ you meant to target.
 
 ## JSON Output Format
 
-Every command returns structured JSON with breadcrumbs:
+Every command returns one JSON document with `ok: true | false`; a failure (`ok: false`, non-zero exit) also carries `error` (a code to branch on) and `message` (for the user). Most add `breadcrumbs`. The exception is `creek logs --json`, which is NDJSON ending in a `{"ok":true,"type":"summary","count":N}` line — see [observability](observability.md#runtime-logs--creek-logs).
 
 ```json
 {

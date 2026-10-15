@@ -68,7 +68,8 @@ export const rollbackCommand = defineCommand({
       );
     }
     if (args.to) {
-      const msg = "--to requires --host (use --deployment for CF Workers rollback)";
+      const msg =
+        "--to requires --host. To roll back a Creek Cloud project, pass the deployment ID instead: creek rollback <deployment-id>";
       if (jsonMode) jsonOutput({ ok: false, error: "missing_host", message: msg }, 1, []);
       consola.error(msg);
       process.exit(1);
@@ -172,31 +173,12 @@ export const rollbackCommand = defineCommand({
       return;
     }
 
+    let result: Awaited<ReturnType<CreekClient["rollback"]>>;
     try {
-      const result = await client.rollback(projectSlug, {
+      result = await client.rollback(projectSlug, {
         deploymentId: deploymentId || undefined,
         message: message || undefined,
       });
-
-      if (jsonMode) {
-        jsonOutput({ ...result, project: projectSlug, projectSource }, 0, [
-          {
-            command: `creek status --project ${projectSlug}`,
-            description: "Verify rollback status",
-          },
-          {
-            command: `creek deployments --project ${projectSlug}`,
-            description: "View deployment history",
-          },
-        ]);
-        return;
-      }
-
-      consola.success(`⬡ Rolled back to deployment ${result.rolledBackTo.slice(0, 8)}`);
-      consola.info(`Production URL: ${result.url}`);
-      if (message) {
-        consola.info(`Reason: ${message}`);
-      }
     } catch (err: any) {
       const msg = err.message ?? "Rollback failed";
       if (jsonMode)
@@ -213,6 +195,25 @@ export const rollbackCommand = defineCommand({
       consola.error(msg);
       for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
+    }
+
+    if (jsonMode) {
+      jsonOutput({ ...result, ok: true, project: projectSlug, projectSource }, 0, [
+        {
+          command: `creek status --project ${projectSlug}`,
+          description: "Verify rollback status",
+        },
+        {
+          command: `creek deployments --project ${projectSlug}`,
+          description: "View deployment history",
+        },
+      ]);
+    }
+
+    consola.success(`⬡ Rolled back to deployment ${result.rolledBackTo.slice(0, 8)}`);
+    consola.info(`Production URL: ${result.url}`);
+    if (message) {
+      consola.info(`Reason: ${message}`);
     }
   },
 });
@@ -333,7 +334,7 @@ async function rollbackSelfHost(
         release,
       },
       0,
-      [{ command: `creek status --host ${host.name}`, description: "Check rollback status" }],
+      [{ command: `creek top --server ${host.addr}`, description: "Check the app on this host" }],
     );
   }
   consola.success(
