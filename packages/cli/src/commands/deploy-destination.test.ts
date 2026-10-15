@@ -27,7 +27,8 @@ type Scenario =
   | "build-output"
   | "template"
   | "from-github"
-  | "repo-url";
+  | "repo-url"
+  | "broken-config";
 type Flag = "prod" | "sandbox" | "yes" | "none";
 type Outcome =
   | "production"
@@ -36,7 +37,8 @@ type Outcome =
   | "not_authenticated"
   | "prod_unsupported"
   | "sandbox_unsupported"
-  | "creekd_dir_unsupported";
+  | "creekd_dir_unsupported"
+  | "invalid_config";
 
 // Expected destination, written out per scenario (not computed).
 const MATRIX: Record<Scenario, { out: Record<Flag, Outcome>; in: Record<Flag, Outcome> }> = {
@@ -92,6 +94,22 @@ const MATRIX: Record<Scenario, { out: Record<Flag, Outcome>; in: Record<Flag, Ou
     out: { prod: "not_authenticated", sandbox: "sandbox", yes: "sandbox", none: "sandbox" },
     in: { prod: "production", sandbox: "sandbox", yes: "production", none: "production" },
   },
+  // A broken creek.toml next to a dist/ folder: the parse error, never a
+  // build-output guess (prod_unsupported → `creek init`) or a sandbox.
+  "broken-config": {
+    out: {
+      prod: "invalid_config",
+      sandbox: "invalid_config",
+      yes: "invalid_config",
+      none: "invalid_config",
+    },
+    in: {
+      prod: "invalid_config",
+      sandbox: "invalid_config",
+      yes: "invalid_config",
+      none: "invalid_config",
+    },
+  },
 };
 
 /** The deploy function a successful real run must reach. */
@@ -143,6 +161,11 @@ function setUp(dir: string, scenario: Scenario): Record<string, unknown> {
       return { "from-github": true };
     case "repo-url":
       return { dir: "https://github.com/solcreek/example" };
+    case "broken-config":
+      writeFileSync(join(dir, "creek.toml"), '[project]\nname = "unterminated\n');
+      mkdirSync(join(dir, "dist"));
+      writeFileSync(join(dir, "dist/index.html"), "<h1>hi</h1>");
+      return {};
   }
 }
 
@@ -263,6 +286,14 @@ describe("creek deploy destination matrix", () => {
     const cmds = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
     expect(cmds).toContain("creek deploy --yes --json");
     expect(handlerSpies.deployCreekd).not.toHaveBeenCalled();
+  });
+
+  it("a broken creek.toml reports the parser's diagnostic", async () => {
+    setUp(dir, "broken-config");
+    const out = await runDeploy({ prod: true });
+    expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+    expect(String(out.message)).toMatch(/^Couldn't read the project config: /);
+    expect(JSON.stringify(out)).not.toContain("creek init");
   });
 
   it("prod_unsupported points at what works instead", async () => {

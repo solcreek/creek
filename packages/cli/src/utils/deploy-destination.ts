@@ -20,7 +20,7 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { resolveConfig } from "@solcreek/sdk";
+import { resolveConfig, ConfigNotFoundError } from "@solcreek/sdk";
 import { AUTH_BREADCRUMBS, AGENT_SANDBOX_DEPLOY, type Breadcrumb } from "./output.js";
 import { isRepoUrl } from "./repo-url.js";
 import { shellQuote } from "./shell-quote.js";
@@ -54,10 +54,17 @@ export interface DestinationInput {
   dir?: string;
   /** The `--template` name, for messages. */
   template?: string;
+  /**
+   * The local config exists but can't be read or parsed (`project` /
+   * `directory` paths). Its diagnostic wins over every other decision: the
+   * destination can't be known, and guessing sends the caller the wrong way.
+   */
+  configError?: string;
 }
 
 export type RefusalError =
   | "conflicting_flags"
+  | "invalid_config"
   | "not_authenticated"
   | "prod_unsupported"
   | "sandbox_unsupported"
@@ -122,6 +129,15 @@ export function deployDestination(input: DestinationInput): DeployDestination {
       kind: "refused",
       error: "conflicting_flags",
       message: "--prod and --sandbox are mutually exclusive. Pick one target.",
+      breadcrumbs: [],
+    };
+  }
+
+  if (input.configError !== undefined) {
+    return {
+      kind: "refused",
+      error: "invalid_config",
+      message: `Couldn't read the project config: ${input.configError}`,
       breadcrumbs: [],
     };
   }
@@ -234,11 +250,17 @@ function notAuthenticated(flag: string): DeployDestination {
   };
 }
 
-function configTarget(dir: string): "cf" | "creekd" | null {
+/**
+ * The config's target, null when there is no config at all. Only
+ * ConfigNotFoundError means "no config": a config that exists but is broken
+ * is reported as such, never mistaken for a config-less directory.
+ */
+function configTarget(dir: string): { target: "cf" | "creekd" | null; error?: string } {
   try {
-    return resolveConfig(dir).target === "creekd" ? "creekd" : "cf";
-  } catch {
-    return null;
+    return { target: resolveConfig(dir).target === "creekd" ? "creekd" : "cf" };
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) return { target: null };
+    return { target: null, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -249,21 +271,26 @@ function configTarget(dir: string): "cf" | "creekd" | null {
 export function inspectDeployPath(
   args: { template?: unknown; "from-github"?: unknown; dir?: unknown },
   cwd: string = process.cwd(),
-): Pick<DestinationInput, "path" | "localTarget" | "dir" | "template"> {
+): Pick<DestinationInput, "path" | "localTarget" | "dir" | "template" | "configError"> {
   const template = typeof args.template === "string" ? args.template : undefined;
   if (args.template) return { path: "template", localTarget: "cf", template };
   if (args["from-github"]) return { path: "from-github", localTarget: "cf" };
   const dirArg = typeof args.dir === "string" && args.dir.length > 0 ? args.dir : undefined;
   if (dirArg && isRepoUrl(dirArg)) return { path: "repo-url", localTarget: "cf" };
   if (dirArg) {
+    const found = configTarget(resolve(cwd, dirArg));
     return {
       path: "directory",
-      localTarget: configTarget(resolve(cwd, dirArg)) ?? "cf",
+      localTarget: found.target ?? "cf",
       dir: dirArg,
+      ...(found.error !== undefined ? { configError: found.error } : {}),
     };
   }
-  const target = configTarget(cwd);
-  if (target) return { path: "project", localTarget: target };
+  const found = configTarget(cwd);
+  if (found.error !== undefined) {
+    return { path: "project", localTarget: "cf", configError: found.error };
+  }
+  if (found.target) return { path: "project", localTarget: found.target };
   if (BUILD_OUTPUT_DIRS.some((d) => existsSync(resolve(cwd, d)))) {
     return { path: "build-output", localTarget: "cf" };
   }
