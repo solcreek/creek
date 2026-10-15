@@ -10,6 +10,7 @@ import { cacheCommand } from "./cache.js";
 import { domainsCommand } from "./domains.js";
 import { envCommand } from "./env.js";
 import { rollbackCommand } from "./rollback.js";
+import { claimCommand } from "./claim.js";
 
 // Every command that wraps its API calls in apiCall (utils/command-context.ts)
 // must report a failed call in the CLI runner's shape: a network failure is
@@ -360,4 +361,34 @@ it("every command file that calls apiCall has a row above", () => {
   );
   const covered = new Set(ROWS.map((r) => r.file));
   expect(users.filter((f) => !covered.has(f))).toEqual([]);
+});
+
+describe("claim: an unreachable sandbox API", () => {
+  it("is api_unreachable with reason and retryable, not a bare sandbox_api_unreachable", async () => {
+    process.env.CREEK_SANDBOX_API_URL = "https://sbx.test";
+    try {
+      const row: Row = {
+        name: "claim sb1",
+        file: "claim.ts",
+        run: () => claimCommand.run!({ args: { _: [], sandboxId: "sb1" } } as never),
+        fail: "GET /api/sandbox/sb1/status",
+        code: "sandbox_api_unreachable",
+      };
+      stubFetch(row.fail, async () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+        });
+      });
+      const out = await runJson(row);
+      expect(out).toMatchObject({
+        ok: false,
+        error: "api_unreachable",
+        reason: "ECONNREFUSED",
+        retryable: true,
+      });
+      expect(out).not.toHaveProperty("mayHaveApplied");
+    } finally {
+      delete process.env.CREEK_SANDBOX_API_URL;
+    }
+  });
 });
