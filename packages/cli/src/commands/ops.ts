@@ -31,7 +31,20 @@ export const opsCommand = defineCommand({
       return await health(jsonMode);
     }
 
-    jsonOutput({ error: `Unknown subcommand: ${sub}`, usage: "creek ops [deployments|health]" }, 1);
+    const message = `Unknown subcommand: ${sub}. Use: creek ops [deployments|health]`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "unknown_command",
+          message,
+          usage: "creek ops [deployments|health]",
+        },
+        1,
+        [{ command: "creek ops --help --json", description: "List ops subcommands" }],
+      );
+    console.error(message);
+    process.exit(1);
   },
 });
 
@@ -155,8 +168,17 @@ async function health(jsonMode: boolean) {
   }
 
   if (jsonMode) {
-    const allOk = Object.values(checks).every((v) => v === "ok");
-    jsonOutput({ ok: allOk, checks });
+    const failing = Object.entries(checks).filter(([, v]) => v !== "ok");
+    if (failing.length === 0) jsonOutput({ ok: true, checks });
+    jsonOutput(
+      {
+        ok: false,
+        error: "unhealthy",
+        message: `Unhealthy: ${failing.map(([name, v]) => `${name} (${v})`).join(", ")}`,
+        checks,
+      },
+      1,
+    );
   }
 
   console.log("\n  Platform Health\n");

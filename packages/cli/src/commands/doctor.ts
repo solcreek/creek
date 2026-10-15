@@ -72,9 +72,16 @@ export const doctorCommand = defineCommand({
         const counts = `${error} error${s(error)}, ${warn} warning${s(warn)}, ${info} info`;
         process.stderr.write(`creek doctor: ${report.ok ? "ok" : "issues found"} — ${counts}\n`);
       }
+      const { error, warn } = report.summary;
       jsonOutput(
         {
           ok: report.ok,
+          ...(report.ok
+            ? {}
+            : {
+                error: "issues_found",
+                message: `creek doctor found ${error} error${s(error)} and ${warn} warning${s(warn)}: see findings.`,
+              }),
           cwd,
           archetype: report.archetype,
           summary: report.summary,
@@ -219,7 +226,15 @@ async function runLastFailureDiagnosis(opts: {
   const token = getToken();
   if (!token) {
     if (opts.jsonMode) {
-      jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      jsonOutput(
+        {
+          ok: false,
+          error: "not_authenticated",
+          message: "Not authenticated. Run `creek login` first.",
+        },
+        1,
+        AUTH_BREADCRUMBS,
+      );
     }
     consola.error("Not authenticated. Run `creek login` first.");
     process.exit(1);
