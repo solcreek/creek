@@ -35,22 +35,42 @@ const REPORTS = new Set(["jsonOutput", "exitError"]);
 const CLASSIFIES = /\b(apiErrorFields|exitApiFailure|apiCall)\b/;
 
 /**
- * Whether `client` in the code around `node` is a CreekdClient: a self-host
- * daemon, not the Creek or sandbox API, with its own errors.
+ * Parse one file into a program, so an identifier resolves to the binding in
+ * scope where it is used. Imports stay unresolved (noResolve): only local
+ * declarations matter here.
  */
-function creekdClientInScope(node: ts.Node, source: ts.SourceFile): boolean {
-  for (let n: ts.Node | undefined = node; n; n = n.parent) {
-    if (ts.isFunctionLike(n) || ts.isSourceFile(n)) {
-      const text = n.getText(source);
-      if (/\bclient\b[^=\n;]*=\s*new CreekdClient\b|\bclient:\s*CreekdClient\b/.test(text))
-        return true;
-    }
-  }
-  return false;
+function parse(name: string, text: string): { source: ts.SourceFile; checker: ts.TypeChecker } {
+  const options: ts.CompilerOptions = { noResolve: true, noLib: true, types: [] };
+  const host = ts.createCompilerHost(options);
+  const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true);
+  host.getSourceFile = (f) => (f === name ? source : undefined);
+  host.fileExists = (f) => f === name;
+  host.readFile = (f) => (f === name ? text : undefined);
+  const program = ts.createProgram([name], options, host);
+  return { source: program.getSourceFile(name)!, checker: program.getTypeChecker() };
 }
 
-function callsApi(node: ts.Node, source: ts.SourceFile): boolean {
-  const creekd = creekdClientInScope(node, source);
+/**
+ * Whether `id` (a `client`) is bound to a CreekdClient: a self-host daemon,
+ * not the Creek or sandbox API, with its own errors. Decided by the
+ * declaration that identifier resolves to — `new CreekdClient(…)`, or a
+ * variable or parameter typed CreekdClient — not by text elsewhere in the
+ * file, where another function may declare its own `client`.
+ */
+function isCreekdClient(id: ts.Identifier, checker: ts.TypeChecker): boolean {
+  const decl = checker.getSymbolAtLocation(id)?.declarations?.[0];
+  if (!decl || !(ts.isVariableDeclaration(decl) || ts.isParameter(decl))) return false;
+  if (decl.type && /^CreekdClient\b/.test(decl.type.getText())) return true;
+  const init = decl.initializer;
+  return (
+    !!init &&
+    ts.isNewExpression(init) &&
+    ts.isIdentifier(init.expression) &&
+    init.expression.text === "CreekdClient"
+  );
+}
+
+function callsApi(node: ts.Node, checker: ts.TypeChecker): boolean {
   let found = false;
   const visit = (n: ts.Node) => {
     if (found) return;
@@ -62,7 +82,7 @@ function callsApi(node: ts.Node, source: ts.SourceFile): boolean {
         ts.isPropertyAccessExpression(callee) &&
         ts.isIdentifier(callee.expression) &&
         callee.expression.text === "client" &&
-        !creekd
+        !isCreekdClient(callee.expression, checker)
       )
         found = true;
     }
@@ -101,28 +121,31 @@ function unguardedReport(block: ts.Block, source: ts.SourceFile): string | null 
   return code;
 }
 
-function scan(): string[] {
+/** The catches in one command file that report an API failure unclassified. */
+function scanFile(file: string, text: string): string[] {
   const found: string[] = [];
-  for (const file of readdirSync(COMMANDS)) {
-    if (!file.endsWith(".ts") || file.includes(".test.")) continue;
-    const text = readFileSync(join(COMMANDS, file), "utf-8");
-    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-    const seen = new Map<string, number>();
-    const visit = (n: ts.Node) => {
-      if (ts.isTryStatement(n) && n.catchClause && callsApi(n.tryBlock, source)) {
-        const block = n.catchClause.block;
-        const code = unguardedReport(block, source);
-        if (code !== null && !CLASSIFIES.test(block.getText(source))) {
-          const count = (seen.get(code) ?? 0) + 1;
-          seen.set(code, count);
-          found.push(`${file}: ${code}${count > 1 ? `#${count}` : ""}`);
-        }
+  const { source, checker } = parse(file, text);
+  const seen = new Map<string, number>();
+  const visit = (n: ts.Node) => {
+    if (ts.isTryStatement(n) && n.catchClause && callsApi(n.tryBlock, checker)) {
+      const block = n.catchClause.block;
+      const code = unguardedReport(block, source);
+      if (code !== null && !CLASSIFIES.test(block.getText(source))) {
+        const count = (seen.get(code) ?? 0) + 1;
+        seen.set(code, count);
+        found.push(`${file}: ${code}${count > 1 ? `#${count}` : ""}`);
       }
-      ts.forEachChild(n, visit);
-    };
-    visit(source);
-  }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
   return found;
+}
+
+function scan(): string[] {
+  return readdirSync(COMMANDS)
+    .filter((f) => f.endsWith(".ts") && !f.includes(".test."))
+    .flatMap((f) => scanFile(f, readFileSync(join(COMMANDS, f), "utf-8")));
 }
 
 describe("a command that reports a failed API call classifies it", () => {
@@ -130,6 +153,39 @@ describe("a command that reports a failed API call classifies it", () => {
 
   it("every catch that reports an API failure spreads apiErrorFields", () => {
     expect(found.filter((f) => !KNOWN_MISSING.has(f))).toEqual([]);
+  });
+
+  // A file that declares a CreekdClient `client` in one function and a
+  // CreekClient `client` in another: each call is judged by its own binding.
+  it.each([
+    ["logs.ts", "logs_failed"],
+    ["rollback.ts", "rollback_failed"],
+  ])(
+    "catches %s's cloud catch without apiErrorFields, despite its CreekdClient elsewhere",
+    (file, code) => {
+      const text = readFileSync(join(COMMANDS, file), "utf-8");
+      expect(text).toMatch(/new CreekdClient\(/);
+      const at = text.indexOf(`error: "${code}"`);
+      expect(at).toBeGreaterThan(-1);
+      const spread = text.indexOf("...apiErrorFields(err)", at);
+      expect(spread).toBeGreaterThan(-1);
+      const stripped = text.slice(0, spread) + text.slice(spread + "...apiErrorFields(err)".length);
+      expect(scanFile(file, text)).toEqual([]);
+      expect(scanFile(file, stripped)).toEqual([`${file}: ${code}`]);
+    },
+  );
+
+  it("does not flag calls on a CreekdClient bound in scope", () => {
+    const text = `
+      async function f() {
+        const client = new CreekdClient(url);
+        try { await client.listApps(); }
+        catch (err) { jsonOutput({ ok: false, error: "unreachable", message: "m" }, 1); }
+      }`;
+    expect(scanFile("x.ts", text)).toEqual([]);
+    expect(
+      scanFile("x.ts", text.replace("new CreekdClient(url)", "new CreekClient(url, t)")),
+    ).toEqual(["x.ts: unreachable"]);
   });
 
   it("every allowlisted site still exists (delete the entry once fixed)", () => {
