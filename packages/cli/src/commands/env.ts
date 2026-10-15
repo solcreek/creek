@@ -9,7 +9,7 @@ import {
   projectBreadcrumbs,
 } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import type { EnvTarget } from "@solcreek/sdk";
+import { CreekApiError, type CreekClient, type EnvTarget } from "@solcreek/sdk";
 
 const TARGETS: readonly EnvTarget[] = ["all", "production", "preview"];
 
@@ -58,6 +58,30 @@ function appliesOn(target: EnvTarget): string {
   if (target === "production") return "the next production deploy";
   if (target === "preview") return "the next branch (preview) deploy";
   return "the next deploy";
+}
+
+const ALREADY_ABSENT = Symbol("already-absent");
+
+/**
+ * Whether a failed delete means the key (or its target's value) isn't set on
+ * an existing project, not that the project is missing or the call failed.
+ * The API says so with `missing: "envvar"` on its 404. An older API sends a
+ * bare 404 for both: then the project's list decides — it must load (so the
+ * project exists) and not hold the value.
+ */
+async function isAlreadyAbsent(
+  client: CreekClient,
+  slug: string,
+  key: string,
+  target: EnvTarget | undefined,
+  err: unknown,
+): Promise<boolean> {
+  if (!(err instanceof CreekApiError) || err.status !== 404) return false;
+  if (err.details.missing === "envvar") return true;
+  if (err.details.missing !== undefined) return false;
+  const vars = await client.listEnvVars(slug).catch(() => null);
+  if (!vars) return false;
+  return !vars.some((v) => v.key === key && (!target || (v.target ?? "all") === target));
 }
 
 const envSet = defineCommand({
@@ -238,6 +262,8 @@ const envRm = defineCommand({
         key: args.key,
         targets: matching,
         exists,
+        // The run reports the same: nothing to remove succeeds as alreadyAbsent.
+        alreadyAbsent: !exists,
         pendingDeploy: exists,
         sideEffects: exists
           ? [
@@ -276,8 +302,46 @@ const envRm = defineCommand({
       }
     }
     const result = await apiCall(jsonMode, "rm_failed", () =>
-      client.deleteEnvVar(slug, args.key, target),
+      client
+        .deleteEnvVar(slug, args.key, target)
+        .catch(async (err: unknown): Promise<typeof ALREADY_ABSENT> => {
+          if (await isAlreadyAbsent(client, slug, args.key, target, err)) return ALREADY_ABSENT;
+          throw err;
+        }),
     );
+    const breadcrumbs = projectBreadcrumbs(slug, [
+      { command: `creek env ls${pf} --json`, description: "List remaining variables" },
+      { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
+    ]);
+    // Not set (for this target): nothing to remove, which is the state a
+    // re-run asked for. Variables are deleted outright, so one removed by an
+    // earlier run and one never set (a typo) can't be told apart: say so
+    // rather than claim either. A deploy is still suggested: if an earlier
+    // run removed it, running deployments keep the old value until then.
+    if (result === ALREADY_ABSENT) {
+      const what = `${args.key}${target ? ` (${target})` : ""}`;
+      const message = `${what} is not set on ${slug}; nothing was removed. If you expected it, check the name with \`creek env ls${pf}\`.`;
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: true,
+            key: args.key,
+            ...(target ? { target } : {}),
+            alreadyAbsent: true,
+            removed: false,
+            removedValues: 0,
+            project: slug,
+            projectSource,
+            applied: false,
+            pendingDeploy: true,
+            message,
+          },
+          0,
+          breadcrumbs,
+        );
+      consola.success(message);
+      return;
+    }
     // Same deploy-time injection as `set`: the var is removed from the
     // store but the running worker keeps the old value until redeploy.
     if (jsonMode)
@@ -286,6 +350,7 @@ const envRm = defineCommand({
           ok: true,
           key: args.key,
           ...(target ? { target } : {}),
+          alreadyAbsent: false,
           removed: true,
           removedValues: result.removed ?? 1,
           project: slug,
@@ -294,10 +359,7 @@ const envRm = defineCommand({
           pendingDeploy: true,
         },
         0,
-        projectBreadcrumbs(slug, [
-          { command: `creek env ls${pf} --json`, description: "List remaining variables" },
-          { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
-        ]),
+        breadcrumbs,
       );
     consola.success(`Removed ${args.key}${target ? ` (${target})` : ""}`);
     consola.info("Running deployments keep the old value until they are redeployed.");
