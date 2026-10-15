@@ -99,7 +99,34 @@ describe("creek status (project)", () => {
     );
     const code = await runExit(statusCommand.run!({ args: {} } as never));
     expect(code).toBe(0);
-    expect(json()).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
+    const out = json();
+    expect(out).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
+    // The cwd is this project, so a bare deploy is the right next step.
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain("creek deploy");
+  });
+
+  it("--project naming another project never suggests a bare deploy (it would ship the cwd's)", async () => {
+    const other = {
+      id: "p2",
+      slug: "other",
+      framework: null,
+      production_deployment_id: null,
+      created_at: 0,
+    };
+    server.use(http.get(`${API}/projects/other`, () => HttpResponse.json(other)));
+    expect(await runExit(statusCommand.run!({ args: { project: "other" } } as never))).toBe(0);
+    let commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+    expect(commands.some((c: string) => /^creek deploy( |$)/.test(c))).toBe(false);
+
+    stdout = "";
+    server.use(
+      http.get(`${API}/projects/gone`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(statusCommand.run!({ args: { project: "gone" } } as never))).toBe(1);
+    commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+    expect(commands.some((c: string) => /^creek deploy( |$)/.test(c))).toBe(false);
   });
 
   it("`domains ls` says where its project came from", async () => {

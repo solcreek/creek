@@ -132,7 +132,11 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
           },
           1,
           [
-            { command: "creek deploy", description: "Deploy to create the project" },
+            // Deploying from here creates the cwd's project, which is only
+            // this one when the directory names it.
+            ...(resolved
+              ? [{ command: "creek deploy", description: "Deploy to create the project" }]
+              : []),
             { command: "creek projects", description: "List existing projects" },
           ],
         );
@@ -186,7 +190,9 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
           command: `creek deployments --project ${project.slug}`,
           description: "List deployment history",
         },
-        { command: "creek deploy", description: "Deploy a new version" },
+        // A bare deploy ships the cwd's project: offer it only when that is
+        // the project reported here.
+        ...(resolved ? [{ command: "creek deploy", description: "Deploy a new version" }] : []),
       ],
     );
   }
