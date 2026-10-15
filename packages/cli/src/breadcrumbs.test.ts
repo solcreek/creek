@@ -20,8 +20,6 @@ const SUBCOMMANDS = main.subCommands as Record<string, unknown>;
  * `file: command`, exactly as reported; fix the string, then delete the line.
  */
 const KNOWN_BAD = new Set<string>([
-  // `creek top` takes no app: the name is ignored (deploy --host breadcrumbs).
-  "commands/deploy.ts: creek top VALUE",
   // `creek deploy` has no --host (init --adopt's next step).
   "commands/init.ts: creek deploy --host VALUE",
 ]);
