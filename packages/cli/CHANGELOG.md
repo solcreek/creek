@@ -1,5 +1,222 @@
 # @solcreek/cli
 
+## 0.4.55
+
+Requires `@solcreek/sdk@0.4.25`. Publish `sdk@0.4.25` before `cli@0.4.55` /
+`creek@0.4.55`.
+
+This release changes several `--json` shapes and exit codes. Agents parsing
+the old output should read [Compatibility](#compatibility) first.
+
+### Which project
+
+- **Every project command accepts `--project`** and finds its project the way
+  `creek deploy` does: `--project`, else `creek.toml` `[project].name`, else
+  the wrangler config's `name`, else the framework `package.json` `name`. This
+  covers `env`, `deployments`, `domains`, `queue send`, `logs`, `metrics`,
+  `rollback`, `status`, `db shell` / `migrate` and `doctor --last`. Before,
+  most of them read only `creek.toml`, so `creek env set` in a wrangler-only
+  project failed `no_project` while rejecting `--project`.
+- **Project commands never use the directory name as the project.** A static
+  site, a wrangler config without `name` or a `package.json` without `name`
+  gives `no_project` with `foundConfig` (the file) and a message saying where
+  to add a name. Results add `projectSource`: `flag`, `creek.toml`,
+  `wrangler` or `package.json`.
+- **`no_project`** names only `--project`, and its first breadcrumb is
+  `creek projects --json`. A config that exists but cannot be parsed is
+  `invalid_config` with the parser's diagnostic, here and in `creek deploy`.
+- **`creek status --project <slug>`** works outside the project directory. It
+  reports local config (bindings, cron, drift) only when the directory deploys
+  as that project; otherwise `config` is `null` and bindings are empty.
+- **Breadcrumbs are pasteable.** Follow-up commands add `--project <slug>`
+  when the current directory would not resolve to that project, and never
+  suggest a `creek deploy` that would ship a different project. Breadcrumbs
+  that named flags a command lacks are fixed: `rollback --to` suggests
+  `creek rollback <deployment-id>`, self-host rollback suggests
+  `creek top --server <addr>`, and `restart` / `top` suggest
+  `creek logs --server <url> --project <app-id>`.
+
+### Deploy destination
+
+- **`creek deploy --prod` never ends in a sandbox.** Signed out on a project
+  it is `not_authenticated`, with `creek login --token <KEY> --json` and
+  `creek deploy --sandbox --json` breadcrumbs. On a sandbox-only path
+  (`creek deploy <dir>`, `--template`, a bare build-output folder) it is
+  `prod_unsupported`, signed in or not. A bare `creek deploy` with no flag
+  still falls back to a sandbox when signed out.
+- **`--sandbox` never ends in production or creekd.** `--from-github --sandbox`
+  and `--sandbox` on a creekd project (`target = "creekd"`) are
+  `sandbox_unsupported`. `creek deploy <dir>` of a creekd project is
+  `creekd_dir_unsupported`, with a `cd <dir> && creek deploy --yes --json`
+  breadcrumb. A creekd project deploys with its own token, signed in or not.
+- **`--dry-run` plans exactly what the run does**: `target.type` (`production`,
+  `sandbox` or `creekd`) and `target.reason` come from the same decision the
+  real run dispatches on.
+- **`--sandbox` and `--dry-run` work with a saved key bound to another API**
+  (see [API keys](#api-keys)); they never send it. `--prod` still refuses with
+  `api_mismatch` before any request.
+- **`--wait` applies to a cache hit.** The cache-hit poll waits up to `--wait`
+  (default 2m) instead of a fixed 30s, and its timeout reports like any other.
+- **A static site deploys `[build].output`.** A sandbox deploy with
+  `output = "public"` next to a root `index.html` uploads `public/`.
+
+### Follow a deploy by id
+
+- **Every `creek deploy --json` result has `deploymentId`**: success,
+  `deploy_failed`, `cancelled`, `timeout`, `verify_failed`, a cache hit,
+  `--from-github` and an `upload_failed` the API refused. Failures add
+  `status`, `failedStep` and `errorCode` / `errorHint`. A sandbox failure
+  carries `sandboxId` once the sandbox exists.
+- **`creek deployments get <id>`** reports status, `final`, `failedStep`,
+  `errorCode` / `errorHint`, `url`, `commitSha` and `branch`. It takes the full
+  id or the 8-char short id.
+- **`creek deployments wait <id> [--timeout 2m]`** polls until the deployment
+  is final: exit 0 when active; exit 1 with `deployment_failed` or
+  `deployment_cancelled`; exit 1 with `error: "timeout"`, `retryable: true`
+  and the last status when it is still running. A dropped connection, 5xx or
+  429 is retried until the deadline.
+- **`creek status <id>`** looks for a deployment of the project first, then a
+  sandbox; `type` says which (`deployment` or `sandbox`). `creek status` now
+  reports `productionDeploymentId` and `createdAt`, which were always missing.
+- **A malformed deployment id is `invalid_id`** before any request (only a
+  uuid or a hex prefix of one is accepted).
+- **`--from-github` follows the triggered commit.** Results carry
+  `matchedBy: "commit" | "newest_row"`. A stand-in row adds
+  `commitMatched: false`, `expectedCommitSha` and `commitSha`. A deployment
+  still running at the 15-minute cap is a `timeout`, not a failure.
+
+### Safe re-runs
+
+- **Resource commands converge.** Re-running `creek db|storage|cache create`,
+  `attach`, `detach` or `delete` when the state already holds exits 0 with
+  `alreadyExists: true` or `alreadyAbsent: true`; a fresh change reports
+  `false`. A name held by another kind or by a deleted resource (names stay
+  reserved), or a binding name held by another resource, is still an error
+  and carries `details.existing`. `delete` of a name the team never had is
+  still `not_found`; a missing project in `detach` is `detach_failed` with
+  `details.missing: "project"`.
+- **`creek env rm` / `env unset` and `creek domains rm`** of something already
+  gone exit 0 with `alreadyAbsent: true`, `removed: false` (and
+  `removedValues: 0` for env), also under `--dry-run`. Env vars are not
+  tombstoned, so `alreadyAbsent` does not prove the key ever existed. A key
+  that is not a valid env name is `invalid_key`, and a domain that is not a
+  hostname is `not_found`, before any request.
+
+### Environment variables
+
+- **Env values are write-only.** `creek env ls --json` returns `key` and
+  `target` per var plus `valuesWriteOnly: true`. The old `value` was a mask of
+  the key name, never the value. `creek env ls --show` exits 1 with
+  `values_write_only`.
+
+### API keys
+
+These use the `/api-keys/self` route from the Creek API (solcreek/creek#125),
+already deployed.
+
+- **`creek whoami --json`** reports `tokenSource` (`env:CREEK_TOKEN` or
+  `config`) and `key`: `id`, `name`, `start`, `kind` (`legacy` | `scoped`),
+  `team`, `scopes`, `effectiveScopes`, `role`, `access`, `expiresAt`,
+  `expired`, `lastUsedAt`, and the legacy sunset `warning`. It warns when
+  `CREEK_TOKEN` overrides a different saved key. A key the session check
+  refuses but `/self` describes is `key_unusable`, not `session_expired`.
+  Against an API without `/self`, `key` is `null` with `keyLookup`.
+- **A saved key is bound to the API it was verified against.** `creek login
+  --token` records it; every command then refuses to send that key to another
+  API (`CREEK_API_URL` or the config's `apiUrl`) with `api_mismatch`,
+  `savedKeyApiUrl` and `apiUrl`, before any request. A key saved by an older
+  CLI is unbound and works as before; `whoami` reports
+  `keyBinding: "bound" | "unbound"`. `CREEK_TOKEN` is never bound.
+- **`creek login --token`** warns when `CREEK_TOKEN` will keep overriding the
+  key it saves.
+- **`creek logout`** (new) forgets the saved key and says it is still valid
+  (`keyStillValid`, `keyPrefix`, `dashboardUrl`). **`--revoke`** revokes the
+  active key: `revoked: true`, or `reason: "already_invalid"` on a 401. Any
+  other outcome keeps the key, exits 1 and sets `mayHaveApplied: true`.
+  `CREEK_TOKEN` set alongside a different saved key is
+  `ambiguous_credentials`, with one pasteable command for each key.
+- **`creek keys`** (new): `keys self` shows the active key, `keys revoke
+  --self [--dry-run]` revokes it. `keys ls`, `keys create` and
+  `keys revoke <id>` need a dashboard session: they return `session_required`
+  and `dashboardUrl` without a request.
+- **No output shows more of a key** than its prefix (`crk_sk_live_`,
+  `crk_sk_test_`, `ck_`) plus 4 characters.
+
+### JSON contract
+
+- **Every `--json` result has `ok` as its first key**, and every failure has
+  `error` and `message`.
+- **`creek logs --json` is NDJSON with a summary.** Entry lines are
+  `{"type":"entry", …, "projectSource"}`, and the stream ends with
+  `{"ok":true,"type":"summary","project","projectSource","count","truncated"}`,
+  so no entries prints `count: 0` instead of nothing. With `--follow`, a
+  `type: "following"` line separates history from live entries.
+- **An unreachable API is `api_unreachable` in every command**, with `reason`,
+  `retryable` and, when a write may have been applied, `mayHaveApplied: true`.
+  Before, commands that call the API directly returned their own code with
+  `message: "fetch failed"`. API refusals keep the command's code with
+  `status`, `apiError` and `details`.
+- **`--help --json` comes from the command definitions.** `destructive` means
+  the command may delete or overwrite data or change what is live; it is no
+  longer "has `--dry-run`" (read `dryRun` for that). A command registered
+  under several names is listed once with `aliases` (`env rm`, aliases
+  `["unset"]`). `args[].enum` lists allowed values (`env --target`,
+  `metrics --period`, `dev --target`).
+- **`creek queue send` help** says a JSON body needs `--parseJson` (`-j`);
+  `--json` is the output flag.
+
+### Init
+
+- **`creek init` no longer overwrites an existing `creek.toml` silently.** A
+  non-interactive run exits `already_exists` with a `creek init --force --json`
+  breadcrumb. `--force` replaces it; results carry `replaced`.
+- **A plain static site gets a deployable config**: `command = ""` and
+  `output = "."` (or `"public"`). JSON adds `staticSite` and `build`.
+- **Agent configuration is no longer gitignored.** `init` adds only `.creek`
+  and `.claude/settings.local.json`; `.claude`, `.cursor`, `.windsurf`,
+  `.agents`, `.github/copilot*` hold team-shared rules and stay tracked.
+
+### Compatibility
+
+Changes that can break an agent parsing the 0.4.54 output:
+
+- **Exit 1 becomes exit 0**: re-running resource `create` / `attach` /
+  `detach` / `delete`, `env rm` and `domains rm` when the state already holds.
+  Read `alreadyExists` / `alreadyAbsent`.
+- **Exit 0 becomes exit 1**: `creek ops health` when a service is down (adds
+  `error: "unhealthy"`), `creek env ls --show` (`values_write_only`), and
+  non-interactive `creek init` over an existing `creek.toml`
+  (`already_exists`).
+- **`creek deploy --prod`** that used to deploy a sandbox now fails:
+  `not_authenticated` signed out, `prod_unsupported` on a sandbox-only path.
+  `--from-github --sandbox` and `--sandbox` on a creekd project are
+  `sandbox_unsupported`; `creek deploy <dir>` of a creekd project is
+  `creekd_dir_unsupported`.
+- **Network failures** are `error: "api_unreachable"` instead of the
+  command's code (`set_failed`, `api_error`, …).
+- **`creek logs --json`** lines gain `type`; skip lines whose `type` is not
+  `"entry"`. A final `summary` line is always printed.
+- **`creek env ls --json`** drops `vars[].value`.
+- **`creek verify --json`** failures are `error: "verify_failed"`; the old
+  reason (`"HTTP 500"`, `"Missing: …"`) moved to `message`.
+- **`creek ops <unknown> --json`** is `error: "unknown_command"` with the text
+  in `message`. **`creek doctor --json`** with issues adds
+  `error: "issues_found"`.
+- **`--help --json`**: `destructive` is now `true` for `projects delete`,
+  `db|storage|cache detach`, `db shell` / `seed`, `restart`, `stop` and `init`.
+  `env` lists `rm` once with `aliases`.
+- **Deploy timeout breadcrumbs** are `creek deployments wait <id> --json` and
+  `creek deployments logs <id> --json` (were `creek status`). A sandbox failure
+  suggests a retry only when `retryable: true`. `--from-github` failures gain
+  `error` (`deploy_failed` or `cancelled`) next to `errorMessage`.
+- **`creek status <8-char id>`** resolves to a deployment of the project before
+  a sandbox with the same id.
+- **A key saved by `creek login`** is refused with `api_mismatch` when
+  `CREEK_API_URL` points at another API. Run `creek login` against that API,
+  or use `CREEK_TOKEN`.
+- **`no_project`** has a new message and a `creek projects --json` first
+  breadcrumb; a config without a project name adds `foundConfig`.
+
 ## 0.4.54
 
 Requires `@solcreek/sdk@0.4.24`, already published.
