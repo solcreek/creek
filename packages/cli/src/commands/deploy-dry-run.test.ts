@@ -237,6 +237,12 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(out).toMatchObject({ mode: "dry-run", supported: true, target: { type: "creekd" } });
   });
 
+  it("a dry-run plan sets ok explicitly", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const out = await dryRunJson({ sandbox: true });
+    expect(out.ok).toBe(true);
+  });
+
   it("signed out, no target flag still plans a sandbox (implicit behaviour unchanged)", async () => {
     writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
     const plan = await dryRunJson();

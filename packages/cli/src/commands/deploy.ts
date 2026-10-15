@@ -327,9 +327,16 @@ export function productionProofPayload(
   return {
     ok: false,
     error: "verify_failed",
+    message: verifyFailedMessage(url, proof),
     url,
     ...(proof ? { proof } : {}),
   };
+}
+
+/** Why a deploy whose upload succeeded still reports verify_failed. */
+export function verifyFailedMessage(url: string, proof: VerifyResult | null): string {
+  const why = proof ? (proof.error ?? `HTTP ${proof.status}`) : "not checked";
+  return `Deployed, but ${url} did not answer with a 2xx/3xx (${why}). Re-check with: creek verify ${url} --json`;
 }
 
 /**
@@ -427,6 +434,7 @@ async function dryRunPlan(
     if (jsonMode) {
       jsonOutput(
         {
+          ok: true,
           mode: "dry-run",
           supported: false,
           unsupportedMode,
@@ -564,7 +572,7 @@ async function dryRunPlan(
   };
 
   if (jsonMode) {
-    jsonOutput(plan, 0, []);
+    jsonOutput({ ok: true, ...plan }, 0, []);
     return;
   }
 
@@ -1090,7 +1098,7 @@ export const deployCommand = defineCommand({
       if (!existsSync(cwd)) {
         if (jsonMode)
           jsonOutput(
-            { error: "not_found", message: `Directory not found: ${args.dir}` },
+            { ok: false, error: "not_found", message: `Directory not found: ${args.dir}` },
             1,
             NO_PROJECT_BREADCRUMBS,
           );
@@ -1179,7 +1187,7 @@ export const deployCommand = defineCommand({
     // --- Nothing found → guide the user ---
     if (jsonMode)
       jsonOutput(
-        { error: "no_project", message: "No project found in this directory" },
+        { ok: false, error: "no_project", message: "No project found in this directory" },
         1,
         NO_PROJECT_BREADCRUMBS,
       );
@@ -1217,7 +1225,7 @@ async function deployCreekd(
   } catch {
     const msg = `Cannot reach creekd at ${getCreekdUrl()}. Is it running?`;
     if (jsonMode)
-      jsonOutput({ error: "creekd_unreachable", message: msg }, 1, [
+      jsonOutput({ ok: false, error: "creekd_unreachable", message: msg }, 1, [
         { command: "creekd", description: "Start the daemon" },
       ]);
     consola.error(msg);
@@ -1339,7 +1347,7 @@ async function deployCreekd(
         },
         watchSummary && !watchSummary.ok ? 1 : 0,
         [
-          { command: `creek top ${resolved.projectName}`, description: "Check app status" },
+          { command: "creek top --json", description: "Check app status" },
           { command: `creek logs --server ${resolved.projectName}`, description: "View app logs" },
           { command: `creek exec -- bun run seed.ts`, description: "Run one-off command" },
         ],
@@ -1365,7 +1373,7 @@ async function deployCreekd(
       consola.info(`  http://localhost:${port}`);
       console.log("");
       consola.info("  Next steps:");
-      consola.info(`    creek top ${resolved.projectName}      Check status`);
+      consola.info(`    creek top                 Check status`);
       consola.info(`    creek logs --server ${resolved.projectName}     View logs`);
       consola.info(`    creekctl events ${resolved.projectName}   Stream events`);
     }
@@ -1465,7 +1473,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   if (!token) {
     if (jsonMode)
       jsonOutput(
-        { error: "not_authenticated", message: "Run `creek login` first." },
+        { ok: false, error: "not_authenticated", message: "Run `creek login` first." },
         1,
         AUTH_BREADCRUMBS,
       );
@@ -1490,6 +1498,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     if (jsonMode)
       jsonOutput(
         {
+          ok: false,
           error: "validation",
           message: "Could not determine target project. Pass --project <slug>.",
         },
@@ -1613,6 +1622,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         if (jsonMode)
           jsonOutput(
             {
+              ok: false,
               error: "no_deployment",
               message: "Deployment row did not appear within 20s. Check server logs.",
             },
@@ -1655,7 +1665,7 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   if (!targetDeployment) {
     if (jsonMode)
       jsonOutput(
-        { error: "timeout", message: "Timed out waiting for deployment" },
+        { ok: false, error: "timeout", message: "Timed out waiting for deployment" },
         1,
         NO_PROJECT_BREADCRUMBS,
       );
@@ -1850,7 +1860,7 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
   } catch (err) {
     if (err instanceof RepoUrlError || err instanceof GitCloneError) {
       if (jsonMode)
-        jsonOutput({ error: "repo_deploy_failed", message: err.message }, 1, [
+        jsonOutput({ ok: false, error: "repo_deploy_failed", message: err.message }, 1, [
           { command: "npx create-creek-app", description: "Create a new project from a template" },
         ]);
       consola.error(err.message);
@@ -1898,7 +1908,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
       jsonOutput(
         {
           ok: proof.ok,
-          ...(proof.ok ? {} : { error: "verify_failed" }),
+          ...(proof.ok
+            ? {}
+            : { error: "verify_failed", message: verifyFailedMessage(status.previewUrl, proof) }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -1923,37 +1935,53 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
     if (!proof.ok) process.exit(1);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Deploy failed";
     // A timeout is usually deterministic (upload volume), so don't lead with a
     // naked "retry" — point at the cause first. Tagged via the error's `code`
-    // so it survives across module boundaries. Other failures keep the simple
-    // retry hint.
+    // so it survives across module boundaries.
     const deterministic = (err as { code?: string })?.code === "deploy_timeout";
-    const crumbs =
-      deterministic && result
-        ? [
-            {
-              command: `creek status ${result.sandboxId}`,
-              description: "Check what the deploy is stuck on",
-            },
-            { command: AGENT_SANDBOX_DEPLOY, description: "Retry only if the cause was transient" },
-          ]
-        : [{ command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" }];
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: false,
-          error: "deploy_failed",
-          deterministic,
-          message,
-          ...(result ? { sandboxId: result.sandboxId } : {}),
-        },
-        1,
-        crumbs,
-      );
-    consola.error(message);
-    process.exit(1);
+    reportSandboxFailure(jsonMode, err, result?.sandboxId ?? null, { deterministic });
   }
+}
+
+/**
+ * A sandbox deploy that failed. The sandbox is named once it exists, and
+ * `creek status <sandboxId>` follows it. A failed API call's own fields go
+ * last (apiErrorFields), so a network failure reads as what it is, with
+ * honest retryable / mayHaveApplied. Re-running the deploy is suggested only
+ * when that says retryable: otherwise the first POST may already have created
+ * a sandbox, and a retry would make another.
+ */
+function reportSandboxFailure(
+  jsonMode: boolean,
+  err: unknown,
+  sandboxId: string | null,
+  extra: Record<string, unknown> = {},
+): never {
+  const message = err instanceof Error ? err.message : "Sandbox deploy failed";
+  const fields: Record<string, unknown> = {
+    ok: false,
+    error: "deploy_failed",
+    message,
+    ...extra,
+    ...(sandboxId ? { sandboxId } : {}),
+    ...apiErrorFields(err),
+  };
+  if (jsonMode) {
+    const crumbs: Breadcrumb[] = [];
+    if (sandboxId) {
+      crumbs.push({
+        command: `creek status ${sandboxId} --json`,
+        description: "Check what the sandbox is doing",
+      });
+    }
+    if (fields.retryable === true) {
+      crumbs.push({ command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" });
+    }
+    jsonOutput(fields, 1, crumbs);
+  }
+  consola.error(message);
+  if (sandboxId) consola.info(`  Check it:  creek status ${sandboxId}`);
+  process.exit(1);
 }
 
 // ============================================================================
@@ -2125,7 +2153,9 @@ async function deploySandbox(
       jsonOutput(
         {
           ok: proof.ok,
-          ...(proof.ok ? {} : { error: "verify_failed" }),
+          ...(proof.ok
+            ? {}
+            : { error: "verify_failed", message: verifyFailedMessage(status.previewUrl, proof) }),
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
@@ -2160,31 +2190,7 @@ async function deploySandbox(
     printSandboxSuccess(status.previewUrl, result.expiresAt, result.sandboxId);
     if (!proof.ok) process.exit(1);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Sandbox deploy failed";
-    // Once the sandbox exists, name it: `creek status <sandboxId>` follows it.
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: false,
-          error: "deploy_failed",
-          message,
-          ...(result ? { sandboxId: result.sandboxId } : {}),
-        },
-        1,
-        [
-          ...(result
-            ? [
-                {
-                  command: `creek status ${result.sandboxId} --json`,
-                  description: "Check the sandbox",
-                },
-              ]
-            : []),
-          { command: AGENT_SANDBOX_DEPLOY, description: "Retry sandbox deploy" },
-        ],
-      );
-    consola.error(message);
-    process.exit(1);
+    reportSandboxFailure(jsonMode, err, result?.sandboxId ?? null);
   }
 }
 

@@ -51,7 +51,11 @@ beforeAll(async () => {
         expiresAt,
       });
     }
-    if (p === "/api/sandbox/sb000001/status") return json({ ...sandboxStatus, expiresAt });
+    if (p === "/api/sandbox/sb000001/status") {
+      // The connection drops after the sandbox was created.
+      if (sandboxStatus.drop) return res.destroy();
+      return json({ ...sandboxStatus, expiresAt });
+    }
     if (p === "/api/auth/get-session") {
       return json({ user: { id: "u1", email: "t@example.com", name: "T" }, session: {} });
     }
@@ -243,5 +247,34 @@ describe.skipIf(!existsSync(CLI))("creek deploy --json names the deployment", ()
     expect(r.code).toBe(1);
     expect(r.out).toMatchObject({ ok: false, error: "deploy_failed", sandboxId: "sb000001" });
     expect(crumbs(r.out)).toContain("creek status sb000001 --json");
+  });
+
+  test("a connection lost after the sandbox was created never suggests re-running the deploy", async () => {
+    // The POST created a sandbox; a re-run would create a second one.
+    sandboxStatus = { drop: true };
+    const r = await deploy(["--sandbox", "--skip-build", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatchObject({ ok: false, sandboxId: "sb000001" });
+    expect(r.out.retryable).not.toBe(true);
+    expect(crumbs(r.out)).toEqual(["creek status sb000001 --json"]);
+  });
+
+  test("a static-directory sandbox deploy lost the same way does not suggest a re-run either", async () => {
+    sandboxStatus = { drop: true };
+    rmSync(join(app, "creek.toml"));
+    rmSync(join(app, "package.json"));
+    const r = await deploy(["dist", "--sandbox", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatchObject({ ok: false, sandboxId: "sb000001" });
+    expect(crumbs(r.out)).toEqual(["creek status sb000001 --json"]);
+  });
+
+  test("a verify_failed sandbox result has a message", async () => {
+    // A preview URL nothing answers on.
+    sandboxStatus = { sandboxId: "sb000001", status: "active", previewUrl: "http://127.0.0.1:9/" };
+    const r = await deploy(["--sandbox", "--skip-build", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatchObject({ ok: false, error: "verify_failed", sandboxId: "sb000001" });
+    expect(r.out.message).toMatch(/did not answer/);
   });
 });
