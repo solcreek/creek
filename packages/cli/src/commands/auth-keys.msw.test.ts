@@ -228,6 +228,58 @@ describe("creek whoami — the key in use", () => {
     expect(out).toMatchObject({ error: "session_expired", tokenSource: "env:CREEK_TOKEN" });
     expect(out.message).toContain("CREEK_TOKEN");
   });
+
+  // The session check refuses these keys with 403; /api-keys/self still
+  // describes them (control-plane api-keys/service.ts describeKey).
+  it.each([
+    [
+      "its owner left the pinned team",
+      {
+        ...SCOPED,
+        role: null,
+        effectiveScopes: [],
+        access: "none",
+        warning:
+          "The key's owner is no longer a member of the team the key is pinned to; it is refused everywhere.",
+      },
+      "no longer a member",
+    ],
+    [
+      "its stored scopes are unreadable",
+      {
+        ...SCOPED,
+        scopes: [],
+        role: null,
+        effectiveScopes: [],
+        access: "none",
+        unreadable: true,
+        warning: "This key's stored scopes are unreadable; it is refused everywhere. Revoke it.",
+      },
+      "unreadable",
+    ],
+  ])(
+    "a key the session check refuses because %s is explained, not called expired",
+    async (_, self, why) => {
+      process.env.CREEK_TOKEN = SCOPED_KEY;
+      server.use(
+        http.get(`${API}/api/auth/get-session`, () =>
+          HttpResponse.json({ error: "forbidden", message: "refused" }, { status: 403 }),
+        ),
+        http.get(`${API}/api-keys/self`, () => HttpResponse.json(self)),
+      );
+      expect(await run(whoamiCommand, {})).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({
+        ok: false,
+        authenticated: false,
+        error: "key_unusable",
+        tokenSource: "env:CREEK_TOKEN",
+        key: { id: "key-scoped", access: "none", effectiveScopes: [] },
+      });
+      expect(out.message).toContain(why);
+      expect(out.breadcrumbs[0].command).toBe("creek keys revoke --self --json");
+    },
+  );
 });
 
 describe("creek login --token", () => {

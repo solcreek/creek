@@ -38,7 +38,38 @@ export const whoamiCommand = defineCommand({
     }
 
     const client = new CreekClient(getApiUrl(), token);
-    const session = await client.getSession();
+    // Fetched independently: /api-keys/self also answers for a key the
+    // session check refuses (403: its owner left the pinned team, or its
+    // stored scopes are unreadable), and says why.
+    const [session, lookup] = await Promise.all([client.getSession(), lookupKey(client)]);
+
+    if (!session?.user && lookup.ok) {
+      // The API knows the key but will not let it act: explain, don't
+      // blame a revoked or expired login, and don't call it usable.
+      const key = lookup.key;
+      const message =
+        key.warning ??
+        "The API recognises this key but refuses to act with it (access: none). Revoke it and use another key.";
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            authenticated: false,
+            error: "key_unusable",
+            message,
+            tokenSource: info.source,
+            key,
+          },
+          1,
+          [
+            { command: "creek keys revoke --self --json", description: "Revoke this unusable key" },
+            ...AUTH_BREADCRUMBS,
+          ],
+        );
+      consola.error(message);
+      for (const line of keyLines(key)) consola.log(line);
+      process.exit(1);
+    }
 
     if (!session?.user) {
       const message =
@@ -63,7 +94,6 @@ export const whoamiCommand = defineCommand({
 
     // Key details are extra: an API without /api-keys/self, or a failed
     // lookup, never fails whoami.
-    const lookup = await lookupKey(client);
     const key = lookup.ok ? lookup.key : null;
     const warnings = [warning, key?.warning].filter((w): w is string => Boolean(w));
 

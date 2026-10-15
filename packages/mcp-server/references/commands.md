@@ -129,6 +129,9 @@ set (even empty), wins over the key `creek login --token` saved in
   a write instead of waiting for `insufficient_scope`.
 - `key: null` with `keyLookup.error: "server_unsupported"` means the API
   predates key details; whoami still exits 0.
+- `error: "key_unusable"` (exit 1) with `key.access: "none"`: the API knows
+  the key but refuses to act with it (its owner left the pinned team, or its
+  scopes are unreadable); `message` says which. Revoke it and use another key.
 
 A key can read and revoke only itself. Minting, listing and revoking other
 keys need a signed-in dashboard session, which the CLI never holds:
