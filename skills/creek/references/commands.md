@@ -50,7 +50,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
-| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; `--parse-json` is not recognised) |
+| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; the CLI rejects `--parse-json` as `unknown_flag`) |
 | Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
 | Trigger a cron firing in dev | type `cron` + Enter in the running `creek dev` terminal (only when `[triggers] cron` is set; there is no `--trigger-cron` flag) |
