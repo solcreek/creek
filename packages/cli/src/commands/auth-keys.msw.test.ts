@@ -68,9 +68,15 @@ const run = (cmd: { run?: unknown }, args: Record<string, unknown>) =>
 const sub = (name: string) => (keysCommand.subCommands as Record<string, { run?: unknown }>)[name];
 
 const configPath = () => join(home, ".creek", "config.json");
+/**
+ * Write ~/.creek/config.json. A saved token belongs to the test API unless
+ * the case says otherwise (`tokenApiUrl: undefined` writes a config from
+ * before tokenApiUrl existed).
+ */
 function saveConfig(config: Record<string, unknown>) {
   mkdirSync(join(home, ".creek"), { recursive: true });
-  writeFileSync(configPath(), JSON.stringify(config));
+  const full = "token" in config ? { tokenApiUrl: API, ...config } : config;
+  writeFileSync(configPath(), JSON.stringify(full));
 }
 const readConfig = () => JSON.parse(readFileSync(configPath(), "utf8"));
 
@@ -280,6 +286,63 @@ describe("creek whoami — the key in use", () => {
       expect(out.breadcrumbs[0].command).toBe("creek keys revoke --self --json");
     },
   );
+});
+
+describe("a saved key goes only to the API it was saved for", () => {
+  const OTHER_API = "https://api.creek.dev";
+
+  it("login records the API it verified the key against", async () => {
+    api({ [SCOPED_KEY]: SCOPED });
+    expect(await run(loginCommand, { token: SCOPED_KEY, json: true })).toBe(0);
+    expect(readConfig()).toMatchObject({ token: SCOPED_KEY, tokenApiUrl: API });
+  });
+
+  it.each([
+    ["saved for another API", { token: SCOPED_KEY, tokenApiUrl: OTHER_API }, OTHER_API],
+    // Written before tokenApiUrl: counts as the config's own API (here the default).
+    [
+      "from an older config (no tokenApiUrl)",
+      { token: SCOPED_KEY, tokenApiUrl: undefined },
+      OTHER_API,
+    ],
+  ])(
+    "a key %s is never sent: whoami, keys self, keys revoke --self → api_mismatch",
+    async (_, config, savedFor) => {
+      saveConfig(config);
+      // No handlers: any request fails the test.
+      for (const drive of [
+        () => run(whoamiCommand, {}),
+        () => run(sub("self"), {}),
+        () => run(sub("revoke"), { self: true, yes: true }),
+      ]) {
+        stdout = "";
+        expect(await drive()).toBe(1);
+        expect(json()).toMatchObject({
+          ok: false,
+          error: "api_mismatch",
+          savedKeyApiUrl: savedFor,
+          apiUrl: API,
+        });
+      }
+      expect(readConfig().token).toBe(SCOPED_KEY);
+    },
+  );
+
+  it("an older config whose apiUrl is the API in use still works", async () => {
+    delete process.env.CREEK_API_URL;
+    saveConfig({ token: SCOPED_KEY, tokenApiUrl: undefined, apiUrl: API });
+    api({ [SCOPED_KEY]: SCOPED });
+    expect(await run(whoamiCommand, {})).toBe(0);
+    expect(json()).toMatchObject({ ok: true, tokenSource: "config", key: { id: "key-scoped" } });
+  });
+
+  it("CREEK_TOKEN is sent to the API in use whatever the saved key's API", async () => {
+    saveConfig({ token: SCOPED_KEY, tokenApiUrl: OTHER_API });
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    api({ [LEGACY_KEY]: LEGACY });
+    expect(await run(whoamiCommand, {})).toBe(0);
+    expect(json()).toMatchObject({ ok: true, tokenSource: "env:CREEK_TOKEN" });
+  });
 });
 
 describe("creek login --token", () => {

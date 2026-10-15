@@ -142,7 +142,8 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   }
 
   const config = readCliConfig();
-  writeCliConfig({ ...config, token: apiKey });
+  // The key is only ever sent to the API it was verified against.
+  writeCliConfig({ ...config, token: apiKey, tokenApiUrl: getApiUrl() });
 
   // CREEK_TOKEN wins over the key just saved; say so instead of letting
   // every later command silently use another key.

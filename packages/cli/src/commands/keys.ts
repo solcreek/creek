@@ -13,6 +13,7 @@ import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import {
   CHECK_KEY_BREADCRUMB,
   describeTokenSource,
+  exitApiMismatch,
   keyLines,
   lookupKey,
   revokeSelf,
@@ -62,6 +63,8 @@ const selfCommand = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const info = getTokenInfo();
+    if (info.source === "config" && info.savedKeyApiMismatch)
+      exitApiMismatch(jsonMode, info, "send it");
     const client = requireClient(jsonMode);
     const lookup = await lookupKey(client);
     if (!lookup.ok) {
@@ -184,6 +187,8 @@ const revokeCommand = defineCommand({
     }
 
     const info = getTokenInfo();
+    if (info.source === "config" && info.savedKeyApiMismatch)
+      exitApiMismatch(jsonMode, info, "revoke it");
     const client = requireClient(jsonMode);
 
     if (isDryRun(args)) {

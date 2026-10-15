@@ -4,7 +4,19 @@ import { homedir } from "node:os";
 
 interface CliConfig {
   token?: string;
+  /**
+   * The API the saved token was saved for (by `creek login`). The token is
+   * only ever sent there. Absent in configs written before it existed.
+   */
+  tokenApiUrl?: string;
   apiUrl?: string;
+}
+
+export const DEFAULT_API_URL = "https://api.creek.dev";
+
+/** Compare API URLs without a trailing slash. */
+export function sameApiUrl(a: string, b: string): boolean {
+  return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
 }
 
 // Resolved on each call (not at import), so HOME decides where the config
@@ -40,15 +52,27 @@ export function writeCliConfig(config: CliConfig): void {
 }
 
 /**
- * Remove the stored API key, keeping the rest of the config (apiUrl).
- * Returns whether there was one.
+ * Remove the stored API key (and the API it was saved for), keeping the
+ * rest of the config (apiUrl). With `expected`, only when the config still
+ * holds exactly that key: a `creek login` that ran meanwhile is kept.
+ * Returns whether a key was removed.
  */
-export function clearCliToken(): boolean {
+export function clearCliToken(expected?: string): boolean {
   const config = readCliConfig();
   if (config.token === undefined) return false;
-  const { token: _token, ...rest } = config;
+  if (expected !== undefined && config.token !== expected) return false;
+  const { token: _token, tokenApiUrl: _url, ...rest } = config;
   writeCliConfig(rest);
   return true;
+}
+
+/**
+ * The API the saved key belongs to. A config written before tokenApiUrl
+ * existed counts as saved for the API the config itself selects: its
+ * apiUrl, else the default API.
+ */
+export function savedTokenApiUrl(config: CliConfig = readCliConfig()): string {
+  return config.tokenApiUrl ?? config.apiUrl ?? DEFAULT_API_URL;
 }
 
 /** Where the API key in use comes from. */
@@ -63,6 +87,15 @@ export interface TokenInfo {
    * `creek login`: the stored key is ignored while the variable is set.
    */
   shadowsConfigToken: boolean;
+  /** The key saved by `creek login`, if any (whether or not it is in use). */
+  savedToken: string | undefined;
+  /** The API the saved key belongs to (see savedTokenApiUrl). */
+  savedApiUrl: string | undefined;
+  /**
+   * The API the CLI would talk to now differs from the saved key's: the
+   * saved key must not be sent (or revoked, or cleared) here.
+   */
+  savedKeyApiMismatch: boolean;
 }
 
 /**
@@ -70,25 +103,32 @@ export interface TokenInfo {
  * CREEK_TOKEN, when set at all (even empty), wins over the stored key.
  */
 export function getTokenInfo(): TokenInfo {
+  const config = readCliConfig();
+  const stored = config.token || undefined;
+  const savedApiUrl = stored ? savedTokenApiUrl(config) : undefined;
+  const saved = {
+    savedToken: stored,
+    savedApiUrl,
+    savedKeyApiMismatch: savedApiUrl !== undefined && !sameApiUrl(savedApiUrl, getApiUrl()),
+  };
   const env = process.env.CREEK_TOKEN;
   if (env !== undefined) {
-    const stored = readCliConfig().token;
     return {
       token: env,
       source: "env:CREEK_TOKEN",
       shadowsConfigToken: Boolean(stored) && stored !== env,
+      ...saved,
     };
   }
-  const stored = readCliConfig().token;
-  return { token: stored, source: stored ? "config" : null, shadowsConfigToken: false };
+  return { token: stored, source: stored ? "config" : null, shadowsConfigToken: false, ...saved };
 }
 
 export function getToken(): string | undefined {
-  return getTokenInfo().token;
+  return process.env.CREEK_TOKEN ?? readCliConfig().token;
 }
 
 export function getApiUrl(): string {
-  return process.env.CREEK_API_URL ?? readCliConfig().apiUrl ?? "https://api.creek.dev";
+  return process.env.CREEK_API_URL ?? readCliConfig().apiUrl ?? DEFAULT_API_URL;
 }
 
 /**

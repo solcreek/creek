@@ -3,7 +3,13 @@ import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getTokenInfo, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { describeTokenSource, envOverrideWarning, keyLines, lookupKey } from "../utils/api-key.js";
+import {
+  describeTokenSource,
+  envOverrideWarning,
+  exitApiMismatch,
+  keyLines,
+  lookupKey,
+} from "../utils/api-key.js";
 
 export const whoamiCommand = defineCommand({
   meta: {
@@ -36,6 +42,10 @@ export const whoamiCommand = defineCommand({
       consola.error(message);
       process.exit(1);
     }
+
+    // The saved key goes only to the API it was saved for.
+    if (info.source === "config" && info.savedKeyApiMismatch)
+      exitApiMismatch(jsonMode, info, "send it", { authenticated: false });
 
     const client = new CreekClient(getApiUrl(), token);
     // Fetched independently: /api-keys/self also answers for a key the
