@@ -4,7 +4,7 @@ import { createMiddleware } from "hono/factory";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import type { AuditRequestContext } from "../audit/types.js";
-import { recordAudit } from "../audit/service.js";
+import { recordAudit, recordAuditOrThrow } from "../audit/service.js";
 import { createAuth } from "../tenant/auth.js";
 import { loadApiKeyGrant, type ApiKeyGrant } from "../tenant/api-key-grant.js";
 import { resolveTeam } from "../tenant/resolve.js";
@@ -101,7 +101,26 @@ async function auditTeamFor(db: D1Database, userId: string, key: KeyView): Promi
   return team.ok ? team.team.id : null;
 }
 
+/**
+ * Audit a revocation. Best-effort: the key is already deleted, and revoking
+ * is the safe direction, so a failed audit (or team lookup) is logged and
+ * never turns a completed revocation into an error.
+ */
 async function auditRevoke(
+  db: D1Database,
+  auditCtx: AuditRequestContext,
+  user: AuthUser,
+  key: KeyView,
+  via: "session" | "self",
+) {
+  try {
+    await auditRevokeOrThrow(db, auditCtx, user, key, via);
+  } catch (err) {
+    console.error(`[api-keys] audit of key ${key.id} revocation failed:`, err);
+  }
+}
+
+async function auditRevokeOrThrow(
   db: D1Database,
   auditCtx: AuditRequestContext,
   user: AuthUser,
@@ -248,11 +267,12 @@ apiKeys.post("/", sessionOnlyRoute, async (c) => {
     );
   }
 
-  // Audit is best-effort, as everywhere else: the key exists and belongs to
-  // the caller, so a failed audit write must not turn into a 500 that
-  // withholds the secret of a live key. The failure is logged.
+  // No key may exist without its creation audit: write it before the
+  // secret goes out, and if it cannot be written, delete the key and answer
+  // 500. Should that delete fail too, it is logged as CRITICAL; the key's
+  // secret was never returned, so nobody can use it.
   try {
-    await recordAudit(
+    await recordAuditOrThrow(
       c.env.DB,
       user,
       team.id,
@@ -271,6 +291,11 @@ apiKeys.post("/", sessionOnlyRoute, async (c) => {
     );
   } catch (err) {
     console.error(`[api-keys] audit of key ${minted.id} creation failed:`, err);
+    await discardKey(c.env.DB, minted.id, "its creation audit could not be written");
+    return c.json(
+      { error: "key_create_failed", message: "API key creation failed; no key was created" },
+      500,
+    );
   }
 
   // The secret is in this response and nowhere else.

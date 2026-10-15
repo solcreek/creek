@@ -7,28 +7,19 @@ import { createFixture, type Fixture } from "../tenant/scoped-key-fixture.js";
  * key is left behind. createAuth is wrapped so its createApiKey drops
  * `permissions` while `dropPermissions` is set.
  *
- * And the opposite: once a key has been created and verified, nothing
- * after it (a failing database read, a failing audit write) may leave the
- * key live without returning its secret. `afterCreate` runs right after
- * Better Auth creates the key; `auditThrows` makes recordAudit throw.
+ * After the key has been created and verified: a failing database read
+ * must not leave it live without returning its secret, and a failing
+ * creation audit must delete it (no key exists without its audit).
+ * `afterCreate` runs right after Better Auth creates the key.
+ *
+ * Revocation is the other way round: it stays done even when its audit
+ * cannot be written.
  */
 
 const state = vi.hoisted(() => ({
   dropPermissions: false,
   afterCreate: null as null | (() => Promise<void>),
-  auditThrows: false,
 }));
-
-vi.mock("../audit/service.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../audit/service.js")>();
-  return {
-    ...actual,
-    recordAudit: (...args: Parameters<typeof actual.recordAudit>) => {
-      if (state.auditThrows) throw new Error("audit unavailable");
-      return actual.recordAudit(...args);
-    },
-  };
-});
 
 vi.mock("../tenant/auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../tenant/auth.js")>();
@@ -65,7 +56,6 @@ describe("POST /api-keys when the scopes do not land", () => {
   afterEach(() => {
     state.dropPermissions = false;
     state.afterCreate = null;
-    state.auditThrows = false;
     vi.restoreAllMocks();
     f.cleanup();
   });
@@ -108,7 +98,6 @@ describe("POST /api-keys after the key exists", () => {
   });
   afterEach(() => {
     state.afterCreate = null;
-    state.auditThrows = false;
     vi.restoreAllMocks();
     f.cleanup();
   });
@@ -139,17 +128,69 @@ describe("POST /api-keys after the key exists", () => {
     expect((await f.call("GET", "/api-keys/self", { "x-api-key": body.key })).status).toBe(200);
   });
 
-  it("returns the secret when the audit write throws, and the key works", async () => {
+  it("deletes the key and answers 500 without the secret when the creation audit fails", async () => {
     const owner = await f.signUp("owner@example.com");
-    state.auditThrows = true;
+    state.afterCreate = async () => {
+      await f.sql("ALTER TABLE audit_log RENAME TO audit_log_gone");
+    };
     const res = await create(owner.cookie, owner.orgSlug);
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as Record<string, any>;
-    expect(body.key).toMatch(/^crk_sk_live_/);
-    expect((await f.sql<{ id: string }>("SELECT id FROM apikey")).map((r) => r.id)).toEqual([
-      body.id,
-    ]);
-    state.auditThrows = false;
-    expect((await f.call("GET", "/projects", { "x-api-key": body.key })).status).toBe(200);
+    state.afterCreate = null;
+    await f.sql("ALTER TABLE audit_log_gone RENAME TO audit_log");
+
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(JSON.parse(text).error).toBe("key_create_failed");
+    expect(text).not.toContain("crk_sk_live_");
+    expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
+  });
+});
+
+describe("revoking a key when its audit cannot be written", () => {
+  let f: Fixture;
+  beforeEach(() => {
+    f = createFixture();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    f.cleanup();
+  });
+
+  const mint = async (cookie: string, team: string) =>
+    (await (
+      await f.call("POST", "/api-keys", { cookie }, { name: "k", team, scopes: ["project:read"] })
+    ).json()) as { id: string; key: string };
+
+  it("still revokes by session when the audit table is gone", async () => {
+    const owner = await f.signUp("owner@example.com");
+    const created = await mint(owner.cookie, owner.orgSlug);
+    await f.sql("ALTER TABLE audit_log RENAME TO audit_log_gone");
+    const res = await f.call("DELETE", `/api-keys/${created.id}`, { cookie: owner.cookie });
+    await f.sql("ALTER TABLE audit_log_gone RENAME TO audit_log");
+    expect(res.status).toBe(200);
+    expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
+    expect((await f.call("GET", "/projects", { "x-api-key": created.key })).status).toBe(401);
+  });
+
+  it("still revokes a key itself when the audit table is gone", async () => {
+    const owner = await f.signUp("owner@example.com");
+    const created = await mint(owner.cookie, owner.orgSlug);
+    await f.sql("ALTER TABLE audit_log RENAME TO audit_log_gone");
+    const res = await f.call("DELETE", "/api-keys/self", { "x-api-key": created.key });
+    await f.sql("ALTER TABLE audit_log_gone RENAME TO audit_log");
+    expect(res.status).toBe(200);
+    expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
+  });
+
+  it("answers 200 for a legacy key's self-revoke when the audit team lookup fails", async () => {
+    const owner = await f.signUp("owner@example.com");
+    const key = await f.legacyKey(owner.cookie);
+    // A legacy key's audit goes under the owner's first team, looked up
+    // through member: break that lookup after the key is authenticated.
+    await f.sql("ALTER TABLE member RENAME TO member_gone");
+    const res = await f.call("DELETE", "/api-keys/self", { "x-api-key": key });
+    await f.sql("ALTER TABLE member_gone RENAME TO member");
+    expect(res.status).toBe(200);
+    expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
   });
 });
