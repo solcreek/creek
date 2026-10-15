@@ -21,8 +21,21 @@ const routes = new Hono<SandboxEnv>();
 // Tier 1: Verified agent (passed agent challenge) → 60/hr
 // Tier 2: Human CLI (TTY detected, source = "cli") → 10/hr
 // Tier 3: Unverified (no token, no TTY signal)     → 15/hr
-// Demo deploys (source = "cli-demo") are exempt from rate limits.
+// Demo deploys are exempt from rate limits. Whether a deploy is a demo is
+// the server's decision, never the body's: only a trusted internal caller
+// (valid X-Internal-Secret) can ask for it, with X-Creek-Demo: 1 — the MCP
+// server's deploy_demo, whose page is fixed. The row is stored with the
+// server-set source DEMO_SOURCE, and the per-IP count skips only those rows.
 // ---------------------------------------------------------------------------
+
+export const DEMO_SOURCE = "mcp-demo";
+/**
+ * `source` values a body may not carry. DEMO_SOURCE is refused (400): only
+ * the server writes it. "cli-demo" was once a body label that exempted a
+ * deploy, documented in the public API docs; it is now stored as a plain
+ * "cli" deploy, so old clients keep working but are counted.
+ */
+const LEGACY_DEMO_SOURCE = "cli-demo";
 
 type RateTier = "verified_agent" | "human_cli" | "unverified";
 
@@ -112,6 +125,17 @@ routes.post("/deploy", async (c) => {
     return c.json({ error: "validation", message: "Invalid or missing JSON body" }, 400);
   }
 
+  if (body.source === DEMO_SOURCE) {
+    return c.json(
+      {
+        error: "validation",
+        message: `source "${DEMO_SOURCE}" is reserved for the server and cannot be sent.`,
+      },
+      400,
+    );
+  }
+  if (body.source === LEGACY_DEMO_SOURCE) body.source = "cli";
+
   // Pure-worker deploys (Hono app with inlined HTML, etc.) legitimately
   // ship zero static assets. Require EITHER assets OR serverFiles so the
   // sandbox has something to serve.
@@ -156,8 +180,8 @@ routes.post("/deploy", async (c) => {
   }
 
   // Tiered rate limiting
-  // - Demo deploys (source = "cli-demo", or "mcp-demo" from the MCP
-  //   server, whose demo page is fixed) are exempt.
+  // - Demo deploys are exempt: only a trusted caller can mark one, with
+  //   X-Creek-Demo: 1 (the MCP server's fixed demo page).
   // - Trusted internal calls (remote-builder via X-Internal-Secret) are
   //   exempt because rate limiting was already applied at the control-plane
   //   level with the real user IP. Without this exemption, ALL web deploys
@@ -169,7 +193,7 @@ routes.post("/deploy", async (c) => {
   //   An explicit opt-in, since X-Forwarded-For alone may be set by the edge.
   const limitByForwardedClient =
     isTrustedInternal && c.req.header("x-creek-rate-limit") === "client-ip";
-  const isDemo = body.source === "cli-demo" || (isTrustedInternal && body.source === "mcp-demo");
+  const isDemo = isTrustedInternal && c.req.header("x-creek-demo") === "1";
   const isRateLimitExempt = isDemo || (isTrustedInternal && !limitByForwardedClient);
   const tier = await resolveRateTier(c, env, ipHash);
   const RATE_LIMIT = RATE_LIMITS[tier];
@@ -180,9 +204,9 @@ routes.post("/deploy", async (c) => {
 
   if (!isRateLimitExempt) {
     const rateInfo = await env.DB.prepare(
-      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != 'cli-demo' AND createdAt > ?",
+      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != ? AND createdAt > ?",
     )
-      .bind(ipHash, windowStart)
+      .bind(ipHash, DEMO_SOURCE, windowStart)
       .first<{ count: number; oldest: number | null }>();
 
     const used = rateInfo?.count ?? 0;
@@ -265,7 +289,7 @@ routes.post("/deploy", async (c) => {
       body.templateId ?? null,
       body.framework ?? null,
       previewHost,
-      body.source ?? "cli",
+      isDemo ? DEMO_SOURCE : (body.source ?? "cli"),
       manifest.renderMode,
       assetCount,
       ipHash,

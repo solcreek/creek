@@ -56,7 +56,7 @@ Deploy files to a sandbox preview (60 min TTL).
 }
 ```
 
-**Rate limit:** 10 deploys per hour per IP. Demo deploys (`source: "cli-demo"`) are exempt.
+**Rate limit:** per IP, by tier (15 deploys per hour unverified, 10 for an interactive CLI, 60 for a verified agent). The `source` field is a label only: it never exempts a deploy. `"cli-demo"` is accepted for old clients and stored as `"cli"`; `"mcp-demo"` is reserved and returns `400`.
 
 **Rate limit headers:**
 

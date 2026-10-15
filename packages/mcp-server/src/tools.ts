@@ -339,10 +339,12 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
       const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
-        headers: apiHeaders(),
+        // The sandbox API exempts a demo only on this header from a trusted
+        // caller; a body label decides nothing.
+        headers: { ...apiHeaders(), "X-Creek-Demo": "1" },
         body: JSON.stringify({
           assets: { "index.html": btoa(html) },
-          source: "mcp-demo",
+          source: "mcp",
         }),
       });
       if (!posted.ok) return posted.result;

@@ -132,10 +132,14 @@ describe("MCP deploy tool", () => {
 
 describe("MCP deploy_demo tool", () => {
   it("includes the success message when the preview is live", async () => {
+    let demoHeader: string | null = null;
+    let sentSource: unknown;
     server.use(
-      http.post(`${SANDBOX}/api/sandbox/deploy`, () =>
-        HttpResponse.json({ statusUrl: `${SANDBOX}/api/sandbox/sb-demo/status` }),
-      ),
+      http.post(`${SANDBOX}/api/sandbox/deploy`, async ({ request }) => {
+        demoHeader = request.headers.get("x-creek-demo");
+        sentSource = ((await request.json()) as { source?: unknown }).source;
+        return HttpResponse.json({ statusUrl: `${SANDBOX}/api/sandbox/sb-demo/status` });
+      }),
       http.get(`${SANDBOX}/api/sandbox/sb-demo/status`, () =>
         HttpResponse.json({
           status: "active",
@@ -154,6 +158,10 @@ describe("MCP deploy_demo tool", () => {
     expect(result.isError).toBeUndefined();
     const payload = JSON.parse(result.content[0].text);
     expect(payload.message).toBe("Demo deployed successfully.");
+    // A demo is marked by a header the sandbox API trusts only with the
+    // internal secret, never by a reserved body label.
+    expect(demoHeader).toBe("1");
+    expect(sentSource).toBe("mcp");
     expect(payload.proof.ok).toBe(true);
   });
 

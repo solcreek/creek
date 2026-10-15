@@ -200,8 +200,8 @@ describe("POST /deploy — rate limit for forwarded clients", () => {
     expect(counted).toHaveLength(0);
   });
 
-  it("keeps the MCP demo deploy exempt", async () => {
-    const { status, counted } = await deployAs(MCP_HEADERS, "mcp-demo");
+  it("keeps the MCP demo deploy (X-Creek-Demo from a trusted caller) exempt", async () => {
+    const { status, counted } = await deployAs({ ...MCP_HEADERS, "x-creek-demo": "1" });
     expect(status).not.toBe(429);
     expect(counted).toHaveLength(0);
   });
@@ -216,8 +216,127 @@ describe("POST /deploy — rate limit for forwarded clients", () => {
     expect(counted[0][0]).toBe(await ipHashOf("198.51.100.1"));
   });
 
-  it("does not exempt mcp-demo from a direct caller", async () => {
-    const { status } = await deployAs({ "cf-connecting-ip": "198.51.100.1" }, "mcp-demo");
+  it("ignores X-Creek-Demo from a direct caller", async () => {
+    const { status } = await deployAs({ "cf-connecting-ip": "198.51.100.1", "x-creek-demo": "1" });
     expect(status).toBe(429);
+  });
+});
+
+// --- Demo status is the server's decision, never the body's ---
+
+/**
+ * A deployments table in memory. The rate-limit count is evaluated from its
+ * SQL: rows of this ipHash in the window, minus the `source != ...` exclusion
+ * (a literal or a bound value). INSERTs are recorded; anything else throws,
+ * so a request ends right after its insert.
+ */
+function tableEnv(rows: Array<{ ipHash: string; source: string; createdAt: number }>) {
+  const inserted: unknown[][] = [];
+  return {
+    inserted,
+    env: {
+      INTERNAL_SECRET: "internal",
+      IP_HASH_SALT: "test-salt",
+      SANDBOX_DOMAIN: "creeksandbox.test",
+      DB: {
+        prepare: (sql: string) => ({
+          bind: (...args: unknown[]) => ({
+            first: async () => {
+              if (!sql.includes("COUNT(*)")) throw new Error("unexpected query");
+              const literal = /source != '([^']+)'/.exec(sql)?.[1];
+              const excluded = literal ?? (sql.includes("source != ?") ? args[1] : undefined);
+              const since = args[args.length - 1] as number;
+              const matching = rows.filter(
+                (r) => r.ipHash === args[0] && r.source !== excluded && r.createdAt > since,
+              );
+              return {
+                count: matching.length,
+                oldest: matching.length ? Math.min(...matching.map((r) => r.createdAt)) : null,
+              };
+            },
+            run: async () => {
+              if (sql.startsWith("INSERT INTO deployments")) {
+                inserted.push(args);
+                throw new Error("stop after the insert");
+              }
+              throw new Error("unexpected query");
+            },
+          }),
+        }),
+      },
+    },
+  };
+}
+
+async function deployWith(
+  env: unknown,
+  headers: Record<string, string>,
+  body: Record<string, unknown> = {},
+) {
+  const res = await routes.request(
+    "/deploy",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ assets: { "index.html": btoa("<h1>hi</h1>") }, ...body }),
+    },
+    env as never,
+  );
+  return { status: res.status, json: (await res.json().catch(() => ({}))) as any };
+}
+
+describe("POST /deploy — demo status comes from the server, not the body", () => {
+  it("refuses the reserved source mcp-demo in a body, even from a trusted caller", async () => {
+    for (const headers of [{ "cf-connecting-ip": "198.51.100.1" }, MCP_HEADERS]) {
+      const { env, inserted } = tableEnv([]);
+      const res = await deployWith(env, headers, { source: "mcp-demo" });
+      expect(res.status).toBe(400);
+      expect(res.json.message).toContain("reserved");
+      expect(inserted).toHaveLength(0);
+    }
+  });
+
+  it("counts a direct caller that labels its deploy cli-demo", async () => {
+    const ip = "198.51.100.1";
+    const now = Date.now();
+    const full = Array.from({ length: 15 }, (_, i) => ({
+      ipHash: "",
+      source: "cli",
+      createdAt: now - 1000 - i,
+    }));
+    for (const r of full) r.ipHash = await ipHashOf(ip);
+    const { env } = tableEnv(full);
+    const res = await deployWith(env, { "cf-connecting-ip": ip }, { source: "cli-demo" });
+    expect(res.status).toBe(429);
+  });
+
+  it("stores a cli-demo label as a plain cli deploy, so it counts later", async () => {
+    const { env, inserted } = tableEnv([]);
+    await deployWith(env, { "cf-connecting-ip": "198.51.100.1" }, { source: "cli-demo" });
+    expect(inserted[0]).toContain("cli");
+    expect(inserted[0]).not.toContain("cli-demo");
+  });
+
+  it("deploy_demo rows do not consume the client's quota", async () => {
+    const hash = await ipHashOf("203.0.113.7");
+    const now = Date.now();
+    // The trusted demo deploy is stored under the server-set demo source…
+    const first = tableEnv([]);
+    await deployWith(first.env, { ...MCP_HEADERS, "x-creek-demo": "1" }, { source: "mcp" });
+    const stored = first.inserted[0];
+    expect(stored).toContain(hash);
+    const demoSource = stored[4] as string;
+    expect(demoSource).not.toBe("mcp");
+
+    // …so a full hour of demos leaves an ordinary deploy under the limit.
+    const demos = Array.from({ length: 20 }, (_, i) => ({
+      ipHash: hash,
+      source: demoSource,
+      createdAt: now - 1000 - i,
+    }));
+    const second = tableEnv(demos);
+    const res = await deployWith(second.env, MCP_HEADERS, { source: "mcp" });
+    expect(res.status).not.toBe(429);
+    expect(second.inserted).toHaveLength(1);
   });
 });
