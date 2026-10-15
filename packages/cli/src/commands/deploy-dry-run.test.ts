@@ -14,7 +14,7 @@ import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures_
 
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
-  return { ...orig, getToken: () => null };
+  return { ...orig, getToken: () => null, isSignedIn: () => false };
 });
 
 // The real-run test below must never reach the network or write ToS state.

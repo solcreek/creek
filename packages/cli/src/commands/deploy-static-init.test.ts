@@ -11,7 +11,7 @@ import { resolveConfig } from "@solcreek/sdk";
 
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
-  return { ...orig, getToken: () => null };
+  return { ...orig, getToken: () => null, isSignedIn: () => false };
 });
 vi.mock("../utils/tos.js", () => ({
   ensureTosAccepted: vi.fn(async () => ({ version: "test", acceptedAt: "test" })),

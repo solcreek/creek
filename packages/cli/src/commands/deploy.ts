@@ -34,7 +34,7 @@ import {
   type VinextBuild,
 } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
-import { getToken, getApiUrl } from "../utils/config.js";
+import { getToken, getApiUrl, isSignedIn } from "../utils/config.js";
 import { MIGRATION_DIRS, collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
@@ -465,8 +465,8 @@ async function dryRunPlan(
     if (!(err instanceof ConfigNotFoundError)) throw err;
   }
 
-  const token = getToken();
-  const authenticated = !!token;
+  // A plan sends nothing: whether a key is present is enough.
+  const authenticated = isSignedIn();
 
   // If no config, check build-output fallback
   let buildOutputFallback: string | null = null;
@@ -1000,7 +1000,7 @@ export const deployCommand = defineCommand({
     const inspected = inspectDeployPath(args);
     const destination = deployDestination({
       ...inspected,
-      authenticated: !!getToken(),
+      authenticated: isSignedIn(),
       prod: args.prod === true,
       sandbox: args.sandbox === true,
       yes: args.yes === true,
@@ -1018,6 +1018,12 @@ export const deployCommand = defineCommand({
           : process.cwd();
       return await dryRunPlan(dryCwd, args, jsonMode, destination);
     }
+
+    // A production deploy sends the saved key: check it now, before ToS,
+    // preflight, a clone or an install, so a key bound to another API stops
+    // here with api_mismatch instead of after work whose failure could mask
+    // it. getToken() exits on a mismatch; sandbox deploys never call it.
+    if (destination.kind === "production") getToken();
 
     // --- Safety gate: no silent deploys in non-interactive environments ---
     // Deploying publishes to a public URL — irreversible enough that we
@@ -1096,7 +1102,6 @@ export const deployCommand = defineCommand({
 
     // --- Resolve target directory ---
     const cwd = args.dir ? resolve(args.dir) : process.cwd();
-    const token = getToken();
 
     // --- Explicit directory (creek deploy ./dist) ---
     if (args.dir) {
@@ -1155,6 +1160,10 @@ export const deployCommand = defineCommand({
         });
       }
 
+      // The key is read only where it is sent: a sandbox deploy never
+      // needs it, so a key bound to another API (api_mismatch) stops only
+      // the production path.
+      const token = destination.kind === "production" ? getToken() : undefined;
       if (destination.kind === "production" && token) {
         // Production-safety gate (Path B): explicit intent or a confirm
         // before publishing to the team's permanent URL.
@@ -1892,7 +1901,7 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
 
       // 6. Route to the decided destination (Path B safety gate: confirm or
       // warn before an implicit production deploy).
-      const token = getToken();
+      const token = options.destination === "production" ? getToken() : undefined;
       if (options.destination === "production" && token) {
         const env = await resolveDeployEnv({
           authenticated: true,

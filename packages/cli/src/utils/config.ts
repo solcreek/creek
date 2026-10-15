@@ -196,6 +196,20 @@ export function exitApiMismatch(
   process.exit(1);
 }
 
+/**
+ * Whether a key is present, without sending or checking it: for decisions
+ * taken before any request (where a deploy goes, a dry-run plan). Same
+ * precedence as getToken(). A saved key bound to another API counts as
+ * signed in: getToken() refuses it (api_mismatch) on the path that would
+ * actually send it, so `deploy --prod` still refuses while `--sandbox` and
+ * `--dry-run`, which never send it, go ahead.
+ */
+export function isSignedIn(): boolean {
+  const env = process.env.CREEK_TOKEN;
+  if (env !== undefined) return env !== "";
+  return Boolean(readCliConfig().token);
+}
+
 export function getApiUrl(): string {
   return process.env.CREEK_API_URL ?? readCliConfig().apiUrl ?? DEFAULT_API_URL;
 }
