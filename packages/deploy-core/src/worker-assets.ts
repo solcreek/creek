@@ -8,6 +8,12 @@ import type { WfPBinding } from "./types.js";
 export type RunWorkerFirst = boolean | string[];
 
 /**
+ * The name a worker-mode deploy binds its static assets under. The
+ * control-plane reserves it in that mode, so no other binding takes it.
+ */
+export const WORKER_ASSETS_BINDING = "ASSETS";
+
+/**
  * Static-assets options for a user-declared worker (render mode `worker`).
  *
  * Such a worker gets an `ASSETS` binding so it can read its own static
@@ -26,9 +32,9 @@ export function workerAssetsOptions(
   runWorkerFirst?: RunWorkerFirst | null,
 ): { bindings: WfPBinding[]; assetsConfig: Record<string, unknown> } {
   if (renderMode !== "worker") return { bindings, assetsConfig };
-  const withBinding = bindings.some((b) => b.name === "ASSETS")
+  const withBinding = bindings.some((b) => b.name === WORKER_ASSETS_BINDING)
     ? bindings
-    : [...bindings, { type: "assets", name: "ASSETS" }];
+    : [...bindings, { type: "assets", name: WORKER_ASSETS_BINDING }];
   const config =
     runWorkerFirst === undefined || runWorkerFirst === null || runWorkerFirst === false
       ? assetsConfig
