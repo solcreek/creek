@@ -262,11 +262,32 @@ describe("creek logout", () => {
       revoked: false,
       reason: "not_requested",
       keyStillValid: true,
+      keyPrefix: "tok-scoped",
+      dashboardUrl: `${API}/api-keys`,
     });
-    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
+    // The saved key is gone from here: only the dashboard can revoke it now,
+    // so no breadcrumb points at a --revoke that has nothing left to revoke.
+    expect(out.message).toContain(`dashboard: ${API}/api-keys`);
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).not.toContain(
       "creek logout --revoke --json",
     );
     expect(readConfig()).toEqual({ apiUrl: "https://elsewhere.test" });
+  });
+
+  it("without --revoke, a CREEK_TOKEN key is still revocable, so the breadcrumb stays", async () => {
+    process.env.CREEK_TOKEN = "tok-legacy";
+    expect(await run(logoutCommand, {})).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: true,
+      tokenSource: "env:CREEK_TOKEN",
+      configCleared: false,
+      keyStillValid: true,
+    });
+    expect(out.dashboardUrl).toBeUndefined();
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
+      "creek logout --revoke --json",
+    );
   });
 
   it("--revoke revokes the key on the server, then forgets it", async () => {

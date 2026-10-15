@@ -127,8 +127,9 @@ keys need a signed-in dashboard session, which the CLI never holds:
 `creek keys ls` and `creek keys create` exit 1 with
 `error: "session_required"` and `dashboardUrl`, without calling the API.
 
-`creek logout` forgets the saved key; the key stays valid
-(`keyStillValid: true`). `creek logout --revoke` revokes every key the CLI
+`creek logout` forgets the saved key, but the key stays valid
+(`keyStillValid: true`). Once forgotten it can only be revoked in the
+dashboard (`dashboardUrl`), so prefer `--revoke`. `creek logout --revoke` revokes every key the CLI
 holds — `CREEK_TOKEN`'s and the saved one — and reports each in
 `keys: [{ source, keyPrefix, revoked, reason?, keyId? }]`. It is safe to
 re-run: a key already revoked or expired reports

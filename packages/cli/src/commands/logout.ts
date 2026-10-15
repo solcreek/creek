@@ -117,27 +117,34 @@ export const logoutCommand = defineCommand({
 
     if (args.revoke) return revokeAndLogout(jsonMode, info.source, envKeySet);
 
+    // Once forgotten, the saved key can no longer be revoked from the CLI:
+    // only the dashboard can. CREEK_TOKEN's key stays reachable by --revoke.
+    const savedToken = readCliConfig().token || undefined;
     const configCleared = clearCliToken();
-    const warning =
-      info.source === "env:CREEK_TOKEN"
-        ? "CREEK_TOKEN is still set in this environment: commands keep using it. Unset it to log out completely."
-        : undefined;
+    const dashboardUrl = `${getDashboardUrl()}/api-keys`;
+    const warning = envKeySet
+      ? "CREEK_TOKEN is still set in this environment: commands keep using it. Unset it to log out completely."
+      : undefined;
+
+    const notes: string[] = [];
+    if (savedToken) {
+      notes.push(
+        `The saved key ${keyPrefix(savedToken)} is still valid on the server. It is no longer stored here, so revoke it in the dashboard: ${dashboardUrl}`,
+      );
+    }
+    if (envKeySet) {
+      notes.push(
+        "The key in CREEK_TOKEN is still valid on the server; `creek logout --revoke` revokes it.",
+      );
+    }
 
     const breadcrumbs: Breadcrumb[] = [];
-    if (info.source === "env:CREEK_TOKEN")
-      breadcrumbs.push({ command: "unset CREEK_TOKEN", description: "Stop using CREEK_TOKEN" });
-    if (info.token) {
+    if (envKeySet) {
       breadcrumbs.push(
+        { command: "unset CREEK_TOKEN", description: "Stop using CREEK_TOKEN" },
         {
           command: "creek logout --revoke --json",
-          description:
-            info.source === "env:CREEK_TOKEN"
-              ? "Revoke the key in CREEK_TOKEN on the server"
-              : "Next time, revoke the key on the server as you log out",
-        },
-        {
-          command: `open ${getDashboardUrl()}/api-keys`,
-          description: "Revoke keys in the dashboard",
+          description: "Revoke the key in CREEK_TOKEN on the server",
         },
       );
     }
@@ -152,13 +159,8 @@ export const logoutCommand = defineCommand({
           tokenSource: info.source,
           revoked: false,
           reason: "not_requested",
-          ...(info.token
-            ? {
-                keyStillValid: true,
-                message:
-                  "The API key is still valid on the server. Run `creek logout --revoke` to revoke it too, or revoke it in the dashboard.",
-              }
-            : {}),
+          ...(notes.length > 0 ? { keyStillValid: true, message: notes.join(" ") } : {}),
+          ...(savedToken ? { keyPrefix: keyPrefix(savedToken), dashboardUrl } : {}),
           ...(warning ? { warning } : {}),
         },
         0,
@@ -169,9 +171,7 @@ export const logoutCommand = defineCommand({
     consola.success(
       configCleared ? "Logged out: removed the saved API key." : "No saved API key to remove.",
     );
-    if (info.token) {
-      consola.info("The key is still valid on the server; `creek logout --revoke` revokes it too.");
-    }
+    for (const note of notes) consola.info(note);
     if (warning) consola.warn(warning);
   },
 });
