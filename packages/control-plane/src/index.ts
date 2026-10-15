@@ -45,6 +45,7 @@ import {
 } from "./modules/tenant/scope-guard.js";
 import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
 import { refuseClientKeyMetadata } from "./modules/tenant/api-key-metadata.js";
+import { enforceKeyCapOnAuthCreate } from "./modules/api-keys/cap.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -94,7 +95,18 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   if (metadata) return metadata;
   try {
     const auth = createAuth(c.env);
-    return await auth.handler(c.req.raw);
+    // Better Auth's own key create obeys the per-user key cap too.
+    return await enforceKeyCapOnAuthCreate(
+      c,
+      c.env.DB,
+      async () => {
+        const session = await auth.api
+          .getSession({ headers: c.req.raw.headers, query: { disableCookieCache: true } })
+          .catch(() => null);
+        return (session?.user?.id as string | undefined) ?? null;
+      },
+      () => auth.handler(c.req.raw),
+    );
   } catch (err) {
     console.error("Better Auth error:", err instanceof Error ? err.stack : err);
     return c.json(
