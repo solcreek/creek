@@ -318,9 +318,9 @@ describe("creek domains rm, run twice", () => {
   it("matches the hostname case-insensitively and reports it normalized", async () => {
     liveServer();
     rows = [];
-    expect(
-      await runExit(rmCmd.run!({ args: { hostname: "Course.Example.COM" } } as never)),
-    ).toBe(0);
+    expect(await runExit(rmCmd.run!({ args: { hostname: "Course.Example.COM" } } as never))).toBe(
+      0,
+    );
     expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: true });
   });
 
@@ -330,7 +330,10 @@ describe("creek domains rm, run twice", () => {
     server.use(
       http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () => {
         rows = [];
-        return HttpResponse.json({ error: "not_found", message: "Domain not found" }, { status: 404 });
+        return HttpResponse.json(
+          { error: "not_found", message: "Domain not found" },
+          { status: 404 },
+        );
       }),
     );
     expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(0);
@@ -352,9 +355,9 @@ describe("creek domains rm, run twice", () => {
   it("--dry-run on a hostname that is gone plans nothing and says alreadyAbsent", async () => {
     liveServer();
     rows = [];
-    expect(
-      await runExit(rmCmd.run!({ args: { hostname: HOST, "dry-run": true } } as never)),
-    ).toBe(0);
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST, "dry-run": true } } as never))).toBe(
+      0,
+    );
     expect(json()).toMatchObject({
       ok: true,
       mode: "dry-run",
