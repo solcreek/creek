@@ -1,6 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerTools, type ToolContext } from "./tools.js";
 import type { Env } from "./types.js";
 
@@ -17,7 +20,7 @@ function registerAndCapture(
 ): Map<string, Handler> {
   const handlers = new Map<string, Handler>();
   const fakeServer = {
-    tool: (name: string, _desc: string, _schema: unknown, handler: Handler) => {
+    registerTool: (name: string, _config: unknown, handler: Handler) => {
       handlers.set(name, handler);
     },
   };
@@ -927,5 +930,73 @@ describe("MCP sandbox deploy keeps the sandboxId on every outcome", () => {
       retryable: false,
       mayHaveApplied: true,
     });
+  });
+});
+
+describe("MCP tool annotations", () => {
+  /** List tools the way an MCP client sees them, through the real SDK. */
+  async function listTools() {
+    const server = new McpServer({ name: "creek", version: "test" });
+    registerTools(server, {
+      env: { SANDBOX_API_URL: SANDBOX, CONTROL_PLANE_URL: "https://cp.test" } as unknown as Env,
+      clientIp: "203.0.113.7",
+      requestHeaders: new Headers(),
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0" });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    const { tools } = await client.listTools();
+    await client.close();
+    return new Map(tools.map((t) => [t.name, t]));
+  }
+
+  it("every tool declares readOnly / destructive / idempotent hints", async () => {
+    const tools = await listTools();
+    expect(tools.size).toBeGreaterThan(0);
+    for (const [name, tool] of tools) {
+      expect(typeof tool.annotations?.readOnlyHint, name).toBe("boolean");
+      expect(typeof tool.annotations?.destructiveHint, name).toBe("boolean");
+      expect(typeof tool.annotations?.idempotentHint, name).toBe("boolean");
+    }
+  });
+
+  it("list / get / status tools are read-only; delete tools are destructive", async () => {
+    const tools = await listTools();
+    for (const name of [
+      "deploy_status",
+      "get_build_log",
+      "list_projects",
+      "get_status",
+      "env_ls",
+      "list_deployments",
+      "list_resources",
+    ]) {
+      expect(tools.get(name)?.annotations, name).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+      });
+    }
+    for (const name of ["deploy_delete", "delete_resource", "detach_resource", "env_rm"]) {
+      expect(tools.get(name)?.annotations, name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      });
+    }
+    expect(tools.get("deploy_prod")?.annotations).toMatchObject({
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(tools.get("deploy")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
+  });
+
+  it("keeps each tool's input schema", async () => {
+    const tools = await listTools();
+    expect(tools.get("deploy_status")?.inputSchema.required).toEqual(["sandboxId"]);
+    expect(tools.get("deploy_demo")?.inputSchema.type).toBe("object");
   });
 });

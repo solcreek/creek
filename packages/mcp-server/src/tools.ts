@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import type { Env } from "./types.js";
 import { missingKeyResult, resolveApiKey } from "./auth.js";
 import { provePreview } from "./proof.js";
@@ -29,6 +30,49 @@ export interface Timing {
 const DEFAULT_TIMING: Timing = {
   sandboxMaxWaitMs: 30_000,
   pollIntervalMs: 1_000,
+};
+
+/**
+ * MCP tool annotations: hints a client uses to decide what needs the
+ * user's confirmation. `readOnlyHint` — changes nothing; `destructiveHint`
+ * — may delete or overwrite something that already exists (production,
+ * a value, data); `idempotentHint` — calling again with the same
+ * arguments has no further effect. Every tool declares all three.
+ */
+const READ_ONLY: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+};
+
+export const ANNOTATIONS: Record<string, ToolAnnotations> = {
+  // Sandbox: each deploy creates a new, separate sandbox.
+  deploy: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  deploy_demo: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  deploy_status: READ_ONLY,
+  deploy_delete: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+
+  get_build_log: READ_ONLY,
+  list_projects: READ_ONLY,
+  get_status: READ_ONLY,
+  env_ls: READ_ONLY,
+  // Overwrites the key's existing value for that target.
+  env_set: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  env_rm: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  // Replaces what production serves; each call starts a new build.
+  deploy_prod: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  list_deployments: READ_ONLY,
+  // Each call records a new rollback deployment.
+  rollback: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+
+  list_resources: READ_ONLY,
+  create_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  attach_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  detach_resource: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  delete_resource: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  rename_resource: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // Arbitrary SQL: may write or drop.
+  query_database: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
 };
 
 export function registerTools(server: McpServer, ctx: ToolContext) {
@@ -77,15 +121,18 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 1: No Auth (Sandbox) — any agent can use these
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "deploy",
-    "Deploy files to a sandbox preview (60 min, no account needed)",
     {
-      files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
-      source: z
-        .string()
-        .optional()
-        .describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
+      description: "Deploy files to a sandbox preview (60 min, no account needed)",
+      inputSchema: {
+        files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
+        source: z
+          .string()
+          .optional()
+          .describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
+      },
+      annotations: ANNOTATIONS["deploy"],
     },
     async ({ files, source }) => {
       // Convert string content to base64 for sandbox API
@@ -108,10 +155,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_demo",
-    "Deploy a sample Creek demo page instantly (zero files needed, great for testing)",
-    {},
+    {
+      description:
+        "Deploy a sample Creek demo page instantly (zero files needed, great for testing)",
+      inputSchema: {},
+      annotations: ANNOTATIONS["deploy_demo"],
+    },
     async () => {
       const html = `<!DOCTYPE html><html><head><title>Creek MCP Demo</title></head><body><h1>Deployed via MCP</h1><p>This site was deployed by an AI agent using Creek's MCP server.</p></body></html>`;
 
@@ -131,11 +182,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_status",
-    "Check the status of a sandbox deployment",
     {
-      sandboxId: z.string().describe("Sandbox ID (e.g. 'a1b2c3d4')"),
+      description: "Check the status of a sandbox deployment",
+      inputSchema: {
+        sandboxId: z.string().describe("Sandbox ID (e.g. 'a1b2c3d4')"),
+      },
+      annotations: ANNOTATIONS["deploy_status"],
     },
     async ({ sandboxId }) => {
       const got = await sandboxFetch(
@@ -148,11 +202,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_delete",
-    "Delete a sandbox deployment before it expires",
     {
-      sandboxId: z.string().describe("Sandbox ID to delete"),
+      description: "Delete a sandbox deployment before it expires",
+      inputSchema: {
+        sandboxId: z.string().describe("Sandbox ID to delete"),
+      },
+      annotations: ANNOTATIONS["deploy_delete"],
     },
     async ({ sandboxId }) => {
       const got = await sandboxFetch(
@@ -171,14 +228,18 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 2: Authenticated (Creek account) — agent passes a Creek API key
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "get_build_log",
-    "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z
-        .string()
-        .describe("Project slug (shown by `creek projects` or `creek status`)"),
-      deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      description:
+        "Read the structured build log for a deployment. Use this after `creek deploy` reports a failure to see exactly which phase broke, what the subprocess stderr was, and the CK-* diagnostic code. Returns a summary (status, failing step, error code) plus phase-grouped lines. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z
+          .string()
+          .describe("Project slug (shown by `creek projects` or `creek status`)"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      },
+      annotations: ANNOTATIONS["get_build_log"],
     },
     async ({ projectSlug, deploymentId }) => {
       const apiKey = requireKey();
@@ -268,10 +329,14 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 1.5: Project read + env (header auth, no apiKey tool arg)
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "list_projects",
-    "List projects in the authenticated team. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
-    {},
+    {
+      description:
+        "List projects in the authenticated team. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {},
+      annotations: ANNOTATIONS["list_projects"],
+    },
     async () => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
@@ -291,11 +356,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "get_status",
-    "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug (from list_projects)"),
+      description:
+        "Get a project's remote status (slug, framework, production deployment, latest deployment). Pass the project slug from list_projects. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug (from list_projects)"),
+      },
+      annotations: ANNOTATIONS["get_status"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -331,11 +400,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_ls",
-    "List environment variable keys for a project, with the deploy target of each value (production, preview or all). Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
+      description:
+        "List environment variable keys for a project, with the deploy target of each value (production, preview or all). Values are never returned. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+      },
+      annotations: ANNOTATIONS["env_ls"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -356,17 +429,21 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_set",
-    "Set an environment variable on a project, for production deploys, preview (branch) deploys, or all (default). A key may hold one value per target; a deploy uses its own target's value, else the all value. Use target production for secrets previews must not see. Does not restart the worker — a deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
-      value: z.string().describe("Secret value (not logged in the tool result)"),
-      target: z
-        .enum(["all", "production", "preview"])
-        .optional()
-        .describe("Which deploys get this value. Default: all"),
+      description:
+        "Set an environment variable on a project, for production deploys, preview (branch) deploys, or all (default). A key may hold one value per target; a deploy uses its own target's value, else the all value. Use target production for secrets previews must not see. Does not restart the worker — a deploy is required to apply. Values are never echoed. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        key: z.string().describe("Uppercase env key (e.g. DATABASE_URL)"),
+        value: z.string().describe("Secret value (not logged in the tool result)"),
+        target: z
+          .enum(["all", "production", "preview"])
+          .optional()
+          .describe("Which deploys get this value. Default: all"),
+      },
+      annotations: ANNOTATIONS["env_set"],
     },
     async ({ projectSlug, key, value, target }) => {
       const apiKey = requireKey();
@@ -403,16 +480,20 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "env_rm",
-    "Remove an environment variable from a project: one target's value (production, preview or all), or every value of the key when target is omitted. Does not restart the worker — a deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      key: z.string().describe("Env key to remove"),
-      target: z
-        .enum(["all", "production", "preview"])
-        .optional()
-        .describe("Remove only this target's value. Default: every value of the key"),
+      description:
+        "Remove an environment variable from a project: one target's value (production, preview or all), or every value of the key when target is omitted. Does not restart the worker — a deploy is required to apply. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        key: z.string().describe("Env key to remove"),
+        target: z
+          .enum(["all", "production", "preview"])
+          .optional()
+          .describe("Remove only this target's value. Default: every value of the key"),
+      },
+      annotations: ANNOTATIONS["env_rm"],
     },
     async ({ projectSlug, key, target }) => {
       const apiKey = requireKey();
@@ -459,11 +540,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "deploy_prod",
-    "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug (from list_projects)"),
+      description:
+        "Trigger a production deploy of the latest commit on the project's GitHub production branch (same as `creek deploy --from-github --prod`). Returns as soon as the build is dispatched — poll get_status, list_deployments, or get_build_log for progress. Requires a GitHub connection on the project. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug (from list_projects)"),
+      },
+      annotations: ANNOTATIONS["deploy_prod"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -488,11 +573,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "list_deployments",
-    "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
+      description:
+        "List recent deployments for a project (newest first). Each row includes triggerType so rollback can skip synthetic rollback rows. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+      },
+      annotations: ANNOTATIONS["list_deployments"],
     },
     async ({ projectSlug }) => {
       const apiKey = requireKey();
@@ -512,19 +601,23 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "rollback",
-    "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      deploymentId: z
-        .string()
-        .trim()
-        .min(1)
-        .describe(
-          "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
-        ),
-      message: z.string().optional().describe("Optional rollback reason"),
+      description:
+        "Roll production back to a previous active deployment. deploymentId is required — pick an active row from list_deployments whose triggerType is not rollback (implicit previous-production selection can land on a synthetic rollback row). Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z
+          .string()
+          .trim()
+          .min(1)
+          .describe(
+            "Target deployment id from list_deployments. Must be an active non-rollback deployment, not current production.",
+          ),
+        message: z.string().optional().describe("Optional rollback reason"),
+      },
+      annotations: ANNOTATIONS["rollback"],
     },
     async ({ projectSlug, deploymentId, message }) => {
       const apiKey = requireKey();
@@ -562,14 +655,18 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // Tier 2: Resource management
   // ================================================================
 
-  server.tool(
+  server.registerTool(
     "list_resources",
-    "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      kind: z
-        .enum(["database", "storage", "cache", "ai"])
-        .optional()
-        .describe("Filter by resource kind"),
+      description:
+        "List all team-owned resources (databases, storage, cache, AI). Optionally filter by kind. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        kind: z
+          .enum(["database", "storage", "cache", "ai"])
+          .optional()
+          .describe("Filter by resource kind"),
+      },
+      annotations: ANNOTATIONS["list_resources"],
     },
     async ({ kind }) => {
       const apiKey = requireKey();
@@ -585,12 +682,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "create_resource",
-    "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
-      name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
+      description:
+        "Create a new team-owned resource. The backing Cloudflare resource (D1/R2/KV) is auto-provisioned. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        kind: z.enum(["database", "storage", "cache", "ai"]).describe("Resource kind"),
+        name: z.string().describe("Resource name (lowercase, dash/underscore, ≤63 chars)"),
+      },
+      annotations: ANNOTATIONS["create_resource"],
     },
     async ({ kind, name }) => {
       const apiKey = requireKey();
@@ -604,13 +705,17 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "attach_resource",
-    "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      resourceId: z.string().describe("Resource ID (from list_resources)"),
-      bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
+      description:
+        "Attach a team resource to a project under a given ENV var name (e.g. DB, STORAGE). The project's Worker will see it as env.<bindingName>. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        resourceId: z.string().describe("Resource ID (from list_resources)"),
+        bindingName: z.string().describe("ENV var name, uppercase (e.g. DB, CACHE, STORAGE)"),
+      },
+      annotations: ANNOTATIONS["attach_resource"],
     },
     async ({ projectSlug, resourceId, bindingName }) => {
       const apiKey = requireKey();
@@ -629,12 +734,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "detach_resource",
-    "Remove a resource binding from a project. The resource itself is not deleted. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      projectSlug: z.string().describe("Project slug"),
-      bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
+      description:
+        "Remove a resource binding from a project. The resource itself is not deleted. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        bindingName: z.string().describe("ENV var name to detach (e.g. DB)"),
+      },
+      annotations: ANNOTATIONS["detach_resource"],
     },
     async ({ projectSlug, bindingName }) => {
       const apiKey = requireKey();
@@ -652,11 +761,15 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "delete_resource",
-    "Delete a team-owned resource. This is permanent: the D1 database or KV namespace behind it is queued for deletion with all its data, and an R2 bucket is deleted only if it is empty. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID"),
+      description:
+        "Delete a team-owned resource. This is permanent: the D1 database or KV namespace behind it is queued for deletion with all its data, and an R2 bucket is deleted only if it is empty. Fails if any project still has a binding to it — detach first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID"),
+      },
+      annotations: ANNOTATIONS["delete_resource"],
     },
     async ({ resourceId }) => {
       const apiKey = requireKey();
@@ -667,12 +780,16 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "rename_resource",
-    "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID"),
-      name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
+      description:
+        "Rename a team-owned resource. The stable UUID and all project bindings are preserved — only the display name changes. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID"),
+        name: z.string().describe("New name (lowercase, dash/underscore, ≤63 chars)"),
+      },
+      annotations: ANNOTATIONS["rename_resource"],
     },
     async ({ resourceId, name }) => {
       const apiKey = requireKey();
@@ -686,13 +803,17 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "query_database",
-    "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
     {
-      resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
-      sql: z.string().describe("SQL query to execute"),
-      params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+      description:
+        "Execute a SQL query against a team-owned D1 database. Returns columns, rows, and metadata (changes, duration). Use list_resources to find the resourceId first. Authenticate the MCP HTTP request with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
+        sql: z.string().describe("SQL query to execute"),
+        params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+      },
+      annotations: ANNOTATIONS["query_database"],
     },
     async ({ resourceId, sql, params }) => {
       const apiKey = requireKey();
