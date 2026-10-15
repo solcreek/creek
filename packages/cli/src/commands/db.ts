@@ -15,7 +15,7 @@ import {
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { readDirectoryProject } from "../utils/command-context.js";
+import { exitNoProject, readDirectoryProject } from "../utils/command-context.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -155,7 +155,14 @@ export async function resolveProjectDatabase(
   }
 
   // 2/3. Resolve via project bindings.
-  const slug = opts.project ?? projectFromCwd(jsonMode);
+  let slug = opts.project;
+  if (!slug) {
+    // A broken config exits invalid_config; one that names no project exits
+    // no_project with foundConfig, like every other project command.
+    const found = readDirectoryProject(jsonMode);
+    if (found?.slug === null) exitNoProject(found, jsonMode);
+    slug = found?.slug;
+  }
   if (!slug) {
     const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory (creek.toml or wrangler config).`;
     if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
@@ -217,16 +224,6 @@ export async function resolveProjectDatabase(
 
 /** @deprecated Use {@link resolveProjectDatabase}. Kept for back-compat. */
 export const resolveShellDatabase = resolveProjectDatabase;
-
-/**
- * The project the cwd names (creek.toml, wrangler config or package.json
- * name; never the directory name), or null when there is no config or it
- * names no project. A config that can't be read or parsed exits with
- * `invalid_config` and the parser's diagnostic.
- */
-function projectFromCwd(jsonMode: boolean): string | null {
-  return readDirectoryProject(jsonMode)?.slug ?? null;
-}
 
 async function executeAndPrint(
   client: CreekClient,

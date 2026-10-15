@@ -174,21 +174,31 @@ export function unnamedProjectMessage(file: string): string {
 export function resolveProject(
   argSlug: string | undefined,
   jsonMode: boolean,
+  cwd: string = process.cwd(),
 ): { slug: string; source: ProjectSource } {
   if (argSlug) return { slug: argSlug, source: "flag" };
-  const found = readDirectoryProject(jsonMode);
-  if (!found || found.slug === null) {
-    const message = found ? unnamedProjectMessage(found.file) : NO_PROJECT_MESSAGE;
-    if (jsonMode)
-      jsonOutput(
-        { ok: false, error: "no_project", message, ...(found ? { foundConfig: found.file } : {}) },
-        1,
-        PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
-      );
-    consola.error(message);
-    process.exit(1);
-  }
+  const found = readDirectoryProject(jsonMode, cwd);
+  if (!found || found.slug === null) exitNoProject(found, jsonMode);
   return { slug: found.slug, source: found.source };
+}
+
+/**
+ * The structured `no_project` exit: no config at all, or a config that names
+ * no project (`foundConfig` says which file, the message what to add).
+ */
+export function exitNoProject(
+  found: Extract<DirectoryProject, { slug: null }> | null,
+  jsonMode: boolean,
+): never {
+  const message = found ? unnamedProjectMessage(found.file) : NO_PROJECT_MESSAGE;
+  if (jsonMode)
+    jsonOutput(
+      { ok: false, error: "no_project", message, ...(found ? { foundConfig: found.file } : {}) },
+      1,
+      PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+    );
+  consola.error(message);
+  process.exit(1);
 }
 
 /**

@@ -611,6 +611,26 @@ describe("project commands in a directory whose config names no project", () => 
       expect(code).toBe(1);
       expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
     });
+
+    it(`${label}: db shell inference is no_project with foundConfig, not no_database_specified`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        resolveShellDatabase(new CreekClient(API, "tok"), { jsonMode: true }),
+      );
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+      expect(out.message).toContain("never use the directory name");
+    });
+
+    it(`${label}: \`doctor --last\` is no_project with foundConfig`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        Promise.resolve(doctorCommand.run!({ args: { last: true, _: [] } } as never)),
+      );
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
   }
 });
 

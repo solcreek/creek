@@ -7,13 +7,7 @@ import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import {
-  NO_PROJECT_MESSAGE,
-  PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
-  projectBreadcrumbs,
-  readDirectoryProject,
-  unnamedProjectMessage,
-} from "../utils/command-context.js";
+import { projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -231,27 +225,11 @@ async function runLastFailureDiagnosis(opts: {
     process.exit(1);
   }
 
-  // Resolve project slug — prefer --project, else the name the directory's
-  // config gives (creek.toml, wrangler, package.json); never the directory name.
-  let slug = opts.project;
-  let unnamedFile: string | null = null;
-  if (!slug) {
-    // A config that can't be parsed exits invalid_config with the diagnostic.
-    const found = readDirectoryProject(opts.jsonMode, opts.cwd);
-    if (found?.slug === null) unnamedFile = found.file;
-    else if (found) slug = found.slug;
-  }
-  if (!slug) {
-    const msg = unnamedFile ? unnamedProjectMessage(unnamedFile) : NO_PROJECT_MESSAGE;
-    if (opts.jsonMode)
-      jsonOutput(
-        { ok: false, error: "no_project", message: msg },
-        1,
-        PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
-      );
-    consola.error(msg);
-    process.exit(1);
-  }
+  // Resolve project slug — prefer --project, else the name the analysed
+  // directory's config gives (creek.toml, wrangler, package.json); never the
+  // directory name. Same no_project / invalid_config exits as every project
+  // command.
+  const { slug } = resolveProject(opts.project, opts.jsonMode, opts.cwd);
 
   const client = new CreekClient(getApiUrl(), token);
 
