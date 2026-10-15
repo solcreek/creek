@@ -45,6 +45,7 @@ export function normalizeSlug(name: string): string {
 export const claimCommand = defineCommand({
   meta: {
     name: "claim",
+    destructive: false,
     description: "Claim a sandbox deployment as a permanent project",
   },
   args: {

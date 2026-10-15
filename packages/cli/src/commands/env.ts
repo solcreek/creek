@@ -18,6 +18,7 @@ const targetArg = {
     type: "string" as const,
     description:
       "Which deploys get this value: production, preview (branch deploys) or all. Default: all",
+    enum: TARGETS,
   },
 };
 
@@ -61,7 +62,7 @@ function appliesOn(target: EnvTarget): string {
 }
 
 const envSet = defineCommand({
-  meta: { name: "set", description: "Set an environment variable" },
+  meta: { name: "set", destructive: true, description: "Set an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name (e.g. DATABASE_URL)", required: true },
     value: { type: "positional", description: "Variable value", required: true },
@@ -141,7 +142,7 @@ function redact(value: string): string {
 }
 
 const envGet = defineCommand({
-  meta: { name: "ls", description: "List environment variables" },
+  meta: { name: "ls", destructive: false, description: "List environment variables" },
   args: {
     show: {
       type: "boolean",
@@ -205,13 +206,14 @@ const envGet = defineCommand({
 });
 
 const envRm = defineCommand({
-  meta: { name: "rm", description: "Remove an environment variable" },
+  meta: { name: "rm", destructive: true, description: "Remove an environment variable" },
   args: {
     key: { type: "positional", description: "Variable name to remove", required: true },
     target: {
       type: "string" as const,
       description:
         "Remove only the value for production, preview or all. Default: every value of the key",
+      enum: TARGETS,
     },
     ...dryRunArg,
     ...projectArg,

@@ -1,4 +1,4 @@
-import { defineCommand } from "citty";
+import { defineCommand, type CommandDef } from "citty";
 import { loginCommand } from "./commands/login.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { initCommand } from "./commands/init.js";
@@ -25,6 +25,14 @@ import { restartCommand } from "./commands/restart.js";
 import { stopCommand } from "./commands/stop.js";
 import { dashboardCommand } from "./commands/dashboard.js";
 
+/**
+ * `cmd` with `meta.destructive` set. Only for commands whose definition
+ * doesn't set it yet; set it in the definition instead when you touch one.
+ */
+function withDestructive<T extends CommandDef<any>>(cmd: T, destructive: boolean): T {
+  return { ...cmd, meta: { ...(cmd.meta as object), destructive } };
+}
+
 /** The `creek` command tree. index.ts runs it; the help schema test walks it. */
 export function createMain(version: string) {
   return defineCommand({
@@ -35,17 +43,19 @@ export function createMain(version: string) {
     },
     subCommands: {
       dev: devCommand,
-      deploy: deployCommand,
+      // Can replace what production serves (--prod).
+      deploy: withDestructive(deployCommand, true),
       status: statusCommand,
       projects: projectsCommand,
       deployments: deploymentsCommand,
-      logs: logsCommand,
+      logs: withDestructive(logsCommand, false),
       metrics: metricsCommand,
       doctor: doctorCommand,
       verify: verifyCommand,
-      login: loginCommand,
-      whoami: whoamiCommand,
-      init: initCommand,
+      login: withDestructive(loginCommand, false),
+      whoami: withDestructive(whoamiCommand, false),
+      // Overwrites an existing creek.toml (asks first in a TTY, not with --yes).
+      init: withDestructive(initCommand, true),
       claim: claimCommand,
       env: envCommand,
       queue: queueCommand,
@@ -53,12 +63,12 @@ export function createMain(version: string) {
       storage: storageCommand,
       cache: cacheCommand,
       domains: domainsCommand,
-      rollback: rollbackCommand,
+      rollback: withDestructive(rollbackCommand, true),
       top: topCommand,
       dashboard: dashboardCommand,
       restart: restartCommand,
       stop: stopCommand,
-      ops: opsCommand,
+      ops: withDestructive(opsCommand, false),
     },
   });
 }
