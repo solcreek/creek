@@ -33,7 +33,6 @@ function sessionRequired(jsonMode: boolean, action: string): never {
   const url = `${getDashboardUrl()}/api-keys`;
   const message = `${action} needs a signed-in dashboard session; the CLI authenticates with an API key, and the API refuses every API key here so that a key cannot mint, list or revoke other keys. Use the dashboard: ${url}`;
   const breadcrumbs: Breadcrumb[] = [
-    { command: `open ${url}`, description: "Manage API keys in the dashboard" },
     SELF_BREADCRUMB,
     { command: "creek keys revoke --self --json", description: "Revoke the API key in use" },
   ];
@@ -197,14 +196,10 @@ const revokeCommand = defineCommand({
             message: result.message,
             revoked: false,
             ...(result.status ? { status: result.status } : {}),
+            dashboardUrl: `${getDashboardUrl()}/api-keys`,
           },
           1,
-          [
-            {
-              command: `open ${getDashboardUrl()}/api-keys`,
-              description: "Revoke it in the dashboard",
-            },
-          ],
+          [{ command: "creek keys revoke --self --json", description: "Retry" }],
         );
       consola.error(result.message);
       process.exit(1);

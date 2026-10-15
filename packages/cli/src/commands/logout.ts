@@ -224,7 +224,8 @@ async function revokeAndLogout(
 
   if (failed.length > 0) {
     const kept = failed.map((r) => `the ${SOURCE_LABEL[r.source]} ${r.keyPrefix}`).join(" and ");
-    const message = `Could not revoke ${kept}; ${failed.length > 1 ? "they are" : "it is"} still valid${saved && !isDead(saved) ? " and the saved key was kept" : ""}. Retry, or revoke in the dashboard.`;
+    const dashboardUrl = `${getDashboardUrl()}/api-keys`;
+    const message = `Could not revoke ${kept}; ${failed.length > 1 ? "they are" : "it is"} still valid${saved && !isDead(saved) ? " and the saved key was kept" : ""}. Retry, or revoke in the dashboard: ${dashboardUrl}`;
     if (jsonMode)
       jsonOutput(
         {
@@ -237,16 +238,11 @@ async function revokeAndLogout(
           revoked: keys.some((r) => r.revoked),
           keyStillValid: true,
           keys,
+          dashboardUrl,
           ...(warning ? { warning } : {}),
         },
         1,
-        [
-          { command: "creek logout --revoke --json", description: "Retry" },
-          {
-            command: `open ${getDashboardUrl()}/api-keys`,
-            description: "Revoke the key in the dashboard",
-          },
-        ],
+        [{ command: "creek logout --revoke --json", description: "Retry" }],
       );
     consola.error(message);
     if (warning) consola.warn(warning);

@@ -498,3 +498,42 @@ describe("creek keys", () => {
     expect(calls).toEqual(["GET self tok-scoped"]);
   });
 });
+
+describe("dashboard links are portable", () => {
+  // `open <url>` only works on macOS; the URL travels as a field instead.
+  const noOpen = (out: { breadcrumbs?: Array<{ command: string }> }) =>
+    expect(
+      (out.breadcrumbs ?? []).filter((b) => /^(open|xdg-open|start) /.test(b.command)),
+    ).toEqual([]);
+  const old404 = () =>
+    server.use(
+      http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
+    );
+
+  it("keys ls: dashboardUrl, no open breadcrumb", async () => {
+    process.env.CREEK_TOKEN = "tok";
+    expect(await run(sub("ls"), {})).toBe(1);
+    const out = json();
+    expect(out.dashboardUrl).toBe(`${API}/api-keys`);
+    noOpen(out);
+  });
+
+  it("keys revoke --self failure: dashboardUrl, no open breadcrumb", async () => {
+    process.env.CREEK_TOKEN = "tok";
+    old404();
+    expect(await run(sub("revoke"), { self: true })).toBe(1);
+    const out = json();
+    expect(out.dashboardUrl).toBe(`${API}/api-keys`);
+    noOpen(out);
+  });
+
+  it("logout --revoke failure: dashboardUrl, no open breadcrumb", async () => {
+    saveConfig({ token: "tok" });
+    old404();
+    expect(await run(logoutCommand, { revoke: true })).toBe(1);
+    const out = json();
+    expect(out.dashboardUrl).toBe(`${API}/api-keys`);
+    expect(out.message).toContain(`${API}/api-keys`);
+    noOpen(out);
+  });
+});
