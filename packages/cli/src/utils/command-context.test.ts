@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ArgsDef, CommandDef } from "citty";
 import {
   NO_PROJECT_MESSAGE,
+  pasteableBreadcrumbs,
   projectBreadcrumbs,
   projectFromDirectory,
   resolveProject,
@@ -252,6 +253,38 @@ describe("the no_project hint names only flags the command accepts", () => {
         ),
     );
     expect(callers.filter((f) => !covered.has(f))).toEqual([]);
+  });
+});
+
+describe("pasteableBreadcrumbs", () => {
+  const crumbs = [
+    { command: "creek verify https://a.test --json", description: "verify" },
+    { command: "creek status", description: "status" },
+    { command: "creek env ls --json", description: "env" },
+    { command: "creek deployments logs abc", description: "log" },
+    { command: "creek rollback --project p", description: "rollback" },
+  ];
+  const withFlag = [
+    "creek verify https://a.test --json",
+    "creek status --project p",
+    "creek env ls --project p --json",
+    "creek deployments logs abc --project p",
+    "creek rollback --project p",
+  ];
+
+  it("keeps them bare when the cwd names that project", () => {
+    writeFileSync(join(dir, "creek.toml"), '[project]\nname = "p"\n');
+    expect(pasteableBreadcrumbs("p", crumbs)).toEqual(crumbs);
+  });
+
+  it("adds --project when the name is directory-derived", () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    expect(pasteableBreadcrumbs("p", crumbs).map((c) => c.command)).toEqual(withFlag);
+  });
+
+  it("adds --project when the cwd names another project (deploy ./elsewhere)", () => {
+    writeFileSync(join(dir, "creek.toml"), CREEK_TOML);
+    expect(pasteableBreadcrumbs("p", crumbs).map((c) => c.command)).toEqual(withFlag);
   });
 });
 

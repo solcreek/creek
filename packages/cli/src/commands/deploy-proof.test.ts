@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import { finishProductionSuccess, productionProofPayload } from "./deploy.js";
 
@@ -88,6 +91,52 @@ describe("finishProductionSuccess", () => {
   }
 
   const payload = { deploymentId: "dep_1", version: 3, mode: "production" };
+
+  describe("follow-up breadcrumbs work when pasted in the cwd", () => {
+    let dir: string;
+    let prevCwd: string;
+    beforeEach(() => {
+      prevCwd = process.cwd();
+      dir = mkdtempSync(join(tmpdir(), "creek-deploy-crumbs-"));
+      process.chdir(dir);
+      mockedVerifyUrl.mockResolvedValue(liveProof());
+    });
+    afterEach(() => {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    async function crumbs(slug: string): Promise<string[]> {
+      await runExit(
+        finishProductionSuccess({
+          jsonMode: true,
+          url: "https://a.test",
+          slug,
+          payload,
+          human: vi.fn(),
+        }),
+      );
+      return json().breadcrumbs.map((b: { command: string }) => b.command);
+    }
+
+    it("a static site (directory-derived name) gets --project on project commands", async () => {
+      writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+      const commands = await crumbs("web");
+      expect(commands).toContain("creek status --project web");
+      expect(commands).toContain("creek deployments --project web");
+      expect(commands).toContain("creek verify https://a.test --json");
+    });
+
+    it("a wrangler config without name gets --project too", async () => {
+      writeFileSync(join(dir, "wrangler.jsonc"), '{ "main": "src/index.ts" }');
+      expect(await crumbs("web")).toContain("creek status --project web");
+    });
+
+    it("a named project deployed from its own directory keeps them bare", async () => {
+      writeFileSync(join(dir, "creek.toml"), '[project]\nname = "named-app"\n');
+      expect(await crumbs("named-app")).toContain("creek status");
+    });
+  });
 
   it("JSON ok true, proof attached, exit 0 when URL is live", async () => {
     const proof = liveProof();

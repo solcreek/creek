@@ -206,6 +206,34 @@ export function projectBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadcru
   return crumbs.filter((c) => !unsafe(c));
 }
 
+const PROJECT_COMMAND =
+  /^creek (status|env|logs|metrics|deployments|domains|rollback|queue|db (shell|migrate))( |$)/;
+
+/**
+ * Follow-up breadcrumbs for `slug` that work when pasted in the cwd. A bare
+ * project command resolves the cwd's own name, which is not `slug` when the
+ * deploy's name came from the directory (static site, nameless wrangler
+ * config) — project commands refuse those — or when the deploy ran on another
+ * directory. Then each project command without `--project` gets
+ * `--project <slug>`; otherwise the breadcrumbs stay bare.
+ */
+export function pasteableBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadcrumb[] {
+  let named: string | null = null;
+  try {
+    named = projectFromDirectory()?.slug ?? null;
+  } catch {
+    // An unreadable config names nothing: add --project.
+  }
+  if (named === slug) return crumbs;
+  return crumbs.map((c) => {
+    if (!PROJECT_COMMAND.test(c.command) || / --project /.test(`${c.command} `)) return c;
+    const command = c.command.endsWith(" --json")
+      ? `${c.command.slice(0, -" --json".length)} --project ${slug} --json`
+      : `${c.command} --project ${slug}`;
+    return { ...c, command };
+  });
+}
+
 /** {@link resolveProject}, for callers that need only the slug. */
 export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
   return resolveProject(argSlug, jsonMode).slug;
