@@ -68,7 +68,8 @@ export const rollbackCommand = defineCommand({
       );
     }
     if (args.to) {
-      const msg = "--to requires --host (use --deployment for CF Workers rollback)";
+      const msg =
+        "--to requires --host. To roll back a Creek Cloud project, pass the deployment ID instead: creek rollback <deployment-id>";
       if (jsonMode) jsonOutput({ ok: false, error: "missing_host", message: msg }, 1, []);
       consola.error(msg);
       process.exit(1);
@@ -333,7 +334,7 @@ async function rollbackSelfHost(
         release,
       },
       0,
-      [{ command: `creek status --host ${host.name}`, description: "Check rollback status" }],
+      [{ command: `creek top --server ${host.addr}`, description: "Check the app on this host" }],
     );
   }
   consola.success(
