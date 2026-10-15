@@ -15,47 +15,7 @@ import {
   type ApiKeySelf,
   type CreekClient,
 } from "@solcreek/sdk";
-import consola from "consola";
-import { getApiUrl, type TokenInfo } from "./config.js";
-import { jsonOutput } from "./output.js";
-
-/**
- * Refuse to use the saved key against an API other than the one it was
- * saved for (`creek login` records it). Exits 1 with api_mismatch, naming
- * both URLs; nothing is sent. Call only when the saved key would be used,
- * revoked or cleared.
- */
-export function exitApiMismatch(
-  jsonMode: boolean,
-  info: TokenInfo,
-  action: string,
-  extra: Record<string, unknown> = {},
-): never {
-  const apiUrl = getApiUrl();
-  const message = `The saved API key belongs to ${info.savedApiUrl}, but the CLI would talk to ${apiUrl} (CREEK_API_URL or the config's apiUrl). Refusing to ${action}: the key is never sent to another API. Point the CLI at ${info.savedApiUrl}, or log in to ${apiUrl} with \`creek login --token <KEY>\`.`;
-  if (jsonMode)
-    jsonOutput(
-      {
-        ok: false,
-        error: "api_mismatch",
-        message,
-        savedKeyApiUrl: info.savedApiUrl,
-        apiUrl,
-        tokenSource: info.source,
-        ...extra,
-      },
-      1,
-      [
-        {
-          command: `CREEK_API_URL=${info.savedApiUrl} creek whoami --json`,
-          description: "Use the saved key with the API it belongs to",
-        },
-        { command: "creek login --token <KEY> --json", description: `Log in to ${apiUrl}` },
-      ],
-    );
-  consola.error(message);
-  process.exit(1);
-}
+import type { TokenInfo } from "./config.js";
 
 /** What `--json` output reports about a key. */
 export interface KeySummary {

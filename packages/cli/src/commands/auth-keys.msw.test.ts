@@ -9,6 +9,8 @@ import { whoamiCommand } from "./whoami.js";
 import { loginCommand } from "./login.js";
 import { logoutCommand } from "./logout.js";
 import { keysCommand } from "./keys.js";
+import { projectsCommand } from "./projects.js";
+import { dbCommand } from "./db.js";
 
 // whoami / login / logout / keys driven through .run() with MSW standing in
 // for the control-plane and HOME pointed at a temp dir, so ~/.creek is the
@@ -295,6 +297,33 @@ describe("a saved key goes only to the API it was saved for", () => {
     api({ [SCOPED_KEY]: SCOPED });
     expect(await run(loginCommand, { token: SCOPED_KEY, json: true })).toBe(0);
     expect(readConfig()).toMatchObject({ token: SCOPED_KEY, tokenApiUrl: API });
+  });
+
+  // Enforced where the token is chosen (getToken), so every command is
+  // covered: one through requireClient, one that calls getToken directly.
+  it.each([
+    ["creek projects (requireClient)", () => run(projectsCommand, {})],
+    [
+      "creek db ls (getToken directly)",
+      () => run((dbCommand.subCommands as Record<string, { run?: unknown }>).ls, {}),
+    ],
+  ])("%s with a key bound to another API: api_mismatch, no request", async (_, drive) => {
+    saveConfig({ token: SCOPED_KEY, tokenApiUrl: OTHER_API });
+    const seen: string[] = [];
+    server.use(
+      http.all(`${API}/*`, ({ request }) => {
+        seen.push(`${request.method} ${new URL(request.url).pathname}`);
+        return HttpResponse.json([]);
+      }),
+    );
+    expect(await drive()).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "api_mismatch",
+      savedKeyApiUrl: OTHER_API,
+      apiUrl: API,
+    });
+    expect(seen).toEqual([]);
   });
 
   it("a key bound to another API is never sent: whoami, keys self, keys revoke --self → api_mismatch", async () => {

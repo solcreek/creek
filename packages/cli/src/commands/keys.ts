@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { getDashboardUrl, getTokenInfo } from "../utils/config.js";
+import { exitApiMismatch, getDashboardUrl, getTokenInfo } from "../utils/config.js";
 import {
   globalArgs,
   resolveJsonMode,
@@ -10,13 +10,7 @@ import {
 } from "../utils/output.js";
 import { requireClient } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import {
-  describeTokenSource,
-  exitApiMismatch,
-  keyLines,
-  lookupKey,
-  revokeSelf,
-} from "../utils/api-key.js";
+import { describeTokenSource, keyLines, lookupKey, revokeSelf } from "../utils/api-key.js";
 
 /**
  * `creek keys` — the API key the CLI is using.

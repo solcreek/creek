@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import consola from "consola";
+import { isTTY, jsonOutput } from "./output.js";
 
 interface CliConfig {
   token?: string;
@@ -136,8 +138,62 @@ export function getTokenInfo(): TokenInfo {
   return { token: stored, source: stored ? "config" : null, shadowsConfigToken: false, ...saved };
 }
 
+/**
+ * The key every command sends — the one place a command gets it.
+ * CREEK_TOKEN, when set (even empty), wins. A key saved by `creek login`
+ * is bound to the API it was verified against (tokenApiUrl): when the CLI
+ * would talk to another API, this exits 1 with api_mismatch before any
+ * request, so the key never reaches that API. A key saved by an older CLI
+ * (no tokenApiUrl) is unbound and sent as before.
+ */
 export function getToken(): string | undefined {
-  return process.env.CREEK_TOKEN ?? readCliConfig().token;
+  const env = process.env.CREEK_TOKEN;
+  if (env !== undefined) return env;
+  const info = getTokenInfo();
+  if (info.savedKeyApiMismatch) {
+    // No args here: JSON when asked for, or when stdout is not a terminal
+    // (resolveJsonMode's rule).
+    exitApiMismatch(process.argv.includes("--json") || !isTTY, info, "send it");
+  }
+  return info.token;
+}
+
+/**
+ * Refuse to use the saved key against an API other than the one it was
+ * saved for (`creek login` records it). Exits 1 with api_mismatch, naming
+ * both URLs; nothing is sent. Call only when the saved key would be used,
+ * revoked or cleared.
+ */
+export function exitApiMismatch(
+  jsonMode: boolean,
+  info: TokenInfo,
+  action: string,
+  extra: Record<string, unknown> = {},
+): never {
+  const apiUrl = getApiUrl();
+  const message = `The saved API key belongs to ${info.savedApiUrl}, but the CLI would talk to ${apiUrl} (CREEK_API_URL or the config's apiUrl). Refusing to ${action}: the key is never sent to another API. Point the CLI at ${info.savedApiUrl}, or log in to ${apiUrl} with \`creek login --token <KEY>\`.`;
+  if (jsonMode)
+    jsonOutput(
+      {
+        ok: false,
+        error: "api_mismatch",
+        message,
+        savedKeyApiUrl: info.savedApiUrl,
+        apiUrl,
+        tokenSource: info.source,
+        ...extra,
+      },
+      1,
+      [
+        {
+          command: `CREEK_API_URL=${info.savedApiUrl} creek whoami --json`,
+          description: "Use the saved key with the API it belongs to",
+        },
+        { command: "creek login --token <KEY> --json", description: `Log in to ${apiUrl}` },
+      ],
+    );
+  consola.error(message);
+  process.exit(1);
 }
 
 export function getApiUrl(): string {

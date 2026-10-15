@@ -1,9 +1,15 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
-import { clearCliToken, getApiUrl, getDashboardUrl, getTokenInfo } from "../utils/config.js";
+import {
+  clearCliToken,
+  exitApiMismatch,
+  getApiUrl,
+  getDashboardUrl,
+  getTokenInfo,
+} from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { exitApiMismatch, keyHint, revokeSelf } from "../utils/api-key.js";
+import { keyHint, revokeSelf } from "../utils/api-key.js";
 
 /**
  * `creek logout [--revoke]`.

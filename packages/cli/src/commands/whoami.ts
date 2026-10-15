@@ -1,15 +1,9 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
-import { getTokenInfo, getApiUrl } from "../utils/config.js";
+import { exitApiMismatch, getTokenInfo, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import {
-  describeTokenSource,
-  envOverrideWarning,
-  exitApiMismatch,
-  keyLines,
-  lookupKey,
-} from "../utils/api-key.js";
+import { describeTokenSource, envOverrideWarning, keyLines, lookupKey } from "../utils/api-key.js";
 
 const UNBOUND_NOTE =
   "This key was saved by an older CLI and isn't bound to an API. Run `creek login --token <KEY>` again against the intended API to bind it.";
