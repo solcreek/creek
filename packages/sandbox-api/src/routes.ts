@@ -1,5 +1,6 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "./types.js";
+import { secretEqual } from "./secret-equal.js";
 import {
   deployWithAssets,
   shortDeployId,
@@ -20,8 +21,21 @@ const routes = new Hono<SandboxEnv>();
 // Tier 1: Verified agent (passed agent challenge) → 60/hr
 // Tier 2: Human CLI (TTY detected, source = "cli") → 10/hr
 // Tier 3: Unverified (no token, no TTY signal)     → 15/hr
-// Demo deploys (source = "cli-demo") are exempt from rate limits.
+// Demo deploys are exempt from rate limits. Whether a deploy is a demo is
+// the server's decision, never the body's: only a trusted internal caller
+// (valid X-Internal-Secret) can ask for it, with X-Creek-Demo: 1 — the MCP
+// server's deploy_demo, whose page is fixed. The row is stored with the
+// server-set source DEMO_SOURCE, and the per-IP count skips only those rows.
 // ---------------------------------------------------------------------------
+
+export const DEMO_SOURCE = "mcp-demo";
+/**
+ * `source` values a body may not carry. DEMO_SOURCE is refused (400): only
+ * the server writes it. "cli-demo" was once a body label that exempted a
+ * deploy, documented in the public API docs; it is now stored as a plain
+ * "cli" deploy, so old clients keep working but are counted.
+ */
+const LEGACY_DEMO_SOURCE = "cli-demo";
 
 type RateTier = "verified_agent" | "human_cli" | "unverified";
 
@@ -60,13 +74,7 @@ routes.post("/deploy", async (c) => {
   const now = Date.now();
   const expiresAt = now + ttlMinutes * 60 * 1000;
 
-  // Resolve client IP — trust X-Forwarded-For only from internal services
-  const internalSecret = c.req.header("x-internal-secret");
-  const isTrustedInternal =
-    internalSecret && env.INTERNAL_SECRET && internalSecret === env.INTERNAL_SECRET;
-  const ip = isTrustedInternal
-    ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
-    : (c.req.header("cf-connecting-ip") ?? "unknown");
+  const { ip, isTrustedInternal } = resolveClient(c);
   const ipHash = await hashIp(ip, env);
 
   // Parse bundle
@@ -117,6 +125,17 @@ routes.post("/deploy", async (c) => {
     return c.json({ error: "validation", message: "Invalid or missing JSON body" }, 400);
   }
 
+  if (body.source === DEMO_SOURCE) {
+    return c.json(
+      {
+        error: "validation",
+        message: `source "${DEMO_SOURCE}" is reserved for the server and cannot be sent.`,
+      },
+      400,
+    );
+  }
+  if (body.source === LEGACY_DEMO_SOURCE) body.source = "cli";
+
   // Pure-worker deploys (Hono app with inlined HTML, etc.) legitimately
   // ship zero static assets. Require EITHER assets OR serverFiles so the
   // sandbox has something to serve.
@@ -161,14 +180,21 @@ routes.post("/deploy", async (c) => {
   }
 
   // Tiered rate limiting
-  // - Demo deploys (source = "cli-demo") are exempt.
+  // - Demo deploys are exempt: only a trusted caller can mark one, with
+  //   X-Creek-Demo: 1 (the MCP server's fixed demo page).
   // - Trusted internal calls (remote-builder via X-Internal-Secret) are
   //   exempt because rate limiting was already applied at the control-plane
   //   level with the real user IP. Without this exemption, ALL web deploys
   //   share a single rate limit bucket because remote-builder doesn't
   //   forward the original user IP → ipHash = hash("unknown").
-  const isDemo = body.source === "cli-demo";
-  const isRateLimitExempt = isDemo || isTrustedInternal;
+  // - Except a trusted caller that forwards each end client's IP and asks to
+  //   be limited by it (X-Creek-Rate-Limit: client-ip — the MCP server):
+  //   ipHash is then the forwarded client's, limited like a direct caller.
+  //   An explicit opt-in, since X-Forwarded-For alone may be set by the edge.
+  const limitByForwardedClient =
+    isTrustedInternal && c.req.header("x-creek-rate-limit") === "client-ip";
+  const isDemo = isTrustedInternal && c.req.header("x-creek-demo") === "1";
+  const isRateLimitExempt = isDemo || (isTrustedInternal && !limitByForwardedClient);
   const tier = await resolveRateTier(c, env, ipHash);
   const RATE_LIMIT = RATE_LIMITS[tier];
   const RATE_WINDOW = 3600_000; // 1 hour
@@ -178,9 +204,9 @@ routes.post("/deploy", async (c) => {
 
   if (!isRateLimitExempt) {
     const rateInfo = await env.DB.prepare(
-      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != 'cli-demo' AND createdAt > ?",
+      "SELECT COUNT(*) as count, MIN(createdAt) as oldest FROM deployments WHERE ipHash = ? AND source != ? AND createdAt > ?",
     )
-      .bind(ipHash, windowStart)
+      .bind(ipHash, DEMO_SOURCE, windowStart)
       .first<{ count: number; oldest: number | null }>();
 
     const used = rateInfo?.count ?? 0;
@@ -263,7 +289,7 @@ routes.post("/deploy", async (c) => {
       body.templateId ?? null,
       body.framework ?? null,
       previewHost,
-      body.source ?? "cli",
+      isDemo ? DEMO_SOURCE : (body.source ?? "cli"),
       manifest.renderMode,
       assetCount,
       ipHash,
@@ -413,8 +439,9 @@ routes.post("/:id/report", async (c) => {
 
 routes.delete("/:id", async (c) => {
   const sandboxId = c.req.param("id");
-  const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-  const ipHash = await hashIp(ip, c.env);
+  // Same resolution as POST /deploy: a sandbox created through the MCP
+  // server is hashed under the forwarded client IP, so its delete must be.
+  const ipHash = await hashIp(resolveClient(c).ip, c.env);
 
   const sandbox = await c.env.DB.prepare("SELECT id, ipHash, status FROM deployments WHERE id = ?")
     .bind(sandboxId)
@@ -631,6 +658,20 @@ async function runSandboxDeploy(
 }
 
 // --- Helpers ---
+
+/**
+ * The end client's IP. X-Forwarded-For is trusted only from an internal
+ * service (the MCP server) that proves itself with X-Internal-Secret;
+ * otherwise the caller is whoever Cloudflare saw connect.
+ */
+function resolveClient(c: Context<SandboxEnv>): { ip: string; isTrustedInternal: boolean } {
+  const internalSecret = c.req.header("x-internal-secret");
+  const isTrustedInternal = secretEqual(internalSecret, c.env.INTERNAL_SECRET);
+  const ip = isTrustedInternal
+    ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
+    : (c.req.header("cf-connecting-ip") ?? "unknown");
+  return { ip, isTrustedInternal };
+}
 
 async function hashIp(ip: string, env: Env): Promise<string> {
   const salt = env.IP_HASH_SALT || "creek-sandbox-salt";

@@ -9,6 +9,8 @@ import {
   publicRoute,
   requireAnyScope,
   requireScopes,
+  sessionOnlyRoute,
+  apiKeySelfRoute,
 } from "./scope-guard.js";
 import { ALL_SCOPES, type Scope } from "./scopes.js";
 import type { ApiKeyGrant } from "./api-key-grant.js";
@@ -203,6 +205,41 @@ describe("apiKeyAuthRouteGuard", () => {
 
   it("leaves session (cookie) requests to Better Auth", async () => {
     expect((await call("POST", "/api/auth/api-key/create", false)).status).toBe(200);
+  });
+});
+
+describe("sessionOnlyRoute / apiKeySelfRoute", () => {
+  const legacy: ApiKeyGrant = { kind: "legacy", keyId: "k" };
+
+  it("sessionOnlyRoute refuses every key, whatever it holds, and lets sessions through", async () => {
+    for (const grant of [scoped(ALL_SCOPES), legacy, undefined]) {
+      const res = await run(sessionOnlyRoute, { grant, role: "owner" });
+      expect([res.status, res.body.error, res.reached]).toEqual([
+        403,
+        "api_key_not_allowed",
+        false,
+      ]);
+    }
+    const session = await run(sessionOnlyRoute, { key: false, role: "owner" });
+    expect([session.status, session.reached]).toEqual([200, true]);
+  });
+
+  it("apiKeySelfRoute lets any key through, scope or not, and turns sessions away", async () => {
+    for (const grant of [scoped([]), legacy]) {
+      const res = await run(apiKeySelfRoute, { grant });
+      expect([res.status, res.reached]).toEqual([200, true]);
+    }
+    const session = await run(apiKeySelfRoute, { key: false });
+    expect([session.status, session.body.error, session.reached]).toEqual([
+      400,
+      "api_key_required",
+      false,
+    ]);
+  });
+
+  it("are recognized as guards", () => {
+    expect(guardInfo(sessionOnlyRoute)).toEqual({ kind: "session-only" });
+    expect(guardInfo(apiKeySelfRoute)).toEqual({ kind: "api-key-self" });
   });
 });
 

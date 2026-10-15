@@ -22,39 +22,53 @@ export async function recordAudit(
   entry: AuditEntry,
   reqCtx: AuditRequestContext,
 ): Promise<void> {
-  const id = crypto.randomUUID();
-  const now = Date.now();
-
   try {
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO audit_log (id, teamId, userId, userEmail, action, resourceType, resourceId, metadata, ipHash, country, userAgent, cfRay, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          id,
-          teamId,
-          user.id,
-          user.email,
-          entry.action,
-          entry.resourceType,
-          entry.resourceId ?? null,
-          entry.metadata ? JSON.stringify(entry.metadata) : null,
-          reqCtx.ipHash,
-          reqCtx.country,
-          reqCtx.userAgent?.slice(0, 512) ?? null,
-          reqCtx.cfRay,
-          now,
-        ),
-      db
-        .prepare("INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)")
-        .bind(id, reqCtx.ip, now),
-    ]);
+    await recordAuditOrThrow(db, user, teamId, entry, reqCtx);
   } catch (err) {
     // Audit failure must never break the user-facing operation
     console.error("[audit] Failed to record audit log:", err);
   }
+}
+
+/**
+ * Record an audit log entry and throw if it cannot be written. For actions
+ * that must not take effect without their audit entry (e.g. creating an API
+ * key): the caller undoes the action when this throws.
+ */
+export async function recordAuditOrThrow(
+  db: D1Database,
+  user: AuthUser,
+  teamId: string,
+  entry: AuditEntry,
+  reqCtx: AuditRequestContext,
+): Promise<void> {
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO audit_log (id, teamId, userId, userEmail, action, resourceType, resourceId, metadata, ipHash, country, userAgent, cfRay, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        teamId,
+        user.id,
+        user.email,
+        entry.action,
+        entry.resourceType,
+        entry.resourceId ?? null,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        reqCtx.ipHash,
+        reqCtx.country,
+        reqCtx.userAgent?.slice(0, 512) ?? null,
+        reqCtx.cfRay,
+        now,
+      ),
+    db
+      .prepare("INSERT INTO audit_ip_log (auditLogId, rawIp, createdAt) VALUES (?, ?, ?)")
+      .bind(id, reqCtx.ip, now),
+  ]);
 }
 
 /** Purge raw IP logs older than 30 days. */

@@ -16,6 +16,10 @@ import { SCOPES, type Scope } from "./scopes.js";
  *   publicRoute / internalRoute             — no user auth on this route
  *   apiKeyAuthRouteGuard                    — Better Auth's own routes
  *   requirePlatformAdmin                    — platform operators only
+ *   sessionOnlyRoute                        — dashboard sessions only; every
+ *                                             API key is refused
+ *   apiKeySelfRoute                         — API keys only, acting on the
+ *                                             key that makes the request
  *
  * Guards only act on API-key requests. A dashboard session or a legacy key
  * (no scopes stored) passes through unchanged; role checks for those are
@@ -31,7 +35,9 @@ export type GuardInfo =
   | { kind: "public" }
   | { kind: "internal" }
   | { kind: "auth-routes" }
-  | { kind: "platform-admin" };
+  | { kind: "platform-admin" }
+  | { kind: "session-only" }
+  | { kind: "api-key-self" };
 
 const GUARDS = new WeakMap<Function, GuardInfo>();
 
@@ -179,6 +185,43 @@ export const apiKeyAuthRouteGuard = markGuard(
     );
   }) as MiddlewareHandler,
   { kind: "auth-routes" },
+);
+
+/**
+ * Guard: dashboard sessions only. Every API key is refused, scoped or
+ * legacy, whatever it holds — a key that could mint, list or revoke keys
+ * could outlive its own revocation or widen itself.
+ */
+export const sessionOnlyRoute = markGuard(
+  (async (c, next) => {
+    if (!isApiKeyRequest(c)) return next();
+    return forbidden(
+      c,
+      "api_key_not_allowed",
+      "API keys cannot manage API keys; sign in to the dashboard instead. A key can read itself with GET /api-keys/self and revoke itself with DELETE /api-keys/self",
+    );
+  }) as MiddlewareHandler,
+  { kind: "session-only" },
+);
+
+/**
+ * Guard: API keys only, for routes that act on the key making the request
+ * (read or revoke itself). It needs no scope: the key can only see and drop
+ * itself. A session has no key to act on and is told where to look instead.
+ */
+export const apiKeySelfRoute = markGuard(
+  (async (c, next) => {
+    if (isApiKeyRequest(c)) return next();
+    return c.json(
+      {
+        error: "api_key_required",
+        message:
+          "This endpoint acts on the API key that makes the request; send it in x-api-key. Signed-in users list their keys with GET /api-keys",
+      },
+      400,
+    );
+  }) as MiddlewareHandler,
+  { kind: "api-key-self" },
 );
 
 /**

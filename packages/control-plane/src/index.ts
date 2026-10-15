@@ -35,6 +35,7 @@ import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
 import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
 import { resources, resourceBindings } from "./modules/resources/routes.js";
 import { aggregateYesterday } from "./modules/metering/aggregate.js";
+import { apiKeys, apiKeysAuth } from "./modules/api-keys/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 import {
@@ -43,6 +44,7 @@ import {
   publicRoute,
 } from "./modules/tenant/scope-guard.js";
 import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
+import { refuseClientKeyMetadata } from "./modules/tenant/api-key-metadata.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -87,6 +89,9 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   // other route refuses, so whoami doesn't report a session it can't use.
   const refused = await refuseUnusableKeySession(c);
   if (refused) return refused;
+  // API key metadata is server-only (POST /api-keys tags keys with it).
+  const metadata = await refuseClientKeyMetadata(c);
+  if (metadata) return metadata;
   try {
     const auth = createAuth(c.env);
     return await auth.handler(c.req.raw);
@@ -182,6 +187,12 @@ app.route("/projects", resourceBindings);
 app.route("/resources", resources);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
+
+// API key management: a key reads or revokes itself; a signed-in user mints,
+// lists and revokes keys. Its own auth: it resolves no team from headers.
+app.use("/api-keys/*", apiKeysAuth);
+app.use("/api-keys/*", auditContextMiddleware);
+app.route("/api-keys", apiKeys);
 
 // GET /preview/:slug/* (local dispatch stand-in) is mounted by src/local/serve.ts only.
 

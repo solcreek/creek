@@ -45,6 +45,6 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Pre-deploy doctor](./doctor.md) covers analyzing a directory for `CK-*` findings.
 - [Deploy dry-run](./deploy-dry-run.md) covers the no-network deploy plan, payload gates, and the non-TTY confirmation gate.
 - [Auth status](./whoami.md) covers unauthenticated `whoami` and non-interactive `login` refusal.
-- [API key scopes](./api-key-scopes.md) covers what a scoped key may do, against a local control-plane (`scripts/control-plane.sh`), plus a raw-HTTP probe.
+- [API key scopes](./api-key-scopes.md) covers what a scoped key may do and the key management API (mint, list, self, revoke), against a local control-plane (`scripts/control-plane.sh`), plus a raw-HTTP probe.
 - [Environment variable targets](./env-targets.md) covers `creek env --target` against a local control-plane.
 - [Deploy bindings](./deploy-bindings.md) covers what a deploy binds (custom Workers AI names, type conflicts), against a local control-plane that answers Cloudflare in-process.
