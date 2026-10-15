@@ -48,10 +48,9 @@ Verify cron is active:
 creek status --json          # Shows registered cron schedules
 ```
 
-Simulate a firing locally during dev:
-```bash
-creek dev --trigger-cron "0 */6 * * *"
-```
+Simulate a firing locally during dev: start `creek dev`, then type
+`cron` and press Enter in that terminal. It calls your `scheduled()`
+handler once. There is no `--trigger-cron` flag.
 
 ## Queue triggers
 

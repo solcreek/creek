@@ -53,7 +53,8 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; `--parse-json` is not recognised) |
 | Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
-| Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
+| Trigger a cron firing in dev | type `cron` + Enter in the running `creek dev` terminal (only when `[triggers] cron` is set; there is no `--trigger-cron` flag) |
+| Send a queue message in dev | type `queue <JSON-OR-TEXT>` + Enter in the running `creek dev` terminal (only when `[triggers] queue = true`) |
 | List team databases | `creek db ls --json` |
 | Create a team database | `creek db create <NAME> --json` |
 | Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DATABASE --json` |
