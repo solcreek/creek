@@ -248,11 +248,28 @@ describe("the no_project hint names only flags the command accepts", () => {
       (f) =>
         f.endsWith(".ts") &&
         !f.includes(".test") &&
-        /resolveProject(Slug)?\(|projectFromDirectory\(|NO_PROJECT_MESSAGE/.test(
+        /resolveProject(Slug)?\(|projectFromDirectory\(|readDirectoryProject\(|NO_PROJECT_MESSAGE/.test(
           readFileSync(join(commandsDir, f), "utf-8"),
         ),
     );
     expect(callers.filter((f) => !covered.has(f))).toEqual([]);
+  });
+});
+
+describe("config errors are never swallowed into no_project", () => {
+  it("commands read the directory through readDirectoryProject/resolveProject", () => {
+    // projectFromDirectory throws on a broken config; a command that catches
+    // that and carries on reports "no project" / "no database" instead of the
+    // parser's diagnostic. status.ts is the one deliberate exception: it reads
+    // the local config only after resolveProject, for --project <other>.
+    const commandsDir = join(__dirname, "..", "commands");
+    const direct = readdirSync(commandsDir).filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.includes(".test") &&
+        readFileSync(join(commandsDir, f), "utf-8").includes("projectFromDirectory("),
+    );
+    expect(direct).toEqual(["status.ts"]);
   });
 });
 

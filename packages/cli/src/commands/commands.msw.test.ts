@@ -12,6 +12,7 @@ import { envCommand } from "./env.js";
 import { resolveShellDatabase } from "./db.js";
 import { projectsCommand } from "./projects.js";
 import { domainsCommand } from "./domains.js";
+import { doctorCommand } from "./doctor.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -609,6 +610,37 @@ describe("project commands in a directory whose config names no project", () => 
       const code = await runExit(statusCommand.run!({ args: {} } as never));
       expect(code).toBe(1);
       expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+  }
+});
+
+describe("creek doctor --last with a malformed config", () => {
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-doctor-badconfig-"));
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  for (const [file, content] of [
+    ["creek.toml", "[project\nname ="],
+    ["wrangler.jsonc", '{ "name": "x", "main": '],
+  ]) {
+    it(`a broken ${file} is invalid_config with the diagnostic, not no_project`, async () => {
+      writeFileSync(join(projDir, file), content);
+      const code = await runExit(
+        Promise.resolve(doctorCommand.run!({ args: { last: true, _: [] } } as never)),
+      );
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+      expect(out.message).toMatch(/^Couldn't read the project config: \S/);
     });
   }
 });

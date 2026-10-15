@@ -115,7 +115,9 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
     const local = projectFromDirectory();
     if (local && local.slug === slug) resolved = local.config;
   } catch {
-    // An unreadable local config can't describe the named project.
+    // Only reachable with --project: without it, resolveProject has already
+    // exited invalid_config on this error. The local config is not the
+    // project being asked about, so it is just left out.
   }
 
   const client = new CreekClient(getApiUrl(), token);

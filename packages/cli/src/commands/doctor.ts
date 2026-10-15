@@ -11,7 +11,7 @@ import {
   NO_PROJECT_MESSAGE,
   PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
   projectBreadcrumbs,
-  projectFromDirectory,
+  readDirectoryProject,
   unnamedProjectMessage,
 } from "../utils/command-context.js";
 
@@ -236,13 +236,10 @@ async function runLastFailureDiagnosis(opts: {
   let slug = opts.project;
   let unnamedFile: string | null = null;
   if (!slug) {
-    try {
-      const found = projectFromDirectory(opts.cwd);
-      if (found?.slug === null) unnamedFile = found.file;
-      else if (found) slug = found.slug;
-    } catch {
-      // An unreadable config names no project; fall through to no_project.
-    }
+    // A config that can't be parsed exits invalid_config with the diagnostic.
+    const found = readDirectoryProject(opts.jsonMode, opts.cwd);
+    if (found?.slug === null) unnamedFile = found.file;
+    else if (found) slug = found.slug;
   }
   if (!slug) {
     const msg = unnamedFile ? unnamedProjectMessage(unnamedFile) : NO_PROJECT_MESSAGE;
