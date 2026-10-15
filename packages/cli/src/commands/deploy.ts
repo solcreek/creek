@@ -2309,7 +2309,7 @@ async function deployAuthenticated(
     const turboResult =
       skipBuild || resolved.releaseMigrations
         ? false
-        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode);
+        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode, waitMs);
     if (turboResult) {
       return; // ⚡ done — server deployed from cache
     }
@@ -2879,12 +2879,14 @@ export function patchBareNodeImports(code: string): string {
  * Graceful: any failure (no git, dirty tree, API error, cache miss)
  * silently returns false → normal deploy. Turbo is always opt-in bonus.
  */
-async function tryTurboDeploy(
+export async function tryTurboDeploy(
   cwd: string,
-  client: CreekClient,
+  client: Pick<CreekClient, "createDeployment" | "getDeploymentStatus">,
   project: { id: string; slug: string },
   noCache: boolean,
   jsonMode: boolean,
+  /** Poll budget from --wait; same 2m default as the regular deploy path. */
+  waitMs?: number,
 ): Promise<boolean> {
   if (noCache) return false;
 
@@ -2957,7 +2959,9 @@ async function tryTurboDeploy(
 
     // Poll until deployment is active (same as normal deploy path)
     const POLL_INTERVAL = 1000;
-    const POLL_TIMEOUT = 30_000; // Turbo should be fast — 30s max
+    // --wait governs this poll too: a cache deploy is usually fast, but the
+    // CLI must not give up sooner than the caller asked it to wait.
+    const POLL_TIMEOUT = waitMs ?? 120_000;
     const TERMINAL = new Set(["active", "failed", "cancelled"]);
     let lastStatus = "";
     const start = Date.now();
