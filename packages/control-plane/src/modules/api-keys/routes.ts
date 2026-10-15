@@ -11,9 +11,11 @@ import { resolveTeam } from "../tenant/resolve.js";
 import { apiKeySelfRoute, isApiKeyRequest, sessionOnlyRoute } from "../tenant/scope-guard.js";
 import {
   describeKey,
+  discardKey,
   findMemberTeam,
   listKeys,
   mintScopedKey,
+  mintedKeyView,
   parseCreateKeyBody,
   revokeKey,
   scopesBeyondRole,
@@ -216,29 +218,15 @@ apiKeys.post("/", sessionOnlyRoute, async (c) => {
     );
   }
 
-  const view = (await describeKey(c.env.DB, minted.id, user.id))!;
-  await recordAudit(
-    c.env.DB,
-    user,
-    team.id,
-    {
-      action: "api_key.create",
-      resourceType: "api_key",
-      resourceId: minted.id,
-      metadata: {
-        name: input.name,
-        scopes: view.scopes,
-        preset: input.preset,
-        expiresAt: view.expiresAt,
-      },
-    },
-    c.get("auditCtx"),
-  );
-
-  // The secret is in this response and nowhere else.
-  c.header("Cache-Control", "no-store");
-  return c.json(
-    {
+  // From here a live key exists. Build the response from the verified row
+  // and the team already resolved (no further database reads); if that
+  // still fails, the key is deleted rather than left live without its
+  // secret ever reaching anyone.
+  let response: Record<string, unknown>;
+  let view: ReturnType<typeof mintedKeyView>;
+  try {
+    view = mintedKeyView(minted.row, team);
+    response = {
       key: minted.key,
       id: view.id,
       name: view.name,
@@ -250,9 +238,44 @@ apiKeys.post("/", sessionOnlyRoute, async (c) => {
       effectiveScopes: view.effectiveScopes,
       expiresAt: view.expiresAt,
       createdAt: view.createdAt,
-    },
-    201,
-  );
+    };
+  } catch (err) {
+    console.error("[api-keys] building the create response failed:", err);
+    await discardKey(c.env.DB, minted.id, "the create response could not be built");
+    return c.json(
+      { error: "key_create_failed", message: "API key creation failed; no key was created" },
+      500,
+    );
+  }
+
+  // Audit is best-effort, as everywhere else: the key exists and belongs to
+  // the caller, so a failed audit write must not turn into a 500 that
+  // withholds the secret of a live key. The failure is logged.
+  try {
+    await recordAudit(
+      c.env.DB,
+      user,
+      team.id,
+      {
+        action: "api_key.create",
+        resourceType: "api_key",
+        resourceId: minted.id,
+        metadata: {
+          name: input.name,
+          scopes: view.scopes,
+          preset: input.preset,
+          expiresAt: view.expiresAt,
+        },
+      },
+      c.get("auditCtx"),
+    );
+  } catch (err) {
+    console.error(`[api-keys] audit of key ${minted.id} creation failed:`, err);
+  }
+
+  // The secret is in this response and nowhere else.
+  c.header("Cache-Control", "no-store");
+  return c.json(response, 201);
 });
 
 apiKeys.get("/", sessionOnlyRoute, async (c) => {

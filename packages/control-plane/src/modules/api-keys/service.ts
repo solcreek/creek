@@ -199,7 +199,7 @@ export interface KeyAuthApi {
   };
 }
 
-interface ApiKeyRow {
+export interface ApiKeyRow {
   id: string;
   name: string | null;
   start: string | null;
@@ -412,6 +412,34 @@ export interface SelfView extends KeyView {
    */
   effectiveScopes: Scope[] | null;
   access: "scoped" | "full" | "none";
+}
+
+/**
+ * The view of a key mintScopedKey just created and verified, from its
+ * verified row and the team (with the creator's role) already resolved for
+ * the request. Pure: no database read stands between a live key and the
+ * response that carries its secret.
+ */
+export function mintedKeyView(row: ApiKeyRow, team: MemberTeam): SelfView {
+  const grant = parseGrant(row.id, row.permissions);
+  const view = viewOf(row, grant, new Map([[team.id, team.slug]]));
+  const effectiveScopes =
+    grant.kind === "scoped"
+      ? ALL_SCOPES.filter(
+          (s) => grant.scopes.has(s) && roleGrants(team.role, SCOPES[s].rolePermission),
+        )
+      : [];
+  return {
+    ...view,
+    role: team.role,
+    effectiveScopes,
+    access: effectiveScopes.length > 0 ? "scoped" : "none",
+  };
+}
+
+/** Delete a key that was created but could not be handed over. */
+export async function discardKey(db: D1Database, id: string, why: string): Promise<void> {
+  await deleteUnverifiedKey(db, id, why);
 }
 
 export async function describeKey(
