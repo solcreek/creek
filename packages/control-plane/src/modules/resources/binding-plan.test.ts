@@ -10,6 +10,7 @@ import {
   planDeployBindings,
   resourceBindingType,
 } from "./service.js";
+import { workerAssetsOptions } from "@solcreek/deploy-core";
 import { createQueue, provisionCFResource } from "./cloudflare.js";
 
 vi.mock("./cloudflare.js", async (orig) => ({
@@ -312,6 +313,79 @@ describe("planBindings", () => {
       { envKeys: ["DB"] },
       0,
     ],
+    // ASSETS: the static-assets binding, in worker mode only.
+    [
+      "an environment variable named ASSETS in worker mode",
+      [],
+      [],
+      false,
+      { envKeys: ["ASSETS"], renderMode: "worker" },
+      1,
+    ],
+    [
+      "a [vars] value named ASSETS in worker mode",
+      [],
+      [],
+      false,
+      { varKeys: ["ASSETS"], renderMode: "worker" },
+      1,
+    ],
+    [
+      "a resource attached as ASSETS in worker mode",
+      [row("ASSETS", "storage", "r2")],
+      [],
+      false,
+      { renderMode: "worker" },
+      1,
+    ],
+    [
+      "a resource declared as ASSETS in worker mode",
+      [],
+      [{ type: "kv", bindingName: "ASSETS" }],
+      false,
+      { renderMode: "worker" },
+      1,
+    ],
+    [
+      "an unsupported type declared as ASSETS in worker mode",
+      [],
+      [{ type: "images", bindingName: "ASSETS" }],
+      false,
+      { renderMode: "worker" },
+      1,
+    ],
+    [
+      "nothing for the assets type declared as ASSETS in worker mode",
+      [],
+      [{ type: "assets", bindingName: "ASSETS" }],
+      false,
+      { renderMode: "worker" },
+      0,
+    ],
+    [
+      "nothing for an environment variable named ASSETS in spa mode",
+      [],
+      [],
+      false,
+      { envKeys: ["ASSETS"], renderMode: "spa" },
+      0,
+    ],
+    [
+      "nothing for a resource attached as ASSETS in ssr mode",
+      [row("ASSETS", "storage", "r2")],
+      [],
+      false,
+      { varKeys: ["MODE"], renderMode: "ssr" },
+      0,
+    ],
+    [
+      "nothing for a [vars] value named ASSETS without a render mode",
+      [],
+      [],
+      false,
+      { varKeys: ["ASSETS"] },
+      0,
+    ],
   ] as const)(
     "text bindings: %s",
     (_label, existing, requirements, wantsQueue, text, conflicts) => {
@@ -320,6 +394,15 @@ describe("planBindings", () => {
       );
     },
   );
+
+  it("says why ASSETS is taken in worker mode", () => {
+    const [conflict] = planBindings([], [], false, {
+      envKeys: ["ASSETS"],
+      renderMode: "worker",
+    }).conflicts;
+    expect(conflict).toMatch(/static-assets binding in worker mode/);
+    expect(conflict).toContain("creek env rm ASSETS");
+  });
 
   it("reports what it skips", () => {
     const plan = planBindings([], [{ type: "images", bindingName: "IMAGES" }], false);
@@ -355,7 +438,7 @@ describe("upload check and deploy job agree", () => {
     const owner = await f.signUp("owner@example.com");
     const rand = rng(0x5eed);
     const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
-    const names = ["DB", "DATABASE", "CACHE", "KV", "STORAGE", "MODEL", "AI", "QUEUE"];
+    const names = ["DB", "DATABASE", "CACHE", "KV", "STORAGE", "MODEL", "AI", "QUEUE", "ASSETS"];
     // [kind, stored type, provisioned]. Some pairs disagree or store no
     // type; some D1/R2/KV rows are attached but not provisioned yet. An AI
     // row never has a Cloudflare id.
@@ -370,7 +453,8 @@ describe("upload check and deploy job agree", () => {
       ["queue", "queue", true],
       ["cache", "d1", true],
     ] as const;
-    const types = ["d1", "kv", "r2", "ai", "images"];
+    const types = ["d1", "kv", "r2", "ai", "images", "assets"];
+    const renderModes = ["spa", "ssr", "worker"] as const;
 
     const seen = {
       conflict: 0,
@@ -384,6 +468,9 @@ describe("upload check and deploy job agree", () => {
       skippedName: 0,
       textConflict: 0,
       textAccepted: 0,
+      assetsConflict: 0,
+      workerAccepted: 0,
+      assetsNameFree: 0,
     };
     for (let i = 0; i < 400; i++) {
       const projectId = `p${i}`;
@@ -428,12 +515,14 @@ describe("upload check and deploy job agree", () => {
       // Text bindings: environment variables and [vars], drawn from the
       // binding names, Creek's own names and free ones.
       const textNames = [...names, "CREEK_PROJECT_ID", "CREEK_REALTIME_SECRET", "API_KEY", "TOKEN"];
+      const renderMode = pick(renderModes);
       const text = {
         envKeys: textNames.filter(() => rand() < 0.08),
         varKeys: textNames.filter(() => rand() < 0.08),
+        renderMode,
       };
 
-      const label = `#${i} reqs=${JSON.stringify(requirements)} queue=${wantsQueue} text=${JSON.stringify(text)}`;
+      const label = `#${i} mode=${renderMode} reqs=${JSON.stringify(requirements)} queue=${wantsQueue} text=${JSON.stringify(text)}`;
       const bindingRows = () =>
         f.sql<{ bindingName: string; resourceId: string }>(
           "SELECT bindingName, resourceId FROM project_resource_binding WHERE projectId = ? ORDER BY bindingName",
@@ -476,6 +565,7 @@ describe("upload check and deploy job agree", () => {
         if (plan.conflicts.some((c) => /environment variable|\[vars\]|Creek sets/.test(c))) {
           seen.textConflict++;
         }
+        if (plan.conflicts.some((c) => /static-assets binding/.test(c))) seen.assetsConflict++;
         for (const mayAddBindings of [false, true]) {
           await expect(runJob(mayAddBindings), label).rejects.toThrow(BindingConflictError);
         }
@@ -519,13 +609,19 @@ describe("upload check and deploy job agree", () => {
         );
       }
       const textBindings = [...text.envKeys, ...text.varKeys].map((key) => ({ key, value: "v" }));
-      const emitted = buildBindings(resolved, textBindings, {
-        projectSlug: "s",
-        projectId,
-        realtimeUrl: "https://realtime.example",
-        realtimeSecret: "secret",
-        queueName: queue?.cfResourceName,
-      });
+      // What reaches the worker: the deploy's bindings, then the
+      // static-assets binding a worker-mode deploy adds (the real emitter).
+      const emitted = workerAssetsOptions(
+        renderMode,
+        buildBindings(resolved, textBindings, {
+          projectSlug: "s",
+          projectId,
+          realtimeUrl: "https://realtime.example",
+          realtimeSecret: "secret",
+          queueName: queue?.cfResourceName,
+        }),
+        {},
+      ).bindings;
       // The worker's env holds one binding per name: whatever the plan
       // accepts uploads without a duplicate name.
       const emittedNames = emitted.map((b) => b.name);
@@ -534,6 +630,16 @@ describe("upload check and deploy job agree", () => {
         `${label} duplicate binding names`,
       ).toEqual([]);
       if (textBindings.length > 0) seen.textAccepted++;
+      // In worker mode ASSETS is the static-assets binding, never something
+      // that took its name first.
+      const assetsBindings = emitted.filter((b) => b.name === "ASSETS");
+      if (renderMode === "worker") {
+        expect(assetsBindings, `${label} ASSETS`).toEqual([{ type: "assets", name: "ASSETS" }]);
+        seen.workerAccepted++;
+      } else if (assetsBindings.length > 0) {
+        // Outside worker mode the name is free for the app's own binding.
+        seen.assetsNameFree++;
+      }
       const wfpType = { d1: "d1", r2: "r2_bucket", kv: "kv_namespace", ai: "ai" } as const;
       for (const req of plan.requirements) {
         expect(
@@ -549,10 +655,14 @@ describe("upload check and deploy job agree", () => {
       // A requirement of an unsupported type is neither recorded nor bound,
       // and nothing else reaches the worker under its name: no attachment,
       // alias or queue (those are conflicts, refused above).
+      // (The one exception is ASSETS declared as assets in worker mode: the
+      // deploy's own static-assets binding, checked above.)
       for (const skipped of plan.unsupported) {
         expect(inserted, label).not.toContain(skipped.bindingName);
+        const assetsAsDeclared =
+          renderMode === "worker" && skipped.bindingName === "ASSETS" && skipped.type === "assets";
         expect(
-          emitted.filter((b) => b.name === skipped.bindingName),
+          emitted.filter((b) => b.name === skipped.bindingName && !assetsAsDeclared),
           `${label} ${skipped.bindingName} emitted`,
         ).toEqual([]);
         seen.skippedName++;

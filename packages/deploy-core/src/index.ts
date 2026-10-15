@@ -30,4 +30,8 @@ export {
   deleteKVNamespace,
 } from "./resources.js";
 
-export { workerAssetsOptions, type RunWorkerFirst } from "./worker-assets.js";
+export {
+  WORKER_ASSETS_BINDING,
+  workerAssetsOptions,
+  type RunWorkerFirst,
+} from "./worker-assets.js";

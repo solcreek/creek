@@ -269,6 +269,7 @@ export async function runDeployJob(env: Env, input: DeployJobInput): Promise<voi
         text: {
           envKeys: envVarsForTarget.map((r) => r.key),
           varKeys: Object.keys(bundle.vars ?? {}),
+          renderMode,
         },
       });
     } catch (err) {

@@ -761,6 +761,83 @@ describe("preview deploys and new bindings", () => {
       expect(await projectState()).toEqual(before);
       expect(deploy).not.toHaveBeenCalled();
     });
+
+    // A worker-mode deploy adds the static-assets binding ASSETS, unless
+    // another binding holds the name first: then env.ASSETS.fetch() breaks.
+    describe("ASSETS", () => {
+      const workerBundle = (bindings: { type: string; bindingName: string }[]) => {
+        const base = bundle(bindings);
+        return {
+          ...base,
+          manifest: { ...base.manifest, hasWorker: true, renderMode: "worker" },
+          serverFiles: { "worker.js": btoa("export default { fetch() {} }") },
+        };
+      };
+
+      it("refuses an environment variable named ASSETS in worker mode, before staging", async () => {
+        await setVar("ASSETS", "all");
+        const before = await projectState();
+        const res = await upload(
+          await keyWith(["deploy:production"]),
+          "dep-prod",
+          workerBundle([{ type: "d1", bindingName: "DB" }]),
+        );
+        expect([res.status, res.body.error]).toEqual([409, "binding_conflict"]);
+        expect(res.body.message).toContain("static-assets binding in worker mode");
+        expect(await f.env.ASSETS.get("bundles/dep-prod.json")).toBeNull();
+        expect(await projectState()).toEqual(before);
+        expect(deploy).not.toHaveBeenCalled();
+      });
+
+      it("accepts the same variable in spa mode, where ASSETS is the app's own name", async () => {
+        await setVar("ASSETS", "all");
+        const res = await upload(
+          await keyWith(["deploy:production"]),
+          "dep-prod",
+          bundle([{ type: "d1", bindingName: "DB" }]),
+        );
+        expect(res.status).toBe(202);
+        const input = (deploy.mock.calls.at(-1) as unknown[])[4] as {
+          renderMode: string;
+          bindings: { type: string; name: string }[];
+        };
+        expect(input.renderMode).toBe("spa");
+        expect(input.bindings.filter((b) => b.name === "ASSETS")).toEqual([
+          expect.objectContaining({ type: "secret_text", name: "ASSETS" }),
+        ]);
+      });
+
+      it("fails a worker-mode job whose [vars] declare ASSETS (a GitHub push skips the upload check)", async () => {
+        await f.env.ASSETS.put(
+          "bundles/dep-prod.json",
+          JSON.stringify({
+            ...workerBundle([{ type: "kv", bindingName: "CACHE" }]),
+            vars: { ASSETS: "/static" },
+          }),
+        );
+        const before = await projectState();
+        await runDeployJob(f.env, {
+          deploymentId: "dep-prod",
+          projectId: "p",
+          projectSlug: "site",
+          teamId: owner.orgId,
+          teamSlug: owner.orgSlug,
+          plan: "free",
+          branch: "main",
+          productionBranch: "main",
+        });
+        const [dep] = await f.sql<{ status: string; errorMessage: string | null }>(
+          "SELECT status, errorMessage FROM deployment WHERE id = 'dep-prod'",
+        );
+        expect([dep.status, dep.errorMessage]).toEqual([
+          "failed",
+          expect.stringContaining("ASSETS is the worker's static-assets binding in worker mode"),
+        ]);
+        // CACHE was not created.
+        expect(await projectState()).toEqual(before);
+        expect(deploy).not.toHaveBeenCalled();
+      });
+    });
   });
 
   it("treats a bound name whose resource row is gone as unbound, as the deploy would", async () => {

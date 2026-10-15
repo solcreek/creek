@@ -25,6 +25,7 @@ import {
   aliasPartner,
   deprecatedAliasBindings,
 } from "@solcreek/sdk";
+import { WORKER_ASSETS_BINDING } from "@solcreek/deploy-core";
 import {
   provisionCFResource,
   findExistingCFResource,
@@ -193,6 +194,11 @@ export interface BindingPlan {
  *   the config's [vars]) and Creek's CREEK_* values share the worker's env:
  *   a name used by two of them, or by one of them and a resource binding,
  *   is a conflict.
+ * - In render mode `worker` (`text.renderMode`) the deploy adds the
+ *   static-assets binding ASSETS (workerAssetsOptions), but only when no
+ *   other binding holds the name. Any resource, variable or [vars] value
+ *   named ASSETS would silently replace it, so each is a conflict there. In
+ *   other modes ASSETS is an ordinary name.
  */
 export function planBindings(
   existing: readonly { bindingName: string; kind: string; cfResourceType: string | null }[],
@@ -295,9 +301,19 @@ export function planBindings(
     ...aliasOf.keys(),
     ...(wantsQueue ? [BINDING_NAMES.queue] : []),
   ]);
+  // The static-assets binding of a worker-mode deploy, which a binding of
+  // the same name would replace (workerAssetsOptions only adds it when the
+  // name is free). A declaration of the assets type itself asks for exactly
+  // that binding: it is skipped, and the deploy adds ASSETS as usual.
+  const assets = text.renderMode === "worker" ? WORKER_ASSETS_BINDING : null;
+  const assetsWhy = `${WORKER_ASSETS_BINDING} is the worker's static-assets binding in worker mode`;
   for (const name of resourceNames) {
     if (reserved.has(name)) {
       plan.conflicts.push(`${name} is a name Creek sets on every worker. Rename the binding.`);
+    } else if (name === assets && (bound.has(name) || declared.get(name) !== "assets")) {
+      plan.conflicts.push(
+        `${assetsWhy}, but a resource binding takes the name. Rename that binding, or detach it from the project.`,
+      );
     }
   }
   const envKeys = new Set(text.envKeys ?? []);
@@ -305,6 +321,10 @@ export function planBindings(
     if (reserved.has(key)) {
       plan.conflicts.push(
         `${key} is a name Creek sets on every worker, but the project has an environment variable named ${key}. Remove it (\`creek env rm ${key}\`).`,
+      );
+    } else if (key === assets) {
+      plan.conflicts.push(
+        `${assetsWhy}, but the project has an environment variable named ${key}. Remove it (\`creek env rm ${key}\`), then set it under another name.`,
       );
     } else if (resourceNames.has(key)) {
       plan.conflicts.push(
@@ -317,6 +337,8 @@ export function planBindings(
       plan.conflicts.push(
         `${key} is a name Creek sets on every worker, but the config's [vars] declares it. Rename it.`,
       );
+    } else if (key === assets) {
+      plan.conflicts.push(`${assetsWhy}, but the config's [vars] declares it. Rename it.`);
     } else if (resourceNames.has(key)) {
       plan.conflicts.push(`${key} is both a binding and a [vars] value in the config. Rename one.`);
     } else if (envKeys.has(key)) {
@@ -331,11 +353,14 @@ export function planBindings(
 /**
  * The names of a deploy's text bindings, which share the worker's env with
  * its resource bindings: the project's environment variables for the
- * deploy's target, and the config's [vars].
+ * deploy's target, and the config's [vars]. Also the bundle's render mode,
+ * which decides whether the env holds the static-assets binding ASSETS.
  */
 export interface TextBindingNames {
   envKeys?: readonly string[];
   varKeys?: readonly string[];
+  /** The bundle manifest's renderMode: ASSETS is reserved when it is `worker`. */
+  renderMode?: string;
 }
 
 /** planBindings against the project's current bindings. Read-only. */
