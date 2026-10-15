@@ -203,13 +203,16 @@ creek login --json
 
 ### `creek init`
 
-Create a `creek.toml` configuration file.
+Create a `creek.toml` configuration file. A directory with only `index.html` (no `package.json`) gets a no-build config that deploys the directory as is.
 
 ```bash
 creek init
 creek init --name my-app
 creek init --json --yes
+creek init --force              # Replace an existing creek.toml
 ```
+
+An existing `creek.toml` is never replaced silently: an interactive terminal asks first, and a non-interactive run (`--json`, `--yes`, CI, agents) exits `already_exists` unless you pass `--force`.
 
 ### `creek claim <sandboxId>`
 

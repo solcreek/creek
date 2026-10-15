@@ -96,6 +96,13 @@ import {
 } from "../utils/git-clone.js";
 import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
 import { watchDeploy, type WatchResult } from "../utils/watch.js";
+import {
+  deployDestination,
+  inspectDeployPath,
+  BUILD_OUTPUT_DIRS,
+  type DeployDestination,
+} from "../utils/deploy-destination.js";
+import { shellQuote } from "../utils/shell-quote.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 function section(name: string) {
@@ -229,23 +236,48 @@ export function dryRunVinextOutput(cwd: string): {
 }
 
 /**
+ * The deploy command that reaches `targetType` from here. Never one that
+ * deployDestination would refuse: a creekd project has no sandbox, and an
+ * explicit directory must be named again.
+ */
+function deployCommandFor(
+  targetType: "production" | "sandbox" | "creekd",
+  dir: string | undefined,
+): string {
+  if (targetType === "creekd") return "creek deploy --yes --json";
+  if (dir) {
+    const flag = targetType === "production" ? "--prod" : "--sandbox";
+    return `creek deploy ${shellQuote(dir)} ${flag} --json`;
+  }
+  return targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
+}
+
+/**
  * Copy-pasteable next command after `creek deploy --dry-run`.
  * Non-TTY agents must pass --sandbox or --prod; a bare `creek deploy`
- * is refused with confirmation_required.
+ * is refused with confirmation_required. The command follows the
+ * destination, so it is never one the CLI would refuse.
  */
 export function dryRunNextStep(opts: {
   blockingCount: number;
   wouldDeploy: boolean;
-  targetType: "production" | "sandbox";
+  targetType: "production" | "sandbox" | "creekd";
+  /** `creek deploy <dir>`: the next command must name the same directory. */
+  dir?: string;
 }): string {
   if (opts.blockingCount > 0) {
     const n = opts.blockingCount;
     return `Fix ${n} blocking issue${n === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`;
   }
+  const command = deployCommandFor(opts.targetType, opts.dir);
   if (!opts.wouldDeploy) {
-    return `Nothing deployable yet. Add an index.html (static site) or a package.json, then: ${AGENT_SANDBOX_DEPLOY}`;
+    const add =
+      opts.targetType === "creekd"
+        ? "Add the server entry creek.toml [build].worker names (or a build that writes it)"
+        : "Add an index.html (static site) or a package.json";
+    return `Nothing deployable yet. ${add}, then: ${command}`;
   }
-  return opts.targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
+  return command;
 }
 
 export function sandboxSuccessBreadcrumbs(url: string, sandboxId: string): Breadcrumb[] {
@@ -374,7 +406,14 @@ async function dryRunPlan(
   cwd: string,
   args: Record<string, unknown>,
   jsonMode: boolean,
+  destination: Exclude<DeployDestination, { kind: "refused" }>,
 ): Promise<void> {
+  const target = {
+    type: destination.kind,
+    implicitProduction: destination.kind === "production" && destination.implicit,
+    reason: destination.reason,
+    description: destinationDescription(destination),
+  };
   // Unsupported modes — report and return cleanly
   const unsupportedMode = args.template
     ? "template"
@@ -391,6 +430,7 @@ async function dryRunPlan(
           mode: "dry-run",
           supported: false,
           unsupportedMode,
+          target,
           message: `Dry-run is not yet supported for --${unsupportedMode} deploys`,
           hint: `Run without --dry-run and pass --sandbox or --prod (required in non-interactive environments). Inspect --help for flags.`,
         },
@@ -444,19 +484,20 @@ async function dryRunPlan(
       explicitAssets = false;
     }
   }
-  const hasPayload = hasDeployablePayload(cwd) || !!buildOutputFallback || explicitAssets;
-  const explicitSandbox = args.sandbox === true;
-  const explicitProd = args.prod === true;
-  // Mirror resolveDeployEnv: --sandbox or being signed out → sandbox (a
-  // logged-out --prod can't reach production, since there is no token);
-  // otherwise the authenticated path goes to production, whether via --prod
-  // or implicitly.
-  const targetType: "production" | "sandbox" =
-    explicitSandbox || !authenticated ? "sandbox" : "production";
-  // Signed in but no --prod: an interactive run confirms before deploying;
-  // a non-interactive run is refused unless --prod/--sandbox/--yes is given
-  // (--yes deploys with a deprecation warning).
-  const implicitProduction = targetType === "production" && !explicitProd;
+  // creekd runs the configured server entry (deployCreekd: [build].worker,
+  // else <output>/index.js), which needs no package.json or HTML.
+  const creekdEntry =
+    destination.kind === "creekd" && resolved
+      ? (resolved.workerEntry ?? `${resolved.buildOutput}/index.js`)
+      : null;
+  const hasPayload =
+    hasDeployablePayload(cwd) ||
+    !!buildOutputFallback ||
+    explicitAssets ||
+    (creekdEntry !== null && existsSync(resolve(cwd, creekdEntry)));
+  // The destination is decided once (deployDestination) for both the plan
+  // and the real run, which dispatches on it.
+  const targetType = destination.kind;
   // vinext declares bindings in cloudflare.config.ts, which only the build
   // resolves; read them from the Build Output the last build left, if any.
   const vinext = resolved?.framework === "vinext" ? dryRunVinextOutput(cwd) : null;
@@ -491,16 +532,7 @@ async function dryRunPlan(
     supported: true,
     cwd,
     authenticated,
-    target: {
-      type: targetType,
-      implicitProduction,
-      description:
-        targetType === "production"
-          ? implicitProduction
-            ? "Your team's production slot (permanent URL). Implied by being signed in without --prod: an interactive terminal asks you to confirm, while --yes or --json deploys with a deprecation warning instead; a non-interactive run with no flag is refused (pass --prod to deploy or --sandbox to preview)."
-            : "Your team's production slot (permanent URL via creek.toml)"
-          : "Free 60-minute sandbox (no signup required)",
-    },
+    target,
     config: resolved
       ? {
           source: resolved.source,
@@ -527,6 +559,7 @@ async function dryRunPlan(
       blockingCount: blockingForDeploy.length,
       wouldDeploy,
       targetType,
+      dir: explicitDir ? (args.dir as string) : undefined,
     }),
   };
 
@@ -542,6 +575,7 @@ async function dryRunPlan(
   consola.log(`  cwd:              ${cwd}`);
   consola.log(`  Auth status:      ${authenticated ? "✓ signed in" : "✗ not signed in"}`);
   consola.log(`  Deploy target:    ${targetType} — ${plan.target.description}`);
+  consola.log(`  Why:              ${plan.target.reason}`);
   if (resolved) {
     consola.log(`  Detected:         ${formatDetectionSummary(resolved)}`);
     consola.log(`  Project name:     ${resolved.projectName}`);
@@ -597,6 +631,40 @@ async function dryRunPlan(
 type DeployEnv = "production" | "sandbox" | "abort";
 
 /**
+ * Every deploy function the command dispatches to. `run()` calls them
+ * through this object so tests can assert where an invocation went.
+ */
+export const deployHandlers = {
+  deployTemplate: (...a: Parameters<typeof deployTemplate>) => deployTemplate(...a),
+  deployFromGithub: (...a: Parameters<typeof deployFromGithub>) => deployFromGithub(...a),
+  deployRepoUrl: (...a: Parameters<typeof deployRepoUrl>) => deployRepoUrl(...a),
+  deployDirectory: (...a: Parameters<typeof deployDirectory>) => deployDirectory(...a),
+  deploySandbox: (...a: Parameters<typeof deploySandbox>) => deploySandbox(...a),
+  deployAuthenticated: (...a: Parameters<typeof deployAuthenticated>) => deployAuthenticated(...a),
+  deployCreekd: (...a: Parameters<typeof deployCreekd>) => deployCreekd(...a),
+};
+
+/** Human description of a destination, for the dry-run plan. */
+function destinationDescription(d: Exclude<DeployDestination, { kind: "refused" }>): string {
+  if (d.kind === "creekd") {
+    return 'Your self-hosted creekd (creek.toml target = "creekd"), authenticated with CREEKD_TOKEN / CREEKCTL_TOKEN';
+  }
+  if (d.kind === "sandbox") return "Free 60-minute sandbox (no signup required)";
+  return d.implicit
+    ? "Your team's production slot (permanent URL). Implied by being signed in without --prod: an interactive terminal asks you to confirm, while --yes or --json deploys with a deprecation warning instead; a non-interactive run with no flag is refused (pass --prod to deploy or --sandbox to preview)."
+    : "Your team's production slot (permanent URL via creek.toml)";
+}
+
+/** Exit with the structured error of a refused destination. */
+function refuseDestination(
+  d: Extract<DeployDestination, { kind: "refused" }>,
+  jsonMode: boolean,
+): never {
+  if (!jsonMode) consola.error(d.message);
+  return exitError(jsonMode, d.error, d.message, 1, d.breadcrumbs);
+}
+
+/**
  * Production-safety decision for the CF target. Decides whether an
  * authenticated `creek deploy` publishes to the team's production slot or
  * to an ephemeral sandbox, and surfaces production intent before it happens:
@@ -608,6 +676,8 @@ type DeployEnv = "production" | "sandbox" | "abort";
  *                                 production is deprecated (a future version
  *                                 will require --prod)
  *   not signed in              → sandbox (the only option without login)
+ *   not signed in, --prod      → error: production needs a session; the
+ *                                 command refuses this before calling here
  *
  * Returns "abort" when an interactive user declines the confirm.
  */
@@ -628,6 +698,9 @@ export async function resolveDeployEnv(opts: {
     throw new Error("resolveDeployEnv: prod and sandbox are mutually exclusive");
   }
   if (opts.sandbox) return "sandbox";
+  if (opts.prod && !opts.authenticated) {
+    throw new Error("resolveDeployEnv: --prod requires a signed-in session");
+  }
   if (!opts.authenticated) return "sandbox";
   if (opts.prod) return "production";
 
@@ -694,6 +767,56 @@ export function parseWaitDuration(input: string | undefined): number | null {
  */
 export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
+
+/** A poll budget as people read it: whole minutes as "Nm", else seconds. */
+export function formatWaited(ms: number): string {
+  // A 90s budget must not read as "2m".
+  return ms % 60_000 === 0 ? `${ms / 60_000}m` : `${Math.round(ms / 1000)}s`;
+}
+
+/**
+ * The CLI stopped polling before the deploy reached a terminal state. The
+ * server may still finish it, so say how long we waited and where to look,
+ * instead of reading as a failure to retry. Shared by the regular and the
+ * cache-hit (turbo) deploy polls. Exported for tests.
+ */
+export function reportWaitTimeout(opts: {
+  jsonMode: boolean;
+  waitedMs: number;
+  deploymentId: string;
+  /** Project slug: makes the breadcrumbs pasteable from this cwd. */
+  project?: string;
+  extra?: Record<string, unknown>;
+}): never {
+  const waited = formatWaited(opts.waitedMs);
+  const crumbs: Breadcrumb[] = [
+    { command: `creek status`, description: "Check whether the deploy finished" },
+    {
+      command: `creek deployments logs ${opts.deploymentId}`,
+      description: "View the build log so far",
+    },
+  ];
+  const breadcrumbs = opts.project ? pasteableBreadcrumbs(opts.project, crumbs) : crumbs;
+  if (opts.jsonMode)
+    jsonOutput(
+      {
+        ok: false,
+        error: "timeout",
+        message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
+        waited,
+        deploymentId: opts.deploymentId,
+        ...opts.extra,
+      },
+      1,
+      breadcrumbs,
+    );
+  consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
+  // The server keeps deploying; a longer --wait lets the CLI observe the end.
+  consola.info(`  Wait longer:   creek deploy … --wait 15m`);
+  consola.info(`  Check status:  creek status`);
+  consola.info(`  View the log:  creek deployments logs ${opts.deploymentId}`);
+  return process.exit(1);
 }
 
 /** Minimal surface of CreekClient that stageDeploymentBundle needs (for tests). */
@@ -830,13 +953,13 @@ export const deployCommand = defineCommand({
     prod: {
       type: "boolean",
       description:
-        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Only takes effect when signed in; without a session the deploy falls back to a sandbox. Mutually exclusive with --sandbox.",
+        "Publish to your team's production slot (permanent URL). Explicit production intent — skips the confirm prompt and the implicit-production deprecation warning. Never ends in a sandbox: signed out it exits not_authenticated, and on a path with no production support (an explicit <dir>, --template, a bare build-output folder) it exits prod_unsupported — in --dry-run too. A creekd project deploys to creekd with its own token. Mutually exclusive with --sandbox.",
       default: false,
     },
     sandbox: {
       type: "boolean",
       description:
-        "Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Mutually exclusive with --prod.",
+        'Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Never ends in production or creekd: --from-github and a creekd project (target = "creekd") have no sandbox and refuse with sandbox_unsupported. Mutually exclusive with --prod.',
       default: false,
     },
     wait: {
@@ -852,14 +975,21 @@ export const deployCommand = defineCommand({
     // (progress, the ToS notice, build output) goes to stderr from here on.
     if (jsonMode) guardJsonStdout();
 
-    // --prod and --sandbox are opposite intents; refuse the contradiction
-    // up front rather than silently picking one.
-    if (args.prod === true && args.sandbox === true) {
-      const message = "--prod and --sandbox are mutually exclusive. Pick one target.";
-      // exitError only prints in JSON mode; surface the reason to a human too.
-      if (!jsonMode) consola.error(message);
-      return exitError(jsonMode, "conflicting_flags", message);
-    }
+    // Decide once where this invocation deploys; the dry-run plan and the
+    // dispatch below both follow it, so they cannot disagree. It refuses
+    // --prod and --sandbox together, a --prod that would end in a sandbox
+    // (signed out: not_authenticated; a sandbox-only path: prod_unsupported),
+    // a --sandbox that would end in production, and a directory upload of a
+    // creekd project.
+    const inspected = inspectDeployPath(args);
+    const destination = deployDestination({
+      ...inspected,
+      authenticated: !!getToken(),
+      prod: args.prod === true,
+      sandbox: args.sandbox === true,
+      yes: args.yes === true,
+    });
+    if (destination.kind === "refused") return refuseDestination(destination, jsonMode);
 
     // --- Dry-run short-circuit ---
     // No ToS prompt, no network, no file uploads, no builds. Pure config
@@ -870,7 +1000,7 @@ export const deployCommand = defineCommand({
         args.dir && typeof args.dir === "string" && !isRepoUrl(args.dir)
           ? resolve(args.dir)
           : process.cwd();
-      return await dryRunPlan(dryCwd, args, jsonMode);
+      return await dryRunPlan(dryCwd, args, jsonMode, destination);
     }
 
     // --- Safety gate: no silent deploys in non-interactive environments ---
@@ -904,7 +1034,7 @@ export const deployCommand = defineCommand({
         jsonOutput({ ok: false, error: "confirmation_required", message }, 1, breadcrumbs);
       }
       consola.error(message);
-      process.exit(1);
+      return process.exit(1);
     }
 
     // --- Ensure ToS accepted ---
@@ -922,12 +1052,12 @@ export const deployCommand = defineCommand({
           exitError(jsonMode, "invalid_data", "Invalid JSON in --data");
         }
       }
-      return await deployTemplate(args.template, templateData, jsonMode, tos);
+      return await deployHandlers.deployTemplate(args.template, templateData, jsonMode, tos);
     }
 
     // --- Trigger a deploy from the project's GitHub connection (no local build) ---
     if (args["from-github"]) {
-      return await deployFromGithub({
+      return await deployHandlers.deployFromGithub({
         project: args.project,
         cwd: args.dir ? resolve(args.dir) : process.cwd(),
         jsonMode,
@@ -936,10 +1066,11 @@ export const deployCommand = defineCommand({
 
     // --- Repo URL deploy (creek deploy https://github.com/user/repo) ---
     if (args.dir && isRepoUrl(args.dir)) {
-      return await deployRepoUrl(args.dir, {
+      return await deployHandlers.deployRepoUrl(args.dir, {
         path: args.path ?? null,
         skipBuild: args["skip-build"],
         json: jsonMode,
+        destination: destination.kind === "production" ? "production" : "sandbox",
         prod: args.prod === true,
         sandbox: args.sandbox === true,
         yes: args.yes === true,
@@ -963,7 +1094,7 @@ export const deployCommand = defineCommand({
         consola.error(`Directory not found: ${args.dir}`);
         process.exit(1);
       }
-      return await deployDirectory(cwd, jsonMode, tos);
+      return await deployHandlers.deployDirectory(cwd, jsonMode, tos);
     }
 
     // --- Try auto-detection (creek.toml → wrangler.* → package.json → index.html) ---
@@ -1001,26 +1132,26 @@ export const deployCommand = defineCommand({
       }
 
       // creekd target → deploy to local creekd via admin API
-      if (resolved.target === "creekd") {
-        return await deployCreekd(cwd, resolved, args["skip-build"], jsonMode, {
+      if (destination.kind === "creekd") {
+        return await deployHandlers.deployCreekd(cwd, resolved, args["skip-build"], jsonMode, {
           watch: args.watch === true,
           watchTimeoutMs: parseWatchTimeoutMs(args["watch-timeout-ms"]),
         });
       }
 
-      // Production-safety gate (Path B): explicit intent or a confirm
-      // before publishing to the team's permanent URL.
-      const env = await resolveDeployEnv({
-        authenticated: !!token,
-        prod: args.prod === true,
-        sandbox: args.sandbox === true,
-        yes: args.yes === true,
-        jsonMode,
-        projectName: resolved.projectName,
-      });
-      if (env === "abort") return;
-      if (env === "production" && token) {
-        return await deployAuthenticated(
+      if (destination.kind === "production" && token) {
+        // Production-safety gate (Path B): explicit intent or a confirm
+        // before publishing to the team's permanent URL.
+        const env = await resolveDeployEnv({
+          authenticated: true,
+          prod: args.prod === true,
+          sandbox: false,
+          yes: args.yes === true,
+          jsonMode,
+          projectName: resolved.projectName,
+        });
+        if (env === "abort") return;
+        return await deployHandlers.deployAuthenticated(
           cwd,
           resolved,
           token,
@@ -1030,15 +1161,15 @@ export const deployCommand = defineCommand({
           parseWaitDuration(args.wait as string | undefined) ?? undefined,
         );
       }
-      return await deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
+      return await deployHandlers.deploySandbox(cwd, args["skip-build"], jsonMode, resolved, tos);
     }
 
     // --- Auto-detect build output dirs ---
-    for (const dir of ["dist", "build", "out", ".output/public"]) {
+    for (const dir of BUILD_OUTPUT_DIRS) {
       const fullPath = resolve(cwd, dir);
       if (existsSync(fullPath)) {
         if (!jsonMode) consola.info(`Found build output: ${dir}/`);
-        return await deployDirectory(fullPath, jsonMode, tos);
+        return await deployHandlers.deployDirectory(fullPath, jsonMode, tos);
       }
     }
 
@@ -1577,6 +1708,8 @@ interface RepoDeployOptions {
   path: string | null;
   skipBuild: boolean;
   json: boolean;
+  /** Decided by deployDestination before the clone. */
+  destination: "production" | "sandbox";
   prod: boolean;
   sandbox: boolean;
   yes: boolean;
@@ -1635,18 +1768,19 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
         consola.success(`  Dependencies installed`);
       }
 
-      // 6. Route to authenticated or sandbox deploy (Path B safety gate)
+      // 6. Route to the decided destination (Path B safety gate: confirm or
+      // warn before an implicit production deploy).
       const token = getToken();
-      const env = await resolveDeployEnv({
-        authenticated: !!token,
-        prod: options.prod,
-        sandbox: options.sandbox,
-        yes: options.yes,
-        jsonMode,
-        projectName: resolved.projectName,
-      });
-      if (env === "abort") return;
-      if (env === "production" && token) {
+      if (options.destination === "production" && token) {
+        const env = await resolveDeployEnv({
+          authenticated: true,
+          prod: options.prod,
+          sandbox: false,
+          yes: options.yes,
+          jsonMode,
+          projectName: resolved.projectName,
+        });
+        if (env === "abort") return;
         return await deployAuthenticated(
           workDir,
           resolved,
@@ -1797,7 +1931,14 @@ async function deploySandbox(
     const cwdIndex = existsSync(join(cwd, "index.html"));
     const publicIndex = existsSync(join(cwd, "public/index.html"));
     if (cwdIndex || publicIndex) {
-      const staticDir = cwdIndex ? cwd : join(cwd, "public");
+      // Honour the config's [build].output when it holds an index.html (e.g.
+      // init's output = "public" next to a root index.html), so the sandbox
+      // uploads what production uploads; otherwise prefer the root index.
+      const staticDir = resolved
+        ? staticSiteUploadDir(cwd, resolved)
+        : cwdIndex
+          ? cwd
+          : join(cwd, "public");
       if (!jsonMode) {
         consola.info("  No package.json found — deploying as static site (no build step).");
       }
@@ -2264,7 +2405,7 @@ async function deployAuthenticated(
     const turboResult =
       skipBuild || resolved.releaseMigrations
         ? false
-        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode);
+        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode, waitMs);
     if (turboResult) {
       return; // ⚡ done — server deployed from cache
     }
@@ -2608,12 +2749,6 @@ async function deployAuthenticated(
     // The CLI gave up before the deploy reached a terminal state — the server
     // may still be working. Upload what we have so `creek deployments logs`
     // isn't empty, and point the user there instead of a bare "retry".
-    // Whole minutes read as "Nm"; anything else as seconds so a 90s budget
-    // isn't misreported as "2m".
-    const waited =
-      POLL_TIMEOUT % 60_000 === 0
-        ? `${POLL_TIMEOUT / 60_000}m`
-        : `${Math.round(POLL_TIMEOUT / 1000)}s`;
     buildLog.warn("activate", "CLI stopped waiting before the deploy reached a terminal state");
     await ensureDriftLogged();
     await flushBuildLog(
@@ -2622,28 +2757,12 @@ async function deployAuthenticated(
         startedAt: buildLog.startedAt,
       }),
     );
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: false,
-          error: "timeout",
-          message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
-        },
-        1,
-        pasteableBreadcrumbs(project.slug, [
-          { command: `creek status`, description: "Check whether the deploy finished" },
-          {
-            command: `creek deployments logs ${deployment.id}`,
-            description: "View the build log so far",
-          },
-        ]),
-      );
-    consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
-    // The server keeps deploying; a longer --wait lets the CLI observe the end.
-    consola.info(`  Wait longer:   creek deploy … --wait 15m`);
-    consola.info(`  Check status:  creek status`);
-    consola.info(`  View the log:  creek deployments logs ${deployment.id}`);
-    process.exit(1);
+    return reportWaitTimeout({
+      jsonMode,
+      waitedMs: POLL_TIMEOUT,
+      deploymentId: deployment.id,
+      project: project.slug,
+    });
   } catch (err) {
     if (err instanceof CreekAuthError) {
       // JSON mode must still print a result: the stdout contract holds on
@@ -2834,12 +2953,14 @@ export function patchBareNodeImports(code: string): string {
  * Graceful: any failure (no git, dirty tree, API error, cache miss)
  * silently returns false → normal deploy. Turbo is always opt-in bonus.
  */
-async function tryTurboDeploy(
+export async function tryTurboDeploy(
   cwd: string,
-  client: CreekClient,
+  client: Pick<CreekClient, "createDeployment" | "getDeploymentStatus">,
   project: { id: string; slug: string },
   noCache: boolean,
   jsonMode: boolean,
+  /** Poll budget from --wait; same 2m default as the regular deploy path. */
+  waitMs?: number,
 ): Promise<boolean> {
   if (noCache) return false;
 
@@ -2912,7 +3033,9 @@ async function tryTurboDeploy(
 
     // Poll until deployment is active (same as normal deploy path)
     const POLL_INTERVAL = 1000;
-    const POLL_TIMEOUT = 30_000; // Turbo should be fast — 30s max
+    // --wait governs this poll too: a cache deploy is usually fast, but the
+    // CLI must not give up sooner than the caller asked it to wait.
+    const POLL_TIMEOUT = waitMs ?? 120_000;
     const TERMINAL = new Set(["active", "failed", "cancelled"]);
     let lastStatus = "";
     const start = Date.now();
@@ -2975,25 +3098,17 @@ async function tryTurboDeploy(
     }
 
     // Timeout — the CLI gave up waiting; the deploy may still complete, but we
-    // can't confirm success. Treat like the non-turbo poll timeout: structured
-    // JSON + non-zero exit so automation doesn't read an unconfirmed deploy as
-    // a green success.
-    if (jsonMode) {
-      jsonOutput(
-        {
-          ok: false,
-          error: "timeout",
-          message:
-            "Cache deploy timed out; the deploy may still be in progress. Check `creek status`.",
-          deploymentId: res.deployment.id,
-          project: project.slug,
-        },
-        1,
-        [],
-      );
-    }
-    consola.warn("  Cache deploy timed out — check `creek status`");
-    process.exit(1);
+    // can't confirm success. Same report as the regular poll's timeout:
+    // structured JSON + non-zero exit, so automation doesn't read an
+    // unconfirmed deploy as a green success.
+    reportWaitTimeout({
+      jsonMode,
+      waitedMs: POLL_TIMEOUT,
+      deploymentId: res.deployment.id,
+      project: project.slug,
+      extra: { project: project.slug, turbo: true },
+    });
+    return true;
   } catch {
     // API error — fall through to normal build
     return false;

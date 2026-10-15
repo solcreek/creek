@@ -5,7 +5,7 @@ description: Deploy, configure, and troubleshoot Creek projects via the CLI and 
 
 # Creek
 
-Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTTP. Non-interactive (agent/CI) deploys **must** pass `--sandbox` or `--prod`; a bare `creek deploy --json` is refused.
+Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTTP. Non-interactive (agent/CI) deploys **must** name a target — pass `--sandbox` or `--prod` (`--yes` also gets past the gate, see below); a bare `creek deploy --json` is refused.
 
 ## Discover commands
 
@@ -33,11 +33,14 @@ Signed-in production:
 creek deploy --prod --json
 ```
 
-`--yes` skips prompts (ToS). It is **not** implied by `--json`. `--sandbox` / `--prod` is what unblocks a non-TTY deploy.
+`--yes` skips prompts (ToS). It is **not** implied by `--json`. `--sandbox`, `--prod` **or** `--yes` unblocks a non-TTY deploy, but `--yes` leaves the target implicit: signed in it deploys to **production** (with a deprecation warning on stderr), signed out to a sandbox. Prefer `--sandbox` / `--prod` so the destination is explicit.
+
+`creek deploy --prod` waits up to 2 minutes for the deploy to finish. `--wait 15m` (or `900s`, `1h`, bare ms; clamped to 1s–60m) waits longer. `error: "timeout"` means the **CLI** stopped waiting, not that the deploy failed — it may still be running and go live. Check with `creek status --json` / `creek deployments --json` (and `creek deployments logs <ID> --json`) before redeploying.
 
 ## Do not
 
-- Do not run `creek deploy` or `creek deploy --json` without `--sandbox` or `--prod` in a non-TTY. You will get `confirmation_required`.
+- Do not run `creek deploy` or `creek deploy --json` without `--sandbox`, `--prod` or `--yes` in a non-TTY. You will get `confirmation_required`.
+- Do not treat a deploy `timeout` as a failure and redeploy blindly. Check `creek status --json` first; pass a longer `--wait` next time.
 - Do not treat dry-run `wouldDeploy: true` as a license to omit the flags in `nextStep`.
 - Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production database and every env var not marked `--target production`. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
