@@ -1438,13 +1438,18 @@ async function pollSandbox(
     };
   }
 
-  const start = Date.now();
+  // The budget covers each status request too (aborted at the deadline,
+  // body included): a stalled one ends in the timeout result below, which
+  // still carries the sandboxId, instead of outlasting the client's timeout.
+  const deadline = Date.now() + timing.maxWaitMs;
   let last: string | null = null;
-  while (Date.now() - start < timing.maxWaitMs) {
+  while (Date.now() < deadline) {
     const got = await apiRequest("sandbox API", created.statusUrl, undefined, {
       applied: true,
       extra: ref,
+      deadline,
     });
+    if (!got.ok && got.timedOut) break;
     if (!got.ok) return { ok: false, result: got.result };
     const status = asRecord(got.data) as any;
     last = typeof status.status === "string" ? status.status : null;
@@ -1471,6 +1476,7 @@ async function pollSandbox(
         }),
       };
     }
+    if (Date.now() + timing.intervalMs >= deadline) break;
     await sleep(timing.intervalMs);
   }
 

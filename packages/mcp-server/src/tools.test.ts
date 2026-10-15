@@ -1598,3 +1598,72 @@ describe("MCP deploy against the sandbox API's rate limit", () => {
     expect((bodies[0] as { source?: unknown }).source).toBe("mcp");
   });
 });
+
+describe("MCP sandbox deploy: a stalled status request still ends with the sandboxId", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** POST /deploy creates sb-stall; status reads follow `status` in order. */
+  function sandboxFetch(statuses: Array<() => Promise<Response>>) {
+    let reads = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          Response.json(
+            {
+              sandboxId: "sb-stall",
+              statusUrl: `${SANDBOX}/api/sandbox/sb-stall/status`,
+              previewUrl: "https://sb-stall.creeksandbox.test",
+            },
+            { status: 202 },
+          ),
+        );
+      }
+      return statuses[Math.min(reads++, statuses.length - 1)]();
+    });
+  }
+
+  async function settleWithin(call: Promise<any>, ms: number) {
+    let out: any;
+    void call.then((r) => {
+      out = r;
+    });
+    await vi.advanceTimersByTimeAsync(ms);
+    return out;
+  }
+
+  it("a status fetch that never resolves ends in the timeout result with the id and last status", async () => {
+    vi.useFakeTimers();
+    sandboxFetch([
+      () => Promise.resolve(Response.json({ sandboxId: "sb-stall", status: "deploying" })),
+      () => new Promise<Response>(() => {}),
+    ]);
+    const call = registerAndCapture(undefined, { sandboxMaxWaitMs: 2_000 }).get("deploy")!({
+      files: { "index.html": "<h1>x</h1>" },
+    });
+    const result = await settleWithin(call, 2_100);
+    expect(result).toBeDefined();
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "timeout",
+      sandboxId: "sb-stall",
+      sandboxStatus: "deploying",
+      url: "https://sb-stall.creeksandbox.test",
+      retryable: false,
+    });
+    expect(payload.nextStep).toContain("deploy_status");
+  });
+
+  it("a status body that never finishes is cut off at the budget too", async () => {
+    vi.useFakeTimers();
+    sandboxFetch([
+      () => Promise.resolve(new Response(new ReadableStream({ start() {} }), { status: 200 })),
+    ]);
+    const call = registerAndCapture(undefined, { sandboxMaxWaitMs: 1_000 }).get("deploy_demo")!({});
+    const result = await settleWithin(call, 1_100);
+    expect(result).toBeDefined();
+    expect(parse(result)).toMatchObject({ error: "timeout", sandboxId: "sb-stall" });
+  });
+});
