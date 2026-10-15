@@ -387,6 +387,66 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
   });
 });
 
+describe("POST /resources never leaves a Cloudflare resource orphaned on a name clash", () => {
+  test("a taken name is refused before anything is provisioned", async () => {
+    expect((await req("POST", "/resources", { kind: "database", name: "taken" })).status).toBe(201);
+    vi.clearAllMocks();
+
+    const res = await req("POST", "/resources", { kind: "database", name: "taken" });
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("conflict");
+    expect(findExistingCFResource).not.toHaveBeenCalled();
+    expect(provisionCFResource).not.toHaveBeenCalled();
+    expect(cleanupRows()).toEqual([]);
+  });
+
+  test("a deleted resource's name is still taken, and refused before provisioning", async () => {
+    seedResource("res-old", { kind: "cache", cfResourceId: "kv-old", cfResourceType: "kv" });
+    expect((await req("DELETE", "/resources/res-old")).status).toBe(200);
+    vi.clearAllMocks();
+
+    const res = await req("POST", "/resources", { kind: "cache", name: "res-old-name" });
+
+    expect(res.status).toBe(409);
+    expect(provisionCFResource).not.toHaveBeenCalled();
+  });
+
+  test("losing the name to a concurrent create queues what was provisioned for teardown", async () => {
+    // The other create inserts its row after this one's name check, while
+    // this one is provisioning.
+    vi.mocked(provisionCFResource).mockImplementationOnce(async (_env, cfType, name) => {
+      const now = Date.now();
+      testEnv.db.db.exec(
+        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+         VALUES ('res-winner', '${teamId}', 'database', 'contested', 'd1-winner', 'd1', 'active', ${now}, ${now})`,
+      );
+      return `${cfType}-for-${name}`;
+    });
+
+    const res = await req("POST", "/resources", { kind: "database", name: "contested" });
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("conflict");
+    const [provisionedAs] = vi.mocked(provisionCFResource).mock.calls.at(-1)!.slice(2) as [string];
+    expect(provisionedAs).toMatch(/^creek-[0-9a-f]{26}$/);
+    expect(cleanupRows()).toMatchObject([
+      {
+        resourceType: "d1",
+        cfResourceId: `d1-for-${provisionedAs}`,
+        // The cleanup deletes only a resource still carrying this name.
+        cfResourceName: provisionedAs,
+        status: "pending",
+        reason: "provision_rolled_back",
+      },
+    ]);
+    // The winner's row is untouched and nothing else was written.
+    expect(testEnv.db.db.prepare("SELECT id FROM resource WHERE name = 'contested'").all()).toEqual(
+      [{ id: "res-winner" }],
+    );
+  });
+});
+
 describe("POST /resources/:id/query", () => {
   const resourceId = "res-db-1";
 
