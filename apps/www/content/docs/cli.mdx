@@ -101,10 +101,13 @@ Clicking the button takes visitors to a landing page with a ready-to-run deploy 
 Check project or sandbox status.
 
 ```bash
-creek status                    # Current project (from creek.toml)
+creek status                    # Current project (see "Which project" below)
+creek status --project my-app   # Any project, from any directory
 creek status a1b2c3d4           # Sandbox status (no auth needed)
 creek status --json
 ```
+
+**Which project.** Commands that act on a project (`status`, `deployments`, `logs`, `metrics`, `env`, `domains`, `queue`, `rollback`, `db shell`, `db migrate`, `doctor --last`) use the project the current directory deploys as, resolved the same way as `creek deploy`: `creek.toml`'s `[project].name`, else the wrangler config's `name` (`wrangler.jsonc`, `wrangler.json`, `wrangler.toml`), else the framework `package.json` name. Pass `--project <slug>` to pick another project or to run from outside a project directory.
 
 ### `creek projects`
 
@@ -227,6 +230,7 @@ creek env ls                    # Values redacted by default
 creek env ls --show             # Show plaintext values
 creek env rm DATABASE_URL
 creek env ls --json
+creek env set API_KEY "..." --project my-app   # Another project, or outside a project dir
 ```
 
 A variable applies to **all deploys** unless you give `--target`:
