@@ -57,8 +57,7 @@ you meant to target.
 | Remove one target's value | `creek env rm <KEY> --target <production\|preview\|all> --json` |
 | Preview env set | `creek env set <KEY> <VALUE> --dry-run --json` |
 | Preview env rm | `creek env rm <KEY> --dry-run --json` |
-| List env vars | `creek env ls --json` |
-| Show env values | `creek env ls --show --json` |
+| List env keys and targets (values are write-only) | `creek env ls --json` |
 | Remove env var | `creek env rm <KEY> --json` |
 | Add domain | `creek domains add <HOSTNAME> --json` |
 | List domains | `creek domains ls --json` |
@@ -142,5 +141,9 @@ Act on `apiError`:
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
 `creek db|storage|cache create/attach/detach/delete` are safe to re-run. When the result is already in place they succeed (`ok: true`, exit 0) and say so: `alreadyExists: true` on `create` (with the existing `resource`) and `attach` (with the existing `binding`), `alreadyAbsent: true` on `detach` and `delete`. A fresh result carries `alreadyExists` / `alreadyAbsent: false`. A real clash still fails — see [resources](resources.md#re-running-commands).
+
+`creek env rm` (alias `unset`) and `creek domains rm` follow the same rule. A key (or the `--target` value) that isn't set, or a hostname the project doesn't have, succeeds with `alreadyAbsent: true`, `removed: false` (`env rm` also `removedValues: 0`), including in `--dry-run` (`wouldExecute: false`) and when a concurrent removal wins. A fresh removal carries `alreadyAbsent: false`. Env vars and domains are deleted outright, so a key or hostname removed earlier and one never set (a typo) look the same: `alreadyAbsent: true` doesn't prove it existed. If you expected it, check the name with `creek env ls` / `creek domains ls`. Still errors: a missing project (`rm_failed` / `delete_failed`, `status: 404`), and for `domains rm` a string that isn't a hostname at all (`not_found`). `env rm` keeps `pendingDeploy: true` on `alreadyAbsent`: an earlier run may have removed the key without a deploy since.
+
+Env var values are write-only: `creek env ls --json` returns `vars[]` with `key` and `target` only (and `valuesWriteOnly: true`). No command or MCP tool returns a value. `--show` exits 1 with `values_write_only`. To change a value, `creek env set` it again.
 
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.
