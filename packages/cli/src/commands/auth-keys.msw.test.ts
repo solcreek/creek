@@ -487,6 +487,15 @@ describe("creek keys", () => {
     expect(json().error).toBe("missing_target");
   });
 
+  it("keys revoke <id> --self refuses both targets before any request", async () => {
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    // Every request is recorded; none may be sent.
+    const calls = api({ [SCOPED_KEY]: SCOPED });
+    expect(await run(sub("revoke"), { id: "key-other", self: true, yes: true })).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "invalid_args" });
+    expect(calls).toEqual([]);
+  });
+
   it("keys revoke --self revokes the key in use and leaves the saved config alone", async () => {
     saveConfig({ token: SCOPED_KEY });
     const calls = api({ [SCOPED_KEY]: SCOPED });

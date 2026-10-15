@@ -153,6 +153,18 @@ const revokeCommand = defineCommand({
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+    // Two targets: never guess which one was meant, and never revoke the
+    // key in use when another key was named.
+    if (args.self && args.id) {
+      const message = `Pass either a key id (${String(args.id)}) or --self, not both. Nothing was revoked.`;
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "invalid_args", message }, 1, [
+          { command: "creek keys revoke --self --json", description: "Revoke the API key in use" },
+          SELF_BREADCRUMB,
+        ]);
+      consola.error(message);
+      process.exit(1);
+    }
     if (!args.self) {
       if (args.id) sessionRequired(jsonMode, "Revoking another API key");
       const message = "Pass --self to revoke the API key in use.";
