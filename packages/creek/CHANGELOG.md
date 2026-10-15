@@ -4,6 +4,27 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.55
+
+- Bundles [`@solcreek/cli@0.4.55`](../cli/CHANGELOG.md#0455) and requires
+  [`@solcreek/sdk@0.4.25`](../sdk/CHANGELOG.md#0425): every project command
+  takes `--project` and never guesses from the directory name; `deploy --prod`
+  never ends in a sandbox; every deploy result names its `deploymentId`, which
+  `creek deployments get` / `wait` and `creek status <id>` follow; re-running
+  resource, `env rm` and `domains rm` commands converges with
+  `alreadyExists` / `alreadyAbsent`; `creek whoami` shows the key in use, and
+  the new `creek logout [--revoke]` and `creek keys` manage it; every `--json`
+  result has `ok`, `logs --json` ends with a summary line, and network failures
+  are `api_unreachable` everywhere. Several `--json` shapes and exit codes
+  change: read the CLI's [Compatibility](../cli/CHANGELOG.md#compatibility)
+  list before upgrading an agent. Publish `sdk@0.4.25` before `cli@0.4.55` /
+  `creek@0.4.55`.
+- **The bundled agent skill (`skills/creek`)** documents all of the above, and
+  corrects `queue send` with a JSON body (`--parseJson`, not `--json`), cron
+  testing in `creek dev` (type `cron`; there is no `--trigger-cron`), the
+  legacy `d1` / `r2` / `kv` keys (ignored, reported as `CK-RESOURCES-KEYS`),
+  the non-TTY deploy gate (`--yes` passes it too) and `deploy --wait`.
+
 ## 0.4.54
 
 - Bundles [`@solcreek/cli@0.4.54`](../cli/CHANGELOG.md#0454): Next.js deploys

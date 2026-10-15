@@ -1,5 +1,48 @@
 # @solcreek/sdk
 
+## 0.4.25
+
+### Deployments
+
+- **`getDeployment(project, idOrPrefix)`** returns a `DeploymentView`: status,
+  `terminal` / `final`, `failedStep`, `errorCode` / `errorHint`, `url`,
+  `commitSha` and `branch`, the same fields as the MCP `get_deployment` tool.
+  It takes a full id or the 8-char short id; `resolveDeploymentId` does the
+  matching (404 `not_found`, 409 `ambiguous_id` with `details.matches`).
+- **`waitForDeployment(project, idOrPrefix, { timeoutMs, intervalMs })`**
+  polls until the deployment is final and returns `{ view, timedOut,
+  waitedMs }`; a budget that runs out returns `timedOut: true` instead of
+  throwing. A dropped connection, a 5xx or a 429 is retried until the
+  deadline. `toDeploymentView` and `TERMINAL_DEPLOYMENT_STATUSES` are exported.
+- **Deployment ids are validated before they go into a URL.** Anything but a
+  uuid or a hex prefix of one throws `CreekApiError` 400 `invalid_id` with no
+  request (`isDeploymentIdOrPrefix`). Project and deployment ids in deployment
+  paths, `getDeploymentStatus` and `getBuildLog` included, are URL-encoded.
+- **`Project`** gains `productionDeploymentId` and `createdAt`, the fields
+  `GET /projects/:slug` actually returns.
+
+### API keys
+
+- **`getApiKeySelf()` / `revokeApiKeySelf()`** read and revoke the key the
+  client authenticates with (`GET` / `DELETE /api-keys/self`). `ApiKeySelf`
+  carries id, name, `start`, team, scopes, `effectiveScopes`, role, expiry and
+  last use; no secret. **`isApiKeySelfUnsupported(err)`** recognises a server
+  without the route (404, 405, `route_not_scoped`).
+
+### Resources
+
+- **`listResources({ includeDeleted: true })`** also lists deleted resources
+  (`?include=deleted`), so a re-run delete can tell "already deleted" from
+  "never existed".
+- **`aliasPartner(name, type)`** returns the other name of a primary binding
+  and its deprecated alias (`DATABASE` / `DB`, `CACHE` / `KV`).
+
+### Compatibility
+
+- **`createResource` no longer takes `cfResourceId` / `cfResourceType`.** The
+  API rejects them: Creek always provisions the Cloudflare resource behind a
+  new resource. TypeScript callers passing them fail to compile.
+
 ## 0.4.24
 
 - **`CreekApiError.details`** holds an error response's fields beyond
