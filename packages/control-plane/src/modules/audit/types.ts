@@ -13,7 +13,9 @@ export type AuditAction =
   | "instant_deploy.create"
   | "instant_deploy.update"
   | "trigger.cron.update"
-  | "trigger.queue.update";
+  | "trigger.queue.update"
+  | "api_key.create"
+  | "api_key.revoke";
 
 export type AuditResourceType =
   | "project"
@@ -21,7 +23,8 @@ export type AuditResourceType =
   | "domain"
   | "envvar"
   | "instant_deploy"
-  | "trigger";
+  | "trigger"
+  | "api_key";
 
 export interface AuditEntry {
   action: AuditAction;

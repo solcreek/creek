@@ -35,6 +35,7 @@ import { buildLogs, buildLogsRead } from "./modules/build-logs/routes.js";
 import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
 import { resources, resourceBindings } from "./modules/resources/routes.js";
 import { aggregateYesterday } from "./modules/metering/aggregate.js";
+import { apiKeys, apiKeysAuth } from "./modules/api-keys/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 import {
@@ -182,6 +183,12 @@ app.route("/projects", resourceBindings);
 app.route("/resources", resources);
 app.route("/instant-deploy", instantDeploy);
 app.route("/github", githubRoutes);
+
+// API key management: a key reads or revokes itself; a signed-in user mints,
+// lists and revokes keys. Its own auth: it resolves no team from headers.
+app.use("/api-keys/*", apiKeysAuth);
+app.use("/api-keys/*", auditContextMiddleware);
+app.route("/api-keys", apiKeys);
 
 // GET /preview/:slug/* (local dispatch stand-in) is mounted by src/local/serve.ts only.
 
