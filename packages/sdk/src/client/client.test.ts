@@ -318,6 +318,30 @@ describe("following a deployment", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  test("an id that is not a uuid or a hex prefix is invalid_id, and nothing is fetched", async () => {
+    const traversal = "../../../../../api/auth/get-session?x"; // 37 characters
+    for (const bad of [traversal, traversal.slice(0, 36), "../x", "0123abcd#frag", "abc?d=1", ""]) {
+      await expect(client.getDeployment("site", bad)).rejects.toMatchObject({
+        status: 400,
+        code: "invalid_id",
+      });
+      await expect(client.waitForDeployment("site", bad, { timeoutMs: 100 })).rejects.toMatchObject(
+        {
+          code: "invalid_id",
+        },
+      );
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("ids and slugs are encoded into the path", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, statusBody()));
+    await client.getDeploymentStatus("a/b", "x?y#z");
+    expect(String(mockFetch.mock.calls[0][0])).toBe(
+      "http://localhost:8787/projects/a%2Fb/deployments/x%3Fy%23z",
+    );
+  });
+
   test("resolveDeploymentId matches a short id against the list", async () => {
     mockFetch.mockResolvedValue(jsonResponse(200, [row(), row({ id: "ffff0000-x" })]));
     expect(await client.resolveDeploymentId("site", "0123abcd")).toBe(FULL);

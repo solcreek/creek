@@ -225,7 +225,10 @@ export class CreekClient {
     projectId: string,
     deploymentId: string,
   ): Promise<DeploymentStatusResponse> {
-    return this.request("GET", `/projects/${projectId}/deployments/${deploymentId}`);
+    return this.request(
+      "GET",
+      `/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deploymentId)}`,
+    );
   }
 
   /**
@@ -239,10 +242,20 @@ export class CreekClient {
     idOrPrefix: string,
     signal?: AbortSignal,
   ): Promise<string> {
-    if (idOrPrefix.length >= 36) return idOrPrefix;
+    // Only a uuid or a prefix of one: anything else would be put in a URL
+    // path, where `../`, `?` or `#` could send this authenticated GET
+    // somewhere else.
+    if (!isDeploymentIdOrPrefix(idOrPrefix)) {
+      throw new CreekApiError(
+        400,
+        "invalid_id",
+        `'${idOrPrefix}' is not a deployment id: pass the full uuid or its 8-char short id (hex).`,
+      );
+    }
+    if (idOrPrefix.length === 36) return idOrPrefix;
     const list = await this.request<Deployment[]>(
       "GET",
-      `/projects/${projectSlug}/deployments`,
+      `/projects/${encodeURIComponent(projectSlug)}/deployments`,
       undefined,
       signal,
     );
@@ -327,7 +340,7 @@ export class CreekClient {
       const res = await read((signal) =>
         this.request<DeploymentStatusResponse>(
           "GET",
-          `/projects/${projectSlug}/deployments/${id}`,
+          `/projects/${encodeURIComponent(projectSlug)}/deployments/${encodeURIComponent(id)}`,
           undefined,
           signal,
         ),
@@ -499,7 +512,10 @@ export class CreekClient {
     } | null;
     message?: string;
   }> {
-    return this.request("GET", `/projects/${projectSlug}/deployments/${deploymentId}/logs`);
+    return this.request(
+      "GET",
+      `/projects/${encodeURIComponent(projectSlug)}/deployments/${encodeURIComponent(deploymentId)}/logs`,
+    );
   }
 
   // --- Resources v2 (team-owned) ---
@@ -662,6 +678,16 @@ export class CreekClient {
  */
 /** How long a deployment read that starts at the wait's deadline may take. */
 const READ_GRACE_MS = 500;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A full deployment uuid, or a prefix of one (hex digits and its dashes). */
+export function isDeploymentIdOrPrefix(id: string): boolean {
+  if (id.length === 36) return UUID.test(id);
+  if (id.length === 0 || id.length > 36) return false;
+  // A prefix of a uuid: the full shape, cut short.
+  return UUID.test(id + "00000000-0000-0000-0000-000000000000".slice(id.length));
+}
 
 /**
  * A failure that can pass on its own: fetch's TypeError (the server was not

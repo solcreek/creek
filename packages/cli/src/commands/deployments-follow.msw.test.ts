@@ -143,6 +143,14 @@ describe("creek deployments get <id>", () => {
     expect(commands()[0]).toBe(`creek deployments wait ${FULL} --project other-dir-project --json`);
   });
 
+  it("a path-traversal id is invalid_id and sends no request", async () => {
+    // No handlers: MSW fails the test on any request.
+    const id = "../../../../../../../api/auth/get-session";
+    const code = await runExit(sub("get").run!({ args: { id } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "invalid_id" });
+  });
+
   it("an unknown short id is not_found", async () => {
     serve(deployment());
     const code = await runExit(sub("get").run!({ args: { id: "ffffffff" } } as never));

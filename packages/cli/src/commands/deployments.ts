@@ -253,7 +253,7 @@ const deploymentsLogs = defineCommand({
 function exitLookupError(jsonMode: boolean, err: unknown, slug: string): never {
   const msg = err instanceof Error ? err.message : "Failed to read the deployment";
   const code =
-    err instanceof CreekApiError && (err.code === "not_found" || err.code === "ambiguous_id")
+    err instanceof CreekApiError && ["not_found", "ambiguous_id", "invalid_id"].includes(err.code)
       ? err.code
       : "api_error";
   if (jsonMode)

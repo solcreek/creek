@@ -80,7 +80,10 @@ async function idStatus(id: string, projectArgSlug: string | undefined, jsonMode
       view = await client.getDeployment(project.slug, id);
     } catch (err) {
       // 404: no such deployment (or project) — try the id as a sandbox.
-      if (!(err instanceof CreekApiError && err.status === 404)) lookupError = err;
+      // invalid_id: not shaped like a deployment id (a sandbox id can be anything).
+      const notADeployment =
+        err instanceof CreekApiError && (err.status === 404 || err.code === "invalid_id");
+      if (!notADeployment) lookupError = err;
     }
     if (view) {
       if (jsonMode)
