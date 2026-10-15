@@ -299,6 +299,20 @@ describe("a saved key goes only to the API it was saved for", () => {
     expect(readConfig()).toMatchObject({ token: SCOPED_KEY, tokenApiUrl: API });
   });
 
+  it("login binds the key to the API that verified it, even if the config changes meanwhile", async () => {
+    delete process.env.CREEK_API_URL;
+    saveConfig({ apiUrl: API });
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => {
+        // Another process points the CLI at another API mid-verification.
+        saveConfig({ apiUrl: OTHER_API });
+        return HttpResponse.json(SESSION);
+      }),
+    );
+    expect(await run(loginCommand, { token: SCOPED_KEY, json: true })).toBe(0);
+    expect(readConfig()).toMatchObject({ token: SCOPED_KEY, tokenApiUrl: API });
+  });
+
   // Enforced where the token is chosen (getToken), so every command is
   // covered: one through requireClient, one that calls getToken directly.
   it.each([

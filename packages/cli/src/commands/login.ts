@@ -126,7 +126,10 @@ async function headlessLogin() {
  */
 async function saveAndVerify(apiKey: string, jsonMode = false) {
   if (!jsonMode) consola.start("Verifying...");
-  const client = new CreekClient(getApiUrl(), apiKey);
+  // One URL for both: the key is bound to exactly the API that verified it,
+  // even if the configured API changes while getSession() is pending.
+  const apiUrl = getApiUrl();
+  const client = new CreekClient(apiUrl, apiKey);
   const session = await client.getSession();
 
   if (!session?.user) {
@@ -144,7 +147,7 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   const config = readCliConfig();
   // Bind the key to the API it was verified against: getToken() refuses
   // to send it to any other (api_mismatch).
-  writeCliConfig({ ...config, token: apiKey, tokenApiUrl: getApiUrl() });
+  writeCliConfig({ ...config, token: apiKey, tokenApiUrl: apiUrl });
 
   // CREEK_TOKEN wins over the key just saved; say so instead of letting
   // every later command silently use another key.
