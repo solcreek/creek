@@ -102,6 +102,14 @@ The CLI authenticates every request with an API key. `CREEK_TOKEN`, when
 set (even empty), wins over the key `creek login --token` saved in
 `~/.creek/config.json`; `creek login` then returns a `warning` saying so.
 
+`creek login` records the API the key was verified against. The saved key
+is only ever sent to that API: when the CLI would talk to another one
+(`CREEK_API_URL`, or the config's `apiUrl`), `whoami`, `keys self`,
+`keys revoke --self` and `logout` exit 1 with `error: "api_mismatch"`,
+`savedKeyApiUrl` and `apiUrl`, and send nothing. A key saved by an older
+CLI counts as saved for the config's own API (its `apiUrl`, else
+`https://api.creek.dev`). `CREEK_TOKEN` is always sent to the API in use.
+
 `creek whoami --json` says which key is in use:
 
 ```json
@@ -139,15 +147,24 @@ keys need a signed-in dashboard session, which the CLI never holds:
 
 `creek logout` forgets the saved key, but the key stays valid
 (`keyStillValid: true`). Once forgotten it can only be revoked in the
-dashboard (`dashboardUrl`), so prefer `--revoke`. `creek logout --revoke` revokes every key the CLI
-holds — `CREEK_TOKEN`'s and the saved one — and reports each in
-`keys: [{ source, keyPrefix, revoked, reason?, keyId? }]`. It is safe to
-re-run: a key already revoked or expired reports
-`revoked: false, reason: "already_invalid"`. The saved key is removed only
-once it is revoked or already invalid; any other failure exits 1 and keeps
-it. `mayHaveApplied: true` (a dropped connection or failed response) means
-the key may or may not have been revoked: check with `creek whoami --json`
-before retrying. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
+dashboard (`dashboardUrl`), so prefer `--revoke`.
+
+`creek logout --revoke` revokes one key: the active one, the key `whoami`
+uses (`source`, `keyPrefix`, `revoked`, `keyId` or `reason`).
+
+- `CREEK_TOKEN` set (even empty) and a different saved key:
+  `error: "ambiguous_credentials"`, nothing sent. Pick one:
+  `unset CREEK_TOKEN && creek logout --revoke --json` (the saved key), or
+  `creek keys revoke --self --json` (the `CREEK_TOKEN` key).
+- Only a 2xx (`revoked: true`) or a 401 (`revoked: false`,
+  `reason: "already_invalid"`) is a known outcome; both clear the saved key.
+  Anything else exits 1 with `mayHaveApplied: true` and keeps the key:
+  re-run `creek logout --revoke --json` (a revoked key then answers
+  `already_invalid`).
+- The saved key is removed only if the config still holds that exact key; a
+  `creek login` that ran meanwhile is kept (`configCleared: false`,
+  `configReason: "changed_during_logout"`).
+- With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
 
 ## JSON Output Format
 
