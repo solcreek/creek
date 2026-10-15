@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFixture, type Fixture } from "../tenant/scoped-key-fixture.js";
+import { MAX_ACTIVE_KEYS } from "./cap.js";
 
 /**
  * POST /api-keys when Better Auth stores a key without its scopes (as a
@@ -142,6 +143,35 @@ describe("POST /api-keys after the key exists", () => {
     expect(JSON.parse(text).error).toBe("key_create_failed");
     expect(text).not.toContain("crk_sk_live_");
     expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
+  });
+
+  it("deletes its own key, and only that, when a concurrent mint took the last slot under the cap", async () => {
+    const owner = await f.signUp("owner@example.com");
+    for (let i = 0; i < MAX_ACTIVE_KEYS - 1; i++) {
+      await f.scopedKey(owner.userId, owner.orgId, ["project:read"]);
+    }
+    // Another mint lands between this one's first cap check and its insert.
+    let racer: string | undefined;
+    state.afterCreate = async () => {
+      state.afterCreate = null;
+      racer = await f.scopedKey(owner.userId, owner.orgId, ["env:read"]);
+    };
+    const res = await create(owner.cookie, owner.orgSlug);
+
+    expect(res.status).toBe(409);
+    const text = await res.text();
+    expect(JSON.parse(text)).toMatchObject({
+      error: "key_limit_reached",
+      limit: MAX_ACTIVE_KEYS,
+      active: MAX_ACTIVE_KEYS,
+    });
+    expect(text).not.toContain("crk_sk_live_");
+    const rows = await f.sql<{ permissions: string }>("SELECT permissions FROM apikey");
+    expect(rows).toHaveLength(MAX_ACTIVE_KEYS);
+    // The racer's key survives; the refused mint's key (project:read) is gone.
+    expect(rows.filter((r) => r.permissions.includes("env:read"))).toHaveLength(1);
+    expect((await f.call("GET", "/api-keys/self", { "x-api-key": racer! })).status).toBe(200);
+    expect(await f.sql("SELECT id FROM audit_log WHERE action = 'api_key.create'")).toEqual([]);
   });
 });
 
