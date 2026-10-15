@@ -3,7 +3,7 @@ import consola from "consola";
 import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import { CreekClient } from "@solcreek/sdk";
 import { createResourceCommand } from "./resource-cmd.js";
 import {
   detectMigrationDir,
@@ -15,6 +15,11 @@ import {
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import {
+  exitNoProject,
+  readDirectoryProject,
+  type ProjectSource,
+} from "../utils/command-context.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -38,7 +43,7 @@ const shellCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when neither a name nor --project is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory names (creek.toml, wrangler config or package.json name; never the directory name) when neither a name nor --project is given.",
       required: false,
     },
     sql: {
@@ -66,7 +71,7 @@ const shellCommand = defineCommand({
 
     // Single query mode
     if (args.sql) {
-      await executeAndPrint(client, db.id, args.sql, jsonMode);
+      await executeAndPrint(client, db.id, args.sql, jsonMode, projectFields(db));
       return;
     }
 
@@ -120,11 +125,29 @@ const shellCommand = defineCommand({
 });
 
 /**
+ * A database to act on. `project`/`projectSource` are set when it was found
+ * through the project's bindings (not by name), so the JSON output can say
+ * which project was targeted and where that came from.
+ */
+export interface ResolvedDatabase {
+  id: string;
+  name: string;
+  project?: string;
+  projectSource?: ProjectSource;
+}
+
+/** The project fields a db command adds to its JSON output. */
+function projectFields(db: ResolvedDatabase): Record<string, unknown> {
+  return db.project ? { project: db.project, projectSource: db.projectSource } : {};
+}
+
+/**
  * Resolve which database a command (`db shell`, `db migrate`, …) should
  * target. Three inputs, in order:
  *   1. an explicit `name` positional (existing behaviour),
  *   2. `--project <slug>` → the single D1 bound to that project,
- *   3. neither → the project in ./creek.toml, same single-binding rule.
+ *   3. neither → the project the cwd deploys as (creek.toml, else the
+ *      wrangler config name), same single-binding rule.
  *
  * The point is to not force the user to look up the auto-generated DB
  * name (e.g. creek-97d8c075) when the project binds exactly one D1.
@@ -134,7 +157,7 @@ const shellCommand = defineCommand({
 export async function resolveProjectDatabase(
   client: CreekClient,
   opts: { name?: string; project?: string; jsonMode: boolean; usage?: string },
-): Promise<{ id: string; name: string }> {
+): Promise<ResolvedDatabase> {
   const { name, jsonMode } = opts;
   // How to name the DB explicitly — varies per command (shell vs migrate).
   const usage = opts.usage ?? "creek db shell <name>";
@@ -153,15 +176,24 @@ export async function resolveProjectDatabase(
   }
 
   // 2/3. Resolve via project bindings.
-  const slug = opts.project ?? projectFromCreekToml();
+  let slug = opts.project;
+  let projectSource: ProjectSource | undefined = slug ? "flag" : undefined;
   if (!slug) {
-    const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory with creek.toml.`;
+    // A broken config exits invalid_config; one that names no project exits
+    // no_project with foundConfig, like every other project command.
+    const found = readDirectoryProject(jsonMode);
+    if (found?.slug === null) exitNoProject(found, jsonMode);
+    slug = found?.slug;
+    projectSource = found?.source;
+  }
+  if (!slug) {
+    const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory (creek.toml or wrangler config).`;
     if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
     consola.error(msg);
     process.exit(1);
   }
 
-  // A stale/typo'd creek.toml project name (or one never deployed) makes
+  // A stale/typo'd project name (or one never deployed) makes
   // listBindings throw — turn that into a clean structured error instead of
   // a raw stack trace, and point at the explicit-name escape hatch.
   let bindings: Awaited<ReturnType<typeof client.listBindings>>["bindings"];
@@ -210,34 +242,24 @@ export async function resolveProjectDatabase(
     consola.error(msg);
     process.exit(1);
   }
-  return { id: dbs[0].resourceId, name: dbs[0].name };
+  return { id: dbs[0].resourceId, name: dbs[0].name, project: slug, projectSource };
 }
 
 /** @deprecated Use {@link resolveProjectDatabase}. Kept for back-compat. */
 export const resolveShellDatabase = resolveProjectDatabase;
-
-/** Read the project name from ./creek.toml, or null if absent/unparseable. */
-function projectFromCreekToml(): string | null {
-  const configPath = resolve(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) return null;
-  try {
-    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-  } catch {
-    return null;
-  }
-}
 
 async function executeAndPrint(
   client: CreekClient,
   resourceId: string,
   sql: string,
   jsonMode: boolean,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   try {
     const result = await client.queryDatabase(resourceId, sql);
 
     if (jsonMode) {
-      jsonOutput({ ok: true, ...result }, 0);
+      jsonOutput({ ok: true, ...extra, ...result }, 0);
       return;
     }
 
@@ -318,7 +340,7 @@ const migrateCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project in ./creek.toml when no name is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory names (creek.toml, wrangler config or package.json name; never the directory name) when no name is given.",
       required: false,
     },
     dir: {
@@ -351,7 +373,7 @@ const migrateCommand = defineCommand({
     const client = new CreekClient(getApiUrl(), token);
 
     // 1. Resolve database → resource ID. Explicit name wins; otherwise infer
-    // the single database bound to the project (--project or ./creek.toml),
+    // the single database bound to the project (--project or the cwd's config),
     // so `creek db migrate` works from a project dir without repeating the
     // generated DB name.
     const db = await resolveProjectDatabase(client, {
@@ -377,7 +399,16 @@ const migrateCommand = defineCommand({
     const files = parseMigrationFiles(migrationDir);
     if (files.length === 0) {
       if (jsonMode)
-        jsonOutput({ ok: true, message: "No .sql files found", applied: 0, pending: 0 }, 0);
+        jsonOutput(
+          {
+            ok: true,
+            ...projectFields(db),
+            message: "No .sql files found",
+            applied: 0,
+            pending: 0,
+          },
+          0,
+        );
       consola.info(`No .sql files found in ${migrationDir}`);
       return;
     }
@@ -428,6 +459,7 @@ const migrateCommand = defineCommand({
         jsonOutput(
           {
             ok: true,
+            ...projectFields(db),
             dryRun: true,
             total: files.length,
             applied: appliedSet.size,
@@ -450,7 +482,16 @@ const migrateCommand = defineCommand({
     // 6. Apply pending
     if (pending.length === 0) {
       if (jsonMode)
-        jsonOutput({ ok: true, message: "up to date", applied: appliedSet.size, migrated: 0 }, 0);
+        jsonOutput(
+          {
+            ok: true,
+            ...projectFields(db),
+            message: "up to date",
+            applied: appliedSet.size,
+            migrated: 0,
+          },
+          0,
+        );
       consola.success(`Database "${db.name}" is up to date (${appliedSet.size} applied)`);
       return;
     }
@@ -555,7 +596,14 @@ const migrateCommand = defineCommand({
 
     if (jsonMode) {
       jsonOutput(
-        { ok: true, migrated, resumed, total: files.length, applied: appliedSet.size + migrated },
+        {
+          ok: true,
+          ...projectFields(db),
+          migrated,
+          resumed,
+          total: files.length,
+          applied: appliedSet.size + migrated,
+        },
         0,
       );
     }

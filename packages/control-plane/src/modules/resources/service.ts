@@ -839,7 +839,7 @@ export function provisionedName(resourceId: string): string {
  * was provisioned with, which the cleanup checks before deleting.
  * Best-effort: the caller is already failing with the original error.
  */
-async function queueRolledBackResource(
+export async function queueRolledBackResource(
   env: Env,
   cfType: string,
   cfId: string,

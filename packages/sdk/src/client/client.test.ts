@@ -120,6 +120,18 @@ describe("CreekClient", () => {
     await expect(client.listProjects()).rejects.toThrow(CreekApiError);
   });
 
+  test("listResources asks for deleted resources only when told to", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse(200, { resources: [] }));
+
+    await client.listResources();
+    await client.listResources({ includeDeleted: true });
+
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+      "http://localhost:8787/resources",
+      "http://localhost:8787/resources?include=deleted",
+    ]);
+  });
+
   test("getSession returns null on failure", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse(401, { error: "unauthorized", message: "No session" }),

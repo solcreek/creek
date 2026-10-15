@@ -9,6 +9,19 @@ Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 
+Project commands (`env`, `status`, `deployments`, `logs`, `metrics`,
+`domains`, `queue`, `rollback`, `db shell`/`db migrate`, `doctor --last`)
+act on the project the directory names: `--project <SLUG>` (every one
+accepts it, and it wins), else `creek.toml` `[project].name`, else the
+wrangler config's `name`, else the framework `package.json` `name`. They
+never fall back to the directory name: a static site (`index.html`) or a
+wrangler config / package.json without `name` exits
+`{"ok":false,"error":"no_project","foundConfig":"<file>"}`, as does a
+directory with no config. Pass `--project` (find the slug with
+`creek projects --json`). The JSON output carries `projectSource`
+(`flag`, `creek.toml`, `wrangler` or `package.json`): check it says what
+you meant to target.
+
 | Task | Command |
 |------|---------|
 | Authenticate (CI / agent) | `creek login --token <KEY> --json` |
@@ -28,6 +41,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Verify a preview URL is live | `creek verify <url> --json` |
 | Verify with markup assert | `creek verify <url> --json --contains "unique text"` |
 | Check status | `creek status --json` |
+| Check status (other project) | `creek status --project <SLUG> --json` |
 | Check sandbox | `creek status <SANDBOX_ID> --json` |
 | Claim sandbox | `creek claim <SANDBOX_ID> --json` |
 | List projects | `creek projects --json` |
@@ -37,6 +51,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Preview rollback | `creek rollback --dry-run --json` |
 | Rollback to specific | `creek rollback <DEPLOYMENT_ID> --json` |
 | Set env var | `creek env set <KEY> <VALUE> --json` |
+| Set env var (other project) | `creek env set <KEY> <VALUE> --project <SLUG> --json` |
 | Production-only secret | `creek env set <KEY> <VALUE> --target production --json` |
 | Preview-only value | `creek env set <KEY> <VALUE> --target preview --json` |
 | Remove one target's value | `creek env rm <KEY> --target <production\|preview\|all> --json` |
@@ -119,10 +134,13 @@ Act on `apiError`:
 | `insufficient_scope` | The API key lacks a scope (`details.required`; it has `details.granted`) | Use a key that holds the scope; don't retry with the same key |
 | `insufficient_role` | The key holds the scope but its owner's team role no longer allows it | Ask a team owner/admin |
 | `binding_conflict` | The deploy's binding names collide (`details.conflicts`) | See [diagnosis](diagnosis.md) |
+| `conflict` | The name is taken; `details.existing` is what holds it (a resource on `create`, a binding on `attach`) | Pick another name, or use `details.existing.id` / detach what holds it |
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
 `error: "api_unreachable"` (no `status`) means communication with the server failed — it was never reached, or the connection broke mid-request — not that the key was refused. Re-run the command only when `retryable` is `true`: the failure is transient (refused, reset, timeout, network down) and nothing this run changes can have been applied — it only read, or its writes provably never left. `mayHaveApplied: true` means a write of this run (this request or an earlier step, e.g. `creek deploy`'s create-deployment before its upload) may have been applied: check (`creek status`, `creek deployments`) before running the command again. Otherwise stop and tell the user: `reason` (absent when the failure gave none) names what to fix — `ENOTFOUND` (no network, or a wrong host in `CREEK_API_URL`), a certificate error (e.g. a proxy's self-signed certificate), `bad port`, `unknown scheme`.
 
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
+
+`creek db|storage|cache create/attach/detach/delete` are safe to re-run. When the result is already in place they succeed (`ok: true`, exit 0) and say so: `alreadyExists: true` on `create` (with the existing `resource`) and `attach` (with the existing `binding`), `alreadyAbsent: true` on `detach` and `delete`. A fresh result carries `alreadyExists` / `alreadyAbsent: false`. A real clash still fails — see [resources](resources.md#re-running-commands).
 
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.

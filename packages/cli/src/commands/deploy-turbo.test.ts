@@ -68,9 +68,10 @@ describe("tryTurboDeploy --wait budget", () => {
       project: "app",
     });
     expect(payload.message).toContain("CLI stopped waiting after 90s");
+    // The cwd names no project, so the follow-ups carry --project (pasteable).
     expect(payload.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
-      "creek status",
-      "creek deployments logs dep-1",
+      "creek status --project app",
+      "creek deployments logs dep-1 --project app",
     ]);
   });
 

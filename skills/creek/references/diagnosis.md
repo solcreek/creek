@@ -81,7 +81,7 @@ Quick lookup when the user reports a specific error string verbatim.
 | `interactive_login_unsupported` | Pass `--token <KEY>` |
 | `confirmation_required` | Pass `--sandbox` or `--prod` |
 | "Invalid API key" | `creek login --token <KEY>` to re-authenticate |
-| "No creek.toml found" | `creek init` or cd to project root |
+| `no_project` on `env`/`status`/`deployments`/`logs`/… | Pass `--project <slug>` (`creek projects --json` lists them) or cd to a dir whose `creek.toml`, wrangler config or package.json names the project (`foundConfig` = a config without a name; the directory name is never used) |
 | `no_package_json` | Add `index.html` (static) or a `package.json`; `creek.toml` alone is not enough |
 | "No project found" | Deploy from a dir with package.json or index.html |
 | "No supported project found in repo" | Use `--path` for monorepos |

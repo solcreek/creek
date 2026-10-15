@@ -2,38 +2,9 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parseConfig } from "@solcreek/sdk";
-import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-  NO_PROJECT_BREADCRUMBS,
-} from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-
-function resolveSlug(argSlug: string | undefined, jsonMode: boolean): string {
-  if (argSlug) return argSlug;
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    if (jsonMode) {
-      jsonOutput(
-        {
-          ok: false,
-          error: "no_project",
-          message: "No creek.toml found. Use --project <slug> or run from a project directory.",
-        },
-        1,
-        NO_PROJECT_BREADCRUMBS,
-      );
-    }
-    consola.error("No creek.toml found. Use --project <slug> or run from a project directory.");
-    process.exit(1);
-  }
-  return parseConfig(readFileSync(configPath, "utf-8")).project.name;
-}
+import { projectArg, projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
 
 // --- List (default behaviour) ---
 
@@ -43,11 +14,7 @@ const deploymentsList = defineCommand({
     description: "List recent deployments",
   },
   args: {
-    project: {
-      type: "string",
-      description: "Project slug (default: from creek.toml)",
-      required: false,
-    },
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -60,7 +27,7 @@ const deploymentsList = defineCommand({
       process.exit(1);
     }
 
-    const slug = resolveSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const client = new CreekClient(getApiUrl(), token);
 
     let deployments;
@@ -83,10 +50,17 @@ const deploymentsList = defineCommand({
                 command: `creek rollback --project ${slug}`,
                 description: "Rollback to previous deployment",
               },
-              { command: `creek status`, description: "Check current project status" },
+              {
+                command: `creek status --project ${slug}`,
+                description: "Check current project status",
+              },
             ]
           : [{ command: `creek deploy`, description: "Create first deployment" }];
-      jsonOutput({ ok: true, project: slug, deployments }, 0, crumbs);
+      jsonOutput(
+        { ok: true, project: slug, projectSource, deployments },
+        0,
+        projectBreadcrumbs(slug, crumbs),
+      );
     }
 
     if (deployments.length === 0) {
@@ -118,11 +92,7 @@ const deploymentsLogs = defineCommand({
       description: "Deployment id (8-char short id or full uuid)",
       required: true,
     },
-    project: {
-      type: "string",
-      description: "Project slug (default: from creek.toml)",
-      required: false,
-    },
+    ...projectArg,
     raw: {
       type: "boolean",
       description: "Print raw ndjson lines instead of step-grouped output",
@@ -139,7 +109,7 @@ const deploymentsLogs = defineCommand({
       process.exit(1);
     }
 
-    const slug = resolveSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const client = new CreekClient(getApiUrl(), token);
 
     // If the user passed a short id, look up the full uuid. GET endpoint
@@ -186,7 +156,7 @@ const deploymentsLogs = defineCommand({
     }
 
     if (jsonMode) {
-      jsonOutput({ ok: true, deploymentId: fullId, ...log }, 0);
+      jsonOutput({ ok: true, project: slug, projectSource, deploymentId: fullId, ...log }, 0);
     }
 
     if (!log.metadata) {
@@ -288,11 +258,7 @@ export const deploymentsCommand = defineCommand({
     description: "List deployments and read build logs",
   },
   args: {
-    project: {
-      type: "string",
-      description: "Project slug (default: from creek.toml)",
-      required: false,
-    },
+    ...projectArg,
     ...globalArgs,
   },
   subCommands: {

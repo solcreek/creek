@@ -69,6 +69,7 @@ import {
   AGENT_PROD_DEPLOY,
   type Breadcrumb,
 } from "../utils/output.js";
+import { pasteableBreadcrumbs } from "../utils/command-context.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import {
@@ -330,9 +331,14 @@ export async function finishProductionSuccess(opts: {
   const url = opts.url ?? null;
   const proof = url ? await attachProof(url) : null;
   const proofFields = productionProofPayload(url, proof);
-  const breadcrumbs: Breadcrumb[] = url
-    ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
-    : (opts.extraBreadcrumbs ?? []);
+  // Follow-ups carry --project when a bare project command here would not
+  // resolve to this project (directory-derived name, or another directory).
+  const breadcrumbs: Breadcrumb[] = pasteableBreadcrumbs(
+    opts.slug,
+    url
+      ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
+      : (opts.extraBreadcrumbs ?? []),
+  );
   if (opts.jsonMode) {
     jsonOutput(
       {
@@ -751,16 +757,19 @@ export function reportWaitTimeout(opts: {
   jsonMode: boolean;
   waitedMs: number;
   deploymentId: string;
+  /** Project slug: makes the breadcrumbs pasteable from this cwd. */
+  project?: string;
   extra?: Record<string, unknown>;
 }): never {
   const waited = formatWaited(opts.waitedMs);
-  const breadcrumbs: Breadcrumb[] = [
+  const crumbs: Breadcrumb[] = [
     { command: `creek status`, description: "Check whether the deploy finished" },
     {
       command: `creek deployments logs ${opts.deploymentId}`,
       description: "View the build log so far",
     },
   ];
+  const breadcrumbs = opts.project ? pasteableBreadcrumbs(opts.project, crumbs) : crumbs;
   if (opts.jsonMode)
     jsonOutput(
       {
@@ -2713,7 +2722,12 @@ async function deployAuthenticated(
         startedAt: buildLog.startedAt,
       }),
     );
-    return reportWaitTimeout({ jsonMode, waitedMs: POLL_TIMEOUT, deploymentId: deployment.id });
+    return reportWaitTimeout({
+      jsonMode,
+      waitedMs: POLL_TIMEOUT,
+      deploymentId: deployment.id,
+      project: project.slug,
+    });
   } catch (err) {
     if (err instanceof CreekAuthError) {
       // JSON mode must still print a result: the stdout contract holds on
@@ -3056,6 +3070,7 @@ export async function tryTurboDeploy(
       jsonMode,
       waitedMs: POLL_TIMEOUT,
       deploymentId: res.deployment.id,
+      project: project.slug,
       extra: { project: project.slug, turbo: true },
     });
     return true;

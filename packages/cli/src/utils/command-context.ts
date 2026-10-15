@@ -10,9 +10,16 @@
  */
 
 import consola from "consola";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import {
+  ConfigNotFoundError,
+  CreekClient,
+  parseWranglerConfig,
+  resolveConfig,
+  type ResolvedConfig,
+  type WranglerFormat,
+} from "@solcreek/sdk";
 import { getToken, getApiUrl } from "./config.js";
 import { jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "./output.js";
 import { apiErrorFields, apiErrorHints } from "./api-error.js";
@@ -41,31 +48,221 @@ export function requireClient(jsonMode: boolean): CreekClient {
   return new CreekClient(getApiUrl(), token);
 }
 
+/** The `--project` arg every command that resolves a project accepts. */
+export const projectArg = {
+  project: {
+    type: "string" as const,
+    description:
+      "Project slug (default: the name this directory's config gives — creek.toml [project].name, else the wrangler config name, else the framework package.json name; never the directory name)",
+    valueHint: "slug",
+  },
+};
+
 /**
- * Resolve the target project slug: an explicit `--project` arg wins, else the
- * `[project].name` from `./creek.toml`. On a miss, emits a structured
- * `no_project` error in JSON mode before exiting 1.
+ * What a project command prints when it can't tell which project to act on.
+ * Every command that resolves through {@link resolveProject} accepts
+ * `--project` (a test checks the command arg schemas), so the hint never
+ * names a flag the command lacks.
  */
-export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
-  if (argSlug) return argSlug;
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    const message = "No creek.toml found. Use --project <slug> or run from a project directory.";
-    if (jsonMode)
-      jsonOutput({ ok: false, error: "no_project", message }, 1, NO_PROJECT_BREADCRUMBS);
-    consola.error(message);
-    process.exit(1);
-  }
+export const NO_PROJECT_MESSAGE =
+  "No project found in this directory (no creek.toml, wrangler config or framework package.json). Pass --project <slug> or run from a project directory.";
+
+/** Breadcrumbs for a project command's `no_project` error. */
+export const PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS: Breadcrumb[] = [
+  {
+    command: "creek projects --json",
+    description: "List your projects, then pass one with --project <slug>",
+  },
+  ...NO_PROJECT_BREADCRUMBS,
+];
+
+/** Where a project command's slug came from. */
+export type ProjectSource = "flag" | "creek.toml" | "wrangler" | "package.json";
+
+/**
+ * What a directory says about its project. `slug` is null when a config was
+ * found but names no project: `resolveConfig` then falls back to the directory
+ * name (a static site, a wrangler config without `name`, a package.json
+ * without `name`), which project commands refuse to act on.
+ */
+export type DirectoryProject =
+  | { slug: string; source: Exclude<ProjectSource, "flag">; config: ResolvedConfig }
+  | { slug: null; file: string; config: ResolvedConfig };
+
+/**
+ * The project a directory deploys as, resolved by the SDK's `resolveConfig`
+ * like `creek deploy`, keeping only names someone wrote down: `creek.toml`
+ * `[project].name`, else the wrangler config's `name`, else the framework
+ * package.json `name`. Returns null when the directory holds no project
+ * config; rethrows when a config exists but can't be read.
+ */
+export function projectFromDirectory(cwd: string = process.cwd()): DirectoryProject | null {
+  let config: ResolvedConfig;
   try {
-    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+    config = resolveConfig(cwd);
   } catch (err) {
-    // An unreadable or malformed creek.toml would otherwise throw past the
-    // structured-error contract and surface as a raw stack trace in JSON mode.
-    const message = `Couldn't read creek.toml: ${err instanceof Error ? err.message : String(err)}`;
+    if (err instanceof ConfigNotFoundError) return null;
+    throw err;
+  }
+  const unnamed = { slug: null, file: config.source, config } as const;
+  switch (config.source) {
+    case "creek.toml":
+      // The schema requires [project].name.
+      return { slug: config.projectName, source: "creek.toml", config };
+    case "wrangler.jsonc":
+    case "wrangler.json":
+    case "wrangler.toml": {
+      const format = config.source === "wrangler.toml" ? "toml" : config.source.slice(9);
+      const wrangler = parseWranglerConfig(
+        readFileSync(join(cwd, config.source), "utf-8"),
+        format as WranglerFormat,
+      );
+      return wrangler.name ? { slug: config.projectName, source: "wrangler", config } : unnamed;
+    }
+    case "package.json": {
+      const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as {
+        name?: unknown;
+      };
+      return typeof pkg.name === "string" && pkg.name
+        ? { slug: config.projectName, source: "package.json", config }
+        : unnamed;
+    }
+    default:
+      // index.html: a static site's only name is the directory's.
+      return unnamed;
+  }
+}
+
+/**
+ * {@link projectFromDirectory} for a command that needs the answer: a config
+ * that exists but can't be read or parsed emits a structured
+ * `invalid_config` carrying the parser's diagnostic, then exits 1. Only a
+ * directory with no config at all yields null. Don't catch and swallow
+ * projectFromDirectory's error instead: that turns a typo in the config into
+ * a misleading "no project" / "no database" error.
+ */
+export function readDirectoryProject(
+  jsonMode: boolean,
+  cwd: string = process.cwd(),
+): DirectoryProject | null {
+  try {
+    return projectFromDirectory(cwd);
+  } catch (err) {
+    const message = `Couldn't read the project config: ${err instanceof Error ? err.message : String(err)}`;
     if (jsonMode) jsonOutput({ ok: false, error: "invalid_config", message }, 1);
     consola.error(message);
     process.exit(1);
   }
+}
+
+/** Why a directory with a config still names no project. */
+export function unnamedProjectMessage(file: string): string {
+  const what =
+    file === "index.html"
+      ? "Found a static site (index.html) but no project name"
+      : `Found ${file} but it has no "name"`;
+  return `${what}, and project commands never use the directory name as the project. Pass --project <slug>, or name the project in creek.toml ([project].name), the wrangler config ("name") or package.json ("name").`;
+}
+
+/**
+ * Resolve the target project: an explicit `--project` arg wins, else the
+ * project the current directory names ({@link projectFromDirectory}). On a
+ * miss, or a config that names no project, emits a structured `no_project`
+ * error in JSON mode before exiting 1; a config that can't be read emits
+ * `invalid_config`.
+ */
+export function resolveProject(
+  argSlug: string | undefined,
+  jsonMode: boolean,
+  cwd: string = process.cwd(),
+): { slug: string; source: ProjectSource } {
+  if (argSlug) return { slug: argSlug, source: "flag" };
+  const found = readDirectoryProject(jsonMode, cwd);
+  if (!found || found.slug === null) exitNoProject(found, jsonMode);
+  return { slug: found.slug, source: found.source };
+}
+
+/**
+ * The structured `no_project` exit: no config at all, or a config that names
+ * no project (`foundConfig` says which file, the message what to add).
+ */
+export function exitNoProject(
+  found: Extract<DirectoryProject, { slug: null }> | null,
+  jsonMode: boolean,
+): never {
+  const message = found ? unnamedProjectMessage(found.file) : NO_PROJECT_MESSAGE;
+  if (jsonMode)
+    jsonOutput(
+      { ok: false, error: "no_project", message, ...(found ? { foundConfig: found.file } : {}) },
+      1,
+      PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+    );
+  consola.error(message);
+  process.exit(1);
+}
+
+/**
+ * Whether a bare `creek deploy` run here would ship `slug`: deploy's own
+ * resolution (SDK `resolveConfig`), directory-name fallbacks included.
+ */
+export function bareDeployShips(slug: string, cwd: string = process.cwd()): boolean {
+  try {
+    return resolveConfig(cwd).projectName === slug;
+  } catch {
+    return false;
+  }
+}
+
+const BARE_DEPLOY = /^creek deploy( |$)/;
+
+/**
+ * A project command's breadcrumbs, minus any `creek deploy …` that would ship
+ * a different project than `slug`. A deploy breadcrumb runs from the cwd, so
+ * after `--project other` it would deploy whatever the cwd is; one that names
+ * its own `--project` is kept. Route every project command's breadcrumbs
+ * through this so a new command gets the rule for free.
+ */
+export function projectBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadcrumb[] {
+  const unsafe = (c: Breadcrumb) => BARE_DEPLOY.test(c.command) && !/ --project /.test(c.command);
+  if (!crumbs.some(unsafe) || bareDeployShips(slug)) return crumbs;
+  return crumbs.filter((c) => !unsafe(c));
+}
+
+const PROJECT_COMMAND =
+  /^creek (status|env|logs|metrics|deployments|domains|rollback|queue|db (shell|migrate))( |$)/;
+
+/**
+ * Follow-up breadcrumbs for `slug` that work when pasted in the cwd. A bare
+ * project command resolves the cwd's own name, which is not `slug` when the
+ * deploy's name came from the directory (static site, nameless wrangler
+ * config) — project commands refuse those — or when the deploy ran on another
+ * directory. Then each project command without `--project` gets
+ * `--project <slug>`; otherwise the breadcrumbs stay bare.
+ */
+export function pasteableBreadcrumbs(slug: string, crumbs: Breadcrumb[]): Breadcrumb[] {
+  let named: string | null = null;
+  try {
+    named = projectFromDirectory()?.slug ?? null;
+  } catch {
+    // An unreadable config names nothing: add --project.
+  }
+  if (named === slug) return crumbs;
+  return crumbs.map((c) => {
+    if (!PROJECT_COMMAND.test(c.command) || / --project /.test(`${c.command} `)) return c;
+    const command = c.command.endsWith(" --json")
+      ? `${c.command.slice(0, -" --json".length)} --project ${slug} --json`
+      : `${c.command} --project ${slug}`;
+    return { ...c, command };
+  });
+}
+
+/**
+ * {@link resolveProject}, slug only. Not for commands: every project command
+ * reports `projectSource` in its JSON (a test enforces it), so they call
+ * resolveProject.
+ */
+export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
+  return resolveProject(argSlug, jsonMode).slug;
 }
 
 /**

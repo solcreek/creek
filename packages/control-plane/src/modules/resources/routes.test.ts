@@ -360,6 +360,54 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(row.status).toBe("active");
   });
 
+  // A project attaches the resource just before the delete's batch (blocking
+  // it) and detaches it again just after, before the delete looks at why it
+  // changed nothing: the resource is live and unbound, not gone.
+  function attachAroundBatches(resourceId: string, projId: string, times: number) {
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    let left = times;
+    env.DB.batch = (async (stmts: D1PreparedStatement[]) => {
+      if (left-- <= 0) return batch(stmts);
+      testEnv.db.db.exec(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES ('${projId}', 'DATABASE', '${resourceId}', ${Date.now()})`,
+      );
+      const out = await batch(stmts);
+      testEnv.db.db.exec(`DELETE FROM project_resource_binding WHERE resourceId = '${resourceId}'`);
+      return out;
+    }) as typeof env.DB.batch;
+  }
+  const statusOf = (id: string) =>
+    (
+      testEnv.db.db.prepare("SELECT status FROM resource WHERE id = ?").get(id) as {
+        status: string;
+      }
+    ).status;
+
+  test("an attach-then-detach during the delete never reads as 404: it deletes on a retry", async () => {
+    seedResource("res-flap", { kind: "database", cfResourceId: "d1-flap", cfResourceType: "d1" });
+    attachAroundBatches("res-flap", seedProject(testEnv, "flapper"), 1);
+
+    const res = await req("DELETE", "/resources/res-flap");
+
+    expect(res.status).toBe(200);
+    expect(statusOf("res-flap")).toBe("deleted");
+    expect(cleanupRows()).toHaveLength(1);
+  });
+
+  test("a resource that keeps changing under the delete is a retryable 409, never a 404", async () => {
+    seedResource("res-busy", { kind: "database", cfResourceId: "d1-busy", cfResourceType: "d1" });
+    attachAroundBatches("res-busy", seedProject(testEnv, "busy"), 2);
+
+    const res = await req("DELETE", "/resources/res-busy");
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "conflict", retryable: true });
+    expect(statusOf("res-busy")).toBe("active");
+    expect(cleanupRows()).toEqual([]);
+  });
+
   test("a deleted resource can't be attached, so it can't be torn down under a project", async () => {
     seedResource("res-gone", { kind: "database", cfResourceId: "d1-gone", cfResourceType: "d1" });
     seedProject(testEnv, "late-app");
@@ -384,6 +432,196 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect((await req("DELETE", "/resources/res-none")).status).toBe(200);
 
     expect(cleanupRows()).toEqual([]);
+  });
+});
+
+describe("POST /resources never leaves a Cloudflare resource orphaned on a name clash", () => {
+  test("a taken name is refused before anything is provisioned", async () => {
+    expect((await req("POST", "/resources", { kind: "database", name: "taken" })).status).toBe(201);
+    vi.clearAllMocks();
+
+    const res = await req("POST", "/resources", { kind: "database", name: "taken" });
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("conflict");
+    expect(findExistingCFResource).not.toHaveBeenCalled();
+    expect(provisionCFResource).not.toHaveBeenCalled();
+    expect(cleanupRows()).toEqual([]);
+  });
+
+  test("a deleted resource's name is still taken, and refused before provisioning", async () => {
+    seedResource("res-old", { kind: "cache", cfResourceId: "kv-old", cfResourceType: "kv" });
+    expect((await req("DELETE", "/resources/res-old")).status).toBe(200);
+    vi.clearAllMocks();
+
+    const res = await req("POST", "/resources", { kind: "cache", name: "res-old-name" });
+
+    expect(res.status).toBe(409);
+    expect(provisionCFResource).not.toHaveBeenCalled();
+  });
+
+  test("losing the name to a concurrent create queues what was provisioned for teardown", async () => {
+    // The other create inserts its row after this one's name check, while
+    // this one is provisioning.
+    vi.mocked(provisionCFResource).mockImplementationOnce(async (_env, cfType, name) => {
+      const now = Date.now();
+      testEnv.db.db.exec(
+        `INSERT INTO resource (id, teamId, kind, name, cfResourceId, cfResourceType, status, createdAt, updatedAt)
+         VALUES ('res-winner', '${teamId}', 'database', 'contested', 'd1-winner', 'd1', 'active', ${now}, ${now})`,
+      );
+      return `${cfType}-for-${name}`;
+    });
+
+    const res = await req("POST", "/resources", { kind: "database", name: "contested" });
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("conflict");
+    const [provisionedAs] = vi.mocked(provisionCFResource).mock.calls.at(-1)!.slice(2) as [string];
+    expect(provisionedAs).toMatch(/^creek-[0-9a-f]{26}$/);
+    expect(cleanupRows()).toMatchObject([
+      {
+        resourceType: "d1",
+        cfResourceId: `d1-for-${provisionedAs}`,
+        // The cleanup deletes only a resource still carrying this name.
+        cfResourceName: provisionedAs,
+        status: "pending",
+        reason: "provision_rolled_back",
+      },
+    ]);
+    // The winner's row is untouched and nothing else was written.
+    expect(testEnv.db.db.prepare("SELECT id FROM resource WHERE name = 'contested'").all()).toEqual(
+      [{ id: "res-winner" }],
+    );
+  });
+});
+
+describe("re-running a resource request says what already holds the name", () => {
+  type Conflict = {
+    error: string;
+    message: string;
+    existing?: Record<string, unknown>;
+    missing?: string;
+  };
+
+  test("a second create's 409 carries the existing resource", async () => {
+    const first = (await (
+      await req("POST", "/resources", { kind: "database", name: "twice" })
+    ).json()) as { id: string; cfResourceId: string };
+
+    const res = await req("POST", "/resources", { kind: "database", name: "twice" });
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Conflict;
+    expect(body.error).toBe("conflict");
+    // Only what a caller needs to decide; the route needs resource:write
+    // alone, so nothing resource:read guards (Cloudflare ids, team, times).
+    expect(body.existing).toEqual({
+      id: first.id,
+      kind: "database",
+      name: "twice",
+      status: "active",
+    });
+  });
+
+  test("a create clashing with another kind names that kind", async () => {
+    await req("POST", "/resources", { kind: "cache", name: "shared-name" });
+
+    const body = (await (
+      await req("POST", "/resources", { kind: "database", name: "shared-name" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ kind: "cache", status: "active" });
+    expect(body.message).toContain("cache");
+  });
+
+  test("a create reusing a deleted resource's name says the name is reserved", async () => {
+    seedResource("res-tomb", { kind: "database", cfResourceId: "d1-tomb", cfResourceType: "d1" });
+    await req("DELETE", "/resources/res-tomb");
+
+    const body = (await (
+      await req("POST", "/resources", { kind: "database", name: "res-tomb-name" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ id: "res-tomb", status: "deleted" });
+    expect(body.message).toContain("deleted");
+  });
+
+  test("GET /resources lists deleted resources only when asked", async () => {
+    seedResource("res-live", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedResource("res-dead", { kind: "database", cfResourceId: null, cfResourceType: null });
+    await req("DELETE", "/resources/res-dead");
+
+    const ids = async (path: string) =>
+      ((await (await req("GET", path)).json()) as { resources: Array<{ id: string }> }).resources
+        .map((r) => r.id)
+        .sort();
+
+    expect(await ids("/resources")).toEqual(["res-live"]);
+    expect(await ids("/resources?include=deleted")).toEqual(["res-dead", "res-live"]);
+
+    // Deleted rows carry the same columns as the normal list, nothing more.
+    const rows = (
+      (await (await req("GET", "/resources?include=deleted")).json()) as {
+        resources: Array<Record<string, unknown>>;
+      }
+    ).resources;
+    const live = rows.find((r) => r.id === "res-live")!;
+    const dead = rows.find((r) => r.id === "res-dead")!;
+    expect(Object.keys(dead).sort()).toEqual(Object.keys(live).sort());
+  });
+
+  test("a second attach's 409 carries the binding, pointing at the same resource", async () => {
+    seedResource("res-db", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    const attach = { resourceId: "res-db", bindingName: "DB" };
+    expect((await req("POST", "/projects/app/bindings", attach)).status).toBe(201);
+
+    const res = await req("POST", "/projects/app/bindings", attach);
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Conflict;
+    // The binding on the caller's own project plus the resource's kind and
+    // name; nothing resource:read guards (Cloudflare ids, team).
+    expect(body.existing).toEqual({
+      projectId: "proj-app",
+      bindingName: "DB",
+      resourceId: "res-db",
+      createdAt: expect.any(Number),
+      kind: "database",
+      name: "res-db-name",
+    });
+    expect(body.message).toContain("already attached");
+  });
+
+  test("an attach clashing with another resource's binding names that resource", async () => {
+    seedResource("res-a", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedResource("res-b", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    await req("POST", "/projects/app/bindings", { resourceId: "res-a", bindingName: "DB" });
+
+    const body = (await (
+      await req("POST", "/projects/app/bindings", { resourceId: "res-b", bindingName: "DB" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ resourceId: "res-a", name: "res-a-name" });
+  });
+
+  test("a second detach says the binding is missing, not the project", async () => {
+    seedResource("res-db", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    await req("POST", "/projects/app/bindings", { resourceId: "res-db", bindingName: "DB" });
+    expect((await req("DELETE", "/projects/app/bindings/DB")).status).toBe(200);
+
+    const again = await req("DELETE", "/projects/app/bindings/DB");
+    expect(again.status).toBe(404);
+    const body = (await again.json()) as Conflict;
+    expect(body.missing).toBe("binding");
+    expect(body.message).toBe("Project 'app' has no binding named 'DB'; nothing was detached");
+
+    const noProject = (await (
+      await req("DELETE", "/projects/nope/bindings/DB")
+    ).json()) as Conflict;
+    expect(noProject.missing).toBe("project");
   });
 });
 
