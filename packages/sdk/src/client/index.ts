@@ -252,14 +252,16 @@ export class CreekClient {
         `'${idOrPrefix}' is not a deployment id: pass the full uuid or its 8-char short id (hex).`,
       );
     }
-    if (idOrPrefix.length === 36) return idOrPrefix;
+    // Ids are stored lowercase; the check above accepts either case.
+    const wanted = idOrPrefix.toLowerCase();
+    if (wanted.length === 36) return wanted;
     const list = await this.request<Deployment[]>(
       "GET",
       `/projects/${encodeURIComponent(projectSlug)}/deployments`,
       undefined,
       signal,
     );
-    const matches = list.filter((d) => typeof d.id === "string" && d.id.startsWith(idOrPrefix));
+    const matches = list.filter((d) => typeof d.id === "string" && d.id.startsWith(wanted));
     if (matches.length === 0) {
       throw new CreekApiError(
         404,

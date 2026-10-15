@@ -313,6 +313,12 @@ describe("following a deployment", () => {
   });
   const paths = () => mockFetch.mock.calls.map((c) => new URL(c[0] as string).pathname);
 
+  test("resolveDeploymentId matches an uppercase id or prefix against the lowercase ids", async () => {
+    expect(await client.resolveDeploymentId("site", FULL.toUpperCase())).toBe(FULL);
+    mockFetch.mockResolvedValue(jsonResponse(200, [row()]));
+    expect(await client.resolveDeploymentId("site", "0123ABCD")).toBe(FULL);
+  });
+
   test("resolveDeploymentId takes a full id as is, without a request", async () => {
     expect(await client.resolveDeploymentId("site", FULL)).toBe(FULL);
     expect(mockFetch).not.toHaveBeenCalled();
