@@ -14,12 +14,12 @@
  *   - `resourceBindings` at /projects  per-project binding CRUD
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "../../types.js";
 import type { AuthUser } from "../tenant/types.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { provisionCFResource, findExistingCFResource } from "./cloudflare.js";
-import { provisionedName } from "./service.js";
+import { provisionedName, queueRolledBackResource } from "./service.js";
 import { requireScopes } from "../tenant/scope-guard.js";
 
 type ResourcesEnv = {
@@ -35,6 +35,13 @@ export const resources = new Hono<ResourcesEnv>();
 
 const ALLOWED_KINDS = new Set(["database", "storage", "cache", "ai"]);
 const NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;
+
+function nameConflict(c: Context<ResourcesEnv>, name: string) {
+  return c.json(
+    { error: "conflict", message: `A resource named '${name}' already exists in this team` },
+    409,
+  );
+}
 
 resources.get("/", requireScopes("resource:read"), requirePermission("project:read"), async (c) => {
   const teamId = c.get("teamId");
@@ -103,10 +110,18 @@ resources.post(
     };
     const cfType = KIND_TO_CF[body.kind] ?? null;
 
+    // Names are unique per team (deleted rows included, as the index is), so
+    // check before provisioning: a name that's taken would otherwise leave a
+    // freshly provisioned Cloudflare resource that nothing references.
+    const taken = await c.env.DB.prepare(`SELECT 1 FROM resource WHERE teamId = ? AND name = ?`)
+      .bind(teamId, body.name)
+      .first();
+    if (taken) return nameConflict(c, body.name);
+
     // Auto-provision the CF resource if it's a provisionable type.
+    const cfName = provisionedName(id);
     let cfResourceId: string | null = null;
     if (cfType) {
-      const cfName = provisionedName(id);
       try {
         cfResourceId =
           (await findExistingCFResource(c.env, cfType, cfName)) ??
@@ -130,15 +145,15 @@ resources.post(
         .bind(id, teamId, body.kind, body.name, cfResourceId, cfType, now, now)
         .run();
     } catch (err) {
+      // The row was never written, so nothing references what was just
+      // provisioned: queue it for teardown (a concurrent create took the
+      // name after the check above, or the insert failed outright).
+      if (cfType && cfResourceId) {
+        await queueRolledBackResource(c.env, cfType, cfResourceId, cfName);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("UNIQUE") || msg.includes("constraint")) {
-        return c.json(
-          {
-            error: "conflict",
-            message: `A resource named '${body.name}' already exists in this team`,
-          },
-          409,
-        );
+        return nameConflict(c, body.name);
       }
       throw err;
     }
