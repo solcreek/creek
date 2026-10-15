@@ -74,11 +74,14 @@ function saveConfig(config: Record<string, unknown>) {
 }
 const readConfig = () => JSON.parse(readFileSync(configPath(), "utf8"));
 
+// Realistic keys, so key hints are checked against a real prefix.
+const SCOPED_KEY = "crk_sk_live_ScOp9xQ7vLm2Rt8KzW4pYb3N";
+const LEGACY_KEY = "crk_sk_live_LeGa5hJ2cTf8Nq1wXs6dVk9M";
 const SESSION = { user: { id: "u1", name: "Owner", email: "owner@example.com" } };
 const SCOPED = {
   id: "key-scoped",
   name: "agent",
-  start: "creek_ab",
+  start: "crk_sk_live_ScOp",
   prefix: null,
   legacy: false,
   team: { id: "org-1", slug: "acme" },
@@ -138,8 +141,8 @@ function api(keys: Record<string, unknown>, calls: string[] = []) {
 
 describe("creek whoami — the key in use", () => {
   it("reports a stored scoped key: source, kind, team, effective scopes, expiry, last use", async () => {
-    saveConfig({ token: "tok-scoped" });
-    api({ "tok-scoped": SCOPED });
+    saveConfig({ token: SCOPED_KEY });
+    api({ [SCOPED_KEY]: SCOPED });
     expect(await run(whoamiCommand, {})).toBe(0);
     const out = json();
     expect(out).toMatchObject({
@@ -161,9 +164,9 @@ describe("creek whoami — the key in use", () => {
   });
 
   it("names CREEK_TOKEN as the source and warns when it overrides a stored key", async () => {
-    saveConfig({ token: "tok-scoped" });
-    process.env.CREEK_TOKEN = "tok-legacy";
-    api({ "tok-scoped": SCOPED, "tok-legacy": LEGACY });
+    saveConfig({ token: SCOPED_KEY });
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    api({ [SCOPED_KEY]: SCOPED, [LEGACY_KEY]: LEGACY });
     expect(await run(whoamiCommand, {})).toBe(0);
     const out = json();
     expect(out).toMatchObject({
@@ -207,7 +210,7 @@ describe("creek whoami — the key in use", () => {
   });
 
   it("an empty CREEK_TOKEN hides the stored key, and says so", async () => {
-    saveConfig({ token: "tok-scoped" });
+    saveConfig({ token: SCOPED_KEY });
     process.env.CREEK_TOKEN = "";
     expect(await run(whoamiCommand, {})).toBe(1);
     expect(json()).toMatchObject({
@@ -229,19 +232,19 @@ describe("creek whoami — the key in use", () => {
 
 describe("creek login --token", () => {
   it("warns that CREEK_TOKEN keeps winning over the key it saves", async () => {
-    process.env.CREEK_TOKEN = "tok-legacy";
-    api({ "tok-scoped": SCOPED, "tok-legacy": LEGACY });
-    expect(await run(loginCommand, { token: "tok-scoped", json: true })).toBe(0);
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    api({ [SCOPED_KEY]: SCOPED, [LEGACY_KEY]: LEGACY });
+    expect(await run(loginCommand, { token: SCOPED_KEY, json: true })).toBe(0);
     const out = json();
     expect(out).toMatchObject({ ok: true, saved: true, tokenSource: "env:CREEK_TOKEN" });
     expect(out.warning).toContain("overrides the key saved by `creek login`");
     expect(out.breadcrumbs[0].command).toBe("unset CREEK_TOKEN");
-    expect(readConfig().token).toBe("tok-scoped");
+    expect(readConfig().token).toBe(SCOPED_KEY);
   });
 
   it("does not warn without CREEK_TOKEN", async () => {
-    api({ "tok-scoped": SCOPED });
-    expect(await run(loginCommand, { token: "tok-scoped", json: true })).toBe(0);
+    api({ [SCOPED_KEY]: SCOPED });
+    expect(await run(loginCommand, { token: SCOPED_KEY, json: true })).toBe(0);
     const out = json();
     expect(out).toMatchObject({ ok: true, tokenSource: "config" });
     expect(out.warning).toBeUndefined();
@@ -250,7 +253,7 @@ describe("creek login --token", () => {
 
 describe("creek logout", () => {
   it("without --revoke forgets the saved key, keeps apiUrl, and says the key is still valid", async () => {
-    saveConfig({ token: "tok-scoped", apiUrl: "https://elsewhere.test" });
+    saveConfig({ token: SCOPED_KEY, apiUrl: "https://elsewhere.test" });
     // No handlers: plain logout makes no request.
     expect(await run(logoutCommand, {})).toBe(0);
     const out = json();
@@ -262,7 +265,7 @@ describe("creek logout", () => {
       revoked: false,
       reason: "not_requested",
       keyStillValid: true,
-      keyPrefix: "tok-scoped",
+      keyPrefix: "crk_sk_live_ScOp…",
       dashboardUrl: `${API}/api-keys`,
     });
     // The saved key is gone from here: only the dashboard can revoke it now,
@@ -275,7 +278,7 @@ describe("creek logout", () => {
   });
 
   it("without --revoke, a CREEK_TOKEN key is still revocable, so the breadcrumb stays", async () => {
-    process.env.CREEK_TOKEN = "tok-legacy";
+    process.env.CREEK_TOKEN = LEGACY_KEY;
     expect(await run(logoutCommand, {})).toBe(0);
     const out = json();
     expect(out).toMatchObject({
@@ -291,16 +294,18 @@ describe("creek logout", () => {
   });
 
   it("--revoke revokes the key on the server, then forgets it", async () => {
-    saveConfig({ token: "tok-scoped" });
-    const calls = api({ "tok-scoped": SCOPED });
+    saveConfig({ token: SCOPED_KEY });
+    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     expect(json()).toMatchObject({
       ok: true,
       revoked: true,
       configCleared: true,
-      keys: [{ source: "config", keyPrefix: "tok-scoped", revoked: true, keyId: "key-scoped" }],
+      keys: [
+        { source: "config", keyPrefix: "crk_sk_live_ScOp…", revoked: true, keyId: "key-scoped" },
+      ],
     });
-    expect(calls).toEqual(["DELETE self tok-scoped"]);
+    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
     expect(readConfig().token).toBeUndefined();
   });
 
@@ -318,7 +323,7 @@ describe("creek logout", () => {
   });
 
   it("--revoke against an API without the endpoint fails and keeps the saved key", async () => {
-    saveConfig({ token: "tok-scoped" });
+    saveConfig({ token: SCOPED_KEY });
     server.use(
       http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
     );
@@ -331,13 +336,13 @@ describe("creek logout", () => {
       configCleared: false,
       keys: [{ source: "config", revoked: false, reason: "server_unsupported" }],
     });
-    expect(readConfig().token).toBe("tok-scoped");
+    expect(readConfig().token).toBe(SCOPED_KEY);
   });
 
   it("--revoke with CREEK_TOKEN and a different saved key revokes both, each with itself", async () => {
-    saveConfig({ token: "tok-scoped" });
-    process.env.CREEK_TOKEN = "tok-legacy";
-    const calls = api({ "tok-scoped": SCOPED, "tok-legacy": LEGACY });
+    saveConfig({ token: SCOPED_KEY });
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    const calls = api({ [SCOPED_KEY]: SCOPED, [LEGACY_KEY]: LEGACY });
     const success = vi.spyOn(consola, "success").mockImplementation(() => {});
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     const out = json();
@@ -347,28 +352,33 @@ describe("creek logout", () => {
       tokenSource: "env:CREEK_TOKEN",
       configCleared: true,
       keys: [
-        { source: "env:CREEK_TOKEN", keyPrefix: "tok-legacy", revoked: true, keyId: "key-legacy" },
-        { source: "config", keyPrefix: "tok-scoped", revoked: true, keyId: "key-scoped" },
+        {
+          source: "env:CREEK_TOKEN",
+          keyPrefix: "crk_sk_live_LeGa…",
+          revoked: true,
+          keyId: "key-legacy",
+        },
+        { source: "config", keyPrefix: "crk_sk_live_ScOp…", revoked: true, keyId: "key-scoped" },
       ],
     });
     expect(out.savedKeyStillValid).toBeUndefined();
     expect(out.warning).toContain("CREEK_TOKEN is still set");
-    expect(calls).toEqual(["DELETE self tok-legacy", "DELETE self tok-scoped"]);
+    expect(calls).toEqual([`DELETE self ${LEGACY_KEY}`, `DELETE self ${SCOPED_KEY}`]);
     expect(readConfig().token).toBeUndefined();
     // The human lines name each key's outcome.
     const lines = success.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContain("Revoked the CREEK_TOKEN key tok-legacy (id key-legacy).");
-    expect(lines).toContain("Revoked the saved key tok-scoped (id key-scoped).");
+    expect(lines).toContain("Revoked the CREEK_TOKEN key crk_sk_live_LeGa… (id key-legacy).");
+    expect(lines).toContain("Revoked the saved key crk_sk_live_ScOp… (id key-scoped).");
   });
 
   it("--revoke keeps a saved key it could not revoke, and exits 1", async () => {
-    saveConfig({ token: "tok-scoped" });
-    process.env.CREEK_TOKEN = "tok-legacy";
-    const calls = api({ "tok-legacy": LEGACY });
+    saveConfig({ token: SCOPED_KEY });
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    const calls = api({ [LEGACY_KEY]: LEGACY });
     // The saved key's revocation hits an outage.
     server.use(
       http.delete(`${API}/api-keys/self`, ({ request }) =>
-        request.headers.get("x-api-key") === "tok-scoped"
+        request.headers.get("x-api-key") === SCOPED_KEY
           ? HttpResponse.json({ error: "unavailable", message: "Down" }, { status: 503 })
           : undefined,
       ),
@@ -384,17 +394,17 @@ describe("creek logout", () => {
         { source: "config", revoked: false, reason: "revoke_failed", status: 503 },
       ],
     });
-    expect(calls).toEqual(["DELETE self tok-legacy"]);
-    expect(readConfig().token).toBe("tok-scoped");
+    expect(calls).toEqual([`DELETE self ${LEGACY_KEY}`]);
+    expect(readConfig().token).toBe(SCOPED_KEY);
     expect(error.mock.calls.map((c) => String(c[0]))).toContainEqual(
-      expect.stringContaining("Could not revoke the saved key tok-scoped"),
+      expect.stringContaining("Could not revoke the saved key crk_sk_live_ScOp…"),
     );
   });
 
   it("--revoke with an empty CREEK_TOKEN still revokes the saved key", async () => {
-    saveConfig({ token: "tok-scoped" });
+    saveConfig({ token: SCOPED_KEY });
     process.env.CREEK_TOKEN = "";
-    const calls = api({ "tok-scoped": SCOPED });
+    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     expect(json()).toMatchObject({
       ok: true,
@@ -402,19 +412,19 @@ describe("creek logout", () => {
       configCleared: true,
       keys: [{ source: "config", revoked: true }],
     });
-    expect(calls).toEqual(["DELETE self tok-scoped"]);
+    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
   });
 
   it("--revoke sends one request when CREEK_TOKEN and the saved key are the same key", async () => {
-    saveConfig({ token: "tok-scoped" });
-    process.env.CREEK_TOKEN = "tok-scoped";
-    const calls = api({ "tok-scoped": SCOPED });
+    saveConfig({ token: SCOPED_KEY });
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     expect(json()).toMatchObject({
       configCleared: true,
       keys: [{ source: "env:CREEK_TOKEN+config", revoked: true }],
     });
-    expect(calls).toEqual(["DELETE self tok-scoped"]);
+    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
   });
 
   it("--revoke with no key at all succeeds without a request", async () => {
@@ -431,8 +441,8 @@ describe("creek logout", () => {
 
 describe("creek keys", () => {
   it("keys self shows the key in use", async () => {
-    process.env.CREEK_TOKEN = "tok-scoped";
-    api({ "tok-scoped": SCOPED });
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    api({ [SCOPED_KEY]: SCOPED });
     expect(await run(sub("self"), {})).toBe(0);
     expect(json()).toMatchObject({
       ok: true,
@@ -454,7 +464,7 @@ describe("creek keys", () => {
     ["ls", {}],
     ["create", { name: "ci", team: "acme", scopes: "read-only" }],
   ])("keys %s fails with session_required without calling the API", async (name, args) => {
-    process.env.CREEK_TOKEN = "tok-scoped";
+    process.env.CREEK_TOKEN = SCOPED_KEY;
     // No handlers: any request would fail the test (onUnhandledRequest: error).
     expect(await run(sub(name), args)).toBe(1);
     const out = json();
@@ -469,7 +479,7 @@ describe("creek keys", () => {
   });
 
   it("keys revoke <id> needs the dashboard; keys revoke alone asks for --self", async () => {
-    process.env.CREEK_TOKEN = "tok-scoped";
+    process.env.CREEK_TOKEN = SCOPED_KEY;
     expect(await run(sub("revoke"), { id: "key-other" })).toBe(1);
     expect(json().error).toBe("session_required");
     stdout = "";
@@ -478,12 +488,12 @@ describe("creek keys", () => {
   });
 
   it("keys revoke --self revokes the key in use and leaves the saved config alone", async () => {
-    saveConfig({ token: "tok-scoped" });
-    const calls = api({ "tok-scoped": SCOPED });
+    saveConfig({ token: SCOPED_KEY });
+    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(sub("revoke"), { self: true })).toBe(0);
     expect(json()).toMatchObject({ ok: true, revoked: true, keyId: "key-scoped" });
-    expect(calls).toEqual(["DELETE self tok-scoped"]);
-    expect(readConfig().token).toBe("tok-scoped");
+    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
+    expect(readConfig().token).toBe(SCOPED_KEY);
     // A second revoke: the key is already gone.
     stdout = "";
     expect(await run(sub("revoke"), { self: true })).toBe(0);
@@ -491,11 +501,11 @@ describe("creek keys", () => {
   });
 
   it("keys revoke --self --dry-run revokes nothing", async () => {
-    process.env.CREEK_TOKEN = "tok-scoped";
-    const calls = api({ "tok-scoped": SCOPED });
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(sub("revoke"), { self: true, "dry-run": true })).toBe(0);
     expect(json()).toMatchObject({ ok: true, mode: "dry-run", key: { id: "key-scoped" } });
-    expect(calls).toEqual(["GET self tok-scoped"]);
+    expect(calls).toEqual([`GET self ${SCOPED_KEY}`]);
   });
 });
 
@@ -536,4 +546,73 @@ describe("dashboard links are portable", () => {
     expect(out.message).toContain(`${API}/api-keys`);
     noOpen(out);
   });
+});
+
+describe("no output shows more of a key than its prefix and 4 characters", () => {
+  // Better Auth's own `start` is 16 characters: "crk_sk_live_" + 4.
+  const PREFIX = "crk_sk_live_";
+  /** The first 5-character run of the key's secret part found in `text`, if any. */
+  function leak(text: string, key: string): string | null {
+    const secret = key.slice(PREFIX.length);
+    for (let i = 0; i + 5 <= secret.length; i++) {
+      if (text.includes(secret.slice(i, i + 5))) return secret.slice(i, i + 5);
+    }
+    return null;
+  }
+
+  it("whoami, keys, login and logout (human lines and JSON)", async () => {
+    const printed: string[] = [];
+    for (const level of ["log", "info", "success", "warn", "error", "start"] as const) {
+      vi.spyOn(consola, level).mockImplementation(((...a: unknown[]) => {
+        printed.push(a.map(String).join(" "));
+      }) as never);
+    }
+    // An API whose stored start is longer than Better Auth's: never widens the hint.
+    const longStart = (k: Record<string, unknown>, key: string) => ({
+      ...k,
+      start: key.slice(0, 24),
+    });
+    const keys = () => ({
+      [SCOPED_KEY]: longStart(SCOPED, SCOPED_KEY),
+      [LEGACY_KEY]: longStart(LEGACY, LEGACY_KEY),
+    });
+    const outputs: string[] = [];
+    const drive = async (fn: () => Promise<number>) => {
+      stdout = "";
+      await fn();
+      outputs.push(stdout);
+    };
+
+    api(keys());
+    saveConfig({ token: SCOPED_KEY });
+    process.env.CREEK_TOKEN = LEGACY_KEY;
+    await drive(() => run(whoamiCommand, {}));
+    await drive(() => run(sub("self"), {}));
+    await drive(() => run(sub("revoke"), { self: true, "dry-run": true }));
+    await drive(() => run(loginCommand, { token: SCOPED_KEY, json: true }));
+    await drive(() => run(logoutCommand, {}));
+
+    server.resetHandlers();
+    old404();
+    saveConfig({ token: SCOPED_KEY });
+    await drive(() => run(logoutCommand, { revoke: true }));
+
+    server.resetHandlers();
+    api(keys());
+    await drive(() => run(logoutCommand, { revoke: true }));
+
+    const text = [...outputs, ...printed].join("\n");
+    // The hints are there…
+    expect(text).toContain("crk_sk_live_ScOp");
+    expect(text).toContain("crk_sk_live_LeGa");
+    // …and nothing past them.
+    expect(leak(text, SCOPED_KEY)).toBeNull();
+    expect(leak(text, LEGACY_KEY)).toBeNull();
+  });
+
+  function old404() {
+    server.use(
+      http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
+    );
+  }
 });

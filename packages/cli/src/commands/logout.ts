@@ -9,7 +9,7 @@ import {
   readCliConfig,
 } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { revokeSelf } from "../utils/api-key.js";
+import { keyHint, revokeSelf } from "../utils/api-key.js";
 
 /**
  * `creek logout [--revoke]`.
@@ -36,7 +36,7 @@ interface HeldKey {
 /** Per-key result of --revoke, as reported in `keys`. */
 export interface KeyRevocation {
   source: KeySource;
-  /** The key's first characters, to tell keys apart (never the whole key). */
+  /** keyHint() plus "…": the non-secret prefix and at most 4 secret characters. */
   keyPrefix: string;
   revoked: boolean;
   /** Why it was not revoked now: already_invalid, server_unsupported, revoke_failed. */
@@ -46,10 +46,8 @@ export interface KeyRevocation {
   status?: number;
 }
 
-const PREFIX_LENGTH = 16;
-
 export function keyPrefix(token: string): string {
-  return token.length > PREFIX_LENGTH ? `${token.slice(0, PREFIX_LENGTH)}…` : token;
+  return `${keyHint(token)}…`;
 }
 
 /** Every distinct non-empty key the CLI holds, CREEK_TOKEN's first. */

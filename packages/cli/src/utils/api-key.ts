@@ -38,11 +38,31 @@ export interface KeySummary {
   warning?: string;
 }
 
+/**
+ * Non-secret key prefixes. Creek keys are minted with "crk_sk_live_"
+ * (control-plane tenant/auth.ts, defaultPrefix), and Better Auth stores the
+ * first 16 characters as `start`: that prefix plus 4 secret characters.
+ */
+export const KEY_PREFIXES = ["crk_sk_live_", "crk_sk_test_", "ck_"] as const;
+/** Secret characters a key hint may show: as many as Better Auth's `start`. */
+export const KEY_HINT_SECRET_CHARS = 4;
+
+/**
+ * The most of a key the CLI ever prints: its non-secret prefix plus at most
+ * KEY_HINT_SECRET_CHARS characters (only those characters, for a key without
+ * a known prefix). Also applied to the API's `start`, so a longer stored
+ * start never widens it.
+ */
+export function keyHint(key: string): string {
+  const prefix = KEY_PREFIXES.find((p) => key.startsWith(p)) ?? "";
+  return key.slice(0, prefix.length + KEY_HINT_SECRET_CHARS);
+}
+
 export function keySummary(self: ApiKeySelf): KeySummary {
   return {
     id: self.id,
     name: self.name,
-    start: self.start,
+    start: self.start ? keyHint(self.start) : null,
     kind: self.legacy ? "legacy" : "scoped",
     team: self.team,
     scopes: self.scopes,

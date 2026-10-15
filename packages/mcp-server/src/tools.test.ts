@@ -219,7 +219,7 @@ describe("MCP whoami", () => {
   const SELF = {
     id: "key-1",
     name: "agent",
-    start: "creek_ab",
+    start: "crk_sk_live_ab12",
     prefix: null,
     legacy: false,
     team: { id: "org-1", slug: "acme" },
@@ -258,7 +258,7 @@ describe("MCP whoami", () => {
       key: {
         id: "key-1",
         name: "agent",
-        start: "creek_ab",
+        start: "crk_sk_live_ab12",
         kind: "scoped",
         team: { id: "org-1", slug: "acme" },
         scopes: ["env:read", "env:write"],
@@ -271,6 +271,19 @@ describe("MCP whoami", () => {
         lastUsedAt: null,
       },
     });
+  });
+
+  it("never shows more of the key than its prefix and 4 characters", async () => {
+    // A stored start longer than Better Auth's 16 characters must not widen it.
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json({ ...SELF, start: "crk_sk_live_ScOp9xQ7vLm2" }),
+      ),
+    );
+    const result = await registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!({});
+    const text = result.content[0].text;
+    expect(JSON.parse(text).key.start).toBe("crk_sk_live_ScOp");
+    expect(text).not.toContain("ScOp9");
   });
 
   it("reports a legacy key as kind legacy with its warning", async () => {

@@ -1218,12 +1218,23 @@ export function errorResult(
   return toolJson({ ok: false, error, message, ...extra }, true);
 }
 
+/**
+ * The most of a key a tool result shows: its non-secret prefix plus at most
+ * 4 characters, as much as Better Auth's own `start` (16 characters of
+ * "crk_sk_live_…"). Same rule as the CLI's keyHint (packages/cli/src/utils/api-key.ts).
+ */
+const KEY_PREFIXES = ["crk_sk_live_", "crk_sk_test_", "ck_"];
+export function keyHint(key: string): string {
+  const prefix = KEY_PREFIXES.find((p) => key.startsWith(p)) ?? "";
+  return key.slice(0, prefix.length + 4);
+}
+
 /** GET /api-keys/self → what an agent acts on (same shape as `creek whoami --json`'s key). */
 function keyView(k: Record<string, unknown>): Record<string, unknown> {
   return {
     id: k.id ?? null,
     name: k.name ?? null,
-    start: k.start ?? null,
+    start: typeof k.start === "string" ? keyHint(k.start) : null,
     kind: k.legacy === true ? "legacy" : "scoped",
     team: k.team ?? null,
     scopes: k.scopes ?? null,
