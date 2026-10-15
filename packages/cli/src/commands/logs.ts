@@ -1,25 +1,13 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import WebSocket from "ws";
-import {
-  CreekClient,
-  resolveConfig,
-  ConfigNotFoundError,
-  type LogEntry,
-  type LogQueryFilters,
-  type ResolvedConfig,
-} from "@solcreek/sdk";
+import { CreekClient, type LogEntry, type LogQueryFilters } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-  NO_PROJECT_BREADCRUMBS,
-} from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { matchesClientSide, describeFilters, safeStringify as ssExport } from "./logs-filter.js";
 import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import { projectArg, resolveProjectSlug } from "../utils/command-context.js";
 
 /**
  * `creek logs` — read structured tenant logs from R2 archive.
@@ -46,10 +34,7 @@ export const logsCommand = defineCommand({
       "Read recent log entries for a project. Only worker invocations appear — edge-cached requests don't invoke the worker and won't show here. Use `creek metrics` for total traffic including cache hits.",
   },
   args: {
-    project: {
-      type: "string",
-      description: "Project slug. Defaults to creek.toml in cwd.",
-    },
+    ...projectArg,
     since: {
       type: "string",
       description: "Time window start. Relative (1h, 30m, 2d) or ISO. Default: 1h",
@@ -126,7 +111,7 @@ export const logsCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = await resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
 
     const client = new CreekClient(getApiUrl(), token);
     const filters: LogQueryFilters = {
@@ -375,30 +360,6 @@ async function creekdLogs(args: Record<string, unknown>, jsonMode: boolean): Pro
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-async function resolveProjectSlug(
-  override: string | undefined,
-  jsonMode: boolean,
-): Promise<string> {
-  if (override) return override;
-  let resolved: ResolvedConfig;
-  try {
-    resolved = resolveConfig(process.cwd());
-  } catch (err) {
-    if (err instanceof ConfigNotFoundError) {
-      if (jsonMode)
-        jsonOutput(
-          { ok: false, error: "no_project", message: "No project config in cwd" },
-          1,
-          NO_PROJECT_BREADCRUMBS,
-        );
-      consola.error("No project config in cwd. Pass --project <slug>.");
-      process.exit(1);
-    }
-    throw err;
-  }
-  return resolved.projectName;
 }
 
 function parseList(input: string): string[] {

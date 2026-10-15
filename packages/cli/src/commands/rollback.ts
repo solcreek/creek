@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import { resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import { resolveProjectSlug, apiCall, projectArg } from "../utils/command-context.js";
 import {
   CreekdClient,
   CreekdResourceVersionMismatchError,
@@ -32,10 +32,7 @@ export const rollbackCommand = defineCommand({
       alias: "m",
       description: "Rollback reason (stored in audit log)",
     },
-    project: {
-      type: "string",
-      description: "Project slug (default: from creek.toml)",
-    },
+    ...projectArg,
     host: {
       type: "string",
       description:

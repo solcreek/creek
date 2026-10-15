@@ -10,9 +10,12 @@
  */
 
 import consola from "consola";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { CreekClient, parseConfig } from "@solcreek/sdk";
+import {
+  ConfigNotFoundError,
+  CreekClient,
+  resolveConfig,
+  type ResolvedConfig,
+} from "@solcreek/sdk";
 import { getToken, getApiUrl } from "./config.js";
 import { jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "./output.js";
 import { apiErrorFields, apiErrorHints } from "./api-error.js";
@@ -41,31 +44,83 @@ export function requireClient(jsonMode: boolean): CreekClient {
   return new CreekClient(getApiUrl(), token);
 }
 
+/** The `--project` arg every command that resolves a project accepts. */
+export const projectArg = {
+  project: {
+    type: "string" as const,
+    description:
+      "Project slug (default: the project this directory deploys as — creek.toml, else the wrangler config name)",
+    valueHint: "slug",
+  },
+};
+
+/**
+ * What a project command prints when it can't tell which project to act on.
+ * Every command that resolves through {@link resolveProjectSlug} accepts
+ * `--project` (a test checks the command arg schemas), so the hint never
+ * names a flag the command lacks.
+ */
+export const NO_PROJECT_MESSAGE =
+  "No project found in this directory (no creek.toml, wrangler config, framework package.json or index.html). Pass --project <slug> or run from a project directory.";
+
+/** Breadcrumbs for a project command's `no_project` error. */
+export const PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS: Breadcrumb[] = [
+  {
+    command: "creek projects --json",
+    description: "List your projects, then pass one with --project <slug>",
+  },
+  ...NO_PROJECT_BREADCRUMBS,
+];
+
+/**
+ * The project a directory deploys as, resolved the way `creek deploy` does
+ * (SDK `resolveConfig`): `creek.toml` `[project].name`, else the wrangler
+ * config's `name`, else the framework package.json `name`, else the directory
+ * name of a static site. Returns null when the directory holds no project
+ * config; rethrows when a config exists but can't be read.
+ */
+export function projectFromDirectory(
+  cwd: string = process.cwd(),
+): { slug: string; config: ResolvedConfig } | null {
+  try {
+    const config = resolveConfig(cwd);
+    return { slug: config.projectName, config };
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) return null;
+    throw err;
+  }
+}
+
 /**
  * Resolve the target project slug: an explicit `--project` arg wins, else the
- * `[project].name` from `./creek.toml`. On a miss, emits a structured
- * `no_project` error in JSON mode before exiting 1.
+ * project the current directory deploys as ({@link projectFromDirectory}). On
+ * a miss, emits a structured `no_project` error in JSON mode before exiting 1;
+ * a config that can't be read emits `invalid_config`.
  */
 export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolean): string {
   if (argSlug) return argSlug;
-  const configPath = join(process.cwd(), "creek.toml");
-  if (!existsSync(configPath)) {
-    const message = "No creek.toml found. Use --project <slug> or run from a project directory.";
-    if (jsonMode)
-      jsonOutput({ ok: false, error: "no_project", message }, 1, NO_PROJECT_BREADCRUMBS);
-    consola.error(message);
-    process.exit(1);
-  }
+  let found: ReturnType<typeof projectFromDirectory>;
   try {
-    return parseConfig(readFileSync(configPath, "utf-8")).project.name;
+    found = projectFromDirectory();
   } catch (err) {
-    // An unreadable or malformed creek.toml would otherwise throw past the
+    // An unreadable or malformed config would otherwise throw past the
     // structured-error contract and surface as a raw stack trace in JSON mode.
-    const message = `Couldn't read creek.toml: ${err instanceof Error ? err.message : String(err)}`;
+    const message = `Couldn't read the project config: ${err instanceof Error ? err.message : String(err)}`;
     if (jsonMode) jsonOutput({ ok: false, error: "invalid_config", message }, 1);
     consola.error(message);
     process.exit(1);
   }
+  if (!found) {
+    if (jsonMode)
+      jsonOutput(
+        { ok: false, error: "no_project", message: NO_PROJECT_MESSAGE },
+        1,
+        PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
+      );
+    consola.error(NO_PROJECT_MESSAGE);
+    process.exit(1);
+  }
+  return found.slug;
 }
 
 /**

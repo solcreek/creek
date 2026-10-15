@@ -2,12 +2,13 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
-import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import {
+  requireClient,
+  resolveProjectSlug,
+  apiCall,
+  projectArg,
+} from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-
-const projectArg = {
-  project: { type: "string" as const, description: "Project slug (default: from creek.toml)" },
-};
 
 const domainsLs = defineCommand({
   meta: { name: "ls", description: "List custom domains" },

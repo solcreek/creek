@@ -1,21 +1,10 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import {
-  CreekClient,
-  resolveConfig,
-  ConfigNotFoundError,
-  type MetricsResponse,
-  type ResolvedConfig,
-} from "@solcreek/sdk";
+import { CreekClient, type MetricsResponse } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-  NO_PROJECT_BREADCRUMBS,
-} from "../utils/output.js";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import { projectArg, resolveProjectSlug } from "../utils/command-context.js";
 
 const VALID_PERIODS = ["1h", "6h", "24h", "7d", "30d"] as const;
 type Period = (typeof VALID_PERIODS)[number];
@@ -42,10 +31,7 @@ export const metricsCommand = defineCommand({
       "Read request + error metrics for a project. One-shot query — pair with --json for agent use or `| jq` piping.",
   },
   args: {
-    project: {
-      type: "string",
-      description: "Project slug. Defaults to creek.toml in cwd.",
-    },
+    ...projectArg,
     period: {
       type: "string",
       description: `Time window. One of: ${VALID_PERIODS.join(", ")}. Default: 24h`,
@@ -61,7 +47,7 @@ export const metricsCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = await resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
 
     const period = validatePeriod(args.period as string | undefined, jsonMode);
 
@@ -103,30 +89,6 @@ function validatePeriod(raw: string | undefined, jsonMode: boolean): Period {
   if (jsonMode) jsonOutput({ ok: false, error: "invalid_period", message }, 1, []);
   consola.error(message);
   process.exit(1);
-}
-
-async function resolveProjectSlug(
-  override: string | undefined,
-  jsonMode: boolean,
-): Promise<string> {
-  if (override) return override;
-  let resolved: ResolvedConfig;
-  try {
-    resolved = resolveConfig(process.cwd());
-  } catch (err) {
-    if (err instanceof ConfigNotFoundError) {
-      if (jsonMode)
-        jsonOutput(
-          { ok: false, error: "no_project", message: "No project config in cwd" },
-          1,
-          NO_PROJECT_BREADCRUMBS,
-        );
-      consola.error("No project config in cwd. Pass --project <slug>.");
-      process.exit(1);
-    }
-    throw err;
-  }
-  return resolved.projectName;
 }
 
 // ─── Human output ────────────────────────────────────────────────────────

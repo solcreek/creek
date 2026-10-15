@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
-import { requireClient, resolveProjectSlug } from "../utils/command-context.js";
+import { requireClient, resolveProjectSlug, projectArg } from "../utils/command-context.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const queueSend = defineCommand({
@@ -18,10 +18,7 @@ const queueSend = defineCommand({
       description: "Parse message as JSON",
       default: false,
     },
-    project: {
-      type: "string",
-      description: "Project slug (defaults to current creek.toml)",
-    },
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
