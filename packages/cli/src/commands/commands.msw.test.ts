@@ -471,6 +471,54 @@ describe("creek env in a wrangler-only project", () => {
   });
 });
 
+describe("project commands in a directory whose config names no project", () => {
+  // resolveConfig would guess the directory name here. With no MSW handler
+  // registered, any API call fails the test (onUnhandledRequest: "error"), so
+  // these also prove nothing reached a project named after the directory.
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "web-"));
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  const layouts: [string, (dir: string) => void, string][] = [
+    ["index.html only", (d) => writeFileSync(join(d, "index.html"), "<h1>hi</h1>"), "index.html"],
+    [
+      "wrangler.jsonc without name",
+      (d) =>
+        writeFileSync(
+          join(d, "wrangler.jsonc"),
+          '{ "main": "src/index.ts", "compatibility_date": "2026-01-01" }',
+        ),
+      "wrangler.jsonc",
+    ],
+  ];
+  for (const [label, setup, file] of layouts) {
+    it(`${label}: \`env set\` (mutating) is no_project`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+      );
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+
+    it(`${label}: \`status\` (read) is no_project`, async () => {
+      setup(projDir);
+      const code = await runExit(statusCommand.run!({ args: {} } as never));
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+  }
+});
+
 describe("project commands outside any project", () => {
   let emptyDir: string;
   let prevCwd: string;

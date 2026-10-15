@@ -220,7 +220,8 @@ export const resolveShellDatabase = resolveProjectDatabase;
 
 /**
  * The project the cwd deploys as (creek.toml, else the wrangler config name —
- * the same resolution `creek deploy` uses), or null if absent/unreadable.
+ * the same resolution `creek deploy` uses), or null if absent/unreadable or
+ * if the config names no project (never the directory name).
  */
 function projectFromCwd(): string | null {
   try {

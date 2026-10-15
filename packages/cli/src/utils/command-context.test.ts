@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArgsDef, CommandDef } from "citty";
-import { NO_PROJECT_MESSAGE, projectFromDirectory, resolveProjectSlug } from "./command-context.js";
+import {
+  NO_PROJECT_MESSAGE,
+  projectFromDirectory,
+  resolveProject,
+  resolveProjectSlug,
+} from "./command-context.js";
 import { envCommand } from "../commands/env.js";
 import { deploymentsCommand } from "../commands/deployments.js";
 import { domainsCommand } from "../commands/domains.js";
@@ -109,6 +114,69 @@ describe("resolveProjectSlug order", () => {
     expect(commands).toContain("creek init");
   });
 
+  // resolveConfig falls back to the directory name for these; a project
+  // command must not act on a team project that merely shares the dir name.
+  const unnamed: [string, () => void, string][] = [
+    [
+      "an index.html-only directory",
+      () => writeFileSync(join(dir, "index.html"), "<h1>hi</h1>"),
+      "index.html",
+    ],
+    [
+      "a public/index.html-only directory",
+      () => {
+        mkdirSync(join(dir, "public"));
+        writeFileSync(join(dir, "public", "index.html"), "<h1>hi</h1>");
+      },
+      "index.html",
+    ],
+    [
+      "a wrangler.jsonc without name",
+      () =>
+        writeFileSync(
+          join(dir, "wrangler.jsonc"),
+          '{ "main": "src/index.ts", "compatibility_date": "2026-01-01" }',
+        ),
+      "wrangler.jsonc",
+    ],
+    [
+      "a wrangler.toml without name",
+      () => writeFileSync(join(dir, "wrangler.toml"), 'main = "src/index.ts"\n'),
+      "wrangler.toml",
+    ],
+    [
+      "a framework package.json without name",
+      () =>
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { astro: "^5" } })),
+      "package.json",
+    ],
+  ];
+  for (const [label, setup, file] of unnamed) {
+    it(`${label} is no_project, never the directory name`, () => {
+      setup();
+      // resolveConfig itself does guess a name here: that guess is refused.
+      expect(projectFromDirectory()).toMatchObject({ slug: null, file });
+      expect(exitCode(() => resolveProjectSlug(undefined, true))).toBe(1);
+      const out = JSON.parse(stdout);
+      expect(out).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+      expect(out.message).toContain(file === "index.html" ? "index.html" : `${file} but`);
+      expect(out.message.match(/--[a-z][a-z-]*/g)).toEqual(["--project"]);
+      const commands = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+      expect(commands).toContain("creek projects --json");
+    });
+  }
+
+  it("reports where the slug came from", () => {
+    expect(resolveProject("x", true)).toEqual({ slug: "x", source: "flag" });
+    writeFileSync(join(dir, "wrangler.jsonc"), WRANGLER_JSONC);
+    expect(resolveProject(undefined, true)).toEqual({ slug: "from-wrangler", source: "wrangler" });
+    writeFileSync(join(dir, "creek.toml"), CREEK_TOML);
+    expect(resolveProject(undefined, true)).toEqual({
+      slug: "from-creek-toml",
+      source: "creek.toml",
+    });
+  });
+
   it("a malformed creek.toml is invalid_config, not a stack trace", () => {
     writeFileSync(join(dir, "creek.toml"), "[project\nname=");
     expect(exitCode(() => resolveProjectSlug(undefined, true))).toBe(1);
@@ -178,7 +246,7 @@ describe("the no_project hint names only flags the command accepts", () => {
       (f) =>
         f.endsWith(".ts") &&
         !f.includes(".test") &&
-        /resolveProjectSlug\(|projectFromDirectory\(|NO_PROJECT_MESSAGE/.test(
+        /resolveProject(Slug)?\(|projectFromDirectory\(|NO_PROJECT_MESSAGE/.test(
           readFileSync(join(commandsDir, f), "utf-8"),
         ),
     );

@@ -11,6 +11,7 @@ import {
   NO_PROJECT_MESSAGE,
   PROJECT_COMMAND_NO_PROJECT_BREADCRUMBS,
   projectFromDirectory,
+  unnamedProjectMessage,
 } from "../utils/command-context.js";
 
 /**
@@ -229,18 +230,21 @@ async function runLastFailureDiagnosis(opts: {
     process.exit(1);
   }
 
-  // Resolve project slug — prefer --project, else the project the directory
-  // deploys as (creek.toml, else the wrangler config name), like `creek deploy`.
+  // Resolve project slug — prefer --project, else the name the directory's
+  // config gives (creek.toml, wrangler, package.json); never the directory name.
   let slug = opts.project;
+  let unnamedFile: string | null = null;
   if (!slug) {
     try {
-      slug = projectFromDirectory(opts.cwd)?.slug;
+      const found = projectFromDirectory(opts.cwd);
+      if (found?.slug === null) unnamedFile = found.file;
+      else if (found) slug = found.slug;
     } catch {
       // An unreadable config names no project; fall through to no_project.
     }
   }
   if (!slug) {
-    const msg = NO_PROJECT_MESSAGE;
+    const msg = unnamedFile ? unnamedProjectMessage(unnamedFile) : NO_PROJECT_MESSAGE;
     if (opts.jsonMode)
       jsonOutput(
         { ok: false, error: "no_project", message: msg },
