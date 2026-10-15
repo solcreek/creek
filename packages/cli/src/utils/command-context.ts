@@ -268,10 +268,13 @@ export function resolveProjectSlug(argSlug: string | undefined, jsonMode: boolea
 /**
  * Run an API call, converting any rejection into a structured `{ ok: false,
  * error, message }` on stdout (JSON mode) or a human error line, then exit 1.
- * `error` stays the command's own code; a failed API call adds its `status`,
- * `apiError` and `details` (apiErrorFields). Returns the resolved value on
- * success. Use this to wrap the network calls that would otherwise reject
- * into the top-level catch as unstructured text.
+ * The shape is the CLI runner's (cli-runner.ts), through the same
+ * apiErrorFields: an API refusal keeps the command's own `error` code and
+ * adds its `status`, `apiError` and `details`; a network failure is
+ * `error: "api_unreachable"` with `reason`, `retryable` and, when a write may
+ * have been applied, `mayHaveApplied`. Returns the resolved value on success.
+ * Use this to wrap the network calls that would otherwise reject into the
+ * top-level catch as unstructured text.
  */
 export async function apiCall<T>(
   jsonMode: boolean,
@@ -282,12 +285,31 @@ export async function apiCall<T>(
   try {
     return await fn();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (jsonMode) {
-      jsonOutput({ ok: false, error: errorCode, message, ...apiErrorFields(err) }, 1, breadcrumbs);
-    }
-    consola.error(message);
-    for (const hint of apiErrorHints(err)) consola.info(hint);
-    process.exit(1);
+    exitApiFailure(jsonMode, errorCode, err, breadcrumbs);
   }
+}
+
+/**
+ * Report a failed call and exit 1: {@link apiCall}'s error path, for a
+ * command that catches the error itself first (to treat a 404 or a conflict
+ * as a result, say).
+ */
+export function exitApiFailure(
+  jsonMode: boolean,
+  errorCode: string,
+  err: unknown,
+  breadcrumbs?: Breadcrumb[],
+  extra: Record<string, unknown> = {},
+): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (jsonMode) {
+    jsonOutput(
+      { ok: false, error: errorCode, message, ...extra, ...apiErrorFields(err) },
+      1,
+      breadcrumbs,
+    );
+  }
+  consola.error(message);
+  for (const hint of apiErrorHints(err)) consola.info(hint);
+  process.exit(1);
 }

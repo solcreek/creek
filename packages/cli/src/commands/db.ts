@@ -589,7 +589,6 @@ const migrateCommand = defineCommand({
             {
               ok: false,
               error: "migration_failed",
-              ...apiErrorFields(err),
               file: file.name,
               totalStatements: statements.length,
               message: msg,
@@ -598,6 +597,7 @@ const migrateCommand = defineCommand({
               ...(alreadyExists
                 ? { hint: "Re-run with --resume to reconcile a partially-applied migration." }
                 : {}),
+              ...apiErrorFields(err),
             },
             1,
           );
@@ -751,10 +751,10 @@ const seedCommand = defineCommand({
             {
               ok: false,
               error: "seed_failed",
-              ...apiErrorFields(err),
               statement: i + 1,
               totalStatements: statements.length,
               message: msg,
+              ...apiErrorFields(err),
             },
             1,
           );
