@@ -229,9 +229,8 @@ Manage environment variables.
 
 ```bash
 creek env set DATABASE_URL "postgres://..."
-creek env ls                    # Values redacted by default
-creek env ls --show             # Show plaintext values
-creek env rm DATABASE_URL
+creek env ls                    # Keys and targets; values are write-only
+creek env rm DATABASE_URL       # Alias: creek env unset
 creek env ls --json
 creek env set API_KEY "..." --project my-app   # Another project, or outside a project dir
 ```
@@ -247,6 +246,10 @@ creek env rm STRIPE_KEY                                      # remove every valu
 
 A deploy uses its own target's value, else the all-deploys value. Branch deploys run with the project's resources, so mark secrets that preview code must not see as `--target production`.
 
+Values are **write-only**: Creek stores them encrypted and never returns them, so `creek env ls` lists keys and targets only (`--show` exits 1 with `values_write_only`). To change a value, set it again.
+
+`creek env rm` is safe to re-run: a key (or `--target` value) that isn't set succeeds with `alreadyAbsent: true` and `removed: false`. Removed variables leave no record, so this can't tell a key removed earlier from a typo. Check `creek env ls` if you expected the key.
+
 ### `creek domains`
 
 Manage custom domains. See [Custom Domains](/docs/custom-domains) for full guide.
@@ -259,6 +262,8 @@ creek domains rm app.example.com    # Remove a domain
 creek domains ls --json             # JSON output
 creek domains add app.example.com --project my-app  # Specify project
 ```
+
+`creek domains rm` is safe to re-run: a hostname the project doesn't have succeeds with `alreadyAbsent: true` and `removed: false`. Removed domains leave no record, so this can't tell a hostname removed earlier from a typo. A string that isn't a hostname at all (a URL, a name with no dot) is still `not_found`.
 
 ### `creek whoami`
 
