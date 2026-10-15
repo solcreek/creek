@@ -107,7 +107,7 @@ creek status a1b2c3d4           # Sandbox status (no auth needed)
 creek status --json
 ```
 
-**Which project.** Commands that act on a project (`status`, `deployments`, `logs`, `metrics`, `env`, `domains`, `queue`, `rollback`, `db shell`, `db migrate`, `doctor --last`) use the project the current directory deploys as, resolved the same way as `creek deploy`: `creek.toml`'s `[project].name`, else the wrangler config's `name` (`wrangler.jsonc`, `wrangler.json`, `wrangler.toml`), else the framework `package.json` name. Pass `--project <slug>` to pick another project or to run from outside a project directory.
+**Which project.** Commands that act on a project (`status`, `deployments`, `logs`, `metrics`, `env`, `domains`, `queue`, `rollback`, `db shell`, `db migrate`, `doctor --last`) act on the project the current directory names: `--project <slug>` if you pass it, else `creek.toml`'s `[project].name`, else the wrangler config's `name` (`wrangler.jsonc`, `wrangler.json`, `wrangler.toml`), else the framework `package.json` `name` — the names `creek deploy` creates the project under. They never fall back to the directory name: in a static site (`index.html`), or with a wrangler config or `package.json` that has no `name`, they stop with `no_project` instead of acting on a project that merely shares the folder's name. Pass `--project <slug>` there, to pick another project, or to run from outside a project directory. With `--json`, the output's `projectSource` (`flag`, `creek.toml`, `wrangler` or `package.json`) says where the project came from.
 
 ### `creek projects`
 

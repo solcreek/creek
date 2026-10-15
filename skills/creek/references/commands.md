@@ -11,11 +11,16 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 
 Project commands (`env`, `status`, `deployments`, `logs`, `metrics`,
 `domains`, `queue`, `rollback`, `db shell`/`db migrate`, `doctor --last`)
-act on the project the directory deploys as, resolved like `creek deploy`:
-`creek.toml` `[project].name`, else the wrangler config's `name`, else the
-framework `package.json` name. Each accepts `--project <SLUG>`, which wins.
-Outside a project directory they exit `{"ok":false,"error":"no_project"}`:
-pass `--project` (find the slug with `creek projects --json`).
+act on the project the directory names: `--project <SLUG>` (every one
+accepts it, and it wins), else `creek.toml` `[project].name`, else the
+wrangler config's `name`, else the framework `package.json` `name`. They
+never fall back to the directory name: a static site (`index.html`) or a
+wrangler config / package.json without `name` exits
+`{"ok":false,"error":"no_project","foundConfig":"<file>"}`, as does a
+directory with no config. Pass `--project` (find the slug with
+`creek projects --json`). The JSON output carries `projectSource`
+(`flag`, `creek.toml`, `wrangler` or `package.json`): check it says what
+you meant to target.
 
 | Task | Command |
 |------|---------|

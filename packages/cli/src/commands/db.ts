@@ -39,7 +39,7 @@ const shellCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory deploys as (creek.toml, else the wrangler config name) when neither a name nor --project is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory names (creek.toml, wrangler config or package.json name; never the directory name) when neither a name nor --project is given.",
       required: false,
     },
     sql: {
@@ -322,7 +322,7 @@ const migrateCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory deploys as (creek.toml, else the wrangler config name) when no name is given.",
+        "Resolve the database bound to this project instead of naming it. Defaults to the project this directory names (creek.toml, wrangler config or package.json name; never the directory name) when no name is given.",
       required: false,
     },
     dir: {

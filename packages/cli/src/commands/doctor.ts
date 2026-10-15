@@ -46,7 +46,7 @@ export const doctorCommand = defineCommand({
     project: {
       type: "string",
       description:
-        "Project slug for --last (default: the project the directory deploys as — creek.toml, else the wrangler config name)",
+        "Project slug for --last (default: the project the directory names — creek.toml, wrangler config or package.json name; never the directory name)",
       required: false,
     },
     ...globalArgs,
