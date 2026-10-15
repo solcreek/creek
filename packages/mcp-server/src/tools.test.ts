@@ -33,7 +33,7 @@ function registerAndCapture(
     clientIp: "203.0.113.7",
     requestHeaders: headers,
     // Short polling budgets so timeouts resolve in milliseconds.
-    timing: { sandboxMaxWaitMs: 200, pollIntervalMs: 10, ...timing },
+    timing: { sandboxMaxWaitMs: 200, pollIntervalMs: 10, deployPollMs: 10, ...timing },
   };
   registerTools(fakeServer as never, ctx);
   return handlers;
@@ -969,6 +969,8 @@ describe("MCP tool annotations", () => {
       "get_status",
       "env_ls",
       "list_deployments",
+      "get_deployment",
+      "wait_for_deployment",
       "list_resources",
     ]) {
       expect(tools.get(name)?.annotations, name).toMatchObject({
@@ -998,5 +1000,207 @@ describe("MCP tool annotations", () => {
     const tools = await listTools();
     expect(tools.get("deploy_status")?.inputSchema.required).toEqual(["sandboxId"]);
     expect(tools.get("deploy_demo")?.inputSchema.type).toBe("object");
+  });
+});
+
+// ----------------------------------------------------------------
+// Following a deployment: get_deployment / wait_for_deployment
+// ----------------------------------------------------------------
+
+const DEP = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
+const depUrl = `https://cp.test/projects/hello/deployments/${DEP}`;
+
+function deploymentBody(over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  return {
+    deployment: {
+      id: DEP,
+      version: 7,
+      status: "active",
+      branch: "main",
+      commitSha: "abc1234",
+      triggerType: "github",
+      failedStep: null,
+      errorMessage: null,
+      createdAt: 1000,
+      ...over,
+    },
+    url: null,
+    previewUrl: "https://hello-0f1e2d3c-acme.bycreek.test",
+    ...extra,
+  };
+}
+
+describe("MCP get_deployment", () => {
+  it("returns status, terminal and the production url of an active deployment", async () => {
+    server.use(
+      http.get(depUrl, () =>
+        HttpResponse.json(deploymentBody({}, { url: "https://hello-acme.bycreek.test" })),
+      ),
+    );
+    const result = await registerAndCapture(AUTH()).get("get_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+    });
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: true,
+      project: "hello",
+      deploymentId: DEP,
+      version: 7,
+      status: "active",
+      terminal: true,
+      isProduction: true,
+      url: "https://hello-acme.bycreek.test",
+      commitSha: "abc1234",
+    });
+    expect(payload.nextStep).toBeUndefined();
+  });
+
+  it("resolves a short id and reports why a deployment failed", async () => {
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () =>
+        HttpResponse.json([{ id: DEP, status: "failed" }]),
+      ),
+      http.get(depUrl, () =>
+        HttpResponse.json(
+          deploymentBody(
+            { status: "failed", failedStep: "build", errorMessage: "npm ERR!" },
+            { errorCode: "build_failed", errorHint: "Fix the build" },
+          ),
+        ),
+      ),
+    );
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("get_deployment")!({
+        projectSlug: "hello",
+        deploymentId: DEP.slice(0, 8),
+      }),
+    );
+    expect(payload).toMatchObject({
+      ok: true,
+      deploymentId: DEP,
+      status: "failed",
+      terminal: true,
+      failedStep: "build",
+      errorMessage: "npm ERR!",
+      errorCode: "build_failed",
+      errorHint: "Fix the build",
+      url: null,
+    });
+    expect(payload.nextStep).toContain("get_build_log");
+  });
+
+  it("an unknown deployment is a JSON not_found error", async () => {
+    server.use(
+      http.get(depUrl, () =>
+        HttpResponse.json({ error: "not_found", message: "Deployment not found" }, { status: 404 }),
+      ),
+    );
+    const result = await registerAndCapture(AUTH()).get("get_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toEqual({
+      ok: false,
+      error: "not_found",
+      message: "Deployment not found",
+      status: 404,
+      deploymentId: DEP,
+    });
+  });
+});
+
+describe("MCP wait_for_deployment", () => {
+  it("polls until the deployment is active and returns its url", async () => {
+    const statuses = ["queued", "building", "active"];
+    let calls = 0;
+    server.use(
+      http.get(depUrl, () => {
+        const status = statuses[Math.min(calls++, statuses.length - 1)];
+        return HttpResponse.json(
+          deploymentBody(
+            { status },
+            status === "active" ? { url: "https://hello-acme.bycreek.test" } : {},
+          ),
+        );
+      }),
+    );
+    const result = await registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+      timeoutSeconds: 5,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(calls).toBe(3);
+    expect(parse(result)).toMatchObject({
+      ok: true,
+      status: "active",
+      terminal: true,
+      url: "https://hello-acme.bycreek.test",
+    });
+  });
+
+  it("a failed deployment is deployment_failed with its step and code", async () => {
+    server.use(
+      http.get(depUrl, () =>
+        HttpResponse.json(
+          deploymentBody(
+            { status: "failed", failedStep: "deploying", errorMessage: "script too large" },
+            { errorCode: "worker_too_large" },
+          ),
+        ),
+      ),
+    );
+    const result = await registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+    });
+    expect(result.isError).toBe(true);
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "deployment_failed",
+      deploymentId: DEP,
+      status: "failed",
+      failedStep: "deploying",
+      errorCode: "worker_too_large",
+    });
+    expect(payload.message).toContain("script too large");
+    expect(payload.nextStep).toContain("get_build_log");
+  });
+
+  it("a deployment still running at the timeout is a retryable timeout with its id", async () => {
+    server.use(http.get(depUrl, () => HttpResponse.json(deploymentBody({ status: "building" }))));
+    const started = Date.now();
+    const result = await registerAndCapture(AUTH(), { deployPollMs: 50 }).get(
+      "wait_for_deployment",
+    )!({ projectSlug: "hello", deploymentId: DEP, timeoutSeconds: 1 });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(result.isError).toBe(true);
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "timeout",
+      deploymentId: DEP,
+      status: "building",
+      terminal: false,
+      retryable: true,
+    });
+    expect(payload.nextStep).toContain("wait_for_deployment");
+  });
+
+  it("an unreachable control plane is api_unreachable, retryable (it only reads)", async () => {
+    server.use(http.get(depUrl, () => HttpResponse.error()));
+    const result = await registerAndCapture(AUTH()).get("wait_for_deployment")!({
+      projectSlug: "hello",
+      deploymentId: DEP,
+    });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      retryable: true,
+      deploymentId: DEP,
+    });
   });
 });

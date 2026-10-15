@@ -23,14 +23,88 @@ export interface ToolContext {
 export interface Timing {
   /** How long deploy / deploy_demo wait for a sandbox to go live. */
   sandboxMaxWaitMs: number;
-  /** Interval between status polls. */
+  /** Interval between sandbox status polls. */
   pollIntervalMs: number;
+  /** Interval between deployment status polls (wait_for_deployment). */
+  deployPollMs: number;
 }
 
 const DEFAULT_TIMING: Timing = {
   sandboxMaxWaitMs: 30_000,
   pollIntervalMs: 1_000,
+  deployPollMs: 3_000,
 };
+
+/**
+ * wait_for_deployment's budget. A Worker may wait on fetches and timers as
+ * long as the client stays connected (wall time does not count against
+ * CPU time), but MCP clients time a tool call out — the TypeScript SDK at
+ * 60 s by default — so the default stays below that.
+ */
+const DEFAULT_WAIT_SECONDS = 45;
+const MAX_WAIT_SECONDS = 300;
+
+const TERMINAL_DEPLOY_STATUSES: ReadonlySet<string> = new Set(["active", "failed", "cancelled"]);
+
+export interface DeploymentView {
+  project: string;
+  deploymentId: string;
+  version: unknown;
+  status: string | null;
+  terminal: boolean;
+  branch: unknown;
+  commitSha: unknown;
+  triggerType: unknown;
+  failedStep: string | null;
+  errorMessage: string | null;
+  errorCode: string | null;
+  errorHint: string | null;
+  url: string | null;
+  previewUrl: string | null;
+  isProduction: boolean;
+  createdAt: unknown;
+  nextStep?: string;
+}
+
+/** GET /projects/:slug/deployments/:id → what an agent acts on. */
+function deploymentView(
+  projectSlug: string,
+  requestedId: string,
+  body: Record<string, unknown>,
+): DeploymentView {
+  const d = asRecord(body.deployment);
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const id = str(d.id) ?? requestedId;
+  const status = str(d.status);
+  const productionUrl = str(body.url);
+  const previewUrl = str(body.previewUrl);
+  const view: DeploymentView = {
+    project: projectSlug,
+    deploymentId: id,
+    version: d.version ?? null,
+    status,
+    terminal: status !== null && TERMINAL_DEPLOY_STATUSES.has(status),
+    branch: d.branch ?? null,
+    commitSha: d.commitSha ?? null,
+    triggerType: d.triggerType ?? null,
+    failedStep: str(d.failedStep),
+    errorMessage: str(d.errorMessage),
+    errorCode: str(body.errorCode),
+    errorHint: str(body.errorHint),
+    // The production URL once it serves production; else this deployment's
+    // own immutable preview URL, which answers only once it is active.
+    url: productionUrl ?? (status === "active" ? previewUrl : null),
+    previewUrl,
+    isProduction: productionUrl !== null,
+    createdAt: d.createdAt ?? null,
+  };
+  if (status === "failed") {
+    view.nextStep = `Call get_build_log with projectSlug ${projectSlug} and deploymentId ${id}`;
+  } else if (!view.terminal) {
+    view.nextStep = `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${id}`;
+  }
+  return view;
+}
 
 /**
  * MCP tool annotations: hints a client uses to decide what needs the
@@ -62,6 +136,8 @@ export const ANNOTATIONS: Record<string, ToolAnnotations> = {
   // Replaces what production serves; each call starts a new build.
   deploy_prod: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   list_deployments: READ_ONLY,
+  get_deployment: READ_ONLY,
+  wait_for_deployment: READ_ONLY,
   // Each call records a new rollback deployment.
   rollback: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
 
@@ -103,6 +179,48 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   function sandboxFetch(path: string, init?: RequestInit, opts?: RequestOptions) {
     return apiRequest("sandbox API", `${env.SANDBOX_API_URL}${path}`, init, opts);
+  }
+
+  const deploymentsPath = (projectSlug: string) =>
+    `/projects/${encodeURIComponent(projectSlug)}/deployments`;
+
+  /** Resolve an 8-char short id to the full uuid (GET by id needs it). */
+  async function resolveDeploymentId(
+    apiKey: string,
+    projectSlug: string,
+    deploymentId: string,
+  ): Promise<{ ok: true; id: string } | { ok: false; result: ToolResult }> {
+    if (deploymentId.length >= 36) return { ok: true, id: deploymentId };
+    const listed = await cpFetch(apiKey, deploymentsPath(projectSlug));
+    if (!listed.ok) return listed;
+    const list = Array.isArray(listed.data) ? (listed.data as Array<{ id?: unknown }>) : [];
+    const match = list.find((d) => typeof d.id === "string" && d.id.startsWith(deploymentId));
+    if (!match) {
+      return {
+        ok: false,
+        result: errorResult(
+          "not_found",
+          `No deployment matches id prefix '${deploymentId}' in project '${projectSlug}'.`,
+        ),
+      };
+    }
+    return { ok: true, id: match.id as string };
+  }
+
+  /** One deployment, shaped for an agent: status, why it failed, where it lives. */
+  async function readDeployment(
+    apiKey: string,
+    projectSlug: string,
+    deploymentId: string,
+  ): Promise<{ ok: true; view: DeploymentView } | { ok: false; result: ToolResult }> {
+    const got = await cpFetch(
+      apiKey,
+      `${deploymentsPath(projectSlug)}/${encodeURIComponent(deploymentId)}`,
+      undefined,
+      { extra: { deploymentId } },
+    );
+    if (!got.ok) return got;
+    return { ok: true, view: deploymentView(projectSlug, deploymentId, asRecord(got.data)) };
   }
 
   /**
@@ -244,21 +362,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     async ({ projectSlug, deploymentId }) => {
       const apiKey = requireKey();
       if (!apiKey) return missingKeyResult();
-      // Resolve short id → full id if needed. GET /logs requires full uuid.
-      let fullId = deploymentId;
-      if (fullId.length < 36) {
-        const listRes = await cpFetch(apiKey, `/projects/${projectSlug}/deployments`);
-        if (!listRes.ok) return listRes.result;
-        const list = Array.isArray(listRes.data) ? (listRes.data as Array<{ id: string }>) : [];
-        const match = list.find((d) => typeof d.id === "string" && d.id.startsWith(fullId));
-        if (!match) {
-          return errorResult(
-            "not_found",
-            `No deployment matches id prefix '${fullId}' in project '${projectSlug}'.`,
-          );
-        }
-        fullId = match.id;
-      }
+      // GET /logs requires the full uuid.
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
+      if (!resolved.ok) return resolved.result;
+      const fullId = resolved.id;
 
       const res = await cpFetch(apiKey, `/projects/${projectSlug}/deployments/${fullId}/logs`);
       if (!res.ok) return res.result;
@@ -598,6 +705,89 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
         createdAt: d.createdAt ?? d.created_at ?? null,
       }));
       return toolJson({ ok: true, project: projectSlug, deployments });
+    },
+  );
+
+  server.registerTool(
+    "get_deployment",
+    {
+      description:
+        "Read one deployment: status (in flight: queued, building, uploading, deploying; final: active, failed, cancelled), terminal (true once the status is final), failedStep, errorCode / errorHint on failure, and the live url once active. Use the deploymentId from deploy_prod or list_deployments (8-char short id or full uuid). Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+      },
+      annotations: ANNOTATIONS["get_deployment"],
+    },
+    async ({ projectSlug, deploymentId }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
+      if (!resolved.ok) return resolved.result;
+      const read = await readDeployment(apiKey, projectSlug, resolved.id);
+      if (!read.ok) return read.result;
+      return okResult({ ...read.view });
+    },
+  );
+
+  server.registerTool(
+    "wait_for_deployment",
+    {
+      description: `Wait until a deployment finishes (active, failed or cancelled), polling for at most timeoutSeconds (default ${DEFAULT_WAIT_SECONDS}, max ${MAX_WAIT_SECONDS}). Returns ok: true with the live url when it is active; error deployment_failed (with failedStep, errorCode, and nextStep get_build_log) or deployment_cancelled otherwise. If it is still running at the timeout, error timeout with retryable: true — call again. Keep timeoutSeconds below your client's tool-call timeout. Authenticate with Authorization: Bearer <key> or x-api-key.`,
+      inputSchema: {
+        projectSlug: z.string().describe("Project slug"),
+        deploymentId: z.string().describe("Deployment id (8-char short id or full uuid)"),
+        timeoutSeconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_WAIT_SECONDS)
+          .optional()
+          .describe(`How long to wait, in seconds. Default ${DEFAULT_WAIT_SECONDS}`),
+      },
+      annotations: ANNOTATIONS["wait_for_deployment"],
+    },
+    async ({ projectSlug, deploymentId, timeoutSeconds }) => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const seconds = Math.min(
+        Math.max(timeoutSeconds ?? DEFAULT_WAIT_SECONDS, 1),
+        MAX_WAIT_SECONDS,
+      );
+      const resolved = await resolveDeploymentId(apiKey, projectSlug, deploymentId);
+      if (!resolved.ok) return resolved.result;
+
+      const started = Date.now();
+      const deadline = started + seconds * 1000;
+      while (true) {
+        const read = await readDeployment(apiKey, projectSlug, resolved.id);
+        if (!read.ok) return read.result;
+        const view = read.view;
+        if (view.status === "active") {
+          return okResult({ ...view, waitedMs: Date.now() - started });
+        }
+        if (view.status === "failed" || view.status === "cancelled") {
+          return errorResult(
+            view.status === "failed" ? "deployment_failed" : "deployment_cancelled",
+            view.status === "failed"
+              ? `Deployment ${view.deploymentId} failed${view.failedStep ? ` at ${view.failedStep}` : ""}: ${view.errorMessage ?? "no error message"}`
+              : `Deployment ${view.deploymentId} was cancelled.`,
+            { ...view },
+          );
+        }
+        if (Date.now() + timing.deployPollMs > deadline) {
+          return errorResult(
+            "timeout",
+            `Deployment ${view.deploymentId} is still ${view.status ?? "pending"} after ${seconds}s. It has not failed; call wait_for_deployment again.`,
+            {
+              ...view,
+              retryable: true,
+              nextStep: `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${view.deploymentId}`,
+            },
+          );
+        }
+        await sleep(timing.deployPollMs);
+      }
     },
   );
 
