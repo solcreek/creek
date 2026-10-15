@@ -184,6 +184,57 @@ describe("POST /api-keys", () => {
     expect(await h.keyRows()).toEqual([]);
   });
 
+  it("refuses values of the wrong JSON type with a 400, never coercing them", async () => {
+    const base = { name: "x", team: owner.orgSlug, scopes: ["project:read"] };
+    const cases: [Record<string, unknown>, string, string?][] = [
+      // Objects whose string conversion throws (toString/valueOf not functions).
+      [{ ...base, scopes: [{ toString: null }] }, "validation", "scopes[0]"],
+      [
+        { ...base, scopes: ["project:read", { toString: null, valueOf: null }] },
+        "validation",
+        "scopes[1]",
+      ],
+      [{ ...base, scopes: [42] }, "validation", "number"],
+      [{ ...base, scopes: [null] }, "validation", "null"],
+      [{ ...base, scopes: [["project:read"]] }, "validation", "array"],
+      [{ ...base, scopes: [true] }, "validation", "boolean"],
+      [{ ...base, scopes: { toString: null } }, "validation"],
+      [{ ...base, scopes: 7 }, "validation"],
+      [{ ...base, name: { toString: null } }, "validation"],
+      [{ ...base, name: ["x"] }, "validation"],
+      [{ ...base, name: 5 }, "validation"],
+      [{ ...base, team: { toString: null } }, "validation"],
+      [{ ...base, team: ["team"] }, "validation"],
+      [{ ...base, team: null }, "validation"],
+      [{ ...base, expiresIn: { toString: null, valueOf: null } }, "invalid_expiry"],
+      [{ ...base, expiresIn: [86400] }, "invalid_expiry"],
+      [{ ...base, expiresIn: "86400" }, "invalid_expiry"],
+      [{ ...base, expiresInDays: 30 }, "unknown_field"],
+      [{ ...base, teamId: owner.orgId }, "unknown_field"],
+    ];
+    for (const [body, error, mentions] of cases) {
+      const res = await h.create(owner.cookie, body);
+      const out = await json(res);
+      expect([res.status, out.error], JSON.stringify(body)).toEqual([400, error]);
+      if (mentions) expect(out.message).toContain(mentions);
+    }
+    expect(await h.keyRows()).toEqual([]);
+  });
+
+  it("clips user-supplied strings it echoes back", async () => {
+    const long = "x".repeat(500);
+    const preset = await json(
+      await h.create(owner.cookie, { name: "x", team: owner.orgSlug, scopes: long }),
+    );
+    expect(preset.error).toBe("unknown_preset");
+    expect(preset.message.length).toBeLessThan(200);
+    const scope = await json(
+      await h.create(owner.cookie, { name: "x", team: owner.orgSlug, scopes: [long] }),
+    );
+    expect(scope.error).toBe("unknown_scope");
+    expect(JSON.stringify(scope)).not.toContain(long);
+  });
+
   it("refuses a non-JSON body", async () => {
     const res = await f.call("POST", "/api-keys", { cookie: owner.cookie }, undefined);
     expect(res.status).toBe(415);

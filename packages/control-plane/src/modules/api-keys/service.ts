@@ -58,6 +58,18 @@ function invalid(error: string, message: string, extra?: Record<string, unknown>
   return { ok: false, status: 400, error, message, extra };
 }
 
+/** JSON type name of a value, for messages: never coerces it to a string. */
+function typeName(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/** A user-supplied string, shortened before it is echoed back. */
+function clip(value: string): string {
+  return value.length > 64 ? `${value.slice(0, 64)}…` : value;
+}
+
 function isPreset(value: string): value is ScopePreset {
   return Object.prototype.hasOwnProperty.call(SCOPE_PRESETS, value);
 }
@@ -73,8 +85,9 @@ export function parseCreateKeyBody(body: unknown): { ok: true; value: CreateKeyR
   const fields = body as Record<string, unknown>;
   const unknown = Object.keys(fields).filter((k) => !CREATE_FIELDS.has(k));
   if (unknown.length > 0) {
-    return invalid("unknown_field", `Unknown field: ${unknown.join(", ")}`, {
-      fields: unknown,
+    const names = unknown.map(clip);
+    return invalid("unknown_field", `Unknown field: ${names.join(", ")}`, {
+      fields: names,
       allowed: [...CREATE_FIELDS],
     });
   }
@@ -93,16 +106,24 @@ export function parseCreateKeyBody(body: unknown): { ok: true; value: CreateKeyR
   let preset: ScopePreset | null = null;
   if (typeof fields.scopes === "string") {
     if (!isPreset(fields.scopes)) {
-      return invalid("unknown_preset", `Unknown scope preset: ${fields.scopes}`, {
+      return invalid("unknown_preset", `Unknown scope preset: ${clip(fields.scopes)}`, {
         presets: Object.keys(SCOPE_PRESETS),
       });
     }
     preset = fields.scopes;
     scopes = [...SCOPE_PRESETS[preset]];
   } else if (Array.isArray(fields.scopes)) {
-    const unknownScopes = fields.scopes.filter((s) => !isScope(s));
+    // Element types first: a non-string is never coerced or echoed back.
+    const bad = fields.scopes.findIndex((s) => typeof s !== "string");
+    if (bad !== -1) {
+      return invalid(
+        "validation",
+        `scopes[${bad}] must be a scope name (a string), not ${typeName(fields.scopes[bad])}`,
+      );
+    }
+    const unknownScopes = (fields.scopes as string[]).filter((s) => !isScope(s)).map(clip);
     if (unknownScopes.length > 0) {
-      return invalid("unknown_scope", `Unknown scope: ${unknownScopes.map(String).join(", ")}`, {
+      return invalid("unknown_scope", `Unknown scope: ${unknownScopes.join(", ")}`, {
         scopes: unknownScopes,
         known: ALL_SCOPES,
       });
