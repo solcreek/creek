@@ -1,4 +1,5 @@
 import { parseRealtimePath, getDoName } from "./parse.js";
+import { secretEqual } from "./secret-equal.js";
 
 interface Env {
   ROOMS: DurableObjectNamespace;
@@ -238,7 +239,7 @@ export default {
         }
       } else if (env.REALTIME_SECRET) {
         // Legacy: single global secret
-        if (token !== env.REALTIME_SECRET) {
+        if (!secretEqual(token, env.REALTIME_SECRET)) {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
       }

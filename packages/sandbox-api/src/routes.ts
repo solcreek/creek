@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { Env } from "./types.js";
+import { secretEqual } from "./secret-equal.js";
 import {
   deployWithAssets,
   shortDeployId,
@@ -641,9 +642,7 @@ async function runSandboxDeploy(
  */
 function resolveClient(c: Context<SandboxEnv>): { ip: string; isTrustedInternal: boolean } {
   const internalSecret = c.req.header("x-internal-secret");
-  const isTrustedInternal = Boolean(
-    internalSecret && c.env.INTERNAL_SECRET && internalSecret === c.env.INTERNAL_SECRET,
-  );
+  const isTrustedInternal = secretEqual(internalSecret, c.env.INTERNAL_SECRET);
   const ip = isTrustedInternal
     ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
     : (c.req.header("cf-connecting-ip") ?? "unknown");

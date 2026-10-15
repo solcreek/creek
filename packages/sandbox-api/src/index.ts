@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Env } from "./types.js";
 import { routes } from "./routes.js";
+import { secretEqual } from "./secret-equal.js";
 import { challengeRoutes } from "./agent-challenge.js";
 import { cleanupExpiredSandboxes } from "./cleanup.js";
 
@@ -34,7 +35,7 @@ app.route("/api/sandbox", routes);
 // Deployments list (internal, for platform admin aggregation)
 app.get("/api/deployments/recent", async (c) => {
   const secret = c.req.header("x-internal-secret");
-  if (secret !== c.env.INTERNAL_SECRET) {
+  if (!secretEqual(secret, c.env.INTERNAL_SECRET)) {
     return c.json({ error: "unauthorized" }, 401);
   }
 
