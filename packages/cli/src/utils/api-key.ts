@@ -9,6 +9,7 @@
  */
 
 import {
+  CreekApiError,
   CreekAuthError,
   isApiKeySelfUnsupported,
   type ApiKeySelf,
@@ -155,29 +156,25 @@ export type RevokeResult =
   | { ok: true; revoked: true; keyId: string }
   /** The API already refuses the key: nothing left to revoke. */
   | { ok: true; revoked: false; reason: "already_invalid"; message: string }
+  /**
+   * Anything but a 2xx or a 401: the outcome is unknown. The DELETE may
+   * have revoked the key before the connection dropped or the response
+   * failed, so the caller keeps the key and asks for a re-run (which
+   * answers 401, already_invalid, if it did).
+   */
   | {
       ok: false;
       error: "server_unsupported" | "revoke_failed";
       message: string;
       status?: number;
-      /**
-       * revoke_failed: the DELETE may have revoked the key before the
-       * connection dropped or the response failed; the outcome is unknown.
-       * (server_unsupported proves nothing was revoked.)
-       */
-      mayHaveApplied: boolean;
+      mayHaveApplied: true;
     };
 
-/** Where to look when a revocation's outcome is unknown. */
-export const CHECK_KEY_BREADCRUMB = {
-  command: "creek whoami --json",
-  description: "Check whether the key still works (session_expired means it was revoked)",
-};
-
 /**
- * DELETE /api-keys/self, never throwing. A 401 means the key is already
- * revoked, expired or unknown — the state revoking asks for — so it is a
- * success with revoked: false.
+ * DELETE /api-keys/self, never throwing. Only two answers are known
+ * outcomes: a 2xx (revoked now) and a 401 (already revoked, expired or
+ * unknown — the state revoking asks for — so a success with revoked:
+ * false). Everything else is unknown (mayHaveApplied).
  */
 export async function revokeSelf(client: CreekClient): Promise<RevokeResult> {
   try {
@@ -197,8 +194,9 @@ export async function revokeSelf(client: CreekClient): Promise<RevokeResult> {
         ok: false,
         error: "server_unsupported",
         message:
-          "This Creek API cannot revoke a key from the CLI (no DELETE /api-keys/self). Revoke it in the dashboard.",
-        mayHaveApplied: false,
+          "This Creek API did not accept DELETE /api-keys/self (it may predate key management); the revocation is not confirmed.",
+        ...(err instanceof CreekApiError ? { status: err.status } : {}),
+        mayHaveApplied: true,
       };
     }
     const status = (err as { status?: unknown }).status;

@@ -408,178 +408,148 @@ describe("creek logout", () => {
     );
   });
 
-  it("--revoke revokes the key on the server, then forgets it", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    const calls = api({ [SCOPED_KEY]: SCOPED });
-    expect(await run(logoutCommand, { revoke: true })).toBe(0);
-    expect(json()).toMatchObject({
-      ok: true,
-      revoked: true,
-      configCleared: true,
-      keys: [
-        { source: "config", keyPrefix: "crk_sk_live_ScOp…", revoked: true, keyId: "key-scoped" },
-      ],
-    });
-    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
-    expect(readConfig().token).toBeUndefined();
+  // --revoke revokes exactly one key — the active one — and only through
+  // the API a saved key belongs to. Every combination of CREEK_TOKEN, the
+  // saved key, the saved key's API and the server's answer.
+  type Env = "none" | "empty" | "same" | "other";
+  type Outcome = "200" | "401" | "503" | "network";
+  interface Case {
+    env: Env;
+    saved: boolean;
+    api: "match" | "mismatch";
+    outcome: Outcome;
+  }
+  const OTHER_API = "https://api.creek.dev";
+  const cases: Case[] = [];
+  for (const env of ["none", "empty", "same", "other"] as const)
+    for (const saved of [false, true])
+      for (const api of ["match", "mismatch"] as const)
+        for (const outcome of ["200", "401", "503", "network"] as const) {
+          if (env === "same" && !saved) continue; // "same" needs a saved key
+          if (!saved && api === "mismatch") continue; // no saved key, no saved API
+          cases.push({ env, saved, api, outcome });
+        }
+
+  /** What logout --revoke must do in each case. */
+  function expected(c: Case): {
+    exit: number;
+    body: Record<string, unknown>;
+    sent: string[];
+    savedAfter: string | undefined;
+  } {
+    const savedBefore = c.saved ? SCOPED_KEY : undefined;
+    const keep = { savedAfter: savedBefore };
+    if ((c.env === "empty" || c.env === "other") && c.saved)
+      return { exit: 1, body: { error: "ambiguous_credentials" }, sent: [], ...keep };
+    const active =
+      c.env === "other"
+        ? LEGACY_KEY
+        : c.env === "same"
+          ? SCOPED_KEY
+          : c.env === "empty"
+            ? ""
+            : savedBefore;
+    if (!active) return { exit: 0, body: { ok: true, reason: "no_key" }, sent: [], ...keep };
+    const isSaved = active === savedBefore;
+    if (isSaved && c.api === "mismatch")
+      return {
+        exit: 1,
+        body: { error: "api_mismatch", savedKeyApiUrl: OTHER_API, apiUrl: API },
+        sent: [],
+        ...keep,
+      };
+    const sent = [active];
+    if (c.outcome === "503" || c.outcome === "network")
+      return {
+        exit: 1,
+        body: { ok: false, error: "revoke_failed", mayHaveApplied: true, configCleared: false },
+        sent,
+        ...keep,
+      };
+    return {
+      exit: 0,
+      body: {
+        ok: true,
+        revoked: c.outcome === "200",
+        ...(c.outcome === "401" ? { reason: "already_invalid" } : { keyId: "key-revoked" }),
+        configCleared: isSaved,
+      },
+      sent,
+      savedAfter: isSaved ? undefined : savedBefore,
+    };
+  }
+
+  it.each(
+    cases.map(
+      (c) =>
+        [
+          `env ${c.env}, saved ${c.saved ? `yes (${c.api})` : "no"}, server ${c.outcome}`,
+          c,
+        ] as const,
+    ),
+  )("--revoke: %s", async (_, c) => {
+    if (c.env === "empty") process.env.CREEK_TOKEN = "";
+    if (c.env === "same") process.env.CREEK_TOKEN = SCOPED_KEY;
+    if (c.env === "other") process.env.CREEK_TOKEN = LEGACY_KEY;
+    if (c.saved)
+      saveConfig({ token: SCOPED_KEY, tokenApiUrl: c.api === "match" ? API : OTHER_API });
+    const sent: string[] = [];
+    server.use(
+      http.delete(`${API}/api-keys/self`, ({ request }) => {
+        sent.push(request.headers.get("x-api-key") ?? "");
+        if (c.outcome === "200") return HttpResponse.json({ revoked: true, id: "key-revoked" });
+        if (c.outcome === "401")
+          return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+        if (c.outcome === "503")
+          return HttpResponse.json({ error: "unavailable" }, { status: 503 });
+        return HttpResponse.error();
+      }),
+    );
+    const want = expected(c);
+    expect(await run(logoutCommand, { revoke: true })).toBe(want.exit);
+    const out = json();
+    expect(out).toMatchObject(want.body);
+    expect(out.keys).toBeUndefined(); // one key, no per-key array
+    expect(sent).toEqual(want.sent);
+    const after = existsSync(configPath()) ? readConfig().token : undefined;
+    expect(after).toBe(want.savedAfter);
+    if (out.mayHaveApplied) {
+      // whoami checks the key in use, not necessarily the one in doubt.
+      expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
+        "creek logout --revoke --json",
+      ]);
+    }
+    if (want.body.error === "ambiguous_credentials") {
+      const commands = out.breadcrumbs.map((b: { command: string }) => b.command);
+      expect(commands[0]).toBe("unset CREEK_TOKEN && creek logout --revoke --json");
+      if (c.env === "other") expect(commands).toContain("creek keys revoke --self --json");
+    }
   });
 
-  it("--revoke is idempotent: a key the API already refuses still clears local state", async () => {
-    saveConfig({ token: "tok-gone" });
-    api({});
-    expect(await run(logoutCommand, { revoke: true })).toBe(0);
-    expect(json()).toMatchObject({
-      ok: true,
-      revoked: false,
-      configCleared: true,
-      keys: [{ source: "config", revoked: false, reason: "already_invalid" }],
-    });
-    expect(readConfig().token).toBeUndefined();
-  });
-
-  it("--revoke against an API without the endpoint fails and keeps the saved key", async () => {
+  it("--revoke leaves a key that a concurrent `creek login` saved meanwhile", async () => {
     saveConfig({ token: SCOPED_KEY });
     server.use(
-      http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
+      http.delete(`${API}/api-keys/self`, () => {
+        // Another terminal logs in with a new key while the revoke is in flight.
+        saveConfig({ token: LEGACY_KEY });
+        return HttpResponse.json({ revoked: true, id: "key-scoped" });
+      }),
     );
-    expect(await run(logoutCommand, { revoke: true })).toBe(1);
-    expect(json()).toMatchObject({
-      ok: false,
-      error: "server_unsupported",
-      revoked: false,
-      keyStillValid: true,
-      configCleared: false,
-      keys: [{ source: "config", revoked: false, reason: "server_unsupported" }],
-    });
-    expect(readConfig().token).toBe(SCOPED_KEY);
-  });
-
-  it("--revoke with CREEK_TOKEN and a different saved key revokes both, each with itself", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    process.env.CREEK_TOKEN = LEGACY_KEY;
-    const calls = api({ [SCOPED_KEY]: SCOPED, [LEGACY_KEY]: LEGACY });
-    const success = vi.spyOn(consola, "success").mockImplementation(() => {});
-    expect(await run(logoutCommand, { revoke: true })).toBe(0);
-    const out = json();
-    expect(out).toMatchObject({
-      ok: true,
-      revoked: true,
-      tokenSource: "env:CREEK_TOKEN",
-      configCleared: true,
-      keys: [
-        {
-          source: "env:CREEK_TOKEN",
-          keyPrefix: "crk_sk_live_LeGa…",
-          revoked: true,
-          keyId: "key-legacy",
-        },
-        { source: "config", keyPrefix: "crk_sk_live_ScOp…", revoked: true, keyId: "key-scoped" },
-      ],
-    });
-    expect(out.savedKeyStillValid).toBeUndefined();
-    expect(out.warning).toContain("CREEK_TOKEN is still set");
-    expect(calls).toEqual([`DELETE self ${LEGACY_KEY}`, `DELETE self ${SCOPED_KEY}`]);
-    expect(readConfig().token).toBeUndefined();
-    // The human lines name each key's outcome.
-    const lines = success.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContain("Revoked the CREEK_TOKEN key crk_sk_live_LeGa… (id key-legacy).");
-    expect(lines).toContain("Revoked the saved key crk_sk_live_ScOp… (id key-scoped).");
-  });
-
-  it("--revoke keeps a saved key it could not revoke, and exits 1", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    process.env.CREEK_TOKEN = LEGACY_KEY;
-    const calls = api({ [LEGACY_KEY]: LEGACY });
-    // The saved key's revocation hits an outage.
-    server.use(
-      http.delete(`${API}/api-keys/self`, ({ request }) =>
-        request.headers.get("x-api-key") === SCOPED_KEY
-          ? HttpResponse.json({ error: "unavailable", message: "Down" }, { status: 503 })
-          : undefined,
-      ),
-    );
-    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
-    expect(await run(logoutCommand, { revoke: true })).toBe(1);
-    const out = json();
-    expect(out).toMatchObject({
-      ok: false,
-      error: "revoke_failed",
-      configCleared: false,
-      mayHaveApplied: true,
-      keys: [
-        { source: "env:CREEK_TOKEN", revoked: true },
-        {
-          source: "config",
-          revoked: false,
-          reason: "revoke_failed",
-          status: 503,
-          mayHaveApplied: true,
-        },
-      ],
-    });
-    // A failed response does not prove the key survived: no validity claim.
-    expect(out.keyStillValid).toBeUndefined();
-    expect(out.message).toContain("could not be confirmed");
-    expect(out.message).not.toContain("still valid");
-    expect(out.breadcrumbs[0].command).toBe("creek whoami --json");
-    expect(calls).toEqual([`DELETE self ${LEGACY_KEY}`]);
-    expect(readConfig().token).toBe(SCOPED_KEY);
-    expect(error.mock.calls.map((c) => String(c[0]))).toContainEqual(
-      expect.stringContaining("Could not confirm revoking the saved key crk_sk_live_ScOp…"),
-    );
-  });
-
-  it("--revoke whose connection drops keeps the saved key and does not call it valid", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    server.use(http.delete(`${API}/api-keys/self`, () => HttpResponse.error()));
-    expect(await run(logoutCommand, { revoke: true })).toBe(1);
-    const out = json();
-    expect(out).toMatchObject({
-      ok: false,
-      error: "revoke_failed",
-      mayHaveApplied: true,
-      configCleared: false,
-      keys: [{ source: "config", mayHaveApplied: true }],
-    });
-    expect(out.keyStillValid).toBeUndefined();
-    expect(readConfig().token).toBe(SCOPED_KEY);
-  });
-
-  it("--revoke with an empty CREEK_TOKEN still revokes the saved key", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    process.env.CREEK_TOKEN = "";
-    const calls = api({ [SCOPED_KEY]: SCOPED });
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     expect(json()).toMatchObject({
       ok: true,
       revoked: true,
-      configCleared: true,
-      keys: [{ source: "config", revoked: true }],
-    });
-    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
-  });
-
-  it("--revoke sends one request when CREEK_TOKEN and the saved key are the same key", async () => {
-    saveConfig({ token: SCOPED_KEY });
-    process.env.CREEK_TOKEN = SCOPED_KEY;
-    const calls = api({ [SCOPED_KEY]: SCOPED });
-    expect(await run(logoutCommand, { revoke: true })).toBe(0);
-    expect(json()).toMatchObject({
-      configCleared: true,
-      keys: [{ source: "env:CREEK_TOKEN+config", revoked: true }],
-    });
-    expect(calls).toEqual([`DELETE self ${SCOPED_KEY}`]);
-  });
-
-  it("--revoke with no key at all succeeds without a request", async () => {
-    expect(await run(logoutCommand, { revoke: true })).toBe(0);
-    expect(json()).toMatchObject({
-      ok: true,
-      revoked: false,
-      reason: "no_key",
       configCleared: false,
+      configReason: "changed_during_logout",
     });
-    expect(existsSync(configPath())).toBe(false);
+    expect(readConfig().token).toBe(LEGACY_KEY);
+  });
+
+  it("without --revoke, a saved key for another API is not forgotten", async () => {
+    saveConfig({ token: SCOPED_KEY, tokenApiUrl: OTHER_API });
+    expect(await run(logoutCommand, {})).toBe(1);
+    expect(json()).toMatchObject({ error: "api_mismatch", savedKeyApiUrl: OTHER_API });
+    expect(readConfig().token).toBe(SCOPED_KEY);
   });
 });
 
@@ -653,14 +623,29 @@ describe("creek keys", () => {
     expect(json()).toMatchObject({ ok: true, revoked: false, reason: "already_invalid" });
   });
 
-  it("keys revoke --self whose connection drops says the outcome is unknown", async () => {
+  // Only a 2xx or a 401 is a known outcome; anything else may have applied.
+  it.each([
+    ["the connection drops", () => HttpResponse.error(), "revoke_failed"],
+    [
+      "the API answers 503",
+      () => HttpResponse.json({ error: "unavailable" }, { status: 503 }),
+      "revoke_failed",
+    ],
+    [
+      "the API answers 404",
+      () => new HttpResponse("404 Not Found", { status: 404 }),
+      "server_unsupported",
+    ],
+  ])("keys revoke --self when %s: outcome unknown, re-run it", async (_, answer, error) => {
     process.env.CREEK_TOKEN = SCOPED_KEY;
-    server.use(http.delete(`${API}/api-keys/self`, () => HttpResponse.error()));
+    server.use(http.delete(`${API}/api-keys/self`, answer));
     expect(await run(sub("revoke"), { self: true })).toBe(1);
     const out = json();
-    expect(out).toMatchObject({ ok: false, error: "revoke_failed", mayHaveApplied: true });
-    expect(out.message).toContain("could not be confirmed");
-    expect(out.breadcrumbs[0].command).toBe("creek whoami --json");
+    expect(out).toMatchObject({ ok: false, error, mayHaveApplied: true });
+    // whoami checks the key in use, which may not be the one in doubt: no such advice.
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
+      "creek keys revoke --self --json",
+    ]);
   });
 
   it("keys revoke --self --dry-run revokes nothing", async () => {

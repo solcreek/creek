@@ -11,7 +11,6 @@ import {
 import { requireClient } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import {
-  CHECK_KEY_BREADCRUMB,
   describeTokenSource,
   exitApiMismatch,
   keyLines,
@@ -224,18 +223,20 @@ const revokeCommand = defineCommand({
             error: result.error,
             message: result.message,
             revoked: false,
-            ...(result.mayHaveApplied ? { mayHaveApplied: true } : {}),
+            mayHaveApplied: true,
             ...(result.status ? { status: result.status } : {}),
             dashboardUrl: `${getDashboardUrl()}/api-keys`,
           },
           1,
           [
-            ...(result.mayHaveApplied ? [CHECK_KEY_BREADCRUMB] : []),
-            { command: "creek keys revoke --self --json", description: "Retry" },
+            {
+              command: "creek keys revoke --self --json",
+              description: "Re-run: answers already_invalid if the key was revoked",
+            },
           ],
         );
       consola.error(result.message);
-      if (result.mayHaveApplied) consola.info("Check with `creek whoami --json`.");
+      consola.info("Re-run `creek keys revoke --self` to settle it.");
       process.exit(1);
     }
 

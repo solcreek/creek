@@ -1,270 +1,97 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
-import {
-  clearCliToken,
-  getApiUrl,
-  getDashboardUrl,
-  getTokenInfo,
-  readCliConfig,
-} from "../utils/config.js";
+import { clearCliToken, getApiUrl, getDashboardUrl, getTokenInfo } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { CHECK_KEY_BREADCRUMB, keyHint, revokeSelf } from "../utils/api-key.js";
+import { exitApiMismatch, keyHint, revokeSelf } from "../utils/api-key.js";
 
 /**
  * `creek logout [--revoke]`.
  *
  * Without --revoke it only forgets the key saved by `creek login`; the key
- * itself stays valid on the server. With --revoke it revokes every distinct
- * key the CLI holds — CREEK_TOKEN's and the saved one — each with
- * DELETE /api-keys/self sent with that key, and forgets the saved key once
- * it is dead.
+ * itself stays valid on the server.
  *
- * --revoke is idempotent: a key the API already refuses (revoked, expired,
- * unknown: 401) counts as done. A key whose revocation did not happen for
- * another reason (network, an API without the endpoint) is kept, and the
- * command exits 1 so it can be retried.
+ * With --revoke it revokes exactly one key: the active one, the key
+ * `creek whoami` would use. The rules:
+ *
+ * - CREEK_TOKEN set (even empty) and a different saved key: which one is
+ *   meant is ambiguous, so nothing is sent (ambiguous_credentials) and the
+ *   user picks: unset CREEK_TOKEN to handle the saved key, or revoke the
+ *   CREEK_TOKEN key with `creek keys revoke --self`.
+ * - A saved key is revoked or cleared only through the API it was saved
+ *   for (api_mismatch otherwise).
+ * - Only a 2xx (revoked) or a 401 (already invalid) is a known outcome;
+ *   anything else keeps the key and asks for a re-run (mayHaveApplied).
+ * - The saved key is cleared by compare-and-clear: only if the config still
+ *   holds the key that was revoked. A `creek login` that ran meanwhile is
+ *   kept (configCleared: false, configReason: changed_during_logout).
  */
 
-type KeySource = "env:CREEK_TOKEN" | "config" | "env:CREEK_TOKEN+config";
-
-interface HeldKey {
-  source: KeySource;
-  token: string;
-}
-
-/** Per-key result of --revoke, as reported in `keys`. */
-export interface KeyRevocation {
-  source: KeySource;
-  /** keyHint() plus "…": the non-secret prefix and at most 4 secret characters. */
-  keyPrefix: string;
-  revoked: boolean;
-  /** Why it was not revoked now: already_invalid, server_unsupported, revoke_failed. */
-  reason?: string;
-  keyId?: string;
-  message?: string;
-  status?: number;
-  /** The revocation may have happened; its outcome is unknown (revoke_failed). */
-  mayHaveApplied?: true;
-}
-
+/** The key's non-secret prefix and at most 4 characters, then "…". */
 export function keyPrefix(token: string): string {
   return `${keyHint(token)}…`;
-}
-
-/** Every distinct non-empty key the CLI holds, CREEK_TOKEN's first. */
-function heldKeys(): HeldKey[] {
-  const env = process.env.CREEK_TOKEN;
-  const saved = readCliConfig().token;
-  const keys: HeldKey[] = [];
-  if (env && saved && env === saved) return [{ source: "env:CREEK_TOKEN+config", token: env }];
-  if (env) keys.push({ source: "env:CREEK_TOKEN", token: env });
-  if (saved) keys.push({ source: "config", token: saved });
-  return keys;
-}
-
-const SOURCE_LABEL: Record<KeySource, string> = {
-  "env:CREEK_TOKEN": "CREEK_TOKEN key",
-  config: "saved key",
-  "env:CREEK_TOKEN+config": "key (CREEK_TOKEN and saved)",
-};
-
-async function revokeKey(key: HeldKey): Promise<KeyRevocation> {
-  const result = await revokeSelf(new CreekClient(getApiUrl(), key.token));
-  const base = { source: key.source, keyPrefix: keyPrefix(key.token) };
-  if (!result.ok) {
-    return {
-      ...base,
-      revoked: false,
-      reason: result.error,
-      message: result.message,
-      ...(result.status ? { status: result.status } : {}),
-      ...(result.mayHaveApplied ? { mayHaveApplied: true } : {}),
-    };
-  }
-  return result.revoked
-    ? { ...base, revoked: true, keyId: result.keyId }
-    : { ...base, revoked: false, reason: result.reason, message: result.message };
-}
-
-/** Revoked now, or already refused by the API: either way, dead. */
-const isDead = (r: KeyRevocation) => r.revoked || r.reason === "already_invalid";
-
-function humanLine(r: KeyRevocation): string {
-  const what = `${SOURCE_LABEL[r.source]} ${r.keyPrefix}`;
-  if (r.revoked) return `Revoked the ${what}${r.keyId ? ` (id ${r.keyId})` : ""}.`;
-  if (r.reason === "already_invalid") return `The ${what} was already invalid.`;
-  if (r.mayHaveApplied) return `Could not confirm revoking the ${what}: ${r.message ?? r.reason}`;
-  return `Could not revoke the ${what}: ${r.message ?? r.reason}`;
 }
 
 export const logoutCommand = defineCommand({
   meta: {
     name: "logout",
-    description: "Forget the saved API key (--revoke also revokes the keys on the server)",
-    // --revoke revokes keys on the server.
+    description: "Forget the saved API key (--revoke also revokes the active key on the server)",
+    // --revoke revokes a key on the server.
     destructive: true,
   },
   args: {
     revoke: {
       type: "boolean",
-      description:
-        "Revoke every API key the CLI holds (CREEK_TOKEN and saved) before forgetting it",
+      description: "Revoke the active API key (the one `creek whoami` uses) before forgetting it",
       default: false,
     },
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
-    const info = getTokenInfo();
-    const envKeySet = Boolean(process.env.CREEK_TOKEN);
-
-    if (args.revoke) return revokeAndLogout(jsonMode, info.source, envKeySet);
-
-    // Once forgotten, the saved key can no longer be revoked from the CLI:
-    // only the dashboard can. CREEK_TOKEN's key stays reachable by --revoke.
-    const savedToken = readCliConfig().token || undefined;
-    const configCleared = clearCliToken();
-    const dashboardUrl = `${getDashboardUrl()}/api-keys`;
-    const warning = envKeySet
-      ? "CREEK_TOKEN is still set in this environment: commands keep using it. Unset it to log out completely."
-      : undefined;
-
-    const notes: string[] = [];
-    if (savedToken) {
-      notes.push(
-        `The saved key ${keyPrefix(savedToken)} is still valid on the server. It is no longer stored here, so revoke it in the dashboard: ${dashboardUrl}`,
-      );
-    }
-    if (envKeySet) {
-      notes.push(
-        "The key in CREEK_TOKEN is still valid on the server; `creek logout --revoke` revokes it.",
-      );
-    }
-
-    const breadcrumbs: Breadcrumb[] = [];
-    if (envKeySet) {
-      breadcrumbs.push(
-        { command: "unset CREEK_TOKEN", description: "Stop using CREEK_TOKEN" },
-        {
-          command: "creek logout --revoke --json",
-          description: "Revoke the key in CREEK_TOKEN on the server",
-        },
-      );
-    }
-    breadcrumbs.push({ command: "creek login --token <KEY> --json", description: "Log in again" });
-
-    if (jsonMode) {
-      jsonOutput(
-        {
-          ok: true,
-          loggedOut: true,
-          configCleared,
-          tokenSource: info.source,
-          revoked: false,
-          reason: "not_requested",
-          ...(notes.length > 0 ? { keyStillValid: true, message: notes.join(" ") } : {}),
-          ...(savedToken ? { keyPrefix: keyPrefix(savedToken), dashboardUrl } : {}),
-          ...(warning ? { warning } : {}),
-        },
-        0,
-        breadcrumbs,
-      );
-    }
-
-    consola.success(
-      configCleared ? "Logged out: removed the saved API key." : "No saved API key to remove.",
-    );
-    for (const note of notes) consola.info(note);
-    if (warning) consola.warn(warning);
+    if (args.revoke) return revokeAndLogout(jsonMode);
+    return plainLogout(jsonMode);
   },
 });
 
-async function revokeAndLogout(
-  jsonMode: boolean,
-  tokenSource: string | null,
-  envKeySet: boolean,
-): Promise<void> {
-  const held = heldKeys();
-  if (held.length === 0) {
-    const configCleared = clearCliToken(); // an empty token entry, if any
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: true,
-          loggedOut: true,
-          configCleared,
-          tokenSource,
-          revoked: false,
-          reason: "no_key",
-          message: "No API key to revoke.",
-          keys: [],
-        },
-        0,
-        [{ command: "creek login --token <KEY> --json", description: "Log in" }],
-      );
-    consola.info("No API key to revoke.");
-    return;
-  }
+function plainLogout(jsonMode: boolean): void {
+  const info = getTokenInfo();
+  const envKeySet = Boolean(process.env.CREEK_TOKEN);
+  const savedToken = info.savedToken;
+  if (savedToken && info.savedKeyApiMismatch) exitApiMismatch(jsonMode, info, "forget it");
 
-  // Sequential: each request carries a different key; nothing to gain from racing.
-  const keys: KeyRevocation[] = [];
-  for (const key of held) keys.push(await revokeKey(key));
-
-  // The saved key goes only once it is dead; a live one stays for a retry.
-  const saved = keys.find((r) => r.source !== "env:CREEK_TOKEN");
-  const configCleared = saved !== undefined && isDead(saved) ? clearCliToken() : false;
-  const failed = keys.filter((r) => !isDead(r));
-  const envResult = keys.find((r) => r.source !== "config");
+  // Once forgotten, the saved key can no longer be revoked from the CLI:
+  // only the dashboard can. CREEK_TOKEN's key stays reachable by --revoke.
+  const configCleared = savedToken ? clearCliToken(savedToken) : false;
+  const dashboardUrl = `${getDashboardUrl()}/api-keys`;
   const warning =
-    envKeySet && envResult && isDead(envResult)
-      ? "CREEK_TOKEN is still set in this environment and holds a revoked key; every command will fail with 401 until you unset it."
+    info.source === "env:CREEK_TOKEN"
+      ? "CREEK_TOKEN is still set in this environment: commands keep using it. Unset it to log out completely."
       : undefined;
 
-  for (const r of keys) {
-    if (isDead(r)) consola.success(humanLine(r));
-    else consola.error(humanLine(r));
+  const notes: string[] = [];
+  if (savedToken && configCleared) {
+    notes.push(
+      `The saved key ${keyPrefix(savedToken)} is still valid on the server. It is no longer stored here, so revoke it in the dashboard: ${dashboardUrl}`,
+    );
   }
-
-  if (failed.length > 0) {
-    const kept = failed.map((r) => `the ${SOURCE_LABEL[r.source]} ${r.keyPrefix}`).join(" and ");
-    const dashboardUrl = `${getDashboardUrl()}/api-keys`;
-    // Only an API without the endpoint proves nothing was revoked; a broken
-    // or failed response leaves the outcome unknown.
-    const unknown = failed.some((r) => r.mayHaveApplied);
-    const keptNote = saved && !isDead(saved) ? " The saved key was kept for a retry." : "";
-    const message = unknown
-      ? `The revocation of ${kept} could not be confirmed: it may or may not have been revoked.${keptNote} Check with \`creek whoami --json\`, then retry, or revoke in the dashboard: ${dashboardUrl}`
-      : `Could not revoke ${kept}; ${failed.length > 1 ? "they are" : "it is"} still valid.${keptNote} Revoke in the dashboard: ${dashboardUrl}`;
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: false,
-          error: failed[0].reason,
-          message,
-          loggedOut: configCleared,
-          configCleared,
-          tokenSource,
-          revoked: keys.some((r) => r.revoked),
-          ...(unknown ? { mayHaveApplied: true } : { keyStillValid: true }),
-          keys,
-          dashboardUrl,
-          ...(warning ? { warning } : {}),
-        },
-        1,
-        [
-          ...(unknown ? [CHECK_KEY_BREADCRUMB] : []),
-          { command: "creek logout --revoke --json", description: "Retry" },
-        ],
-      );
-    consola.error(message);
-    if (warning) consola.warn(warning);
-    process.exit(1);
+  if (envKeySet) {
+    notes.push(
+      "The key in CREEK_TOKEN is still valid on the server; `creek logout --revoke` revokes it.",
+    );
   }
 
   const breadcrumbs: Breadcrumb[] = [];
-  if (envKeySet)
-    breadcrumbs.push({ command: "unset CREEK_TOKEN", description: "Stop sending the revoked key" });
+  if (info.source === "env:CREEK_TOKEN")
+    breadcrumbs.push({ command: "unset CREEK_TOKEN", description: "Stop using CREEK_TOKEN" });
+  // --revoke then targets the CREEK_TOKEN key, unless another saved key
+  // remains (it would answer ambiguous_credentials).
+  if (envKeySet && (!savedToken || configCleared || savedToken === process.env.CREEK_TOKEN)) {
+    breadcrumbs.push({
+      command: "creek logout --revoke --json",
+      description: "Revoke the key in CREEK_TOKEN on the server",
+    });
+  }
   breadcrumbs.push({ command: "creek login --token <KEY> --json", description: "Log in again" });
 
   if (jsonMode) {
@@ -273,17 +100,181 @@ async function revokeAndLogout(
         ok: true,
         loggedOut: true,
         configCleared,
-        tokenSource,
-        revoked: keys.some((r) => r.revoked),
-        keys,
+        ...(savedToken && !configCleared ? { configReason: "changed_during_logout" } : {}),
+        tokenSource: info.source,
+        revoked: false,
+        reason: "not_requested",
+        ...(notes.length > 0 ? { keyStillValid: true, message: notes.join(" ") } : {}),
+        ...(savedToken && configCleared ? { keyPrefix: keyPrefix(savedToken), dashboardUrl } : {}),
         ...(warning ? { warning } : {}),
       },
       0,
       breadcrumbs,
     );
   }
+
   consola.success(
-    configCleared ? "Logged out: removed the saved API key." : "No saved API key to remove.",
+    configCleared ? "Logged out: removed the saved API key." : "No saved API key removed.",
   );
+  for (const note of notes) consola.info(note);
   if (warning) consola.warn(warning);
+}
+
+async function revokeAndLogout(jsonMode: boolean): Promise<void> {
+  const info = getTokenInfo();
+  const env = process.env.CREEK_TOKEN;
+  const saved = info.savedToken;
+
+  // Two different keys could be meant: refuse before any request.
+  if (env !== undefined && saved && saved !== env) {
+    const message = `${
+      env
+        ? `CREEK_TOKEN holds one API key (${keyPrefix(env)}) and \`creek login\` saved a different one (${keyPrefix(saved)})`
+        : `CREEK_TOKEN is set but empty, and \`creek login\` saved a key (${keyPrefix(saved)})`
+    }. \`logout --revoke\` revokes one key and will not guess which. Nothing was sent or changed.`;
+    const breadcrumbs: Breadcrumb[] = [
+      {
+        command: "unset CREEK_TOKEN && creek logout --revoke --json",
+        description: "Revoke the saved key and forget it",
+      },
+    ];
+    if (env) {
+      breadcrumbs.push({
+        command: "creek keys revoke --self --json",
+        description: "Revoke the key in CREEK_TOKEN (the saved key is left alone)",
+      });
+    }
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "ambiguous_credentials",
+          message,
+          tokenSource: info.source,
+          ...(env ? { envKeyPrefix: keyPrefix(env) } : {}),
+          savedKeyPrefix: keyPrefix(saved),
+        },
+        1,
+        breadcrumbs,
+      );
+    consola.error(message);
+    for (const b of breadcrumbs) consola.info(`  ${b.command}  — ${b.description}`);
+    process.exit(1);
+  }
+
+  // The one active key: CREEK_TOKEN's when set, else the saved one.
+  const token = env !== undefined ? env : saved;
+  if (!token) {
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: true,
+          loggedOut: true,
+          configCleared: false,
+          tokenSource: info.source,
+          revoked: false,
+          reason: "no_key",
+          message: "No API key to revoke.",
+        },
+        0,
+        [{ command: "creek login --token <KEY> --json", description: "Log in" }],
+      );
+    consola.info("No API key to revoke.");
+    return;
+  }
+
+  // The saved key (alone, or the same key as CREEK_TOKEN) is only ever
+  // revoked and cleared through the API it was saved for.
+  const isSaved = saved === token;
+  if (isSaved && info.savedKeyApiMismatch) exitApiMismatch(jsonMode, info, "revoke or forget it");
+
+  const source =
+    env !== undefined ? (isSaved ? "env:CREEK_TOKEN+config" : "env:CREEK_TOKEN") : "config";
+  const prefix = keyPrefix(token);
+  const result = await revokeSelf(new CreekClient(getApiUrl(), token));
+
+  if (!result.ok) {
+    // Not a known outcome: the key may or may not be revoked. Keep it.
+    const message = `The revocation of the ${describe(source)} ${prefix} could not be confirmed: it may or may not have been revoked (${result.message}). Nothing was removed locally. Re-run \`creek logout --revoke\`: a revoked key then answers already_invalid. Or revoke it in the dashboard: ${getDashboardUrl()}/api-keys`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: result.error,
+          message,
+          tokenSource: info.source,
+          source,
+          keyPrefix: prefix,
+          revoked: false,
+          mayHaveApplied: true,
+          configCleared: false,
+          ...(result.status ? { status: result.status } : {}),
+          dashboardUrl: `${getDashboardUrl()}/api-keys`,
+        },
+        1,
+        [
+          {
+            command: "creek logout --revoke --json",
+            description: "Re-run: answers already_invalid if the key was revoked",
+          },
+        ],
+      );
+    consola.error(message);
+    process.exit(1);
+  }
+
+  // Known outcome: the key is dead. Clear the saved copy only if the
+  // config still holds this exact key.
+  const configCleared = isSaved ? clearCliToken(token) : false;
+  const configChanged = isSaved && !configCleared;
+  const warning =
+    env !== undefined
+      ? "CREEK_TOKEN is still set in this environment and holds the revoked key; every command will fail with 401 until you unset it."
+      : undefined;
+
+  const breadcrumbs: Breadcrumb[] = [];
+  if (env !== undefined)
+    breadcrumbs.push({ command: "unset CREEK_TOKEN", description: "Stop sending the revoked key" });
+  breadcrumbs.push({ command: "creek login --token <KEY> --json", description: "Log in again" });
+
+  if (jsonMode) {
+    jsonOutput(
+      {
+        ok: true,
+        loggedOut: true,
+        tokenSource: info.source,
+        source,
+        keyPrefix: prefix,
+        revoked: result.revoked,
+        ...(result.revoked
+          ? { keyId: result.keyId }
+          : { reason: result.reason, message: result.message }),
+        configCleared,
+        ...(configChanged ? { configReason: "changed_during_logout" } : {}),
+        ...(warning ? { warning } : {}),
+      },
+      0,
+      breadcrumbs,
+    );
+  }
+
+  consola.success(
+    result.revoked
+      ? `Revoked the ${describe(source)} ${prefix} (id ${result.keyId}).`
+      : `The ${describe(source)} ${prefix} was already invalid.`,
+  );
+  if (configCleared) consola.success("Logged out: removed the saved API key.");
+  if (configChanged)
+    consola.warn(
+      "The saved key changed during logout (a new `creek login`?); it was left in place.",
+    );
+  if (warning) consola.warn(warning);
+}
+
+function describe(source: string): string {
+  return source === "config"
+    ? "saved key"
+    : source === "env:CREEK_TOKEN"
+      ? "CREEK_TOKEN key"
+      : "key (CREEK_TOKEN and saved)";
 }
