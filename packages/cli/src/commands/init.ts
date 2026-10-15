@@ -128,7 +128,8 @@ export const initCommand = defineCommand({
       (existsSync(join(cwd, "index.html")) || existsSync(join(cwd, "public/index.html")));
     if (staticSite) {
       buildCommand = "";
-      buildOutput = existsSync(join(cwd, "index.html")) ? "." : "public";
+      // Same precedence as the SDK's fromStaticSite: public/index.html wins.
+      buildOutput = existsSync(join(cwd, "public/index.html")) ? "public" : ".";
     }
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));

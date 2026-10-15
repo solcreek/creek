@@ -244,6 +244,20 @@ describe("creek init (existing creek.toml, static sites)", () => {
     expect(resolved.buildOutput).toBe("public");
   });
 
+  it("with both index.html and public/index.html, matches the SDK's static-site output", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>root</h1>");
+    mkdirSync(join(dir, "public"));
+    writeFileSync(join(dir, "public/index.html"), "<h1>public</h1>");
+    // What deploy would use with no creek.toml at all.
+    const implicit = resolveConfig(dir);
+    expect(implicit.source).toBe("index.html");
+
+    await runInit({ name: "site", yes: true });
+
+    expect(resolveConfig(dir).buildOutput).toBe(implicit.buildOutput);
+    expect(resolveConfig(dir).buildOutput).toBe("public");
+  });
+
   it("a package.json project keeps the npm build defaults", async () => {
     writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x" }));
