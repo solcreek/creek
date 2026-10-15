@@ -13,6 +13,7 @@ import { isHttpUrl, verifyUrl } from "../utils/verify-url.js";
 export const verifyCommand = defineCommand({
   meta: {
     name: "verify",
+    destructive: false,
     description:
       "GET a preview or production URL and report whether it is live. Pair with --json after `creek deploy --sandbox`. Optional --contains asserts a substring is present (sandbox banner HTML is ignored — assert your markup, not the whole document).",
   },

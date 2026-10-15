@@ -1,9 +1,27 @@
 /**
- * Machine-readable `creek --help --json` schema.
+ * Machine-readable `creek --help --json` schema, derived from the citty
+ * command definitions:
  *
- * Walks a citty command tree. A command is `destructive` iff it defines
- * `--dry-run` — that is the CLI convention for mutating commands.
+ * - `destructive` is the command's own `meta.destructive`, set by hand in
+ *   its definition (see `CommandMeta` below). It is not inferred.
+ * - `dryRun` is whether the command declares `--dry-run`.
+ * - A command registered under several names (`env rm` / `env unset`) is
+ *   listed once, under its `meta.name`, with the other names as `aliases`.
+ * - An arg's `enum` (its allowed values) comes from the arg definition.
  */
+
+declare module "citty" {
+  interface CommandMeta {
+    /**
+     * Whether running the command may delete or overwrite existing data,
+     * or change what is live (deploy to production, roll back, stop an
+     * app): what an agent should confirm first. Additive and read-only
+     * commands are `false`. Every runnable command sets it; the help
+     * schema test checks each against a reviewed list.
+     */
+    destructive?: boolean;
+  }
+}
 
 export interface HelpArg {
   name: string;
@@ -12,12 +30,16 @@ export interface HelpArg {
   required?: boolean;
   default?: unknown;
   alias?: string | string[];
+  /** The values the arg accepts, when it accepts only a fixed set. */
+  enum?: string[];
 }
 
 export interface HelpCommand {
   name: string;
   description?: string;
   version?: string;
+  /** Other names that run this same command (`unset` for `env rm`). */
+  aliases?: string[];
   args: HelpArg[];
   dryRun: boolean;
   destructive: boolean;
@@ -36,12 +58,15 @@ type ArgDef = {
   required?: boolean;
   default?: unknown;
   alias?: string | string[];
+  /** Allowed values. citty does not read it; the command validates. */
+  enum?: readonly string[];
 };
 
 type CommandLike = {
-  meta?: { name?: string; description?: string; version?: string };
+  meta?: { name?: string; description?: string; version?: string; destructive?: boolean };
   args?: Record<string, ArgDef>;
   subCommands?: Record<string, CommandLike>;
+  run?: unknown;
 };
 
 /** Boolean flags that never take a value — do not consume the next token. */
@@ -113,6 +138,36 @@ export function walkCommand(cmd: unknown, fallbackName: string): HelpCommand {
   return walkCommandDef(cmd as CommandLike, fallbackName);
 }
 
+/**
+ * `meta.destructive` as the command set it. A runnable command that never
+ * set it reads as destructive, so an unreviewed command errs toward a
+ * confirmation; a group that only holds subcommands runs nothing.
+ */
+export function isDestructive(cmd: unknown): boolean {
+  const c = cmd as CommandLike;
+  if (typeof c.meta?.destructive === "boolean") return c.meta.destructive;
+  return typeof c.run === "function";
+}
+
+/**
+ * Subcommands with each command object once: under the key that matches
+ * its `meta.name` (else its first key), the other keys as aliases.
+ */
+function groupAliases(
+  subCommands: Record<string, CommandLike>,
+): { key: string; command: CommandLike; aliases: string[] }[] {
+  const byCommand = new Map<CommandLike, string[]>();
+  for (const [key, child] of Object.entries(subCommands)) {
+    const keys = byCommand.get(child);
+    if (keys) keys.push(key);
+    else byCommand.set(child, [key]);
+  }
+  return [...byCommand].map(([command, keys]) => {
+    const key = keys.find((k) => k === command.meta?.name) ?? keys[0]!;
+    return { key, command, aliases: keys.filter((k) => k !== key) };
+  });
+}
+
 function walkCommandDef(cmd: CommandLike, fallbackName: string): HelpCommand {
   const argsDef = cmd.args ?? {};
   const args: HelpArg[] = Object.entries(argsDef).map(([argName, def]) => {
@@ -121,16 +176,20 @@ function walkCommandDef(cmd: CommandLike, fallbackName: string): HelpCommand {
     if (def.required === true) arg.required = true;
     if (def.default !== undefined) arg.default = def.default;
     if (def.alias !== undefined) arg.alias = def.alias;
+    if (def.enum) arg.enum = [...def.enum];
     return arg;
   });
   const dryRun = Object.prototype.hasOwnProperty.call(argsDef, "dry-run");
-  const subCommands = cmd.subCommands ?? {};
-  const subcommands = Object.entries(subCommands).map(([n, child]) => walkCommandDef(child, n));
+  const subcommands = groupAliases(cmd.subCommands ?? {}).map(({ key, command, aliases }) => {
+    const node = walkCommandDef(command, key);
+    if (aliases.length > 0) node.aliases = aliases;
+    return node;
+  });
   const node: HelpCommand = {
     name: stripGlyph(cmd.meta?.name ?? fallbackName),
     args,
     dryRun,
-    destructive: dryRun,
+    destructive: isDestructive(cmd),
     subcommands,
   };
   if (cmd.meta?.description) node.description = cmd.meta.description;
@@ -204,7 +263,7 @@ export function unknownFlagMessage(flags: string[], path: string[]): string {
   if (dryRun) {
     return (
       `Unknown flag ${shown}. ${cmd} does not support --dry-run ` +
-      `(commands that do report destructive: true in --help --json). ` +
+      `(commands that do report dryRun: true in --help --json). ` +
       `Older CLIs silently dropped --dry-run and could execute the mutation.`
     );
   }

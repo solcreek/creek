@@ -27,6 +27,7 @@ import { formatWaited, parseWaitDuration } from "./deploy.js";
 const deploymentsList = defineCommand({
   meta: {
     name: "list",
+    destructive: false,
     description: "List recent deployments",
   },
   args: {
@@ -99,6 +100,7 @@ const deploymentsList = defineCommand({
 const deploymentsLogs = defineCommand({
   meta: {
     name: "logs",
+    destructive: false,
     description:
       "Read the build log for a deployment (production + branch + preview). Use --project to target a different project; --raw to print ndjson for piping. Designed so AI coding agents can diagnose failed deploys without a human relay.",
   },
@@ -281,6 +283,7 @@ function requireToken(jsonMode: boolean): string {
 const deploymentsGet = defineCommand({
   meta: {
     name: "get",
+    destructive: false,
     description:
       "Show one deployment: status, final (true once active, failed or cancelled), failedStep, errorCode/errorHint, url, commit and branch. Same fields as the MCP get_deployment tool.",
   },
@@ -319,6 +322,7 @@ const WAIT_POLL_MS = 2_000;
 const deploymentsWait = defineCommand({
   meta: {
     name: "wait",
+    destructive: false,
     description:
       "Wait until a deployment is final. Exits 0 when it is active; 1 with error deployment_failed (failedStep, errorCode, errorHint) or deployment_cancelled; 1 with error timeout and retryable: true when it is still running at --timeout — run it again.",
   },
@@ -462,6 +466,7 @@ const SUBCOMMANDS = { list: 1, get: 1, wait: 1, logs: 1 };
 export const deploymentsCommand = defineCommand({
   meta: {
     name: "deployments",
+    destructive: false,
     description: "List deployments, follow one to its result, and read build logs",
   },
   args: {

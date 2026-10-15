@@ -6,6 +6,7 @@ import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-clie
 export const stopCommand = defineCommand({
   meta: {
     name: "stop",
+    destructive: true,
     description: "Stop an app on a creekd instance",
   },
   args: {

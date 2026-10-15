@@ -23,6 +23,7 @@ import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
+    destructive: false,
     description:
       "Check a project's status, or one deployment or sandbox by id (JSON `type` says which: project, deployment or sandbox)",
   },

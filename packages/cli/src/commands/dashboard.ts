@@ -7,6 +7,7 @@ import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-clie
 export const dashboardCommand = defineCommand({
   meta: {
     name: "dashboard",
+    destructive: false,
     description: "Open the creekd web dashboard in your browser",
   },
   args: {
