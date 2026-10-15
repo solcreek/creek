@@ -212,19 +212,37 @@ function check(where: string, command: string): Problem | null {
   return null;
 }
 
-function scan(): Problem[] {
-  const problems: Problem[] = [];
+interface ScanResult {
+  problems: Problem[];
+  /** How many `creek <command> …` strings were checked. */
+  checked: number;
+  /** The KNOWN_BAD entries the scan met. */
+  matchedKnown: Set<string>;
+}
+
+function scan(): ScanResult {
+  const result: ScanResult = { problems: [], checked: 0, matchedKnown: new Set() };
   for (const file of sourceFiles(SRC)) {
     const where = relative(SRC, file);
     for (const text of literals(file)) {
       for (const command of commandsIn(text)) {
+        if (tokens(command)[0]! in SUBCOMMANDS) result.checked++;
         const problem = check(where, command);
-        if (problem && !KNOWN_BAD.has(`${where}: ${command}`)) problems.push(problem);
+        if (!problem) continue;
+        const key = `${where}: ${command}`;
+        if (KNOWN_BAD.has(key)) result.matchedKnown.add(key);
+        else result.problems.push(problem);
       }
     }
   }
-  return problems;
+  return result;
 }
+
+/**
+ * A floor under the number of commands the scan checks (it found 216 when
+ * written). A scanner that silently stops matching would otherwise pass.
+ */
+const MIN_COMMANDS_CHECKED = 150;
 
 /** Every flag token a command or any of its subcommands declares. */
 function declaredFlags(cmd: CommandLike): Set<string> {
@@ -277,8 +295,16 @@ const OTHER_PROGRAM = /(^|: )(git|npx|npm|pnpm|yarn|bun|node|next|wrangler) /;
 const KNOWN_PROSE = new Set<string>([]);
 
 describe("breadcrumbs name only flags their command declares", () => {
+  const result = scan();
+
   it("every `creek …` command the CLI can print parses against the command tree", () => {
-    expect(scan()).toEqual([]);
+    expect(result.problems).toEqual([]);
+  });
+
+  it("the scan checked real commands, and every KNOWN_BAD entry still matches", () => {
+    expect(result.checked).toBeGreaterThanOrEqual(MIN_COMMANDS_CHECKED);
+    // A fixed (or reworded) breadcrumb leaves its entry behind: delete it.
+    expect([...KNOWN_BAD].filter((k) => !result.matchedKnown.has(k))).toEqual([]);
   });
 
   it("a hint in prose names only flags of the command printing it", () => {
