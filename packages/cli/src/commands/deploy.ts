@@ -773,6 +773,9 @@ export function parseWaitDuration(input: string | undefined): number | null {
  * no timeout, so it can never block reporting the deploy outcome + exiting.
  * Exported for tests.
  */
+/** How long a failed deploy's best-effort reason read (errorCode/hint) may take. */
+const REASON_READ_TIMEOUT_MS = 3000;
+
 export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 }
@@ -1762,13 +1765,19 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
   const failureMsg = targetDeployment.errorMessage || `Deployment ${targetDeployment.status}`;
   if (jsonMode) {
     // The list row has no classified reason; the status read does.
+    // Bounded: a hung read must not hold back a failure that is already known.
     let reason: { errorCode?: string; errorHint?: string } = {};
     try {
-      const res = await client.getDeploymentStatus(projectSlug, targetDeployment.id);
-      reason = {
-        ...(res.errorCode ? { errorCode: res.errorCode } : {}),
-        ...(res.errorHint ? { errorHint: res.errorHint } : {}),
-      };
+      const res = await withTimeout(
+        client.getDeploymentStatus(projectSlug, targetDeployment.id),
+        REASON_READ_TIMEOUT_MS,
+        null,
+      );
+      if (res)
+        reason = {
+          ...(res.errorCode ? { errorCode: res.errorCode } : {}),
+          ...(res.errorHint ? { errorHint: res.errorHint } : {}),
+        };
     } catch {
       // Best effort: the failure itself is already known.
     }

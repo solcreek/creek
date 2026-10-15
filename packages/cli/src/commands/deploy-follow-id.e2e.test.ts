@@ -31,6 +31,8 @@ let githubTriggered = false;
 let listsAfterTrigger = 0;
 /** A newer deploy of another commit shows up before the triggered one. */
 let otherRowFirst = false;
+/** GET /deployments/:id never answers. */
+let hangStatus = false;
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -68,7 +70,10 @@ beforeAll(async () => {
     if (req.method === "POST" && p.endsWith("/deployments")) {
       return json({ deployment: { id: DEP, version: 1, status: "queued" } }, 201);
     }
-    if (req.method === "GET" && p.endsWith(`/deployments/${DEP}`)) return json(deploymentBody);
+    if (req.method === "GET" && p.endsWith(`/deployments/${DEP}`)) {
+      if (hangStatus) return; // never answers
+      return json(deploymentBody);
+    }
     if (req.method === "POST" && p === "/github/deploy-latest") {
       githubTriggered = true;
       return json({ ok: true, commitSha: "abc1234def567890", branch: "main" });
@@ -100,6 +105,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  server.closeAllConnections();
   server.close();
 });
 
@@ -110,6 +116,7 @@ beforeEach(() => {
   githubTriggered = false;
   listsAfterTrigger = 0;
   otherRowFirst = false;
+  hangStatus = false;
   app = mkdtempSync(join(tmpdir(), "creek-follow-id-"));
   home = mkdtempSync(join(tmpdir(), "creek-follow-home-"));
   mkdirSync(join(app, "dist"));
@@ -251,6 +258,22 @@ describe.skipIf(!existsSync(CLI))("creek deploy --json names the deployment", ()
     expect(crumbs(r.out)).toContain(`creek deployments logs ${DEP} --json`);
     expect(r.out).toMatchObject({ matchedBy: "commit" });
   });
+
+  test("--from-github reports a known failure even when the reason read hangs", async () => {
+    hangStatus = true;
+    deploymentBody = {
+      deployment: { id: DEP, status: "failed", failedStep: "build", errorMessage: "npm ERR" },
+    };
+    const started = Date.now();
+    const r = await deploy(["--from-github", "--project", "app", "--prod", "--json"], {
+      CREEK_TOKEN: "test-token",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatchObject({ ok: false, error: "deploy_failed", deploymentId: DEP });
+    // Reported without the enrichment, once the bounded read gives up.
+    expect(r.out).not.toHaveProperty("errorCode");
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 30_000);
 
   test("--from-github follows the triggered commit's row, not another new row that landed first", async () => {
     otherRowFirst = true;
