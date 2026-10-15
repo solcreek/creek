@@ -15,10 +15,26 @@ export interface ToolContext {
   env: Env;
   clientIp: string;
   requestHeaders: Headers;
+  /** Polling budgets; tests shrink them. Defaults suit a Worker request. */
+  timing?: Partial<Timing>;
 }
+
+export interface Timing {
+  /** How long deploy / deploy_demo wait for a sandbox to go live. */
+  sandboxMaxWaitMs: number;
+  /** Interval between status polls. */
+  pollIntervalMs: number;
+}
+
+const DEFAULT_TIMING: Timing = {
+  sandboxMaxWaitMs: 30_000,
+  pollIntervalMs: 1_000,
+};
 
 export function registerTools(server: McpServer, ctx: ToolContext) {
   const { env, clientIp, requestHeaders } = ctx;
+  const timing: Timing = { ...DEFAULT_TIMING, ...ctx.timing };
+  const sandboxTiming = { maxWaitMs: timing.sandboxMaxWaitMs, intervalMs: timing.pollIntervalMs };
 
   function requireKey(): string | null {
     return resolveApiKey(requestHeaders);
@@ -85,11 +101,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       });
       if (!posted.ok) return posted.result;
 
-      const deploy = posted.data as any;
-
       // Poll for active status
-      const status = await pollStatus(deploy.statusUrl);
-      return sandboxResult(status);
+      const live = await pollSandbox(asRecord(posted.data), sandboxTiming);
+      if (!live.ok) return live.result;
+      return sandboxResult(live.status);
     },
   );
 
@@ -110,9 +125,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       });
       if (!posted.ok) return posted.result;
 
-      const deploy = posted.data as any;
-      const status = await pollStatus(deploy.statusUrl);
-      return sandboxResult(status, { message: "Demo deployed successfully." });
+      const live = await pollSandbox(asRecord(posted.data), sandboxTiming);
+      if (!live.ok) return live.result;
+      return sandboxResult(live.status, { message: "Demo deployed successfully." });
     },
   );
 
@@ -928,21 +943,88 @@ async function sandboxResult(
   return okResult({ ...payload, ...extra });
 }
 
-async function pollStatus(statusUrl: string, maxWait = 30_000): Promise<any> {
-  const start = Date.now();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  while (Date.now() - start < maxWait) {
-    const res = await fetch(statusUrl);
-    if (!res.ok) throw new Error(`Status check failed: ${res.status}`);
+/** The sandbox API's 202 answer to POST /api/sandbox/deploy. */
+interface SandboxCreated {
+  sandboxId?: string;
+  statusUrl?: string;
+  previewUrl?: string;
+}
 
-    const status = (await res.json()) as any;
-    if (status.status === "active") return status;
-    if (status.status === "failed")
-      throw new Error(`Deploy failed: ${status.errorMessage ?? "Unknown"}`);
-    if (status.status === "expired") throw new Error("Sandbox expired before activation");
-
-    await new Promise((r) => setTimeout(r, 1000));
+/**
+ * Poll a freshly created sandbox until it is active. Never throws: every
+ * other outcome (failed, expired, timed out, status unreadable) is an error
+ * result that still carries the sandboxId, so the agent can follow up with
+ * deploy_status / deploy_delete instead of deploying again. The sandbox
+ * exists by now, so nothing here is retryable.
+ */
+async function pollSandbox(
+  created: SandboxCreated,
+  timing: { maxWaitMs: number; intervalMs: number },
+): Promise<{ ok: true; status: any } | { ok: false; result: ToolResult }> {
+  const sandboxId =
+    created.sandboxId ?? /\/sandbox\/([^/]+)\/status$/.exec(created.statusUrl ?? "")?.[1] ?? null;
+  const ref = {
+    sandboxId,
+    ...(created.previewUrl ? { url: created.previewUrl } : {}),
+    nextStep: sandboxId
+      ? `Call deploy_status with sandboxId ${sandboxId}; do not deploy again.`
+      : "Do not deploy again; the sandbox may still go live.",
+  };
+  if (!created.statusUrl) {
+    return {
+      ok: false,
+      result: errorResult(
+        "api_error",
+        "The sandbox API accepted the deploy but returned no status URL.",
+        ref,
+      ),
+    };
   }
 
-  throw new Error("Deploy timed out");
+  const start = Date.now();
+  let last: string | null = null;
+  while (Date.now() - start < timing.maxWaitMs) {
+    const got = await apiRequest("sandbox API", created.statusUrl, undefined, {
+      applied: true,
+      extra: ref,
+    });
+    if (!got.ok) return { ok: false, result: got.result };
+    const status = asRecord(got.data) as any;
+    last = typeof status.status === "string" ? status.status : null;
+    if (last === "active") return { ok: true, status: { sandboxId, ...status } };
+    if (last === "failed") {
+      return {
+        ok: false,
+        result: errorResult(
+          "deploy_failed",
+          `Sandbox deploy failed: ${status.errorMessage ?? "unknown error"}`,
+          {
+            sandboxId,
+            failedStep: status.failedStep ?? null,
+            errorMessage: status.errorMessage ?? null,
+          },
+        ),
+      };
+    }
+    if (last === "expired") {
+      return {
+        ok: false,
+        result: errorResult("sandbox_expired", "The sandbox expired before it went live.", {
+          sandboxId,
+        }),
+      };
+    }
+    await sleep(timing.intervalMs);
+  }
+
+  return {
+    ok: false,
+    result: errorResult(
+      "timeout",
+      `Sandbox${sandboxId ? ` ${sandboxId}` : ""} was not live after ${Math.round(timing.maxWaitMs / 1000)}s (last status: ${last ?? "unknown"}). It may still finish.`,
+      { ...ref, sandboxStatus: last, retryable: false },
+    ),
+  };
 }

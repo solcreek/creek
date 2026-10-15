@@ -11,7 +11,10 @@ const SANDBOX = "https://sandbox.test";
 
 type Handler = (args: any) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
 
-function registerAndCapture(headers: Headers = new Headers()): Map<string, Handler> {
+function registerAndCapture(
+  headers: Headers = new Headers(),
+  timing: ToolContext["timing"] = {},
+): Map<string, Handler> {
   const handlers = new Map<string, Handler>();
   const fakeServer = {
     tool: (name: string, _desc: string, _schema: unknown, handler: Handler) => {
@@ -26,6 +29,8 @@ function registerAndCapture(headers: Headers = new Headers()): Map<string, Handl
     } as unknown as Env,
     clientIp: "203.0.113.7",
     requestHeaders: headers,
+    // Short polling budgets so timeouts resolve in milliseconds.
+    timing: { sandboxMaxWaitMs: 200, pollIntervalMs: 10, ...timing },
   };
   registerTools(fakeServer as never, ctx);
   return handlers;
@@ -836,5 +841,78 @@ describe("MCP result envelope — authenticated tools", () => {
     const found = parse(await log({ projectSlug: "hello", deploymentId: "11111111" }));
     expect(found).toMatchObject({ ok: true, summary: { status: "failed", errorStep: "build" } });
     expect(found.importantLines).toHaveLength(1);
+  });
+});
+
+describe("MCP sandbox deploy keeps the sandboxId on every outcome", () => {
+  const created = (id: string) =>
+    http.post(`${SANDBOX}/api/sandbox/deploy`, () =>
+      HttpResponse.json(
+        {
+          sandboxId: id,
+          status: "queued",
+          statusUrl: `${SANDBOX}/api/sandbox/${id}/status`,
+          previewUrl: `https://${id}.creeksandbox.test`,
+        },
+        { status: 202 },
+      ),
+    );
+
+  it("a sandbox that never goes live is a timeout result with its id, not a throw", async () => {
+    server.use(
+      created("sb-slow"),
+      http.get(`${SANDBOX}/api/sandbox/sb-slow/status`, () =>
+        HttpResponse.json({ sandboxId: "sb-slow", status: "deploying" }),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy")!({ files: { "a.txt": "x" } });
+    expect(result.isError).toBe(true);
+    const payload = parse(result);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "timeout",
+      sandboxId: "sb-slow",
+      url: "https://sb-slow.creeksandbox.test",
+      sandboxStatus: "deploying",
+      retryable: false,
+    });
+    expect(payload.nextStep).toContain("deploy_status");
+  });
+
+  it("a failed sandbox build is deploy_failed with its id and step", async () => {
+    server.use(
+      created("sb-bad"),
+      http.get(`${SANDBOX}/api/sandbox/sb-bad/status`, () =>
+        HttpResponse.json({
+          sandboxId: "sb-bad",
+          status: "failed",
+          failedStep: "upload",
+          errorMessage: "too big",
+        }),
+      ),
+    );
+    const result = await registerAndCapture().get("deploy_demo")!({});
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "deploy_failed",
+      sandboxId: "sb-bad",
+      failedStep: "upload",
+      errorMessage: "too big",
+    });
+  });
+
+  it("an unreadable status after the sandbox was created is not retryable", async () => {
+    server.use(
+      created("sb-lost"),
+      http.get(`${SANDBOX}/api/sandbox/sb-lost/status`, () => HttpResponse.error()),
+    );
+    const result = await registerAndCapture().get("deploy")!({ files: { "a.txt": "x" } });
+    expect(parse(result)).toMatchObject({
+      ok: false,
+      error: "api_unreachable",
+      sandboxId: "sb-lost",
+      retryable: false,
+      mayHaveApplied: true,
+    });
   });
 });
