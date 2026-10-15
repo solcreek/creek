@@ -102,13 +102,15 @@ The CLI authenticates every request with an API key. `CREEK_TOKEN`, when
 set (even empty), wins over the key `creek login --token` saved in
 `~/.creek/config.json`; `creek login` then returns a `warning` saying so.
 
-`creek login` records the API the key was verified against. The saved key
-is only ever sent to that API: when the CLI would talk to another one
-(`CREEK_API_URL`, or the config's `apiUrl`), `whoami`, `keys self`,
-`keys revoke --self` and `logout` exit 1 with `error: "api_mismatch"`,
-`savedKeyApiUrl` and `apiUrl`, and send nothing. A key saved by an older
-CLI counts as saved for the config's own API (its `apiUrl`, else
-`https://api.creek.dev`). `CREEK_TOKEN` is always sent to the API in use.
+`creek login` binds the saved key to the API it was verified against
+(`tokenApiUrl` in the config). Every command sends a bound key only to that
+API: when the CLI would talk to another one (`CREEK_API_URL`, or the
+config's `apiUrl`), any command that needs the key exits 1 with
+`error: "api_mismatch"`, `savedKeyApiUrl` and `apiUrl`, before any request.
+A key saved by an older CLI is unbound (its API is unknown): it is sent to
+the API in use, as before, and `whoami` reports `keyBinding: "unbound"` —
+run `creek login --token <KEY>` again against the intended API to bind it.
+`CREEK_TOKEN` is never bound: it is sent to the API in use.
 
 `creek whoami --json` says which key is in use:
 

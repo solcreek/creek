@@ -220,7 +220,7 @@ creek logout --revoke --json
 - Only a success or a 401 is a known outcome. Anything else (a dropped connection, a 5xx, a 404 from an older API) keeps the key and exits 1 with `mayHaveApplied: true`: run it again.
 - The saved key is removed only if it is still the one in the config; a `creek login` that ran meanwhile is kept.
 
-`creek login` records the API the key was verified against, and the saved key is only sent there. If `CREEK_API_URL` (or the config's `apiUrl`) points elsewhere, `whoami`, `keys` and `logout` stop with `api_mismatch` instead of sending it. Keys saved by older versions count as saved for the config's own API.
+`creek login` binds the saved key to the API it was verified against. Every command sends it only there: if `CREEK_API_URL` (or the config's `apiUrl`) points elsewhere, the command stops with `api_mismatch` before any request. A key saved by an older version is not bound to any API and keeps working against the API in use; `creek whoami` shows `keyBinding: "unbound"` until you run `creek login` again against the intended API. `CREEK_TOKEN` is not bound.
 
 ### `creek keys`
 

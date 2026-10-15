@@ -159,10 +159,10 @@ export function getToken(): string | undefined {
 }
 
 /**
- * Refuse to use the saved key against an API other than the one it was
- * saved for (`creek login` records it). Exits 1 with api_mismatch, naming
- * both URLs; nothing is sent. Call only when the saved key would be used,
- * revoked or cleared.
+ * Refuse to use a bound saved key against an API other than the one
+ * `creek login` bound it to. Exits 1 with api_mismatch, naming both URLs;
+ * nothing is sent. getToken() calls it for every command; whoami, keys and
+ * logout call it before they use, revoke or clear the saved key.
  */
 export function exitApiMismatch(
   jsonMode: boolean,
