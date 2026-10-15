@@ -4,6 +4,14 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.54
+
+- Bundles [`@solcreek/cli@0.4.54`](../cli/CHANGELOG.md#0454): Next.js deploys
+  build with `@solcreek/adapter-creek@0.2.24`. Server actions on edge pages,
+  wasm imports in middleware and edge routes, server source maps, Web Workers,
+  `next/og` on the node runtime and pages under a route group now work. Still
+  requires `@solcreek/sdk@0.4.24`.
+
 ## 0.4.53
 
 - Bundles [`@solcreek/cli@0.4.53`](../cli/CHANGELOG.md#0453) and requires
