@@ -215,6 +215,7 @@ export interface KeyAuthApi {
         name: string;
         expiresIn: number;
         permissions: Record<string, string[]>;
+        metadata: Record<string, string>;
       };
     }): Promise<{ id: string; key: string }>;
   };
@@ -257,6 +258,12 @@ function sameScopes(a: ReadonlySet<Scope>, b: readonly Scope[]): boolean {
  * row is read back and, unless it holds exactly the requested scopes, team,
  * owner and an expiry, deleted before anything is returned. If the check
  * itself fails, the key is deleted too.
+ *
+ * Each attempt tags its row with an unguessable nonce in `metadata`, written
+ * in the same INSERT as the key and its permissions. If createApiKey throws
+ * (the key's id is then unknown), exactly the rows carrying this attempt's
+ * nonce are deleted, never a key another request minted at the same time.
+ * The nonce is never returned: no response here reads `metadata`.
  */
 export async function mintScopedKey(
   auth: KeyAuthApi,
@@ -264,7 +271,7 @@ export async function mintScopedKey(
   input: { userId: string; teamId: string; name: string; scopes: Scope[]; expiresIn: number },
 ): Promise<{ id: string; key: string; row: ApiKeyRow }> {
   const permissions = scopedKeyPermissions(input.scopes, input.teamId);
-  const before = await keyIds(db, input.userId);
+  const nonce = `${crypto.randomUUID()}${crypto.randomUUID()}`;
   let created: { id: string; key: string } | undefined;
   try {
     created = await auth.api.createApiKey({
@@ -273,16 +280,15 @@ export async function mintScopedKey(
         name: input.name,
         expiresIn: input.expiresIn,
         permissions,
+        metadata: { [MINT_NONCE]: nonce },
       },
     });
     if (!created?.id || !created.key) throw new KeyMintError("Better Auth returned no key");
   } catch (err) {
     // A failure after the row was written leaves a key nobody received, and
-    // if its scopes did not land, a full-access one. The id is unknown here,
-    // so remove this user's new rows that are unscoped or carry this grant.
-    // (A key the same user mints concurrently in another request could be
-    // caught too; deleting is the safe direction.)
-    await deleteOrphans(db, input.userId, before, JSON.stringify(permissions));
+    // if its scopes did not land, a full-access one. Its id is unknown here,
+    // but it carries this attempt's nonce: delete exactly that.
+    await deleteAttemptRows(db, input.userId, nonce);
     throw err;
   }
 
@@ -293,6 +299,8 @@ export async function mintScopedKey(
     if (!row) problem = "the key row is missing";
     else if (row.referenceId !== input.userId) problem = "the key belongs to another user";
     else if (row.permissions === null) problem = "the key was stored without its scopes";
+    else if ((await readMintNonce(db, row.id)) !== nonce)
+      problem = "the key was stored without this attempt's tag";
     else {
       const grant = parseGrant(row.id, row.permissions);
       if (grant.kind !== "scoped") problem = "the key's stored scopes are unreadable";
@@ -312,35 +320,48 @@ export async function mintScopedKey(
   return { id: created.id, key: created.key, row };
 }
 
-async function keyIds(db: D1Database, userId: string): Promise<Set<string>> {
-  const rows = await db
-    .prepare("SELECT id FROM apikey WHERE referenceId = ?")
-    .bind(userId)
-    .all<{ id: string }>();
-  return new Set(rows.results.map((r) => r.id));
+/** The metadata field that tags a row with the mint attempt that wrote it. */
+const MINT_NONCE = "creekMintNonce";
+
+/** The mint nonce in a stored `metadata` value (JSON, possibly stringified twice). */
+function mintNonceOf(metadata: unknown): string | null {
+  let value = metadata;
+  for (let i = 0; i < 2 && typeof value === "string"; i++) {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const nonce = (value as Record<string, unknown>)[MINT_NONCE];
+  return typeof nonce === "string" ? nonce : null;
 }
 
-async function deleteOrphans(
-  db: D1Database,
-  userId: string,
-  before: Set<string>,
-  permissions: string,
-): Promise<void> {
-  let rows: { id: string; permissions: string | null }[];
+async function readMintNonce(db: D1Database, id: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT metadata FROM apikey WHERE id = ?")
+    .bind(id)
+    .first<{ metadata: string | null }>();
+  return mintNonceOf(row?.metadata);
+}
+
+/** Delete the rows of this user that carry this mint attempt's nonce. */
+async function deleteAttemptRows(db: D1Database, userId: string, nonce: string): Promise<void> {
+  let rows: { id: string; metadata: string | null }[];
   try {
     rows = (
       await db
-        .prepare("SELECT id, permissions FROM apikey WHERE referenceId = ?")
+        .prepare("SELECT id, metadata FROM apikey WHERE referenceId = ? AND metadata IS NOT NULL")
         .bind(userId)
-        .all<{ id: string; permissions: string | null }>()
+        .all<{ id: string; metadata: string | null }>()
     ).results;
   } catch (err) {
-    console.error(`[api-keys] CRITICAL: could not look for orphaned keys of ${userId}:`, err);
+    console.error(`[api-keys] CRITICAL: could not look for the failed attempt's key:`, err);
     return;
   }
   for (const row of rows) {
-    if (before.has(row.id)) continue;
-    if (row.permissions !== null && row.permissions !== permissions) continue;
+    if (mintNonceOf(row.metadata) !== nonce) continue;
     await deleteUnverifiedKey(db, row.id, "key creation threw after writing the row");
   }
 }

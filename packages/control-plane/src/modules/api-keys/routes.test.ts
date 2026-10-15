@@ -334,6 +334,30 @@ describe("POST /api-keys", () => {
     expect(await h.keyRows()).toEqual([]);
   });
 
+  it("never returns the mint attempt's tag (create, list, self)", async () => {
+    const res = await h.create(owner.cookie, {
+      name: "agent",
+      team: owner.orgSlug,
+      scopes: ["project:read"],
+    });
+    const createText = await res.text();
+    const { key, id } = JSON.parse(createText);
+    const [row] = await f.sql<{ metadata: string }>("SELECT metadata FROM apikey WHERE id = ?", id);
+    const nonce = JSON.stringify(row.metadata).match(/[0-9a-f-]{72}/)?.[0];
+    expect(nonce).toBeTruthy();
+    const texts = [
+      createText,
+      await (await h.list(owner.cookie)).text(),
+      await (await h.list(owner.cookie, owner.orgSlug)).text(),
+      await (await h.self(key)).text(),
+    ];
+    for (const text of texts) {
+      expect(text).not.toContain(nonce);
+      expect(text).not.toContain("creekMintNonce");
+      expect(text).not.toContain("metadata");
+    }
+  });
+
   it("records the creation in the audit log, without the secret", async () => {
     const body = await json(
       await h.create(owner.cookie, { name: "audited", team: owner.orgSlug, scopes: "read-only" }),

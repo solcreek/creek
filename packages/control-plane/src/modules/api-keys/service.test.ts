@@ -113,6 +113,57 @@ describe("mintScopedKey", () => {
     // The row Better Auth wrote is unscoped — the dangerous case. It must not survive.
     expect(await rows()).toEqual([]);
   });
+
+  /** A works on /api-keys/self, against the real app. */
+  const works = async (key: string) =>
+    (await f.call("GET", "/api-keys/self", { "x-api-key": key })).status;
+
+  it("deletes only its own row when it throws: a concurrent mint of the same grant survives", async () => {
+    // Request B mints the same grant while A is in flight; then A throws
+    // without having written anything.
+    let b: { id: string; key: string } | undefined;
+    const aThrows: KeyAuthApi = {
+      api: {
+        createApiKey: async () => {
+          b = await mintScopedKey(auth, f.env.DB, input());
+          throw new Error("A failed before writing");
+        },
+      },
+    };
+    await expect(mintScopedKey(aThrows, f.env.DB, input())).rejects.toThrow("A failed");
+    expect((await rows()).map((r) => r.id)).toEqual([b!.id]);
+    expect(await works(b!.key)).toBe(200);
+  });
+
+  it("deletes its own row and nothing else when it throws after writing", async () => {
+    // A writes its row; B then mints the same grant and a legacy key appears
+    // too; A throws. Only A's row goes.
+    let b: { id: string; key: string } | undefined;
+    let legacy: string | undefined;
+    const aWritesThenThrows: KeyAuthApi = {
+      api: {
+        createApiKey: async (args) => {
+          await auth.api.createApiKey(args);
+          b = await mintScopedKey(auth, f.env.DB, input());
+          legacy = await f.legacyKey(owner.cookie);
+          throw new Error("A failed after writing");
+        },
+      },
+    };
+    await expect(mintScopedKey(aWritesThenThrows, f.env.DB, input())).rejects.toThrow("A failed");
+    const left = await rows();
+    expect(left).toHaveLength(2);
+    expect(left.map((r) => r.id)).toContain(b!.id);
+    expect(left.filter((r) => r.permissions === null)).toHaveLength(1);
+    expect(await works(b!.key)).toBe(200);
+    expect(await works(legacy!)).toBe(200);
+  });
+
+  it("deletes the key when it was stored without this attempt's tag", async () => {
+    const dropTag = rewriting(({ metadata: _m, ...rest }) => rest);
+    await expect(mintScopedKey(dropTag, f.env.DB, input())).rejects.toThrow(/tag/);
+    expect(await rows()).toEqual([]);
+  });
 });
 
 /** A D1 whose statements matching `pattern` throw. */
