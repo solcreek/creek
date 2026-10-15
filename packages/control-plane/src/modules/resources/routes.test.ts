@@ -447,6 +447,122 @@ describe("POST /resources never leaves a Cloudflare resource orphaned on a name 
   });
 });
 
+describe("re-running a resource request says what already holds the name", () => {
+  type Conflict = {
+    error: string;
+    message: string;
+    existing?: Record<string, unknown>;
+    missing?: string;
+  };
+
+  test("a second create's 409 carries the existing resource", async () => {
+    const first = (await (
+      await req("POST", "/resources", { kind: "database", name: "twice" })
+    ).json()) as { id: string; cfResourceId: string };
+
+    const res = await req("POST", "/resources", { kind: "database", name: "twice" });
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Conflict;
+    expect(body.error).toBe("conflict");
+    expect(body.existing).toMatchObject({
+      id: first.id,
+      kind: "database",
+      name: "twice",
+      cfResourceId: first.cfResourceId,
+      status: "active",
+    });
+  });
+
+  test("a create clashing with another kind names that kind", async () => {
+    await req("POST", "/resources", { kind: "cache", name: "shared-name" });
+
+    const body = (await (
+      await req("POST", "/resources", { kind: "database", name: "shared-name" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ kind: "cache", status: "active" });
+    expect(body.message).toContain("cache");
+  });
+
+  test("a create reusing a deleted resource's name says the name is reserved", async () => {
+    seedResource("res-tomb", { kind: "database", cfResourceId: "d1-tomb", cfResourceType: "d1" });
+    await req("DELETE", "/resources/res-tomb");
+
+    const body = (await (
+      await req("POST", "/resources", { kind: "database", name: "res-tomb-name" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ id: "res-tomb", status: "deleted" });
+    expect(body.message).toContain("deleted");
+  });
+
+  test("GET /resources lists deleted resources only when asked", async () => {
+    seedResource("res-live", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedResource("res-dead", { kind: "database", cfResourceId: null, cfResourceType: null });
+    await req("DELETE", "/resources/res-dead");
+
+    const ids = async (path: string) =>
+      ((await (await req("GET", path)).json()) as { resources: Array<{ id: string }> }).resources
+        .map((r) => r.id)
+        .sort();
+
+    expect(await ids("/resources")).toEqual(["res-live"]);
+    expect(await ids("/resources?include=deleted")).toEqual(["res-dead", "res-live"]);
+  });
+
+  test("a second attach's 409 carries the binding, pointing at the same resource", async () => {
+    seedResource("res-db", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    const attach = { resourceId: "res-db", bindingName: "DB" };
+    expect((await req("POST", "/projects/app/bindings", attach)).status).toBe(201);
+
+    const res = await req("POST", "/projects/app/bindings", attach);
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Conflict;
+    expect(body.existing).toMatchObject({
+      projectId: "proj-app",
+      bindingName: "DB",
+      resourceId: "res-db",
+      kind: "database",
+      name: "res-db-name",
+    });
+    expect(body.message).toContain("already attached");
+  });
+
+  test("an attach clashing with another resource's binding names that resource", async () => {
+    seedResource("res-a", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedResource("res-b", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    await req("POST", "/projects/app/bindings", { resourceId: "res-a", bindingName: "DB" });
+
+    const body = (await (
+      await req("POST", "/projects/app/bindings", { resourceId: "res-b", bindingName: "DB" })
+    ).json()) as Conflict;
+
+    expect(body.existing).toMatchObject({ resourceId: "res-a", name: "res-a-name" });
+  });
+
+  test("a second detach says the binding is missing, not the project", async () => {
+    seedResource("res-db", { kind: "database", cfResourceId: null, cfResourceType: null });
+    seedProject(testEnv, "app");
+    await req("POST", "/projects/app/bindings", { resourceId: "res-db", bindingName: "DB" });
+    expect((await req("DELETE", "/projects/app/bindings/DB")).status).toBe(200);
+
+    const again = await req("DELETE", "/projects/app/bindings/DB");
+    expect(again.status).toBe(404);
+    const body = (await again.json()) as Conflict;
+    expect(body.missing).toBe("binding");
+    expect(body.message).toBe("Project 'app' has no binding named 'DB'; nothing was detached");
+
+    const noProject = (await (
+      await req("DELETE", "/projects/nope/bindings/DB")
+    ).json()) as Conflict;
+    expect(noProject.missing).toBe("project");
+  });
+});
+
 describe("POST /resources/:id/query", () => {
   const resourceId = "res-db-1";
 
