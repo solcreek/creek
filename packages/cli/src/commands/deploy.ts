@@ -70,6 +70,7 @@ import {
   type Breadcrumb,
 } from "../utils/output.js";
 import { pasteableBreadcrumbs } from "../utils/command-context.js";
+import { humanCommand } from "../utils/deployment-follow.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import {
@@ -828,8 +829,9 @@ export function reportWaitTimeout(opts: {
   consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
   // The server keeps deploying; a longer --wait lets the CLI observe the end.
   consola.info(`  Wait longer:   creek deploy … --wait 15m`);
-  consola.info(`  Keep waiting:  creek deployments wait ${opts.deploymentId}`);
-  consola.info(`  View the log:  creek deployments logs ${opts.deploymentId}`);
+  const human = (command: string) => (opts.project ? humanCommand(opts.project, command) : command);
+  consola.info(`  Keep waiting:  ${human(`creek deployments wait ${opts.deploymentId}`)}`);
+  consola.info(`  View the log:  ${human(`creek deployments logs ${opts.deploymentId}`)}`);
   return process.exit(1);
 }
 

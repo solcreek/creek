@@ -10,6 +10,15 @@ import type { DeploymentView } from "@solcreek/sdk";
 import type { Breadcrumb } from "./output.js";
 import { pasteableBreadcrumbs } from "./command-context.js";
 
+/**
+ * A follow-up command for a person to paste: `--project <slug>` is added the
+ * same way as in the JSON breadcrumbs, when a bare project command here
+ * would act on another project.
+ */
+export function humanCommand(slug: string, command: string): string {
+  return pasteableBreadcrumbs(slug, [{ command, description: "" }])[0].command;
+}
+
 /** The command that follows a deployment to its final status. */
 export function waitCommand(deploymentId: string): string {
   return `creek deployments wait ${deploymentId} --json`;
@@ -71,9 +80,13 @@ export function printDeployment(view: DeploymentView): void {
       `  Failed:   ${view.failedStep ?? "unknown step"}${code} — ${view.errorMessage ?? "no message"}`,
     );
     if (view.errorHint) consola.log(`  Hint:     ${view.errorHint}`);
-    consola.log(`  Log:      creek deployments logs ${view.deploymentId}`);
+    consola.log(
+      `  Log:      ${humanCommand(view.project, `creek deployments logs ${view.deploymentId}`)}`,
+    );
   } else if (!view.terminal) {
-    consola.log(`  Follow:   creek deployments wait ${view.deploymentId}`);
+    consola.log(
+      `  Follow:   ${humanCommand(view.project, `creek deployments wait ${view.deploymentId}`)}`,
+    );
   }
   consola.log("");
 }

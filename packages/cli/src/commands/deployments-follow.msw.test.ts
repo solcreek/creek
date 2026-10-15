@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deploymentsCommand } from "./deployments.js";
 import { statusCommand } from "./status.js";
+import { reportWaitTimeout } from "./deploy.js";
+import { printDeployment } from "../utils/deployment-follow.js";
+import { toDeploymentView } from "@solcreek/sdk";
+import consola from "consola";
 
 // Following a deploy to its result with one id: `deployments get`,
 // `deployments wait` and `status <id>`. Same harness as commands.msw.test.ts:
@@ -359,5 +363,35 @@ describe("creek status (project)", () => {
     });
     expect(json()).not.toHaveProperty("production_deployment_id");
     expect(commands()).toContain(`creek deployments get ${FULL} --project site --json`);
+  });
+});
+
+describe("human follow-up commands carry --project like the JSON breadcrumbs", () => {
+  // The cwd names "site"; these follow-ups are for "other".
+  const lines = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.map((c) => String(c[0])).join("\n");
+
+  it("printDeployment's Follow and Log lines", () => {
+    const log = vi.spyOn(consola, "log").mockImplementation(() => {});
+    printDeployment(toDeploymentView("other", FULL, deployment() as never));
+    printDeployment(toDeploymentView("other", FULL, deployment({ status: "failed" }) as never));
+    expect(lines(log)).toContain(`creek deployments wait ${FULL} --project other`);
+    expect(lines(log)).toContain(`creek deployments logs ${FULL} --project other`);
+    log.mockClear();
+    // The cwd's own project stays bare.
+    printDeployment(toDeploymentView("site", FULL, deployment() as never));
+    expect(lines(log)).toContain(`creek deployments wait ${FULL}\n`);
+  });
+
+  it("a deploy timeout's human hints", () => {
+    const info = vi.spyOn(consola, "info").mockImplementation(() => {});
+    vi.spyOn(consola, "error").mockImplementation(() => {});
+    try {
+      reportWaitTimeout({ jsonMode: false, waitedMs: 1000, deploymentId: FULL, project: "other" });
+    } catch (err) {
+      if (!(err instanceof ExitSignal)) throw err;
+    }
+    expect(lines(info)).toContain(`creek deployments wait ${FULL} --project other`);
+    expect(lines(info)).toContain(`creek deployments logs ${FULL} --project other`);
   });
 });

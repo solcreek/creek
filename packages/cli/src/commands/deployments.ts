@@ -17,6 +17,7 @@ import {
 } from "../utils/command-context.js";
 import {
   deploymentFollowCrumbs,
+  humanCommand,
   printDeployment,
   waitCommand,
 } from "../utils/deployment-follow.js";
@@ -432,7 +433,9 @@ const deploymentsWait = defineCommand({
           ]),
         );
       consola.warn(message);
-      consola.info(`  Keep waiting:  creek deployments wait ${id} --timeout 10m`);
+      consola.info(
+        `  Keep waiting:  ${humanCommand(slug, `creek deployments wait ${id} --timeout 10m`)}`,
+      );
       process.exit(1);
     }
 
