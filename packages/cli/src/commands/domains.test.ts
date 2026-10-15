@@ -349,6 +349,34 @@ describe("creek domains rm, run twice", () => {
     expect(json()).toMatchObject({ ok: true, alreadyAbsent: true, removed: false });
   });
 
+  it("a hostname removed and re-added (new id) between list and DELETE is an error", async () => {
+    liveServer();
+    // Another process removes the domain and adds the same hostname again
+    // after this run listed it: the DELETE by the old id 404s, but the
+    // hostname is attached under a new id.
+    server.use(
+      http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () => {
+        deletes++;
+        rows = [{ id: "dom-2", projectId: "p1", hostname: HOST, status: "pending", createdAt: 1 }];
+        return HttpResponse.json(
+          { error: "not_found", message: "Domain not found" },
+          { status: 404 },
+        );
+      }),
+    );
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "delete_failed",
+      status: 404,
+      details: { existing: { id: "dom-2", hostname: HOST } },
+    });
+    expect(json().message).toContain("re-added concurrently");
+    expect(json().alreadyAbsent).toBeUndefined();
+    expect(deletes).toBe(1);
+    expect(rows).toHaveLength(1);
+  });
+
   it("a 404 for a domain that is still listed is an error, not alreadyAbsent", async () => {
     liveServer();
     server.use(

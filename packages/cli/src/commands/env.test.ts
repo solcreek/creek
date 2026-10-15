@@ -291,6 +291,21 @@ describe("creek env rm, run twice", () => {
     expect(json()).toMatchObject({ ok: true, alreadyAbsent: true });
   });
 
+  it("an older API's bare 404 with the key set again by then is an error, not alreadyAbsent", async () => {
+    // Another process re-sets the key after this DELETE missed it: the
+    // follow-up list shows it, so it is not reported as absent.
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "GONE", target: "all", value: "GONE****" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/GONE`, () =>
+        HttpResponse.json({ error: "not_found", message: "not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "GONE" } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "rm_failed", status: 404 });
+  });
+
   it("a missing project is still an error", async () => {
     server.use(
       http.get(`${API}/projects/${SLUG}/env`, () =>

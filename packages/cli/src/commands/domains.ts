@@ -321,10 +321,27 @@ const domainsRm = defineCommand({
         () => false,
         async (err: unknown) => {
           // Listed a moment ago, 404 now: a concurrent removal got there first
-          // only if the project's list loads without this domain. Anything
-          // else (the project gone, the list failing) stays an error.
+          // only if the project's list loads without this domain — neither
+          // its id nor its hostname. The hostname under a new id means it was
+          // removed and re-added meanwhile: it is attached, so that is an
+          // error, not alreadyAbsent. Anything else (the project gone, the
+          // list failing) stays an error too.
           if (err instanceof CreekApiError && err.status === 404) {
             const after = await client.listDomains(slug).catch(() => null);
+            const readded = after?.find(
+              (d) => d.id !== domain.id && d.hostname === domain.hostname,
+            );
+            if (readded) {
+              throw new CreekApiError(
+                err.status,
+                err.code,
+                `${domain.hostname} was removed and re-added concurrently (new id ${readded.id}); it is still a domain of ${slug} and nothing was removed. Re-run to remove it.`,
+                {
+                  ...err.details,
+                  existing: { id: readded.id, hostname: readded.hostname, status: readded.status },
+                },
+              );
+            }
             if (after && !after.some((d) => d.id === domain.id)) return true;
           }
           throw err;
