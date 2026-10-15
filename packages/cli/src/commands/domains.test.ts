@@ -324,6 +324,14 @@ describe("creek domains rm, run twice", () => {
     expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: true });
   });
 
+  it("a padded hostname still finds and removes the listed domain", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { hostname: `  ${HOST}  ` } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: false, removed: true });
+    expect(deletes).toBe(1);
+    expect(rows).toEqual([]);
+  });
+
   it("a removal that loses to a concurrent one reports alreadyAbsent", async () => {
     liveServer();
     // The other removal lands between this one's list and its DELETE.

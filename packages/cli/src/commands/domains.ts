@@ -132,6 +132,15 @@ const domainsAdd = defineCommand({
   },
 });
 
+/**
+ * A hostname as the API stores it (trimmed, lowercased). Every lookup and
+ * the already-absent check use this one form, so a padded or mixed-case
+ * argument can't miss a listed domain and then read as already removed.
+ */
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().toLowerCase();
+}
+
 async function resolveDomain(
   client: CreekClient,
   slug: string,
@@ -139,7 +148,8 @@ async function resolveDomain(
   jsonMode: boolean,
 ) {
   const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
-  return domains.find((d) => d.hostname === hostname.toLowerCase());
+  const wanted = normalizeHostname(hostname);
+  return domains.find((d) => d.hostname === wanted);
 }
 
 /** Emit a structured `not_found` (JSON mode) or human error, then exit 1. */
@@ -217,7 +227,7 @@ function domainAlreadyAbsent(
   jsonMode: boolean,
   dryRun: boolean,
 ): void {
-  const normalized = hostname.trim().toLowerCase();
+  const normalized = normalizeHostname(hostname);
   if (!HOSTNAME_SHAPE.test(normalized)) {
     const message = `"${hostname}" is not a hostname (e.g. app.example.com), so it was never a domain of ${slug}.`;
     if (jsonMode) {
