@@ -130,6 +130,7 @@ export const ANNOTATIONS: Record<string, ToolAnnotations> = {
   deploy_delete: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
 
   get_build_log: READ_ONLY,
+  whoami: READ_ONLY,
   list_projects: READ_ONLY,
   get_status: READ_ONLY,
   env_ls: READ_ONLY,
@@ -489,6 +490,41 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   // ================================================================
   // Tier 1.5: Project read + env (header auth, no apiKey tool arg)
   // ================================================================
+
+  // Read-only on purpose: there is no revoke tool. An agent revoking the
+  // key its own MCP connection authenticates with would cut itself off
+  // mid-session, and a prompt-injected page could ask it to. Revoking
+  // stays with the human (dashboard) or the CLI (`creek logout --revoke`).
+  server.registerTool(
+    "whoami",
+    {
+      description:
+        "Show the API key this MCP connection uses: kind (legacy = full access, or scoped to one team), team, scopes, the scopes its owner's role still allows (effectiveScopes), expiry and last use. Call it before a write to check the key can do it. Authenticate with Authorization: Bearer <key> or x-api-key.",
+      inputSchema: {},
+      annotations: ANNOTATIONS["whoami"],
+    },
+    async () => {
+      const apiKey = requireKey();
+      if (!apiKey) return missingKeyResult();
+      const got = await cpFetch(apiKey, "/api-keys/self");
+      if (!got.ok) {
+        // A control plane that predates key management: say so plainly.
+        // It answers 404/405, or 403 route_not_scoped when its route gate
+        // matches no guarded endpoint (same rule as the SDK's
+        // isApiKeySelfUnsupported).
+        const code = asRecord(JSON.parse(got.result.content[0]?.text ?? "{}")).error;
+        if (got.status === 404 || got.status === 405 || code === "route_not_scoped") {
+          return errorResult(
+            "server_unsupported",
+            "This Creek control plane cannot describe API keys (no GET /api-keys/self).",
+            { status: got.status },
+          );
+        }
+        return got.result;
+      }
+      return okResult({ key: keyView(asRecord(got.data)) });
+    },
+  );
 
   server.registerTool(
     "list_projects",
@@ -1184,6 +1220,37 @@ export function errorResult(
   extra: Record<string, unknown> = {},
 ): ToolResult {
   return toolJson({ ok: false, error, message, ...extra }, true);
+}
+
+/**
+ * The most of a key a tool result shows: its non-secret prefix plus at most
+ * 4 characters, as much as Better Auth's own `start` (16 characters of
+ * "crk_sk_live_…"). Same rule as the CLI's keyHint (packages/cli/src/utils/api-key.ts).
+ */
+const KEY_PREFIXES = ["crk_sk_live_", "crk_sk_test_", "ck_"];
+export function keyHint(key: string): string {
+  const prefix = KEY_PREFIXES.find((p) => key.startsWith(p)) ?? "";
+  return key.slice(0, prefix.length + 4);
+}
+
+/** GET /api-keys/self → what an agent acts on (same shape as `creek whoami --json`'s key). */
+function keyView(k: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: k.id ?? null,
+    name: k.name ?? null,
+    start: typeof k.start === "string" ? keyHint(k.start) : null,
+    kind: k.legacy === true ? "legacy" : "scoped",
+    team: k.team ?? null,
+    scopes: k.scopes ?? null,
+    effectiveScopes: k.effectiveScopes ?? null,
+    role: k.role ?? null,
+    access: k.access ?? null,
+    expiresAt: k.expiresAt ?? null,
+    expired: k.expired ?? false,
+    createdAt: k.createdAt ?? null,
+    lastUsedAt: k.lastUsedAt ?? null,
+    ...(typeof k.warning === "string" ? { warning: k.warning } : {}),
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

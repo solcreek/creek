@@ -1,5 +1,11 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { CreekClient, CreekApiError, CreekAuthError, toDeploymentView } from "./index.js";
+import {
+  CreekClient,
+  CreekApiError,
+  CreekAuthError,
+  isApiKeySelfUnsupported,
+  toDeploymentView,
+} from "./index.js";
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -284,6 +290,73 @@ describe("CreekClient.getLogs — filter serialization", () => {
     expect(p.get("errors")).toBe("1");
     expect(p.getAll("outcome")).toEqual(["canceled"]);
     expect(p.get("since")).toBe("6h");
+  });
+});
+
+describe("CreekClient — the API key in use (/api-keys/self)", () => {
+  const client = new CreekClient("http://localhost:8787", "test-token");
+  const scoped = {
+    id: "key-1",
+    name: "agent",
+    start: "creek_ab",
+    prefix: null,
+    legacy: false,
+    team: { id: "org-1", slug: "acme" },
+    scopes: ["env:read", "project:read"],
+    role: "owner",
+    effectiveScopes: ["env:read", "project:read"],
+    access: "scoped",
+    enabled: true,
+    expiresAt: "2027-01-01T00:00:00.000Z",
+    expired: false,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    lastUsedAt: null,
+  };
+
+  test("getApiKeySelf reads GET /api-keys/self with the key", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, scoped));
+    expect(await client.getApiKeySelf()).toEqual(scoped);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8787/api-keys/self");
+    expect(init.method).toBe("GET");
+    expect(init.headers["x-api-key"]).toBe("test-token");
+  });
+
+  test("revokeApiKeySelf sends DELETE /api-keys/self", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { revoked: true, id: "key-1" }));
+    expect(await client.revokeApiKeySelf()).toEqual({ revoked: true, id: "key-1" });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8787/api-keys/self");
+    expect(init.method).toBe("DELETE");
+  });
+
+  test("a key the API refuses is a CreekAuthError, not unsupported", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(401, { error: "unauthorized", message: "nope" }));
+    const err = await client.revokeApiKeySelf().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekAuthError);
+    expect(isApiKeySelfUnsupported(err)).toBe(false);
+  });
+
+  test("an older server without the endpoint is recognised as unsupported", async () => {
+    mockFetch.mockResolvedValue(new Response("404 Not Found", { status: 404 }));
+    const notFound = await client.getApiKeySelf().catch((e: unknown) => e);
+    expect(isApiKeySelfUnsupported(notFound)).toBe(true);
+
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, {
+        error: "route_not_scoped",
+        message: "This endpoint does not accept API keys",
+      }),
+    );
+    const gated = await client.getApiKeySelf().catch((e: unknown) => e);
+    expect(isApiKeySelfUnsupported(gated)).toBe(true);
+
+    // Anything else is a real failure, not an old server.
+    mockFetch.mockResolvedValue(jsonResponse(503, { error: "unavailable", message: "Down" }));
+    const down = await client.getApiKeySelf().catch((e: unknown) => e);
+    expect(down).toBeInstanceOf(CreekApiError);
+    expect(isApiKeySelfUnsupported(down)).toBe(false);
+    expect(isApiKeySelfUnsupported(new TypeError("fetch failed"))).toBe(false);
   });
 });
 

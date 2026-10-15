@@ -215,6 +215,154 @@ describe("MCP deploy_status tool", () => {
   });
 });
 
+describe("MCP whoami", () => {
+  const SELF = {
+    id: "key-1",
+    name: "agent",
+    start: "crk_sk_live_ab12",
+    prefix: null,
+    legacy: false,
+    team: { id: "org-1", slug: "acme" },
+    scopes: ["env:read", "env:write"],
+    role: "member",
+    effectiveScopes: ["env:read"],
+    access: "scoped",
+    enabled: true,
+    expiresAt: "2027-01-01T00:00:00.000Z",
+    expired: false,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    lastUsedAt: null,
+  };
+
+  it("without a request header is not_authenticated", async () => {
+    const result = await registerAndCapture().get("whoami")!({});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toBe("not_authenticated");
+  });
+
+  it("describes the key the MCP request authenticates with", async () => {
+    let sawKey: string | null = null;
+    server.use(
+      http.get("https://cp.test/api-keys/self", ({ request }) => {
+        sawKey = request.headers.get("x-api-key");
+        return HttpResponse.json(SELF);
+      }),
+    );
+    const result = await registerAndCapture(
+      new Headers({ authorization: "Bearer ck_live_test" }),
+    ).get("whoami")!({});
+    expect(result.isError).toBeUndefined();
+    expect(sawKey).toBe("ck_live_test");
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      ok: true,
+      key: {
+        id: "key-1",
+        name: "agent",
+        start: "crk_sk_live_ab12",
+        kind: "scoped",
+        team: { id: "org-1", slug: "acme" },
+        scopes: ["env:read", "env:write"],
+        effectiveScopes: ["env:read"],
+        role: "member",
+        access: "scoped",
+        expiresAt: "2027-01-01T00:00:00.000Z",
+        expired: false,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        lastUsedAt: null,
+      },
+    });
+  });
+
+  it("never shows more of the key than its prefix and 4 characters", async () => {
+    // A stored start longer than Better Auth's 16 characters must not widen it.
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json({ ...SELF, start: "crk_sk_live_ScOp9xQ7vLm2" }),
+      ),
+    );
+    const result = await registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!({});
+    const text = result.content[0].text;
+    expect(JSON.parse(text).key.start).toBe("crk_sk_live_ScOp");
+    expect(text).not.toContain("ScOp9");
+  });
+
+  it("reports a legacy key as kind legacy with its warning", async () => {
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json({
+          ...SELF,
+          legacy: true,
+          team: null,
+          scopes: null,
+          effectiveScopes: null,
+          access: "full",
+          warning: "This is a legacy API key",
+        }),
+      ),
+    );
+    const result = await registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!({});
+    expect(JSON.parse(result.content[0].text).key).toMatchObject({
+      kind: "legacy",
+      access: "full",
+      scopes: null,
+      warning: "This is a legacy API key",
+    });
+  });
+
+  it("an older control plane's 403 route_not_scoped is server_unsupported too", async () => {
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json(
+          { error: "route_not_scoped", message: "This endpoint does not accept API keys" },
+          { status: 403 },
+        ),
+      ),
+    );
+    const result = await registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!({});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: false,
+      error: "server_unsupported",
+      status: 403,
+    });
+  });
+
+  it("a refused key keeps the API's error; an older control plane is server_unsupported", async () => {
+    server.use(
+      http.get("https://cp.test/api-keys/self", () =>
+        HttpResponse.json({ error: "unauthorized", message: "Invalid key" }, { status: 401 }),
+      ),
+    );
+    const whoami = registerAndCapture(new Headers({ "x-api-key": "k" })).get("whoami")!;
+    const refused = await whoami({});
+    expect(refused.isError).toBe(true);
+    expect(JSON.parse(refused.content[0].text)).toMatchObject({
+      ok: false,
+      error: "unauthorized",
+      status: 401,
+    });
+
+    server.use(
+      http.get(
+        "https://cp.test/api-keys/self",
+        () => new HttpResponse("404 Not Found", { status: 404 }),
+      ),
+    );
+    const old = await whoami({});
+    expect(old.isError).toBe(true);
+    expect(JSON.parse(old.content[0].text)).toMatchObject({
+      ok: false,
+      error: "server_unsupported",
+      status: 404,
+    });
+  });
+
+  it("whoami is the only key tool: none revokes, so an agent cannot cut off its own connection", () => {
+    const names = [...registerAndCapture().keys()];
+    expect(names.filter((n) => /whoami|revoke|key/i.test(n))).toEqual(["whoami"]);
+  });
+});
+
 describe("MCP authenticated tools", () => {
   it("list_resources without a request header returns not_authenticated", async () => {
     const list = registerAndCapture().get("list_resources")!;
@@ -1009,6 +1157,7 @@ describe("MCP tool annotations", () => {
       "get_deployment",
       "wait_for_deployment",
       "list_resources",
+      "whoami",
     ]) {
       expect(tools.get(name)?.annotations, name).toMatchObject({
         readOnlyHint: true,

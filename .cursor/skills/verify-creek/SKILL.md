@@ -119,4 +119,4 @@ RUN_ENV=$(.cursor/skills/verify-creek/scripts/launch.sh)
 .cursor/skills/verify-creek/scripts/cleanup.sh "$RUN_ENV"
 ```
 
-`creek.sh` extra flags, before `--`: `--cwd DIR` (default `$VERIFY_CREEK_WORK`), `--evidence DIR`.
+`creek.sh` extra flags, before `--`: `--cwd DIR` (default `$VERIFY_CREEK_WORK`), `--evidence DIR`, `--creek-token VALUE` (sets `CREEK_TOKEN`, possibly empty, for that one drive; only for recipes that test `CREEK_TOKEN`, with keys minted by the local control-plane). `env.txt` records it as `CREEK_TOKEN_SET=yes`. `scripts/test-creek-sh.sh` checks this with a stub binary (no build, no API).

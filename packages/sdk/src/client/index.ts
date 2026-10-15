@@ -85,6 +85,29 @@ export class CreekClient {
     }
   }
 
+  // --- The API key in use ---
+
+  /**
+   * The key this client authenticates with, as the API sees it: its team
+   * and scopes (null for a legacy key), the scopes the owner's current role
+   * still lets it use, expiry and last use. Needs no scope.
+   *
+   * Throws CreekAuthError (401) for a key the API does not accept. A server
+   * that predates key management answers with an error that
+   * isApiKeySelfUnsupported() recognises.
+   */
+  async getApiKeySelf(): Promise<ApiKeySelf> {
+    return this.request("GET", "/api-keys/self");
+  }
+
+  /**
+   * Revoke the key this client authenticates with. Every later request with
+   * it gets 401, including a second revoke (CreekAuthError).
+   */
+  async revokeApiKeySelf(): Promise<{ revoked: true; id: string }> {
+    return this.request("DELETE", "/api-keys/self");
+  }
+
   // --- Projects ---
 
   async listProjects(): Promise<Project[]> {
@@ -671,6 +694,49 @@ export class CreekClient {
   async activateDomain(projectId: string, domainId: string): Promise<ActivateDomainResult> {
     return this.request("POST", `/projects/${projectId}/domains/${domainId}/activate`);
   }
+}
+
+/** The team a scoped key is pinned to. */
+export interface ApiKeyTeam {
+  id: string;
+  slug: string | null;
+}
+
+/** GET /api-keys/self: the key making the request. */
+export interface ApiKeySelf {
+  id: string;
+  name: string | null;
+  /** The first characters of the key, as stored at creation. */
+  start: string | null;
+  prefix: string | null;
+  /** A legacy key has no scopes and carries its owner's full access in every team. */
+  legacy: boolean;
+  /** The pinned team; null for a legacy key. */
+  team: ApiKeyTeam | null;
+  /** Stored scopes; null for a legacy key. */
+  scopes: string[] | null;
+  /** The owner's current role in the pinned team (null: legacy, or no longer a member). */
+  role: string | null;
+  /** Scopes the key can use now (its scopes the owner's role still allows); null for a legacy key. */
+  effectiveScopes: string[] | null;
+  access: "scoped" | "full" | "none";
+  enabled: boolean;
+  expiresAt: string | null;
+  expired: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  warning?: string;
+  unreadable?: true;
+}
+
+/**
+ * Whether a failed getApiKeySelf / revokeApiKeySelf means the server has no
+ * such endpoint (it predates key management): a 404 or 405, or a route the
+ * server will not open to API keys at all.
+ */
+export function isApiKeySelfUnsupported(err: unknown): boolean {
+  if (!(err instanceof CreekApiError)) return false;
+  return err.status === 404 || err.status === 405 || err.code === "route_not_scoped";
 }
 
 /**

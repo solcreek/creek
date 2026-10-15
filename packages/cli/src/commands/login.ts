@@ -2,16 +2,16 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { execFileSync } from "node:child_process";
 import { CreekClient } from "@solcreek/sdk";
-import { writeCliConfig, readCliConfig, getApiUrl } from "../utils/config.js";
+import {
+  writeCliConfig,
+  readCliConfig,
+  getApiUrl,
+  getDashboardUrl,
+  getTokenInfo,
+} from "../utils/config.js";
 import { startAuthServer } from "../utils/auth-server.js";
 import { globalArgs, resolveJsonMode, jsonOutput, isTTY } from "../utils/output.js";
-
-function getDashboardUrl(): string {
-  const apiUrl = getApiUrl();
-  // http://localhost:8787 → http://localhost:3000
-  // https://api.creek.dev → https://app.creek.dev
-  return apiUrl.replace("api.", "app.").replace(":8787", ":3000");
-}
+import { envOverrideWarning } from "../utils/api-key.js";
 
 function openBrowser(url: string): void {
   try {
@@ -126,7 +126,10 @@ async function headlessLogin() {
  */
 async function saveAndVerify(apiKey: string, jsonMode = false) {
   if (!jsonMode) consola.start("Verifying...");
-  const client = new CreekClient(getApiUrl(), apiKey);
+  // One URL for both: the key is bound to exactly the API that verified it,
+  // even if the configured API changes while getSession() is pending.
+  const apiUrl = getApiUrl();
+  const client = new CreekClient(apiUrl, apiKey);
   const session = await client.getSession();
 
   if (!session?.user) {
@@ -142,15 +145,41 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   }
 
   const config = readCliConfig();
-  writeCliConfig({ ...config, token: apiKey });
+  // Bind the key to the API it was verified against: getToken() refuses
+  // to send it to any other (api_mismatch).
+  writeCliConfig({ ...config, token: apiKey, tokenApiUrl: apiUrl });
+
+  // CREEK_TOKEN wins over the key just saved; say so instead of letting
+  // every later command silently use another key.
+  const info = getTokenInfo();
+  const warning = envOverrideWarning(info);
 
   if (jsonMode) {
-    jsonOutput({ ok: true, user: session.user.name, email: session.user.email }, 0, [
-      { command: "creek projects", description: "List your projects" },
-      { command: "creek deploy --sandbox --json", description: "Deploy a 60-minute preview" },
-      { command: "creek whoami", description: "Verify authenticated user" },
-    ]);
+    jsonOutput(
+      {
+        ok: true,
+        user: session.user.name,
+        email: session.user.email,
+        saved: true,
+        tokenSource: info.source,
+        ...(warning ? { warning } : {}),
+      },
+      0,
+      [
+        ...(warning
+          ? [{ command: "unset CREEK_TOKEN", description: "Use the key this login saved" }]
+          : []),
+        { command: "creek projects", description: "List your projects" },
+        { command: "creek deploy --sandbox --json", description: "Deploy a 60-minute preview" },
+        { command: "creek whoami --json", description: "Show the user and the API key in use" },
+      ],
+    );
   }
 
   consola.success(`Logged in as ${session.user.name} (${session.user.email})`);
+  if (warning) {
+    consola.warn(
+      "CREEK_TOKEN is set in this environment and will keep winning: every command uses it, not the key saved now. Unset CREEK_TOKEN to use the saved key.",
+    );
+  }
 }

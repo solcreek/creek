@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Spawn the isolated creek binary the way a user would.
-# Usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] -- <creek args>
+# Usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] [--creek-token VALUE] -- <creek args>
+#
+# --creek-token sets CREEK_TOKEN (VALUE may be empty) for this one drive,
+# after load_run_env has removed the caller's. Use it only to prove how the
+# CLI treats CREEK_TOKEN; never pass a real key.
 set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 if [[ "${1:-}" == "" ]]; then
-  echo "usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] -- <creek args>" >&2
+  echo "usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] [--creek-token VALUE] -- <creek args>" >&2
   exit 2
 fi
 load_run_env "$1"
@@ -14,8 +18,16 @@ shift
 
 cwd="$VERIFY_CREEK_WORK"
 evidence=""
+drive_token_set=0
+drive_token=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --creek-token)
+      [[ $# -ge 2 ]] || { echo "--creek-token requires a value (may be empty)" >&2; exit 2; }
+      drive_token_set=1
+      drive_token="$2"
+      shift 2
+      ;;
     --cwd)
       cwd="${2:?--cwd requires a directory}"
       shift 2
@@ -29,7 +41,7 @@ while [[ $# -gt 0 ]]; do
       break
       ;;
     *)
-      echo "usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] -- <creek args>" >&2
+      echo "usage: creek.sh <run.env> [--cwd DIR] [--evidence DIR] [--creek-token VALUE] -- <creek args>" >&2
       exit 2
       ;;
   esac
@@ -43,6 +55,9 @@ if [[ ! -d "$cwd" ]]; then
   echo "creek.sh: cwd does not exist: $cwd" >&2
   exit 1
 fi
+
+# Exported here, not in the drive's subshell, so env.txt below records it.
+if [[ "$drive_token_set" == "1" ]]; then export CREEK_TOKEN="$drive_token"; fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/verify-creek-cmd.XXXXXX")"
 # Always capture; copy into --evidence if requested. tmp is command scratch,

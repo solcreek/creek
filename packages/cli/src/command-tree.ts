@@ -1,6 +1,8 @@
 import { defineCommand, type CommandDef } from "citty";
 import { loginCommand } from "./commands/login.js";
 import { whoamiCommand } from "./commands/whoami.js";
+import { logoutCommand } from "./commands/logout.js";
+import { keysCommand } from "./commands/keys.js";
 import { initCommand } from "./commands/init.js";
 import { deployCommand } from "./commands/deploy.js";
 import { claimCommand } from "./commands/claim.js";
@@ -54,6 +56,8 @@ export function createMain(version: string) {
       verify: verifyCommand,
       login: withDestructive(loginCommand, false),
       whoami: withDestructive(whoamiCommand, false),
+      logout: logoutCommand,
+      keys: keysCommand,
       // Overwrites an existing creek.toml (asks first in a TTY, not with --yes).
       init: withDestructive(initCommand, true),
       claim: claimCommand,

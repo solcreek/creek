@@ -215,6 +215,39 @@ creek login --token <key>       # Non-interactive (CI/CD)
 creek login --json
 ```
 
+The key is saved in `~/.creek/config.json`. The `CREEK_TOKEN` environment variable, when set, wins over it for every command; `creek login` warns when that is the case (`warning` in `--json` output).
+
+### `creek logout`
+
+Forget the saved API key.
+
+```bash
+creek logout              # The key stays valid; revoke it later in the dashboard
+creek logout --revoke     # Revoke the active key, then forget the saved one
+creek logout --revoke --json
+```
+
+`--revoke` revokes one key: the active one, which `creek whoami` shows.
+
+- If `CREEK_TOKEN` is set and `creek login` saved a different key, it stops with `ambiguous_credentials` and sends nothing. Run `unset CREEK_TOKEN && creek logout --revoke` to revoke the saved key, or `creek keys revoke --self` to revoke the `CREEK_TOKEN` key.
+- Re-running it is safe: a key that is already revoked or expired reports `reason: "already_invalid"`.
+- Only a success or a 401 is a known outcome. Anything else (a dropped connection, a 5xx, a 404 from an older API) keeps the key and exits 1 with `mayHaveApplied: true`: run it again.
+- The saved key is removed only if it is still the one in the config; a `creek login` that ran meanwhile is kept.
+
+`creek login` binds the saved key to the API it was verified against. Every command sends it only there: if `CREEK_API_URL` (or the config's `apiUrl`) points elsewhere, the command stops with `api_mismatch` before any request. A key saved by an older version is not bound to any API and keeps working against the API in use; `creek whoami` shows `keyBinding: "unbound"` until you run `creek login` again against the intended API. `CREEK_TOKEN` is not bound.
+
+### `creek keys`
+
+The API key in use.
+
+```bash
+creek keys self --json             # Kind, team, scopes, effective scopes, expiry, last use
+creek keys revoke --self           # Revoke it (asks first in a terminal)
+creek keys revoke --self --dry-run
+```
+
+The CLI authenticates with an API key, and a key can read and revoke only itself. Creating, listing and revoking other keys needs a signed-in session: use the dashboard (**API Keys**). `creek keys ls` and `creek keys create` exit with `error: "session_required"` and the dashboard URL.
+
 ### `creek init`
 
 Create a `creek.toml` configuration file. A directory with only `index.html` (no `package.json`) gets a no-build config that deploys the directory as is.
@@ -281,12 +314,14 @@ creek domains add app.example.com --project my-app  # Specify project
 
 ### `creek whoami`
 
-Show the currently authenticated user.
+Show the authenticated user, the API key in use and where it comes from.
 
 ```bash
 creek whoami
 creek whoami --json
 ```
+
+`--json` output includes `tokenSource` (`env:CREEK_TOKEN` or `config`) and `key`: `id`, `name`, `kind` (`legacy` — full access in every team — or `scoped` to one `team`), `scopes`, `effectiveScopes` (the scopes your current team role still allows), `expiresAt` and `lastUsedAt`. Against an API that cannot describe keys, `key` is `null` and `keyLookup` says why; whoami still succeeds.
 
 ## Configuration
 

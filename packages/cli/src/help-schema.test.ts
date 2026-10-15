@@ -263,6 +263,11 @@ const REVIEWED_DESTRUCTIVE: Record<string, boolean> = {
   verify: false,
   login: false, // replaces only the locally stored key
   whoami: false,
+  logout: true, // --revoke revokes keys on the server
+  "keys self": false,
+  "keys ls": false, // only answers session_required, locally
+  "keys create": false, // only answers session_required, locally
+  "keys revoke": true,
   init: true, // overwrites an existing creek.toml (no prompt with --yes)
   claim: false,
   "env set": true, // overwrites the key's value for the target

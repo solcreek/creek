@@ -35,6 +35,10 @@ you meant to target.
 | Authenticate (CI / agent) | `creek login --token <KEY> --json` |
 | Authenticate (human) | `creek login` |
 | Check auth | `creek whoami --json` |
+| Show the API key in use | `creek keys self --json` |
+| Log out (key stays valid) | `creek logout --json` |
+| Log out and revoke the key | `creek logout --revoke --json` |
+| Revoke the key in use | `creek keys revoke --self --json` |
 | Init project | `creek init --json` |
 | Preview deploy plan | `creek deploy --dry-run --json` |
 | Deploy sandbox | `creek deploy --sandbox --json` |
@@ -93,6 +97,78 @@ you meant to target.
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
 | Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running: follow its `deploymentId` with `creek deployments wait <ID> --json`) |
+
+## API keys
+
+The CLI authenticates every request with an API key. `CREEK_TOKEN`, when
+set (even empty), wins over the key `creek login --token` saved in
+`~/.creek/config.json`; `creek login` then returns a `warning` saying so.
+
+`creek login` binds the saved key to the API it was verified against
+(`tokenApiUrl` in the config). Every command sends a bound key only to that
+API: when the CLI would talk to another one (`CREEK_API_URL`, or the
+config's `apiUrl`), any command that needs the key exits 1 with
+`error: "api_mismatch"`, `savedKeyApiUrl` and `apiUrl`, before any request.
+A key saved by an older CLI is unbound (its API is unknown): it is sent to
+the API in use, as before, and `whoami` reports `keyBinding: "unbound"` —
+run `creek login --token <KEY>` again against the intended API to bind it.
+`CREEK_TOKEN` is never bound: it is sent to the API in use.
+
+`creek whoami --json` says which key is in use:
+
+```json
+{
+  "ok": true,
+  "email": "owner@example.com",
+  "tokenSource": "env:CREEK_TOKEN",
+  "key": {
+    "id": "…", "name": "ci", "kind": "scoped",
+    "team": { "id": "…", "slug": "acme" },
+    "scopes": ["env:read", "env:write", "project:read"],
+    "effectiveScopes": ["env:read", "project:read"],
+    "expiresAt": "2027-01-01T00:00:00.000Z", "lastUsedAt": "…"
+  },
+  "warning": "CREEK_TOKEN is set: it overrides the key saved by `creek login` …"
+}
+```
+
+- `tokenSource`: `env:CREEK_TOKEN` or `config`.
+- `kind: "legacy"`: no scopes, the owner's full access in every team (`scopes`
+  and `effectiveScopes` are `null`, `key.warning` says it will be retired).
+  `kind: "scoped"`: pinned to `team`; `effectiveScopes` is what the key can
+  use now (its scopes the owner's current role still allows). Check it before
+  a write instead of waiting for `insufficient_scope`.
+- `key: null` with `keyLookup.error: "server_unsupported"` means the API
+  predates key details; whoami still exits 0.
+- `error: "key_unusable"` (exit 1) with `key.access: "none"`: the API knows
+  the key but refuses to act with it (its owner left the pinned team, or its
+  scopes are unreadable); `message` says which. Revoke it and use another key.
+
+A key can read and revoke only itself. Minting, listing and revoking other
+keys need a signed-in dashboard session, which the CLI never holds:
+`creek keys ls` and `creek keys create` exit 1 with
+`error: "session_required"` and `dashboardUrl`, without calling the API.
+
+`creek logout` forgets the saved key, but the key stays valid
+(`keyStillValid: true`). Once forgotten it can only be revoked in the
+dashboard (`dashboardUrl`), so prefer `--revoke`.
+
+`creek logout --revoke` revokes one key: the active one, the key `whoami`
+uses (`source`, `keyPrefix`, `revoked`, `keyId` or `reason`).
+
+- `CREEK_TOKEN` set (even empty) and a different saved key:
+  `error: "ambiguous_credentials"`, nothing sent. Pick one:
+  `unset CREEK_TOKEN && creek logout --revoke --json` (the saved key), or
+  `creek keys revoke --self --json` (the `CREEK_TOKEN` key).
+- Only a 2xx (`revoked: true`) or a 401 (`revoked: false`,
+  `reason: "already_invalid"`) is a known outcome; both clear the saved key.
+  Anything else exits 1 with `mayHaveApplied: true` and keeps the key:
+  re-run `creek logout --revoke --json` (a revoked key then answers
+  `already_invalid`).
+- The saved key is removed only if the config still holds that exact key; a
+  `creek login` that ran meanwhile is kept (`configCleared: false`,
+  `configReason: "changed_during_logout"`).
+- With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
 
 ## JSON Output Format
 
