@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -248,6 +248,26 @@ describe("creek deployments wait <id>", () => {
       status: 503,
     });
     expect(commands()).toEqual([`creek deployments wait ${FULL} --json`]);
+  });
+
+  it("a timeout before the first read finishes still says final: false", async () => {
+    server.use(
+      http.get(`${API}/projects/site/deployments/${FULL}`, async () => {
+        await delay(5000);
+        return HttpResponse.json(deployment());
+      }),
+    );
+    const code = await runExit(sub("wait").run!({ args: { id: FULL, timeout: "1s" } } as never));
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "timeout",
+      retryable: true,
+      deploymentId: FULL,
+      status: null,
+      terminal: false,
+      final: false,
+    });
   });
 
   it("rejects an unparseable --timeout before any request", async () => {
