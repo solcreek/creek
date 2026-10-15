@@ -360,6 +360,7 @@ deployments.put(
             )
           ).map((r) => r.key),
           varKeys: Object.keys(vars ?? {}),
+          renderMode: parsedBundle.manifest.renderMode,
         },
       );
       if (plan.conflicts.length > 0) {
