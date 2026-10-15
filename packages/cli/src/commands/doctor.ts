@@ -1,13 +1,13 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { runDoctor, type DoctorReport, type Finding } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import { projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
 
 /**
  * `creek doctor` — pre-deploy sanity check.
@@ -40,7 +40,8 @@ export const doctorCommand = defineCommand({
     },
     project: {
       type: "string",
-      description: "Project slug for --last (default: read from creek.toml in cwd)",
+      description:
+        "Project slug for --last (default: the project the directory names — creek.toml, wrangler config or package.json name; never the directory name)",
       required: false,
     },
     ...globalArgs,
@@ -88,14 +89,6 @@ export const doctorCommand = defineCommand({
     if (!report.ok) process.exit(1);
   },
 });
-
-function safeRead(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
 
 // ─── Human output ───────────────────────────────────────────────────────
 
@@ -232,22 +225,11 @@ async function runLastFailureDiagnosis(opts: {
     process.exit(1);
   }
 
-  // Resolve project slug — prefer --project, fall back to creek.toml
-  let slug = opts.project;
-  if (!slug) {
-    const creekToml = join(opts.cwd, "creek.toml");
-    if (existsSync(creekToml)) {
-      const raw = safeRead(creekToml);
-      const match = raw?.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
-      if (match) slug = match[1];
-    }
-  }
-  if (!slug) {
-    const msg = "No project slug. Pass --project <slug> or run from a directory with creek.toml.";
-    if (opts.jsonMode) jsonOutput({ ok: false, error: "no_project", message: msg }, 1);
-    consola.error(msg);
-    process.exit(1);
-  }
+  // Resolve project slug — prefer --project, else the name the analysed
+  // directory's config gives (creek.toml, wrangler, package.json); never the
+  // directory name. Same no_project / invalid_config exits as every project
+  // command.
+  const { slug, source: projectSource } = resolveProject(opts.project, opts.jsonMode, opts.cwd);
 
   const client = new CreekClient(getApiUrl(), token);
 
@@ -267,7 +249,8 @@ async function runLastFailureDiagnosis(opts: {
   const failed = deployments.find((d) => d.status === "failed");
   if (!failed) {
     const msg = `No failed deployments for ${slug}. Last ${deployments.length} deploys succeeded.`;
-    if (opts.jsonMode) jsonOutput({ ok: true, project: slug, failed: null, message: msg }, 0);
+    if (opts.jsonMode)
+      jsonOutput({ ok: true, project: slug, projectSource, failed: null, message: msg }, 0);
     consola.log("");
     consola.log(`  ${c("⬡ creek doctor --last", "bold")}  ${c(slug, "dim")}`);
     consola.log(`  ${c("✓", "green")} ${msg}`);
@@ -298,6 +281,7 @@ async function runLastFailureDiagnosis(opts: {
       {
         ok: true,
         project: slug,
+        projectSource,
         failed: {
           id: failed.id,
           version: failed.version,
@@ -311,9 +295,9 @@ async function runLastFailureDiagnosis(opts: {
         },
       },
       0,
-      [
+      projectBreadcrumbs(slug, [
         {
-          command: `creek deployments logs ${failed.id.slice(0, 8)} --json`,
+          command: `creek deployments logs ${failed.id.slice(0, 8)} --project ${slug} --json`,
           description: "Read the full build log",
         },
         {
@@ -324,7 +308,7 @@ async function runLastFailureDiagnosis(opts: {
           command: "creek deploy --sandbox --json",
           description: "Or preview the fix in a sandbox",
         },
-      ],
+      ]),
     );
     return;
   }

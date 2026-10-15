@@ -9,6 +9,19 @@ Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 
+Project commands (`env`, `status`, `deployments`, `logs`, `metrics`,
+`domains`, `queue`, `rollback`, `db shell`/`db migrate`, `doctor --last`)
+act on the project the directory names: `--project <SLUG>` (every one
+accepts it, and it wins), else `creek.toml` `[project].name`, else the
+wrangler config's `name`, else the framework `package.json` `name`. They
+never fall back to the directory name: a static site (`index.html`) or a
+wrangler config / package.json without `name` exits
+`{"ok":false,"error":"no_project","foundConfig":"<file>"}`, as does a
+directory with no config. Pass `--project` (find the slug with
+`creek projects --json`). The JSON output carries `projectSource`
+(`flag`, `creek.toml`, `wrangler` or `package.json`): check it says what
+you meant to target.
+
 | Task | Command |
 |------|---------|
 | Authenticate (CI / agent) | `creek login --token <KEY> --json` |
@@ -28,6 +41,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Verify a preview URL is live | `creek verify <url> --json` |
 | Verify with markup assert | `creek verify <url> --json --contains "unique text"` |
 | Check status | `creek status --json` |
+| Check status (other project) | `creek status --project <SLUG> --json` |
 | Check sandbox | `creek status <SANDBOX_ID> --json` |
 | Claim sandbox | `creek claim <SANDBOX_ID> --json` |
 | List projects | `creek projects --json` |
@@ -37,6 +51,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Preview rollback | `creek rollback --dry-run --json` |
 | Rollback to specific | `creek rollback <DEPLOYMENT_ID> --json` |
 | Set env var | `creek env set <KEY> <VALUE> --json` |
+| Set env var (other project) | `creek env set <KEY> <VALUE> --project <SLUG> --json` |
 | Production-only secret | `creek env set <KEY> <VALUE> --target production --json` |
 | Preview-only value | `creek env set <KEY> <VALUE> --target preview --json` |
 | Remove one target's value | `creek env rm <KEY> --target <production\|preview\|all> --json` |

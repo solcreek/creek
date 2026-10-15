@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
-import { resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import { resolveProject, apiCall, projectArg } from "../utils/command-context.js";
 import {
   CreekdClient,
   CreekdResourceVersionMismatchError,
@@ -32,10 +32,7 @@ export const rollbackCommand = defineCommand({
       alias: "m",
       description: "Rollback reason (stored in audit log)",
     },
-    project: {
-      type: "string",
-      description: "Project slug (default: from creek.toml)",
-    },
+    ...projectArg,
     host: {
       type: "string",
       description:
@@ -90,7 +87,10 @@ export const rollbackCommand = defineCommand({
       process.exit(1);
     }
 
-    const projectSlug = resolveProjectSlug(args.project as string | undefined, jsonMode);
+    const { slug: projectSlug, source: projectSource } = resolveProject(
+      args.project as string | undefined,
+      jsonMode,
+    );
     const client = new CreekClient(getApiUrl(), token);
 
     const deploymentId = args.deployment as string | undefined;
@@ -145,6 +145,7 @@ export const rollbackCommand = defineCommand({
         command: deploymentId ? `creek rollback ${deploymentId}` : "creek rollback",
         wouldExecute,
         project: projectSlug,
+        projectSource,
         currentDeploymentId: productionId,
         targetDeploymentId: target?.id ?? null,
         targetStatus: target?.status ?? null,
@@ -178,8 +179,11 @@ export const rollbackCommand = defineCommand({
       });
 
       if (jsonMode) {
-        jsonOutput(result, 0, [
-          { command: `creek status`, description: "Verify rollback status" },
+        jsonOutput({ ...result, project: projectSlug, projectSource }, 0, [
+          {
+            command: `creek status --project ${projectSlug}`,
+            description: "Verify rollback status",
+          },
           {
             command: `creek deployments --project ${projectSlug}`,
             description: "View deployment history",

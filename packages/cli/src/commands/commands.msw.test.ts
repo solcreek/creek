@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { CreekClient } from "@solcreek/sdk";
 import { statusCommand } from "./status.js";
 import { opsCommand } from "./ops.js";
@@ -11,6 +11,14 @@ import { claimCommand } from "./claim.js";
 import { envCommand } from "./env.js";
 import { resolveShellDatabase } from "./db.js";
 import { projectsCommand } from "./projects.js";
+import { domainsCommand } from "./domains.js";
+import { doctorCommand } from "./doctor.js";
+import { logsCommand } from "./logs.js";
+import { metricsCommand } from "./metrics.js";
+import { queueCommand } from "./queue.js";
+import { deploymentsCommand } from "./deployments.js";
+import { rollbackCommand } from "./rollback.js";
+import { dbCommand } from "./db.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -82,6 +90,60 @@ describe("creek status (project)", () => {
   afterEach(() => {
     process.chdir(prevCwd);
     rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("says the project came from creek.toml", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "demo",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+      // The binding-drift check (cwd is this cf project).
+      http.get(`${API}/projects/demo/bindings`, () => HttpResponse.json({ bindings: [] })),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
+    // The cwd is this project, so a bare deploy is the right next step.
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain("creek deploy");
+  });
+
+  it("--project naming another project never suggests a bare deploy (it would ship the cwd's)", async () => {
+    const other = {
+      id: "p2",
+      slug: "other",
+      framework: null,
+      production_deployment_id: null,
+      created_at: 0,
+    };
+    server.use(http.get(`${API}/projects/other`, () => HttpResponse.json(other)));
+    expect(await runExit(statusCommand.run!({ args: { project: "other" } } as never))).toBe(0);
+    let commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+    expect(commands.some((c: string) => /^creek deploy( |$)/.test(c))).toBe(false);
+
+    stdout = "";
+    server.use(
+      http.get(`${API}/projects/gone`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(statusCommand.run!({ args: { project: "gone" } } as never))).toBe(1);
+    commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+    expect(commands.some((c: string) => /^creek deploy( |$)/.test(c))).toBe(false);
+  });
+
+  it("`domains ls` says where its project came from", async () => {
+    server.use(http.get(`${API}/projects/demo/domains`, () => HttpResponse.json([])));
+    const ls = (domainsCommand.subCommands as Record<string, { run?: (c: never) => unknown }>).ls;
+    const code = await runExit(Promise.resolve(ls.run!({ args: { _: [] } } as never)));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
   });
 
   it("reports a missing project (404) as not_found", async () => {
@@ -395,6 +457,445 @@ describe("creek env", () => {
     // The redeploy step must remain in the breadcrumbs.
     expect(JSON.stringify(out.breadcrumbs)).toContain("creek deploy");
   });
+
+  it("--project naming another project: set/ls/rm/unset never suggest a bare deploy", async () => {
+    // cwd is project "demo"; a bare `creek deploy` here would ship demo, not other.
+    server.use(
+      http.post(`${API}/projects/other/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+      http.get(`${API}/projects/other/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+      http.delete(`${API}/projects/other/env/K`, () => HttpResponse.json({ ok: true })),
+    );
+    const sub = envCommand.subCommands as Record<string, { run?: (c: never) => unknown }>;
+    const runs: [string, Record<string, unknown>][] = [
+      ["set", { key: "K", value: "v" }],
+      ["ls", { show: false }],
+      ["rm", { key: "K" }],
+      ["unset", { key: "K" }],
+    ];
+    for (const [name, args] of runs) {
+      stdout = "";
+      const code = await runExit(
+        Promise.resolve(sub[name].run!({ args: { ...args, project: "other", _: [] } } as never)),
+      );
+      expect(code, name).toBe(0);
+      const commands = json().breadcrumbs.map((b: { command: string }) => b.command);
+      expect(
+        commands.filter((c: string) => /^creek deploy( |$)/.test(c)),
+        name,
+      ).toEqual([]);
+    }
+  });
+});
+
+describe("creek env in a wrangler-only project", () => {
+  // No creek.toml: the project is the wrangler config's name, the same one
+  // `creek deploy` deploys as. Previously env failed here with no_project and
+  // pointed at a --project flag it did not accept.
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-env-wrangler-test-"));
+    writeFileSync(
+      join(projDir, "wrangler.jsonc"),
+      '{\n  // a worker\n  "name": "wrangler-app",\n  "main": "src/index.ts",\n  "compatibility_date": "2026-01-01"\n}\n',
+    );
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("`set` with no flags targets the wrangler name", async () => {
+    let body: unknown;
+    server.use(
+      http.post(`${API}/projects/wrangler-app/env`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ok: true, key: "K" });
+      }),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+    );
+    expect(code).toBe(0);
+    expect(body).toEqual({ key: "K", value: "v" });
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "K",
+      project: "wrangler-app",
+      projectSource: "wrangler",
+    });
+  });
+
+  it("`ls` and `rm` with no flags target the wrangler name", async () => {
+    server.use(
+      http.get(`${API}/projects/wrangler-app/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+      http.delete(`${API}/projects/wrangler-app/env/K`, () => HttpResponse.json({ ok: true })),
+    );
+    expect(
+      await runExit(envCommand.subCommands!.ls.run!({ args: { show: false, _: [] } } as never)),
+    ).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "wrangler-app", vars: [{ key: "K" }] });
+    stdout = "";
+    expect(
+      await runExit(envCommand.subCommands!.rm.run!({ args: { key: "K", _: [] } } as never)),
+    ).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "K",
+      removed: true,
+      project: "wrangler-app",
+      projectSource: "wrangler",
+    });
+  });
+
+  it("--project wins over the wrangler name and is carried into breadcrumbs", async () => {
+    server.use(
+      http.get(`${API}/projects/other/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.ls.run!({
+        args: { project: "other", show: false, _: [] },
+      } as never),
+    );
+    expect(code).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({ ok: true, project: "other", projectSource: "flag" });
+    const commands = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(commands).toContain("creek env rm K --project other");
+  });
+});
+
+describe("project commands in a directory whose config names no project", () => {
+  // resolveConfig would guess the directory name here. With no MSW handler
+  // registered, any API call fails the test (onUnhandledRequest: "error"), so
+  // these also prove nothing reached a project named after the directory.
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "web-"));
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("`status --project <the name deploy used>` still reports the local config and drift", async () => {
+    // A nameless wrangler config deploys under the directory name. Naming
+    // that project explicitly must show this directory's config, not drop it.
+    writeFileSync(
+      join(projDir, "wrangler.jsonc"),
+      JSON.stringify({
+        main: "src/index.ts",
+        kv_namespaces: [{ binding: "CACHE", id: "x" }],
+        triggers: { crons: ["*/5 * * * *"] },
+      }),
+    );
+    const slug = basename(projDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-");
+    let driftChecked = false;
+    server.use(
+      http.get(`${API}/projects/${slug}`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug,
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+      http.get(`${API}/projects/${slug}/bindings`, () => {
+        driftChecked = true;
+        return HttpResponse.json({ bindings: [] });
+      }),
+    );
+    const code = await runExit(statusCommand.run!({ args: { project: slug } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      project: slug,
+      projectSource: "flag",
+      config: "wrangler.jsonc",
+      bindings: ["kv"],
+      cron: ["*/5 * * * *"],
+    });
+    expect(driftChecked).toBe(true);
+  });
+
+  const layouts: [string, (dir: string) => void, string][] = [
+    ["index.html only", (d) => writeFileSync(join(d, "index.html"), "<h1>hi</h1>"), "index.html"],
+    [
+      "wrangler.jsonc without name",
+      (d) =>
+        writeFileSync(
+          join(d, "wrangler.jsonc"),
+          '{ "main": "src/index.ts", "compatibility_date": "2026-01-01" }',
+        ),
+      "wrangler.jsonc",
+    ],
+  ];
+  for (const [label, setup, file] of layouts) {
+    it(`${label}: \`env set\` (mutating) is no_project`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+      );
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+
+    it(`${label}: \`status\` (read) is no_project`, async () => {
+      setup(projDir);
+      const code = await runExit(statusCommand.run!({ args: {} } as never));
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+
+    it(`${label}: db shell inference is no_project with foundConfig, not no_database_specified`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        resolveShellDatabase(new CreekClient(API, "tok"), { jsonMode: true }),
+      );
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+      expect(out.message).toContain("never use the directory name");
+    });
+
+    it(`${label}: \`doctor --last\` is no_project with foundConfig`, async () => {
+      setup(projDir);
+      const code = await runExit(
+        Promise.resolve(doctorCommand.run!({ args: { last: true, _: [] } } as never)),
+      );
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "no_project", foundConfig: file });
+    });
+  }
+});
+
+describe("every project command reports projectSource", () => {
+  // Table-driven: run each project command with --project from a directory
+  // with no config, and read projectSource from its JSON output. The source
+  // scan in command-context.test.ts makes sure a new project command lands
+  // in this table.
+  let dir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    dir = mkdtempSync(join(tmpdir(), "creek-project-source-"));
+    process.chdir(dir);
+    process.env.CREEK_TOKEN = "tok";
+    const dep = "00000000-0000-4000-8000-000000000001";
+    server.use(
+      http.post(`${API}/projects/p/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+      http.get(`${API}/projects/p/env`, () => HttpResponse.json([])),
+      http.delete(`${API}/projects/p/env/K`, () => HttpResponse.json({ ok: true })),
+      http.get(`${API}/projects/p`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "p",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+      http.get(`${API}/projects/p/domains`, () => HttpResponse.json([])),
+      http.get(`${API}/projects/p/logs`, () =>
+        HttpResponse.json({
+          entries: [{ v: 1, timestamp: 1, project: "p", outcome: "ok", logs: [], exceptions: [] }],
+          truncated: false,
+        }),
+      ),
+      http.get(`${API}/projects/p/metrics`, () => HttpResponse.json({ period: "24h" })),
+      http.post(`${API}/projects/p/queue/send`, () => HttpResponse.json({ queueId: "q1" })),
+      http.get(`${API}/projects/p/deployments`, () => HttpResponse.json([])),
+      http.get(`${API}/projects/p/deployments/${dep}/logs`, () =>
+        HttpResponse.json({ entries: [], metadata: null }),
+      ),
+      http.post(`${API}/projects/p/rollback`, () =>
+        HttpResponse.json({
+          ok: true,
+          deploymentId: "d2",
+          rolledBackTo: dep,
+          previousDeploymentId: "d1",
+          url: "https://p.test",
+        }),
+      ),
+      http.get(`${API}/projects/p/bindings`, () =>
+        HttpResponse.json({
+          bindings: [
+            {
+              bindingName: "DB",
+              resourceId: "res-1",
+              kind: "database",
+              name: "db-1",
+              status: "active",
+              createdAt: 0,
+            },
+          ],
+        }),
+      ),
+      http.post(`${API}/resources/res-1/query`, () =>
+        HttpResponse.json({
+          columns: [],
+          rows: [],
+          meta: { changes: 0, duration: 1, rows_read: 0, rows_written: 0 },
+        }),
+      ),
+    );
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  type Cmd = { run?: (c: never) => unknown; subCommands?: unknown };
+  const sub = (cmd: Cmd, name: string) => (cmd.subCommands as Record<string, Cmd>)[name];
+  const dep = "00000000-0000-4000-8000-000000000001";
+  const table: [string, () => Cmd, Record<string, unknown>][] = [
+    ["env set", () => sub(envCommand as Cmd, "set"), { key: "K", value: "v" }],
+    ["env ls", () => sub(envCommand as Cmd, "ls"), { show: false }],
+    ["env rm", () => sub(envCommand as Cmd, "rm"), { key: "K" }],
+    ["status", () => statusCommand as Cmd, {}],
+    ["domains ls", () => sub(domainsCommand as Cmd, "ls"), {}],
+    ["logs", () => logsCommand as Cmd, {}],
+    ["metrics", () => metricsCommand as Cmd, {}],
+    ["queue send", () => sub(queueCommand as Cmd, "send"), { message: "hi", parseJson: false }],
+    ["deployments list", () => sub(deploymentsCommand as Cmd, "list"), {}],
+    ["deployments logs", () => sub(deploymentsCommand as Cmd, "logs"), { id: dep, raw: false }],
+    ["rollback", () => rollbackCommand as Cmd, { deployment: dep }],
+    ["doctor --last", () => doctorCommand as Cmd, { last: true }],
+    ["db shell --sql", () => sub(dbCommand as Cmd, "shell"), { sql: "SELECT 1" }],
+    [
+      "db migrate (no files)",
+      () => sub(dbCommand as Cmd, "migrate"),
+      { dir: ".", "dry-run": false, resume: false },
+    ],
+  ];
+
+  for (const [name, cmd, args] of table) {
+    it(`creek ${name} --project p says projectSource: "flag"`, async () => {
+      try {
+        await cmd().run!({ args: { ...args, project: "p", _: [] } } as never);
+      } catch (err) {
+        if (!(err instanceof ExitSignal)) throw err;
+      }
+      // The first JSON document written. (Commands that wrap their success
+      // output in try/catch catch the stubbed process.exit and print a
+      // second, bogus error document after it; a real exit never returns.)
+      // For `logs --json` it is the first ndjson entry line.
+      const first = JSON.parse(stdout.split(/\n(?=\{)/)[0]);
+      expect(first).toMatchObject({ project: "p", projectSource: "flag" });
+      expect(first.ok, stdout).not.toBe(false);
+    });
+  }
+});
+
+describe("creek doctor --last with a malformed config", () => {
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-doctor-badconfig-"));
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  for (const [file, content] of [
+    ["creek.toml", "[project\nname ="],
+    ["wrangler.jsonc", '{ "name": "x", "main": '],
+  ]) {
+    it(`a broken ${file} is invalid_config with the diagnostic, not no_project`, async () => {
+      writeFileSync(join(projDir, file), content);
+      const code = await runExit(
+        Promise.resolve(doctorCommand.run!({ args: { last: true, _: [] } } as never)),
+      );
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+      expect(out.message).toMatch(/^Couldn't read the project config: \S/);
+    });
+  }
+});
+
+describe("project commands outside any project", () => {
+  let emptyDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    emptyDir = mkdtempSync(join(tmpdir(), "creek-no-project-test-"));
+    process.chdir(emptyDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  it("`env set` is no_project, and its hint is a flag env accepts", async () => {
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+    );
+    expect(code).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({ ok: false, error: "no_project" });
+    expect(out.message).toContain("--project");
+    expect(envCommand.subCommands!.set.args).toHaveProperty("project");
+    expect(Array.isArray(out.breadcrumbs)).toBe(true);
+  });
+
+  it("`env set --project` works from anywhere", async () => {
+    server.use(
+      http.post(`${API}/projects/named/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({
+        args: { key: "K", value: "v", project: "named", _: [] },
+      } as never),
+    );
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "named", projectSource: "flag" });
+  });
+
+  it("`status --project` reports the server side without a local config", async () => {
+    server.use(
+      http.get(`${API}/projects/named`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "named",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: { project: "named" } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      type: "project",
+      project: "named",
+      projectSource: "flag",
+      config: null,
+      bindings: [],
+    });
+  });
 });
 
 describe("db shell resolution (resolveShellDatabase)", () => {
@@ -426,7 +927,67 @@ describe("db shell resolution (resolveShellDatabase)", () => {
       ),
     );
     const db = await resolveShellDatabase(client(), { project: "hivemind", jsonMode: true });
-    expect(db).toEqual({ id: "res-d1", name: "creek-97d8c075" });
+    expect(db).toEqual({
+      id: "res-d1",
+      name: "creek-97d8c075",
+      project: "hivemind",
+      projectSource: "flag",
+    });
+  });
+
+  it("with no name or --project, infers the project from a wrangler-only directory", async () => {
+    const prevCwd = process.cwd();
+    const projDir = mkdtempSync(join(tmpdir(), "creek-db-wrangler-test-"));
+    writeFileSync(
+      join(projDir, "wrangler.toml"),
+      'name = "wr-app"\nmain = "src/index.ts"\ncompatibility_date = "2026-01-01"\n',
+    );
+    process.chdir(projDir);
+    try {
+      server.use(
+        http.get(`${API}/projects/wr-app/bindings`, () =>
+          HttpResponse.json({
+            bindings: [
+              {
+                bindingName: "DB",
+                resourceId: "res-wr",
+                kind: "database",
+                name: "creek-wr",
+                status: "active",
+                createdAt: 0,
+              },
+            ],
+          }),
+        ),
+      );
+      const db = await resolveShellDatabase(client(), { jsonMode: true });
+      expect(db).toEqual({
+        id: "res-wr",
+        name: "creek-wr",
+        project: "wr-app",
+        projectSource: "wrangler",
+      });
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(projDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a malformed wrangler config is invalid_config with the parser's diagnostic, not no_database_specified", async () => {
+    const prevCwd = process.cwd();
+    const projDir = mkdtempSync(join(tmpdir(), "creek-db-badconfig-test-"));
+    writeFileSync(join(projDir, "wrangler.jsonc"), '{ "name": "x", "main": ');
+    process.chdir(projDir);
+    try {
+      const code = await runExit(resolveShellDatabase(client(), { jsonMode: true }));
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+      expect(out.message).toMatch(/^Couldn't read the project config: \S/);
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(projDir, { recursive: true, force: true });
+    }
   });
 
   it("--project with no bound database exits with a structured error", async () => {

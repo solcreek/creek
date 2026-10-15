@@ -1,7 +1,13 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { requireClient, resolveProjectSlug, apiCall } from "../utils/command-context.js";
+import {
+  requireClient,
+  resolveProject,
+  apiCall,
+  projectArg,
+  projectBreadcrumbs,
+} from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import type { EnvTarget } from "@solcreek/sdk";
 
@@ -14,6 +20,14 @@ const targetArg = {
       "Which deploys get this value: production, preview (branch deploys) or all. Default: all",
   },
 };
+
+/**
+ * ` --project <slug>` when the user named the project, so the commands we hand
+ * back (breadcrumbs, dry-run next steps) target it from any directory.
+ */
+function projectFlag(project: unknown): string {
+  return typeof project === "string" && project ? ` --project ${project}` : "";
+}
 
 /** Parse --target, or exit with invalid_target. */
 function parseTarget(
@@ -53,19 +67,22 @@ const envSet = defineCommand({
     value: { type: "positional", description: "Variable value", required: true },
     ...targetArg,
     ...dryRunArg,
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const target = parseTarget(jsonMode, args.target, "all")!;
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(undefined, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const targetFlag = target === "all" ? "" : ` --target ${target}`;
+    const pf = projectFlag(args.project);
     if (isDryRun(args)) {
       emitDryRunPlan(jsonMode, {
-        command: `creek env set ${args.key} '$VALUE'${targetFlag}`,
+        command: `creek env set ${args.key} '$VALUE'${targetFlag}${pf}`,
         wouldExecute: true,
         project: slug,
+        projectSource,
         key: args.key,
         target,
         pendingDeploy: true,
@@ -74,7 +91,7 @@ const envSet = defineCommand({
           `Running deployments are unchanged until ${appliesOn(target)}`,
           "Replace $VALUE with the real secret; keep the single quotes",
         ],
-        nextStep: `creek env set ${args.key} '$VALUE'${targetFlag} --json`,
+        nextStep: `creek env set ${args.key} '$VALUE'${targetFlag}${pf} --json`,
       });
       return;
     }
@@ -96,12 +113,20 @@ const envSet = defineCommand({
     // structurally so an agent doesn't assume it took effect immediately.
     if (jsonMode)
       jsonOutput(
-        { ok: true, key: args.key, target, project: slug, applied: false, pendingDeploy: true },
+        {
+          ok: true,
+          key: args.key,
+          target,
+          project: slug,
+          projectSource,
+          applied: false,
+          pendingDeploy: true,
+        },
         0,
-        [
-          { command: "creek env ls --json", description: "List all environment variables" },
+        projectBreadcrumbs(slug, [
+          { command: `creek env ls${pf} --json`, description: "List all environment variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
-        ],
+        ]),
       );
     consola.success(`Set ${args.key}${target === "all" ? "" : ` for ${target} deploys`}`);
     // Env vars are injected at deploy time, so a change to a live project does
@@ -123,21 +148,23 @@ const envGet = defineCommand({
       description: "Show values in plaintext (default: redacted)",
       default: false,
     },
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(undefined, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
+    const pf = projectFlag(args.project);
 
     if (jsonMode) {
       const crumbs: Breadcrumb[] = [
-        { command: `creek env set <KEY> <VALUE>`, description: "Set an environment variable" },
+        { command: `creek env set <KEY> <VALUE>${pf}`, description: "Set an environment variable" },
       ];
       if (vars.length > 0) {
         crumbs.push({
-          command: `creek env rm ${vars[0].key}`,
+          command: `creek env rm ${vars[0].key}${pf}`,
           description: `Remove ${vars[0].key}`,
         });
       }
@@ -149,6 +176,7 @@ const envGet = defineCommand({
         {
           ok: true,
           project: slug,
+          projectSource,
           vars: vars.map((v) => ({
             key: v.key,
             target: v.target ?? "all",
@@ -156,7 +184,7 @@ const envGet = defineCommand({
           })),
         },
         0,
-        crumbs,
+        projectBreadcrumbs(slug, crumbs),
       );
     }
 
@@ -186,14 +214,16 @@ const envRm = defineCommand({
         "Remove only the value for production, preview or all. Default: every value of the key",
     },
     ...dryRunArg,
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const target = parseTarget(jsonMode, args.target);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(undefined, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const targetFlag = target ? ` --target ${target}` : "";
+    const pf = projectFlag(args.project);
     if (isDryRun(args)) {
       const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
       const matching = vars
@@ -201,9 +231,10 @@ const envRm = defineCommand({
         .map((v) => v.target ?? "all");
       const exists = matching.length > 0;
       emitDryRunPlan(jsonMode, {
-        command: `creek env rm ${args.key}${targetFlag}`,
+        command: `creek env rm ${args.key}${targetFlag}${pf}`,
         wouldExecute: exists,
         project: slug,
+        projectSource,
         key: args.key,
         targets: matching,
         exists,
@@ -216,7 +247,9 @@ const envRm = defineCommand({
           : [
               `${args.key}${target ? ` (${target})` : ""} is not set on ${slug} — nothing to remove`,
             ],
-        nextStep: exists ? `creek env rm ${args.key}${targetFlag} --json` : `creek env ls --json`,
+        nextStep: exists
+          ? `creek env rm ${args.key}${targetFlag}${pf} --json`
+          : `creek env ls${pf} --json`,
       });
       return;
     }
@@ -256,14 +289,15 @@ const envRm = defineCommand({
           removed: true,
           removedValues: result.removed ?? 1,
           project: slug,
+          projectSource,
           applied: false,
           pendingDeploy: true,
         },
         0,
-        [
-          { command: "creek env ls --json", description: "List remaining variables" },
+        projectBreadcrumbs(slug, [
+          { command: `creek env ls${pf} --json`, description: "List remaining variables" },
           { command: "creek deploy --prod --json", description: "Deploy to apply env changes" },
-        ],
+        ]),
       );
     consola.success(`Removed ${args.key}${target ? ` (${target})` : ""}`);
     consola.info("Running deployments keep the old value until they are redeployed.");

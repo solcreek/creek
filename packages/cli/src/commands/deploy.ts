@@ -69,6 +69,7 @@ import {
   AGENT_PROD_DEPLOY,
   type Breadcrumb,
 } from "../utils/output.js";
+import { pasteableBreadcrumbs } from "../utils/command-context.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
 import {
@@ -316,9 +317,14 @@ export async function finishProductionSuccess(opts: {
   const url = opts.url ?? null;
   const proof = url ? await attachProof(url) : null;
   const proofFields = productionProofPayload(url, proof);
-  const breadcrumbs: Breadcrumb[] = url
-    ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
-    : (opts.extraBreadcrumbs ?? []);
+  // Follow-ups carry --project when a bare project command here would not
+  // resolve to this project (directory-derived name, or another directory).
+  const breadcrumbs: Breadcrumb[] = pasteableBreadcrumbs(
+    opts.slug,
+    url
+      ? [...productionSuccessBreadcrumbs(url, opts.slug), ...(opts.extraBreadcrumbs ?? [])]
+      : (opts.extraBreadcrumbs ?? []),
+  );
   if (opts.jsonMode) {
     jsonOutput(
       {
@@ -2624,13 +2630,13 @@ async function deployAuthenticated(
           message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
         },
         1,
-        [
+        pasteableBreadcrumbs(project.slug, [
           { command: `creek status`, description: "Check whether the deploy finished" },
           {
             command: `creek deployments logs ${deployment.id}`,
             description: "View the build log so far",
           },
-        ],
+        ]),
       );
     consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
     // The server keeps deploying; a longer --wait lets the CLI observe the end.

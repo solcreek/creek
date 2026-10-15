@@ -3,19 +3,17 @@ import consola from "consola";
 import { CreekApiError, CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl, getSandboxApiUrl } from "../utils/config.js";
 import {
-  resolveConfig,
   formatDetectionSummary,
   resolvedConfigToBindingRequirements,
   type ResolvedConfig,
-  ConfigNotFoundError,
 } from "@solcreek/sdk";
+import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import {
-  globalArgs,
-  resolveJsonMode,
-  jsonOutput,
-  AUTH_BREADCRUMBS,
-  NO_PROJECT_BREADCRUMBS,
-} from "../utils/output.js";
+  projectArg,
+  projectBreadcrumbs,
+  projectFromDirectory,
+  resolveProject,
+} from "../utils/command-context.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
@@ -30,6 +28,7 @@ export const statusCommand = defineCommand({
       description: "Sandbox ID (optional — defaults to current project)",
       required: false,
     },
+    ...projectArg,
     ...globalArgs,
   },
   async run({ args }) {
@@ -40,8 +39,9 @@ export const statusCommand = defineCommand({
       return await sandboxStatus(args.id, jsonMode);
     }
 
-    // Otherwise, check current project status (needs auth + creek.toml)
-    return await projectStatus(jsonMode);
+    // Otherwise, check the project's status (needs auth + --project or a
+    // project config in cwd)
+    return await projectStatus(args.project as string | undefined, jsonMode);
   },
 });
 
@@ -98,7 +98,7 @@ async function sandboxStatus(sandboxId: string, jsonMode: boolean) {
   consola.log("");
 }
 
-async function projectStatus(jsonMode: boolean) {
+async function projectStatus(projectArgSlug: string | undefined, jsonMode: boolean) {
   const token = getToken();
   if (!token) {
     if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
@@ -107,29 +107,28 @@ async function projectStatus(jsonMode: boolean) {
     process.exit(1);
   }
 
-  let resolved: ResolvedConfig;
+  const { slug, source: projectSource } = resolveProject(projectArgSlug, jsonMode);
+  // The local config describes the project only when this directory deploys
+  // as it; `--project other` from elsewhere reports the server side alone.
+  // Compare with the name deploy uses (config.projectName), not the named
+  // slug: `status --project web` in a static site deployed as "web" must
+  // still show its config. (Without --project, resolveProject has already
+  // refused a directory-derived name.)
+  let resolved: ResolvedConfig | null = null;
   try {
-    resolved = resolveConfig(process.cwd());
-  } catch (err) {
-    if (err instanceof ConfigNotFoundError) {
-      if (jsonMode)
-        jsonOutput(
-          { ok: false, error: "no_project", message: "No project config found" },
-          1,
-          NO_PROJECT_BREADCRUMBS,
-        );
-      consola.error("No project config found.");
-      consola.info("To check a sandbox: creek status <sandboxId>");
-      process.exit(1);
-    }
-    throw err;
+    const local = projectFromDirectory();
+    if (local && local.config.projectName === slug) resolved = local.config;
+  } catch {
+    // Only reachable with --project: without it, resolveProject has already
+    // exited invalid_config on this error. The local config is not the
+    // project being asked about, so it is just left out.
   }
 
   const client = new CreekClient(getApiUrl(), token);
 
   let project;
   try {
-    project = await client.getProject(resolved.projectName);
+    project = await client.getProject(slug);
   } catch (err) {
     // Only a 404 means the project is missing; a refused key or a failing
     // server must not read as "deploy to create it".
@@ -139,16 +138,16 @@ async function projectStatus(jsonMode: boolean) {
           {
             ok: false,
             error: "not_found",
-            message: `Project "${resolved.projectName}" not found`,
+            message: `Project "${slug}" not found`,
             ...apiErrorFields(err),
           },
           1,
-          [
+          projectBreadcrumbs(slug, [
             { command: "creek deploy", description: "Deploy to create the project" },
             { command: "creek projects", description: "List existing projects" },
-          ],
+          ]),
         );
-      consola.error(`Project "${resolved.projectName}" not found.`);
+      consola.error(`Project "${slug}" not found.`);
       process.exit(1);
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -168,7 +167,7 @@ async function projectStatus(jsonMode: boolean) {
   // so the drift concept doesn't apply and every attachment would look
   // undeclared.
   const undeclaredBindings =
-    resolved.target === "cf"
+    resolved?.target === "cf"
       ? await findUndeclaredBindings(
           client,
           project.slug,
@@ -182,38 +181,39 @@ async function projectStatus(jsonMode: boolean) {
         ok: true,
         type: "project",
         project: project.slug,
-        config: resolved.source,
+        projectSource,
+        config: resolved?.source ?? null,
         framework: project.framework,
         productionDeploymentId: project.production_deployment_id,
-        bindings: resolved.bindings.map((b) => b.type),
+        bindings: resolved ? resolved.bindings.map((b) => b.type) : [],
         undeclaredBindings,
-        cron: resolved.cron,
-        queue: resolved.queue,
+        cron: resolved?.cron ?? [],
+        queue: resolved?.queue ?? false,
         createdAt: project.created_at,
       },
       0,
-      [
+      projectBreadcrumbs(slug, [
         {
           command: `creek deployments --project ${project.slug}`,
           description: "List deployment history",
         },
         { command: "creek deploy", description: "Deploy a new version" },
-      ],
+      ]),
     );
   }
 
   const deployed = project.production_deployment_id ? "deployed" : "not deployed";
 
   consola.log(`\n  Project ${project.slug}`);
-  consola.log(`  Config:  ${formatDetectionSummary(resolved)}`);
+  if (resolved) consola.log(`  Config:  ${formatDetectionSummary(resolved)}`);
   consola.log(`  Status:  ${deployed}`);
   if (project.production_deployment_id) {
     consola.log(`  Deploy:  ${project.production_deployment_id.slice(0, 8)}`);
   }
-  if (resolved.cron.length > 0) {
+  if (resolved && resolved.cron.length > 0) {
     consola.log(`  Cron:    ${resolved.cron.join(", ")}`);
   }
-  if (resolved.queue) {
+  if (resolved?.queue) {
     consola.log("  Queue:   enabled");
   }
   consola.log("");
