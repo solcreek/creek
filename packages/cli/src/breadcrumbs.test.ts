@@ -2,33 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { defineCommand } from "citty";
 import { findUnknownFlags } from "./help-schema.js";
-import { loginCommand } from "./commands/login.js";
-import { whoamiCommand } from "./commands/whoami.js";
-import { initCommand } from "./commands/init.js";
-import { deployCommand } from "./commands/deploy.js";
-import { claimCommand } from "./commands/claim.js";
-import { envCommand } from "./commands/env.js";
-import { domainsCommand } from "./commands/domains.js";
-import { projectsCommand } from "./commands/projects.js";
-import { deploymentsCommand } from "./commands/deployments.js";
-import { statusCommand } from "./commands/status.js";
-import { devCommand } from "./commands/dev.js";
-import { rollbackCommand } from "./commands/rollback.js";
-import { opsCommand } from "./commands/ops.js";
-import { queueCommand } from "./commands/queue.js";
-import { logsCommand } from "./commands/logs.js";
-import { metricsCommand } from "./commands/metrics.js";
-import { doctorCommand } from "./commands/doctor.js";
-import { verifyCommand } from "./commands/verify.js";
-import { dbCommand } from "./commands/db.js";
-import { storageCommand } from "./commands/storage.js";
-import { cacheCommand } from "./commands/cache.js";
-import { topCommand } from "./commands/top.js";
-import { restartCommand } from "./commands/restart.js";
-import { stopCommand } from "./commands/stop.js";
-import { dashboardCommand } from "./commands/dashboard.js";
+import { createMain } from "./command-tree.js";
 
 // A breadcrumb, nextStep or hint is a command an agent pastes and runs. One
 // that names a flag the command does not declare fails with unknown_flag (or,
@@ -36,36 +11,9 @@ import { dashboardCommand } from "./commands/dashboard.js";
 // the CLI can print for `creek <command> …`, resolves the command against the
 // real citty tree, and checks each flag is one that command declares.
 
-// The tree index.ts runs (index.ts runs the CLI on import, so it is rebuilt
-// here; a test below keeps the two in step).
-const SUBCOMMANDS = {
-  dev: devCommand,
-  deploy: deployCommand,
-  status: statusCommand,
-  projects: projectsCommand,
-  deployments: deploymentsCommand,
-  logs: logsCommand,
-  metrics: metricsCommand,
-  doctor: doctorCommand,
-  verify: verifyCommand,
-  login: loginCommand,
-  whoami: whoamiCommand,
-  init: initCommand,
-  claim: claimCommand,
-  env: envCommand,
-  queue: queueCommand,
-  db: dbCommand,
-  storage: storageCommand,
-  cache: cacheCommand,
-  domains: domainsCommand,
-  rollback: rollbackCommand,
-  top: topCommand,
-  dashboard: dashboardCommand,
-  restart: restartCommand,
-  stop: stopCommand,
-  ops: opsCommand,
-};
-const main = defineCommand({ meta: { name: "creek" }, subCommands: SUBCOMMANDS });
+// The tree index.ts runs: both build it with command-tree.ts's createMain.
+const main = createMain("0.0.0-test");
+const SUBCOMMANDS = main.subCommands as Record<string, unknown>;
 
 /**
  * Bad breadcrumbs in files other agents own right now. Each entry is
@@ -328,12 +276,21 @@ describe("breadcrumbs name only flags their command declares", () => {
     ]);
   });
 
-  it("the tree above is the one index.ts runs", () => {
+  it("scans the tree index.ts runs", () => {
+    // index.ts builds its tree with the createMain imported above.
     const index = readFileSync(join(SRC, "index.ts"), "utf-8");
-    const block = index.slice(index.indexOf("subCommands: {"));
-    const names = [...block.slice(0, block.indexOf("}")).matchAll(/^\s+(\w+): \w+,$/gm)].map(
-      (m) => m[1],
+    expect(index).toMatch(/import \{ createMain \} from "\.\/command-tree\.js"/);
+    expect(index).toMatch(/\bcreateMain\(/);
+    // Every command module is in it.
+    const modules = readdirSync(join(SRC, "commands")).filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.includes(".test") &&
+        /export const \w+Command = defineCommand/.test(
+          readFileSync(join(SRC, "commands", f), "utf-8"),
+        ),
     );
-    expect(names.sort()).toEqual(Object.keys(SUBCOMMANDS).sort());
+    expect(modules.length).toBeGreaterThan(20);
+    for (const f of modules) expect(Object.keys(SUBCOMMANDS)).toContain(f.replace(/\.ts$/, ""));
   });
 });
