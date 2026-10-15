@@ -38,6 +38,15 @@ const ROLE_PERMISSIONS: Record<string, Set<Permission>> = {
   member: new Set(["project:read", "deploy:read", "deploy:create"]),
 };
 
+/** The team roles, from least to most access. */
+export const TEAM_ROLES = ["member", "admin", "owner"] as const;
+export type TeamRole = (typeof TEAM_ROLES)[number];
+
+/** The least team role that grants a permission, or null when none does. */
+export function minRoleFor(perm: Permission): TeamRole | null {
+  return TEAM_ROLES.find((role) => roleGrants(role, perm)) ?? null;
+}
+
 /** Whether a team role grants a permission. Unknown or missing roles grant nothing. */
 export function roleGrants(role: string | undefined | null, perm: Permission): boolean {
   if (!role || !Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, role)) return false;
