@@ -36,13 +36,16 @@ function filesWhere(test: (source: string) => boolean): string[] {
 
 /**
  * Whether a module can reach readCliConfig: it names it anywhere (a call,
- * `import { readCliConfig as cfg }`, a re-export), or imports config.js as
- * a namespace (`import * as config`, `await import(".../config.js")`).
+ * `import { readCliConfig as cfg }`, a re-export), or takes config.js
+ * whole: `import * as config`, `export *`, `export * as config`, or
+ * `await import(".../config.js")`.
  */
 export function readsCliConfig(source: string): boolean {
   return (
     /\breadCliConfig\b/.test(source) ||
-    /import\s*\*\s*as\s+\w+\s+from\s*["'][^"']*\/config(\.js)?["']/.test(source) ||
+    /\b(?:import|export)\s*\*\s*(?:as\s+\w+\s+)?from\s*["'][^"']*\/config(\.js)?["']/.test(
+      source,
+    ) ||
     /\bimport\s*\(\s*["'][^"']*\/config(\.js)?["']\s*\)/.test(source)
   );
 }
@@ -64,6 +67,8 @@ describe("the scan's rules", () => {
     ["a namespace import", 'import * as config from "../utils/config.js";\nconfig.getApiUrl();'],
     ["a dynamic import", 'const c = await import("./utils/config.js");'],
     ["a re-export", 'export { readCliConfig } from "./config.js";'],
+    ["a wildcard re-export", 'export * from "./utils/config.js";'],
+    ["a namespace re-export", 'export * as config from "./utils/config.js";'],
   ])("flags %s of the CLI config", (_, source) => {
     expect(readsCliConfig(source)).toBe(true);
   });
