@@ -129,7 +129,7 @@ Trigger a production deploy of the latest commit on the project's GitHub product
 
 **Input:** `projectSlug`
 
-**Output:** `{ ok, triggered, branch, commitSha, deploymentId, version, status, pending: true, nextStep }`. The trigger returns no id, so the tool looks for the new deployment for up to ~10 s; `deploymentId` is `null` if it did not appear in time (or the key lacks `project:read`) — then find it with `list_deployments`. Follow it with `wait_for_deployment`.
+**Output:** `{ ok, triggered, branch, commitSha, deploymentId, matchedBy?, version, status, pending: true, nextStep }`. The trigger returns no id, so the tool looks for up to ~10 s for a new deployment of the triggered commit (and branch); other new deployments are ignored. `deploymentId` is `null` if none appeared in time or the deployment list could not be read — then find it with `list_deployments` (newest row with this `commitSha`) and read it with `get_deployment`. `matchedBy` is `"commit"`, or `"newest_row"` when the trigger named no commit: that id may belong to another deploy, so check its `commitSha`. Follow it with `wait_for_deployment`.
 
 Requires a GitHub connection. Projects without one get `not_found` / "Project has no GitHub connection".
 

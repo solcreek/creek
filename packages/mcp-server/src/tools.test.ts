@@ -1316,3 +1316,80 @@ describe("MCP deploy_prod returns the deployment it started", () => {
     expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
   });
 });
+
+describe("MCP deploy_prod never presents another deployment as its own", () => {
+  const OLD = { id: "old-dep", version: 6, status: "active", commitSha: "0000000", branch: "main" };
+  const MINE = { id: DEP, version: 8, status: "queued", commitSha: "abc1234", branch: "main" };
+  const PREVIEW = {
+    id: "preview-dep",
+    version: 7,
+    status: "queued",
+    commitSha: "fff0000",
+    branch: "feature",
+  };
+
+  /** Rows the list returns after the trigger, one entry per poll (the last repeats). */
+  function sequence(
+    polls: Array<Array<Record<string, unknown>>>,
+    trigger: Record<string, unknown>,
+  ) {
+    let triggered = false;
+    let n = 0;
+    server.use(
+      http.get("https://cp.test/projects/hello/deployments", () => {
+        if (!triggered) return HttpResponse.json([OLD]);
+        return HttpResponse.json(polls[Math.min(n++, polls.length - 1)]);
+      }),
+      http.post("https://cp.test/github/deploy-latest", () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true, ...trigger });
+      }),
+    );
+  }
+
+  it("skips a new row for another commit that appears before the triggered one", async () => {
+    sequence(
+      [
+        [PREVIEW, OLD],
+        [MINE, PREVIEW, OLD],
+      ],
+      { commitSha: "abc1234", branch: "main" },
+    );
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" }),
+    );
+    expect(payload).toMatchObject({ ok: true, deploymentId: DEP, matchedBy: "commit" });
+  });
+
+  it("returns no id rather than an unrelated row when the triggered row never appears", async () => {
+    sequence([[PREVIEW, OLD]], { commitSha: "abc1234", branch: "main" });
+    const result = await registerAndCapture(AUTH(), { deployLookupMs: 40 }).get("deploy_prod")!({
+      projectSlug: "hello",
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = parse(result);
+    expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
+    expect(payload.matchedBy).toBeUndefined();
+    expect(payload.nextStep).toContain("list_deployments");
+  });
+
+  it("does not take the same commit deployed on another branch", async () => {
+    const sameCommitPreview = { ...MINE, id: "same-commit-preview", branch: "feature" };
+    sequence([[sameCommitPreview, OLD]], { commitSha: "abc1234", branch: "main" });
+    const payload = parse(
+      await registerAndCapture(AUTH(), { deployLookupMs: 40 }).get("deploy_prod")!({
+        projectSlug: "hello",
+      }),
+    );
+    expect(payload.deploymentId).toBeNull();
+  });
+
+  it("falls back to the newest new row only without a commit, and says so", async () => {
+    sequence([[MINE, OLD]], { branch: "main" });
+    const payload = parse(
+      await registerAndCapture(AUTH()).get("deploy_prod")!({ projectSlug: "hello" }),
+    );
+    expect(payload).toMatchObject({ ok: true, deploymentId: DEP, matchedBy: "newest_row" });
+    expect(payload.message).toContain("may not be this trigger");
+  });
+});

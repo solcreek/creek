@@ -211,8 +211,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   }
 
   /**
-   * Poll the deployment list for a row that is not in `known`, preferring
-   * the triggered commit. Returns null after timing.deployLookupMs; list
+   * Poll the deployment list for the row the trigger created. handlePush
+   * inserts it in waitUntil, after deploy-latest has answered, so other new
+   * rows (a preview push, a teammate's deploy, another commit's webhook) can
+   * appear first: with a known commit, only a new row for that commit (and
+   * branch, when both are known) counts, and polling goes on until
+   * timing.deployLookupMs. Only when the trigger named no commit does the
+   * newest new row stand in, flagged as matchedBy "newest_row". List
    * failures are skipped, since the deploy has already been triggered.
    */
   async function findNewDeployment(
@@ -220,19 +225,25 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     projectSlug: string,
     known: Set<unknown>,
     commitSha: string | null,
-  ): Promise<Record<string, unknown> | null> {
+    branch: string | null,
+  ): Promise<{ row: Record<string, unknown>; matchedBy: "commit" | "newest_row" } | null> {
     const deadline = Date.now() + timing.deployLookupMs;
     while (true) {
       const listed = await cpFetch(apiKey, deploymentsPath(projectSlug));
       if (listed.ok && Array.isArray(listed.data)) {
-        const fresh = (listed.data as Array<Record<string, unknown>>).filter(
-          (d) => typeof d.id === "string" && !known.has(d.id),
-        );
-        const sameCommit = fresh.filter((d) => commitSha !== null && d.commitSha === commitSha);
-        const pick = (sameCommit.length > 0 ? sameCommit : fresh).sort(
-          (a, b) => Number(b.version ?? 0) - Number(a.version ?? 0),
-        )[0];
-        if (pick) return pick;
+        const fresh = (listed.data as Array<Record<string, unknown>>)
+          .filter((d) => typeof d.id === "string" && !known.has(d.id))
+          .sort((a, b) => Number(b.version ?? 0) - Number(a.version ?? 0));
+        if (commitSha !== null) {
+          const match = fresh.find(
+            (d) =>
+              d.commitSha === commitSha &&
+              (branch === null || typeof d.branch !== "string" || d.branch === branch),
+          );
+          if (match) return { row: match, matchedBy: "commit" };
+        } else if (fresh[0]) {
+          return { row: fresh[0], matchedBy: "newest_row" };
+        }
       }
       if (Date.now() + timing.pollIntervalMs > deadline) return null;
       await sleep(timing.pollIntervalMs);
@@ -710,25 +721,33 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       if (!got.ok) return got.result;
       const data = asRecord(got.data);
       const commitSha = typeof data.commitSha === "string" ? data.commitSha : null;
-      const found = known ? await findNewDeployment(apiKey, projectSlug, known, commitSha) : null;
-      const deploymentId = typeof found?.id === "string" ? found.id : null;
+      const branch = typeof data.branch === "string" ? data.branch : null;
+      const found = known
+        ? await findNewDeployment(apiKey, projectSlug, known, commitSha, branch)
+        : null;
+      const row = found?.row;
+      const deploymentId = typeof row?.id === "string" ? row.id : null;
       return okResult({
         project: projectSlug,
         triggered: true,
-        branch: data.branch ?? null,
+        branch,
         commitSha,
         deploymentId,
-        version: found?.version ?? null,
-        status: found?.status ?? null,
+        ...(found ? { matchedBy: found.matchedBy } : {}),
+        version: row?.version ?? null,
+        status: row?.status ?? null,
         pending: true,
         nextStep: deploymentId
           ? `Call wait_for_deployment with projectSlug ${projectSlug} and deploymentId ${deploymentId}`
-          : "Call list_deployments: the new deployment is the newest row with this commitSha. Then wait_for_deployment with its id",
-        message: deploymentId
-          ? "Build dispatched. Production updates when this deployment becomes active."
-          : known
-            ? "Build dispatched, but its deployment did not appear yet. If no new deployment ever appears, check that auto-deploy is enabled on the project's GitHub connection."
-            : "Build dispatched. This API key cannot list deployments (project:read), so the deployment id is unknown.",
+          : "Call list_deployments and take the newest row with this commitSha (and branch), then get_deployment or wait_for_deployment with its id",
+        message:
+          found?.matchedBy === "newest_row"
+            ? "Build dispatched. The trigger named no commit, so deploymentId is the newest new deployment and may not be this trigger's: check its commitSha with get_deployment."
+            : deploymentId
+              ? "Build dispatched. Production updates when this deployment becomes active."
+              : known
+                ? "Build dispatched, but its deployment did not appear yet. If no new deployment ever appears, check that auto-deploy is enabled on the project's GitHub connection."
+                : "Build dispatched. This API key cannot list deployments (project:read), so the deployment id is unknown.",
       });
     },
   );
