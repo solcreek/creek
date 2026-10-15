@@ -45,6 +45,7 @@ import {
 } from "./modules/tenant/scope-guard.js";
 import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
 import { refuseClientKeyMetadata } from "./modules/tenant/api-key-metadata.js";
+import { enforceKeyCapOnAuthCreate } from "./modules/api-keys/cap.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -94,7 +95,30 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   if (metadata) return metadata;
   try {
     const auth = createAuth(c.env);
-    return await auth.handler(c.req.raw);
+    // Better Auth's own key create obeys the per-user key cap too.
+    return await enforceKeyCapOnAuthCreate(
+      c,
+      c.env.DB,
+      async () => {
+        // No session (null, or Better Auth's 401/403) is "no user": Better
+        // Auth refuses the create itself. Any other failure throws, and the
+        // cap refuses the request rather than letting the create through.
+        let session: { user?: { id?: unknown } } | null;
+        try {
+          session = await auth.api.getSession({
+            headers: c.req.raw.headers,
+            query: { disableCookieCache: true },
+          });
+        } catch (err) {
+          const status = (err as { statusCode?: unknown }).statusCode;
+          if (status !== 401 && status !== 403) throw err;
+          session = null;
+        }
+        const id = session?.user?.id;
+        return typeof id === "string" && id.length > 0 ? id : null;
+      },
+      () => auth.handler(c.req.raw),
+    );
   } catch (err) {
     console.error("Better Auth error:", err instanceof Error ? err.stack : err);
     return c.json(

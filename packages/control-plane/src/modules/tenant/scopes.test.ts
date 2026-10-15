@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { ALL_SCOPES, SCOPES, SCOPE_PRESETS, isScope } from "./scopes.js";
+import {
+  ALL_SCOPES,
+  SCOPES,
+  SCOPE_IMPACTS,
+  SCOPE_PRESETS,
+  SCOPE_PRESET_DESCRIPTIONS,
+  SCOPE_RISKS,
+  isScope,
+} from "./scopes.js";
 import { parseGrant, scopedKeyPermissions } from "./api-key-grant.js";
-import { roleGrants, type Permission } from "./permissions.js";
+import { TEAM_ROLES, minRoleFor, roleGrants, type Permission } from "./permissions.js";
 
 describe("scope registry", () => {
   it("maps every scope to a role permission that some role holds", () => {
@@ -35,7 +43,39 @@ describe("scope registry", () => {
     }
   });
 
-  it("rates every scope that can reach secrets, production or data as high risk", () => {
+  it("gives every scope a description, a risk and an impact", () => {
+    for (const scope of ALL_SCOPES) {
+      const def: { description?: unknown; risk?: unknown; impact?: unknown } = SCOPES[scope];
+      expect(typeof def.description === "string" && def.description.trim().length > 0, scope).toBe(
+        true,
+      );
+      expect(SCOPE_RISKS, scope).toContain(def.risk);
+      expect(SCOPE_IMPACTS, scope).toContain(def.impact);
+    }
+  });
+
+  it("rates reads as read risk and only reads", () => {
+    for (const scope of ALL_SCOPES) {
+      expect(SCOPES[scope].risk === "read", scope).toBe(scope.endsWith(":read"));
+    }
+  });
+
+  it("rates every scope that can delete data as destructive, and production config as admin", () => {
+    for (const s of ["project:delete", "resource:delete", "db:query"] as const) {
+      expect(SCOPES[s].risk, s).toBe("destructive");
+    }
+    for (const s of ["deploy:production", "env:write", "domain:write"] as const) {
+      expect(SCOPES[s].risk, s).toBe("admin");
+    }
+  });
+
+  it("describes every preset", () => {
+    for (const name of Object.keys(SCOPE_PRESETS) as (keyof typeof SCOPE_PRESETS)[]) {
+      expect(SCOPE_PRESET_DESCRIPTIONS[name]?.trim(), name).toBeTruthy();
+    }
+  });
+
+  it("rates every scope that can reach secrets, production or data as high impact", () => {
     for (const s of [
       "deploy:preview",
       "deploy:production",
@@ -45,7 +85,7 @@ describe("scope registry", () => {
       "project:delete",
       "domain:write",
     ] as const) {
-      expect(SCOPES[s].risk, s).toBe("high");
+      expect(SCOPES[s].impact, s).toBe("high");
     }
   });
 
@@ -53,6 +93,33 @@ describe("scope registry", () => {
     for (const s of ["constructor", "__proto__", "toString", "hasOwnProperty", ""]) {
       expect(isScope(s)).toBe(false);
     }
+  });
+});
+
+describe("minRoleFor", () => {
+  it("orders roles so each grants everything the one below it does", () => {
+    const perms: Permission[] = [
+      "project:read",
+      "project:create",
+      "project:delete",
+      "deploy:read",
+      "deploy:create",
+      "envvar:manage",
+      "domain:manage",
+      "member:manage",
+      "team:delete",
+    ];
+    for (let i = 1; i < TEAM_ROLES.length; i++) {
+      for (const p of perms) {
+        if (roleGrants(TEAM_ROLES[i - 1], p)) expect(roleGrants(TEAM_ROLES[i], p), p).toBe(true);
+      }
+    }
+  });
+
+  it("names the least role that grants a permission", () => {
+    expect(minRoleFor("deploy:create")).toBe("member");
+    expect(minRoleFor("envvar:manage")).toBe("admin");
+    expect(minRoleFor("project:delete")).toBe("owner");
   });
 });
 

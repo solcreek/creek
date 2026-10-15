@@ -1,26 +1,24 @@
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ENTRIES = [
-  ".creek",
-  ".agent",
-  ".agents",
-  ".augment",
-  ".claude",
-  ".cline",
-  ".cursor",
-  ".github/copilot*",
-  ".kilocode",
-  ".kiro",
-  ".qoder",
-  ".qwen",
-  ".roo",
-  ".trae",
-  ".windsurf",
-];
+/**
+ * What `creek init` keeps out of git: only machine-local state.
+ *
+ * - `.creek` — Creek's local dev state (`.creek/dev/` holds the local
+ *   database and storage), never meant to be committed.
+ * - `.claude/settings.local.json` — Claude Code's per-user settings
+ *   (personal permission allowlists); the shared `.claude/settings.json`,
+ *   skills and commands next to it stay committable.
+ *
+ * Agent configuration directories (`.claude`, `.cursor`, `.github/copilot*`,
+ * `.windsurf`, …) are deliberately NOT ignored: they hold team-shared rules,
+ * skills and instructions, and hiding them by default works against an
+ * agent-first workflow.
+ */
+const ENTRIES = [".creek", ".claude/settings.local.json"];
 
 /**
- * Append Creek + AI-agent ignore entries to .gitignore (creating it if
+ * Append Creek's local-state ignore entries to .gitignore (creating it if
  * absent), skipping any already present.
  *
  * Returns the entries it actually appended so callers can disclose the
@@ -36,7 +34,7 @@ export function ensureGitignoreEntries(dir: string): string[] {
   const missing = ENTRIES.filter((entry) => !lines.has(entry));
   if (!missing.length) return [];
 
-  const block = `\n# Creek & AI agent configs\n${missing.join("\n")}\n`;
+  const block = `\n# Creek local state\n${missing.join("\n")}\n`;
   appendFileSync(gitignorePath, block);
   return missing;
 }

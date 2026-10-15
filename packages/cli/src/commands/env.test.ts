@@ -175,6 +175,172 @@ describe("creek env rm", () => {
   });
 });
 
+describe("creek env rm, run twice", () => {
+  type Row = { key: string; target: string };
+  let rows: Row[];
+  let deletes: number;
+  let lists: number;
+
+  // A server with targets: deletes the matching rows, and 404s with
+  // `missing: "envvar"` when there are none — like the control-plane.
+  function liveServer() {
+    rows = [
+      { key: "OLD_KEY", target: "all" },
+      { key: "STRIPE_KEY", target: "production" },
+    ];
+    deletes = 0;
+    lists = 0;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () => {
+        lists++;
+        return HttpResponse.json(rows.map((r) => ({ ...r, value: "XXXX****" })));
+      }),
+      http.delete(`${API}/projects/${SLUG}/env/:key`, ({ request, params }) => {
+        deletes++;
+        const target = new URL(request.url).searchParams.get("target");
+        const hit = (r: Row) => r.key === params.key && (!target || r.target === target);
+        const removed = rows.filter(hit).length;
+        rows = rows.filter((r) => !hit(r));
+        if (!removed)
+          return HttpResponse.json(
+            {
+              error: "not_found",
+              missing: "envvar",
+              key: params.key,
+              ...(target ? { target } : {}),
+              message: "Environment variable not found",
+            },
+            { status: 404 },
+          );
+        return HttpResponse.json({ ok: true, removed });
+      }),
+    );
+  }
+
+  it("a second rm of the same key succeeds with alreadyAbsent", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { key: "OLD_KEY" } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, alreadyAbsent: false, removed: true });
+
+    stdout = "";
+    expect(await runExit(rmCmd.run!({ args: { key: "OLD_KEY" } } as never))).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "OLD_KEY",
+      alreadyAbsent: true,
+      removed: false,
+      removedValues: 0,
+      project: SLUG,
+      // An earlier run that timed out may have removed it undeployed.
+      pendingDeploy: true,
+    });
+    expect(json().message).toContain("nothing was removed");
+    expect(hasDeployBreadcrumb()).toBe(true);
+    // The API's own 404 said the key is missing: no list needed.
+    expect(lists).toBe(0);
+    expect(deletes).toBe(2);
+  });
+
+  it("a key that can't exist (padded, lowercase) is invalid_key, not alreadyAbsent", async () => {
+    liveServer();
+    for (const key of [" OLD_KEY", "OLD_KEY ", "old_key"]) {
+      stdout = "";
+      expect(await runExit(rmCmd.run!({ args: { key } } as never)), key).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "invalid_key", key });
+      expect(json().alreadyAbsent).toBeUndefined();
+    }
+    // Nothing was sent, and the real key is still set.
+    expect(deletes).toBe(0);
+    expect(rows.some((r) => r.key === "OLD_KEY")).toBe(true);
+  });
+
+  it("`unset` re-run behaves the same", async () => {
+    liveServer();
+    const unset = (
+      envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>
+    ).unset;
+    expect(await runExit(unset.run!({ args: { key: "OLD_KEY" } } as never))).toBe(0);
+    stdout = "";
+    expect(await runExit(unset.run!({ args: { key: "OLD_KEY" } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, alreadyAbsent: true });
+  });
+
+  it("a --target whose value is gone is alreadyAbsent, the others stay", async () => {
+    liveServer();
+    const args = { key: "STRIPE_KEY", target: "production" };
+    expect(await runExit(rmCmd.run!({ args } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, target: "production", alreadyAbsent: false });
+    stdout = "";
+    expect(await runExit(rmCmd.run!({ args } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, target: "production", alreadyAbsent: true });
+  });
+
+  it("an older API's bare 404 counts only when the project's list loads without the key", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "OTHER", target: "all", value: "OTHE****" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/GONE`, () =>
+        HttpResponse.json(
+          { error: "not_found", message: "Environment variable 'GONE' not found" },
+          { status: 404 },
+        ),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "GONE" } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, alreadyAbsent: true });
+  });
+
+  it("an older API's bare 404 with the key set again by then is an error, not alreadyAbsent", async () => {
+    // Another process re-sets the key after this DELETE missed it: the
+    // follow-up list shows it, so it is not reported as absent.
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "GONE", target: "all", value: "GONE****" }]),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/GONE`, () =>
+        HttpResponse.json({ error: "not_found", message: "not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "GONE" } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "rm_failed", status: 404 });
+  });
+
+  it("a missing project is still an error", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/ANY`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "ANY" } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "rm_failed", status: 404 });
+    expect(json().alreadyAbsent).toBeUndefined();
+  });
+
+  it("an older API's bare 404 with an unreadable list is an error, not alreadyAbsent", async () => {
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json({ error: "insufficient_scope", required: ["env:read"] }, { status: 403 }),
+      ),
+      http.delete(`${API}/projects/${SLUG}/env/GONE`, () =>
+        HttpResponse.json({ error: "not_found", message: "not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { key: "GONE" } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "rm_failed" });
+  });
+
+  it("--dry-run on a key that is not set says alreadyAbsent", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { key: "NOPE", "dry-run": true } } as never))).toBe(0);
+    expect(json()).toMatchObject({ wouldExecute: false, exists: false, alreadyAbsent: true });
+    expect(deletes).toBe(0);
+  });
+});
+
 const lsCmd = (envCommand.subCommands as Record<string, { run?: (ctx: never) => Promise<unknown> }>)
   .ls;
 
@@ -353,5 +519,34 @@ describe("creek env --target", () => {
     expect(await runExit(rmCmd.run!({ args: { key: "K", target: "preview" } } as never))).toBe(0);
     expect(new URL(url).searchParams.get("target")).toBe("preview");
     expect(json()).toMatchObject({ ok: true, key: "K", target: "preview", removedValues: 1 });
+  });
+});
+
+describe("creek env ls: values are write-only", () => {
+  it("lists keys and targets and no value field", async () => {
+    // The API's `value` is mask(key) — the key name masked, not the secret.
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () =>
+        HttpResponse.json([{ key: "DATABASE_URL", target: "all", value: "DATA****" }]),
+      ),
+    );
+    expect(await runExit(lsCmd.run!({ args: {} } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, valuesWriteOnly: true });
+    expect(json().vars).toEqual([{ key: "DATABASE_URL", target: "all" }]);
+  });
+
+  it("--show refuses with values_write_only instead of printing a placeholder", async () => {
+    let listed = false;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/env`, () => {
+        listed = true;
+        return HttpResponse.json([{ key: "DATABASE_URL", target: "all", value: "DATA****" }]);
+      }),
+    );
+    expect(await runExit(lsCmd.run!({ args: { show: true } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "values_write_only" });
+    expect(json().message).toContain("write-only");
+    expect(stdout).not.toContain("DATA****");
+    expect(listed).toBe(false);
   });
 });

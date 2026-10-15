@@ -30,6 +30,7 @@ const base = createResourceCommand({
 const shellCommand = defineCommand({
   meta: {
     name: "shell",
+    destructive: true,
     description:
       "Execute SQL against a team database. Interactive REPL or single query with --sql.",
   },
@@ -323,6 +324,7 @@ function escapeSqlLiteral(value: string): string {
 const migrateCommand = defineCommand({
   meta: {
     name: "migrate",
+    destructive: true,
     description:
       "Apply pending SQL migrations to a team database. Reads .sql files from a migration directory, tracks applied state, executes in order.",
   },
@@ -624,6 +626,7 @@ const SEED_CANDIDATES = [
 const seedCommand = defineCommand({
   meta: {
     name: "seed",
+    destructive: true,
     description:
       "Execute a seed SQL file against a team database. Looks for seed.sql in common locations or use --file to specify.",
   },

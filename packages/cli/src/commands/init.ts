@@ -21,6 +21,7 @@ import {
 } from "../utils/hosts.js";
 import { fetchHostkey, parsePastedFingerprint, HostkeyResponseError } from "../utils/hostkey.js";
 import { ensureGitignoreEntries } from "../utils/gitignore.js";
+import { shellQuote } from "../utils/shell-quote.js";
 
 export const initCommand = defineCommand({
   meta: {
@@ -52,6 +53,12 @@ export const initCommand = defineCommand({
         'Out-of-band fingerprint paste (Path C). "sha256:<hex>" — pasted from provider console or paper bundle. Requires --adopt for the addr.',
       required: false,
     },
+    force: {
+      type: "boolean",
+      description:
+        "Replace an existing creek.toml. Without it, a non-interactive run (agents, CI, --json, --yes) refuses with already_exists; an interactive terminal asks first.",
+      default: false,
+    },
     ...globalArgs,
   },
   async run({ args }) {
@@ -72,11 +79,39 @@ export const initCommand = defineCommand({
     const cwd = process.cwd();
     const configPath = join(cwd, "creek.toml");
 
+    // An existing creek.toml may be hand-edited (resources, triggers,
+    // release, …). Only replace it when someone asked for that: --force,
+    // or a human answering the prompt in a terminal. A non-interactive run
+    // (agents, CI, --json, --yes) used to overwrite it silently and still
+    // report ok:true.
+    let replaced = false;
     if (existsSync(configPath)) {
-      if (!shouldAutoConfirm(args)) {
+      if (args.force === true) {
+        replaced = true;
+      } else if (!jsonMode && !shouldAutoConfirm(args)) {
         consola.warn("creek.toml already exists");
         const overwrite = await consola.prompt("Overwrite?", { type: "confirm" });
         if (!overwrite) return;
+        replaced = true;
+      } else {
+        const message =
+          "creek.toml already exists. Not overwriting it — pass --force to replace it with a freshly detected config.";
+        if (jsonMode) {
+          jsonOutput({ ok: false, error: "already_exists", message, path: configPath }, 1, [
+            {
+              command: "creek init --force --json",
+              description: "Replace the existing creek.toml (its current contents are lost)",
+            },
+            {
+              command: "creek deploy --dry-run --json",
+              description: "Keep the existing creek.toml and preview what it deploys",
+            },
+          ]);
+          return;
+        }
+        consola.error(message);
+        process.exit(1);
+        return;
       }
     }
 
@@ -85,6 +120,18 @@ export const initCommand = defineCommand({
     let framework: string | undefined;
     let buildCommand = "npm run build";
     let buildOutput = "dist";
+    // A plain static site (index.html, no package.json) has nothing to build:
+    // deploy the directory as is, like resolveConfig's index.html fallback
+    // does when there is no creek.toml. Writing the npm defaults here would
+    // make the next deploy look for a dist/ that never exists.
+    const staticSite =
+      !existsSync(pkgPath) &&
+      (existsSync(join(cwd, "index.html")) || existsSync(join(cwd, "public/index.html")));
+    if (staticSite) {
+      buildCommand = "";
+      // Same precedence as the SDK's fromStaticSite: public/index.html wins.
+      buildOutput = existsSync(join(cwd, "public/index.html")) ? "public" : ".";
+    }
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const detected = detectFramework(pkg);
@@ -137,7 +184,7 @@ export const initCommand = defineCommand({
 
     writeFileSync(configPath, stringify(config));
 
-    // init appends Creek + AI-agent entries to .gitignore. Capture what
+    // init appends Creek's local-state entries to .gitignore. Capture what
     // changed so we can disclose it — a silent mutation of the user's
     // .gitignore is surprising, doubly so in agent/CI runs.
     const gitignoreAdded = ensureGitignoreEntries(cwd);
@@ -233,6 +280,9 @@ export default app;
           database: useDb,
           databasePromptSkipped: dbPromptSkipped,
           path: configPath,
+          replaced,
+          staticSite,
+          build: { command: buildCommand, output: buildOutput },
           gitignoreAdded,
           ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}),
           ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}),
@@ -242,9 +292,11 @@ export default app;
           ...(dbPromptSkipped
             ? [
                 {
-                  command: "creek init --db",
+                  // --force: this run just wrote creek.toml, so a plain
+                  // re-run would stop at already_exists.
+                  command: `creek init ${shellQuote(name)} --db --force --json`,
                   description:
-                    "Re-run with a database — writes [resources] and [build].worker, scaffolds worker/index.ts",
+                    "Re-run with a database — replaces the creek.toml just written, adds [resources] and [build].worker, scaffolds worker/index.ts",
                 },
               ]
             : []),
@@ -276,17 +328,22 @@ export default app;
       );
     }
 
-    consola.success(`Created creek.toml for "${name}"`);
+    consola.success(`${replaced ? "Replaced" : "Created"} creek.toml for "${name}"`);
 
     if (!jsonMode) {
+      if (staticSite) {
+        consola.info(
+          `Static site: no build step; deploys ${buildOutput === "." ? "this directory" : `${buildOutput}/`} as is.`,
+        );
+      }
       if (gitignoreAdded.length > 0) {
         consola.info(
-          `Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`,
+          `Added ${gitignoreAdded.length} entries to .gitignore (Creek local state): ${gitignoreAdded.join(", ")}`,
         );
       }
       if (dbPromptSkipped) {
         consola.info(
-          "Skipped the database prompt (non-interactive). Re-run with `creek init --db` to add one — it writes [resources] and [build].worker and scaffolds worker/index.ts.",
+          `Skipped the database prompt (non-interactive). Re-run with \`creek init ${shellQuote(name)} --db --force\` to add one — it replaces the creek.toml just written, adds [resources] and [build].worker, and scaffolds worker/index.ts.`,
         );
       }
       if (compatBlockers.length > 0) {

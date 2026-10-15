@@ -23,10 +23,13 @@ queue = true                 # Creates a per-project queue + consumer binding.
                              # Consumer: export a `queue(batch, env, ctx)` handler.
 ```
 
-**Semantic names** (`database` / `storage` / `cache`) are the stable
-Creek names and what you should write in new projects. The legacy
-Cloudflare names (`d1` / `r2` / `kv`) are still accepted for
-backward compatibility but deprecated.
+**Only the semantic names work** (`database` / `storage` / `cache` /
+`ai`). The Cloudflare names (`d1` / `r2` / `kv`) are **not** accepted:
+the parser drops unknown keys silently, so nothing is provisioned and
+`env.DATABASE` / `env.STORAGE` / `env.CACHE` are undefined at runtime.
+`creek doctor --json` and `creek deploy --dry-run --json` report this
+as the `CK-RESOURCES-KEYS` error — rename `d1` → `database`,
+`r2` → `storage`, `kv` → `cache`.
 
 **`[resources]` booleans vs `creek db`** — the `[resources]` shorthand
 auto-provisions one resource per project, legacy-compatible with v1.
@@ -48,10 +51,9 @@ Verify cron is active:
 creek status --json          # Shows registered cron schedules
 ```
 
-Simulate a firing locally during dev:
-```bash
-creek dev --trigger-cron "0 */6 * * *"
-```
+Simulate a firing locally during dev: start `creek dev`, then type
+`cron` and press Enter in that terminal. It calls your `scheduled()`
+handler once. There is no `--trigger-cron` flag.
 
 ## Queue triggers
 
