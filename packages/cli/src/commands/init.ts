@@ -21,6 +21,7 @@ import {
 } from "../utils/hosts.js";
 import { fetchHostkey, parsePastedFingerprint, HostkeyResponseError } from "../utils/hostkey.js";
 import { ensureGitignoreEntries } from "../utils/gitignore.js";
+import { shellQuote } from "../utils/shell-quote.js";
 
 export const initCommand = defineCommand({
   meta: {
@@ -293,7 +294,7 @@ export default app;
                 {
                   // --force: this run just wrote creek.toml, so a plain
                   // re-run would stop at already_exists.
-                  command: `creek init ${name} --db --force --json`,
+                  command: `creek init ${shellQuote(name)} --db --force --json`,
                   description:
                     "Re-run with a database — replaces the creek.toml just written, adds [resources] and [build].worker, scaffolds worker/index.ts",
                 },
@@ -342,7 +343,7 @@ export default app;
       }
       if (dbPromptSkipped) {
         consola.info(
-          `Skipped the database prompt (non-interactive). Re-run with \`creek init ${name} --db --force\` to add one — it replaces the creek.toml just written, adds [resources] and [build].worker, and scaffolds worker/index.ts.`,
+          `Skipped the database prompt (non-interactive). Re-run with \`creek init ${shellQuote(name)} --db --force\` to add one — it replaces the creek.toml just written, adds [resources] and [build].worker, and scaffolds worker/index.ts.`,
         );
       }
       if (compatBlockers.length > 0) {

@@ -92,6 +92,14 @@ describe("creek init --db (non-interactive)", () => {
     expect(JSON.stringify(payload.breadcrumbs)).toContain("--db");
   });
 
+  it("shell-quotes a name with a space in the --db breadcrumb", async () => {
+    await runInit({ name: "my app", yes: true });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    const cmds = (payload.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek init 'my app' --db --force --json");
+  });
+
   it("the --db breadcrumb works when run right after the first init", async () => {
     await runInit({ name: "demo", yes: true });
     const firstOut = writeSpy.mock.calls.map((c) => String(c[0])).join("");
