@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { CreekClient } from "@solcreek/sdk";
 import { statusCommand } from "./status.js";
 import { opsCommand } from "./ops.js";
@@ -589,6 +589,49 @@ describe("project commands in a directory whose config names no project", () => 
   afterEach(() => {
     process.chdir(prevCwd);
     rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("`status --project <the name deploy used>` still reports the local config and drift", async () => {
+    // A nameless wrangler config deploys under the directory name. Naming
+    // that project explicitly must show this directory's config, not drop it.
+    writeFileSync(
+      join(projDir, "wrangler.jsonc"),
+      JSON.stringify({
+        main: "src/index.ts",
+        kv_namespaces: [{ binding: "CACHE", id: "x" }],
+        triggers: { crons: ["*/5 * * * *"] },
+      }),
+    );
+    const slug = basename(projDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-");
+    let driftChecked = false;
+    server.use(
+      http.get(`${API}/projects/${slug}`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug,
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+      http.get(`${API}/projects/${slug}/bindings`, () => {
+        driftChecked = true;
+        return HttpResponse.json({ bindings: [] });
+      }),
+    );
+    const code = await runExit(statusCommand.run!({ args: { project: slug } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      project: slug,
+      projectSource: "flag",
+      config: "wrangler.jsonc",
+      bindings: ["kv"],
+      cron: ["*/5 * * * *"],
+    });
+    expect(driftChecked).toBe(true);
   });
 
   const layouts: [string, (dir: string) => void, string][] = [

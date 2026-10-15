@@ -110,10 +110,14 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
   const { slug, source: projectSource } = resolveProject(projectArgSlug, jsonMode);
   // The local config describes the project only when this directory deploys
   // as it; `--project other` from elsewhere reports the server side alone.
+  // Compare with the name deploy uses (config.projectName), not the named
+  // slug: `status --project web` in a static site deployed as "web" must
+  // still show its config. (Without --project, resolveProject has already
+  // refused a directory-derived name.)
   let resolved: ResolvedConfig | null = null;
   try {
     const local = projectFromDirectory();
-    if (local && local.slug === slug) resolved = local.config;
+    if (local && local.config.projectName === slug) resolved = local.config;
   } catch {
     // Only reachable with --project: without it, resolveProject has already
     // exited invalid_config on this error. The local config is not the
