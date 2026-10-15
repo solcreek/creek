@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { whoamiCommand } from "./whoami.js";
 import { loginCommand } from "./login.js";
 import { logoutCommand } from "./logout.js";
+import { keysCommand } from "./keys.js";
 
 // whoami / login / logout / keys driven through .run() with MSW standing in
 // for the control-plane and HOME pointed at a temp dir, so ~/.creek is the
@@ -63,6 +64,7 @@ const json = () => JSON.parse(stdout);
 const run = (cmd: { run?: unknown }, args: Record<string, unknown>) =>
   // async: a run() that exits synchronously still rejects the promise.
   runExit((async () => (cmd.run as (ctx: { args: unknown }) => unknown)({ args }))());
+const sub = (name: string) => (keysCommand.subCommands as Record<string, { run?: unknown }>)[name];
 
 const configPath = () => join(home, ".creek", "config.json");
 function saveConfig(config: Record<string, unknown>) {
@@ -335,5 +337,75 @@ describe("creek logout", () => {
       configCleared: false,
     });
     expect(existsSync(configPath())).toBe(false);
+  });
+});
+
+describe("creek keys", () => {
+  it("keys self shows the key in use", async () => {
+    process.env.CREEK_TOKEN = "tok-scoped";
+    api({ "tok-scoped": SCOPED });
+    expect(await run(sub("self"), {})).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      tokenSource: "env:CREEK_TOKEN",
+      key: { id: "key-scoped", kind: "scoped", effectiveScopes: ["env:read", "project:read"] },
+    });
+  });
+
+  it("keys self against an older API says server_unsupported", async () => {
+    process.env.CREEK_TOKEN = "tok";
+    server.use(
+      http.get(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
+    );
+    expect(await run(sub("self"), {})).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "server_unsupported" });
+  });
+
+  it.each([
+    ["ls", {}],
+    ["create", { name: "ci", team: "acme", scopes: "read-only" }],
+  ])("keys %s fails with session_required without calling the API", async (name, args) => {
+    process.env.CREEK_TOKEN = "tok-scoped";
+    // No handlers: any request would fail the test (onUnhandledRequest: error).
+    expect(await run(sub(name), args)).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: false,
+      error: "session_required",
+      dashboardUrl: expect.stringContaining("/api-keys"),
+    });
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
+      "creek keys self --json",
+    );
+  });
+
+  it("keys revoke <id> needs the dashboard; keys revoke alone asks for --self", async () => {
+    process.env.CREEK_TOKEN = "tok-scoped";
+    expect(await run(sub("revoke"), { id: "key-other" })).toBe(1);
+    expect(json().error).toBe("session_required");
+    stdout = "";
+    expect(await run(sub("revoke"), {})).toBe(1);
+    expect(json().error).toBe("missing_target");
+  });
+
+  it("keys revoke --self revokes the key in use and leaves the saved config alone", async () => {
+    saveConfig({ token: "tok-scoped" });
+    const calls = api({ "tok-scoped": SCOPED });
+    expect(await run(sub("revoke"), { self: true })).toBe(0);
+    expect(json()).toMatchObject({ ok: true, revoked: true, keyId: "key-scoped" });
+    expect(calls).toEqual(["DELETE self tok-scoped"]);
+    expect(readConfig().token).toBe("tok-scoped");
+    // A second revoke: the key is already gone.
+    stdout = "";
+    expect(await run(sub("revoke"), { self: true })).toBe(0);
+    expect(json()).toMatchObject({ ok: true, revoked: false, reason: "already_invalid" });
+  });
+
+  it("keys revoke --self --dry-run revokes nothing", async () => {
+    process.env.CREEK_TOKEN = "tok-scoped";
+    const calls = api({ "tok-scoped": SCOPED });
+    expect(await run(sub("revoke"), { self: true, "dry-run": true })).toBe(0);
+    expect(json()).toMatchObject({ ok: true, mode: "dry-run", key: { id: "key-scoped" } });
+    expect(calls).toEqual(["GET self tok-scoped"]);
   });
 });
