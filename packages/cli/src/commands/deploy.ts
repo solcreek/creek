@@ -1019,6 +1019,12 @@ export const deployCommand = defineCommand({
       return await dryRunPlan(dryCwd, args, jsonMode, destination);
     }
 
+    // A production deploy sends the saved key: check it now, before ToS,
+    // preflight, a clone or an install, so a key bound to another API stops
+    // here with api_mismatch instead of after work whose failure could mask
+    // it. getToken() exits on a mismatch; sandbox deploys never call it.
+    if (destination.kind === "production") getToken();
+
     // --- Safety gate: no silent deploys in non-interactive environments ---
     // Deploying publishes to a public URL — irreversible enough that we
     // don't want it to happen by accident. In a TTY a human is present to

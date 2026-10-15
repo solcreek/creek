@@ -96,6 +96,22 @@ describe("creek deploy with a saved key bound to another API", () => {
     expect(json()).toMatchObject({ ok: true, mode: "dry-run" });
   });
 
+  // Checked before ToS, preflight and dispatch: a clone or install failure
+  // must not mask api_mismatch, and nothing is cloned for a deploy that
+  // cannot be sent.
+  it.each([
+    ["a project", {}],
+    ["a repo URL", { dir: "https://github.com/solcreek/example" }],
+    ["--from-github", { "from-github": true }],
+  ])("--prod of %s refuses with api_mismatch before anything else runs", async (_, extra) => {
+    const { ensureTosAccepted } = await import("../utils/tos.js");
+    vi.mocked(ensureTosAccepted).mockClear();
+    expect(await deploy({ prod: true, ...extra })).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "api_mismatch" });
+    for (const spy of Object.values(handlers)) expect(spy).not.toHaveBeenCalled();
+    expect(ensureTosAccepted).not.toHaveBeenCalled();
+  });
+
   it("--prod refuses with api_mismatch before deploying", async () => {
     expect(await deploy({ prod: true })).toBe(1);
     expect(json()).toMatchObject({ ok: false, error: "api_mismatch" });
