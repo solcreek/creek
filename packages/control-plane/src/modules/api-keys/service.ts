@@ -540,12 +540,21 @@ export async function revokeKey(
 ): Promise<KeyView | null> {
   const row = await readKeyRow(db, keyId);
   if (!row || row.referenceId !== userId) return null;
+  // Build the view before the DELETE: nothing that can fail runs after the
+  // key is gone, so a revoke never answers an error for a deleted key. The
+  // team slug is display-only; if it cannot be read, revoke anyway.
+  const grant = parseGrant(row.id, row.permissions);
+  let slugs = new Map<string, string>();
+  try {
+    slugs = await teamSlugs(db, grant.kind === "scoped" ? [grant.teamId] : []);
+  } catch (err) {
+    console.error(`[api-keys] team lookup for revoking key ${keyId} failed:`, err);
+  }
+  const view = viewOf(row, grant, slugs);
   const result = await db
     .prepare("DELETE FROM apikey WHERE id = ? AND referenceId = ?")
     .bind(keyId, userId)
     .run();
   if (!result.meta.changes) return null;
-  const grant = parseGrant(row.id, row.permissions);
-  const slugs = await teamSlugs(db, grant.kind === "scoped" ? [grant.teamId] : []);
-  return viewOf(row, grant, slugs);
+  return view;
 }

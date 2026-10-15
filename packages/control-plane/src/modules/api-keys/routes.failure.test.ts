@@ -194,3 +194,47 @@ describe("revoking a key when its audit cannot be written", () => {
     expect(await f.sql("SELECT id FROM apikey")).toEqual([]);
   });
 });
+
+describe("revoking a scoped key when its team cannot be read", () => {
+  let f: Fixture;
+  beforeEach(() => {
+    f = createFixture();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    f.cleanup();
+  });
+
+  // Either the revoke happened (200, key gone) or it did not (500, key
+  // live). Never an error for a key that is already deleted.
+  for (const via of ["session", "self"] as const) {
+    it(`via ${via}: never answers an error after deleting the key`, async () => {
+      const owner = await f.signUp("owner@example.com");
+      const created = (await (
+        await f.call(
+          "POST",
+          "/api-keys",
+          { cookie: owner.cookie },
+          { name: "k", team: owner.orgSlug, scopes: ["project:read"] },
+        )
+      ).json()) as { id: string; key: string };
+
+      await f.sql("ALTER TABLE organization RENAME TO organization_gone");
+      const res =
+        via === "session"
+          ? await f.call("DELETE", `/api-keys/${created.id}`, { cookie: owner.cookie })
+          : await f.call("DELETE", "/api-keys/self", { "x-api-key": created.key });
+      await f.sql("ALTER TABLE organization_gone RENAME TO organization");
+
+      const left = await f.sql<{ id: string }>("SELECT id FROM apikey");
+      const outcome = [res.status, left.length];
+      expect([
+        [200, 0],
+        [500, 1],
+      ]).toContainEqual(outcome);
+      // With the slug lookup best-effort, the revoke goes through.
+      expect(outcome).toEqual([200, 0]);
+    });
+  }
+});
