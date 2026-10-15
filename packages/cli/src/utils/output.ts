@@ -104,6 +104,21 @@ export function jsonOutput(
   process.exit(exitCode);
 }
 
+/**
+ * Write one NDJSON line to stdout and keep running: the streaming
+ * counterpart of {@link jsonOutput}, for output an agent reads line by line
+ * (`creek logs --json`, `creek deployments logs --raw`). Each record is one
+ * compact JSON object.
+ */
+export function jsonLine(record: Record<string, unknown>): void {
+  writingJson = true;
+  try {
+    process.stdout.write(JSON.stringify(record) + "\n");
+  } finally {
+    writingJson = false;
+  }
+}
+
 /** Resolve JSON mode: explicit --json flag OR non-TTY environment. */
 export function resolveJsonMode(args: { json?: boolean }): boolean {
   return args.json === true || !isTTY;

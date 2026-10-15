@@ -2,7 +2,13 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  jsonLine,
+  AUTH_BREADCRUMBS,
+} from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 import { projectArg, projectBreadcrumbs, resolveProject } from "../utils/command-context.js";
 
@@ -183,7 +189,7 @@ const deploymentsLogs = defineCommand({
     }
 
     if (args.raw) {
-      for (const e of log.entries) consola.log(JSON.stringify(e));
+      for (const e of log.entries) jsonLine(e as unknown as Record<string, unknown>);
       return;
     }
 
