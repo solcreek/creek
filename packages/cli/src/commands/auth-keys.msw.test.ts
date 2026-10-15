@@ -1,11 +1,12 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { whoamiCommand } from "./whoami.js";
 import { loginCommand } from "./login.js";
+import { logoutCommand } from "./logout.js";
 
 // whoami / login / logout / keys driven through .run() with MSW standing in
 // for the control-plane and HOME pointed at a temp dir, so ~/.creek is the
@@ -241,5 +242,98 @@ describe("creek login --token", () => {
     const out = json();
     expect(out).toMatchObject({ ok: true, tokenSource: "config" });
     expect(out.warning).toBeUndefined();
+  });
+});
+
+describe("creek logout", () => {
+  it("without --revoke forgets the saved key, keeps apiUrl, and says the key is still valid", async () => {
+    saveConfig({ token: "tok-scoped", apiUrl: "https://elsewhere.test" });
+    // No handlers: plain logout makes no request.
+    expect(await run(logoutCommand, {})).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: true,
+      loggedOut: true,
+      configCleared: true,
+      tokenSource: "config",
+      revoked: false,
+      reason: "not_requested",
+      keyStillValid: true,
+    });
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
+      "creek logout --revoke --json",
+    );
+    expect(readConfig()).toEqual({ apiUrl: "https://elsewhere.test" });
+  });
+
+  it("--revoke revokes the key on the server, then forgets it", async () => {
+    saveConfig({ token: "tok-scoped" });
+    const calls = api({ "tok-scoped": SCOPED });
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      revoked: true,
+      keyId: "key-scoped",
+      configCleared: true,
+    });
+    expect(calls).toEqual(["DELETE self tok-scoped"]);
+    expect(readConfig().token).toBeUndefined();
+  });
+
+  it("--revoke is idempotent: a key the API already refuses still clears local state", async () => {
+    saveConfig({ token: "tok-gone" });
+    api({});
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      revoked: false,
+      reason: "already_invalid",
+      configCleared: true,
+    });
+    expect(readConfig().token).toBeUndefined();
+  });
+
+  it("--revoke against an API without the endpoint fails and keeps the saved key", async () => {
+    saveConfig({ token: "tok-scoped" });
+    server.use(
+      http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
+    );
+    expect(await run(logoutCommand, { revoke: true })).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "server_unsupported",
+      revoked: false,
+      keyStillValid: true,
+      configCleared: false,
+    });
+    expect(readConfig().token).toBe("tok-scoped");
+  });
+
+  it("--revoke with CREEK_TOKEN revokes that key and warns that the variable still holds it", async () => {
+    saveConfig({ token: "tok-scoped" });
+    process.env.CREEK_TOKEN = "tok-legacy";
+    const calls = api({ "tok-scoped": SCOPED, "tok-legacy": LEGACY });
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({
+      revoked: true,
+      keyId: "key-legacy",
+      tokenSource: "env:CREEK_TOKEN",
+      configCleared: true,
+      savedKeyStillValid: true,
+    });
+    expect(out.warning).toContain("CREEK_TOKEN is still set");
+    expect(calls).toEqual(["DELETE self tok-legacy"]);
+  });
+
+  it("--revoke with no key at all succeeds without a request", async () => {
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      revoked: false,
+      reason: "no_key",
+      configCleared: false,
+    });
+    expect(existsSync(configPath())).toBe(false);
   });
 });

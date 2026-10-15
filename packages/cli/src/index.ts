@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { loginCommand } from "./commands/login.js";
 import { whoamiCommand } from "./commands/whoami.js";
+import { logoutCommand } from "./commands/logout.js";
 import { initCommand } from "./commands/init.js";
 import { deployCommand } from "./commands/deploy.js";
 import { claimCommand } from "./commands/claim.js";
@@ -65,6 +66,7 @@ const main = defineCommand({
     verify: verifyCommand,
     login: loginCommand,
     whoami: whoamiCommand,
+    logout: logoutCommand,
     init: initCommand,
     claim: claimCommand,
     env: envCommand,
