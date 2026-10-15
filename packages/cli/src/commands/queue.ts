@@ -9,7 +9,7 @@ const queueSend = defineCommand({
   args: {
     message: {
       type: "positional",
-      description: "Message body (string, or use --json for JSON content)",
+      description: "Message body (sent as a string; pass --parseJson / -j to send it as JSON)",
       required: true,
     },
     parseJson: {
