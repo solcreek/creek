@@ -360,6 +360,54 @@ describe("DELETE /resources/:id tears down the Cloudflare resource", () => {
     expect(row.status).toBe("active");
   });
 
+  // A project attaches the resource just before the delete's batch (blocking
+  // it) and detaches it again just after, before the delete looks at why it
+  // changed nothing: the resource is live and unbound, not gone.
+  function attachAroundBatches(resourceId: string, projId: string, times: number) {
+    const env = testEnv.env as unknown as { DB: D1Database };
+    const batch = env.DB.batch.bind(env.DB);
+    let left = times;
+    env.DB.batch = (async (stmts: D1PreparedStatement[]) => {
+      if (left-- <= 0) return batch(stmts);
+      testEnv.db.db.exec(
+        `INSERT INTO project_resource_binding (projectId, bindingName, resourceId, createdAt)
+         VALUES ('${projId}', 'DATABASE', '${resourceId}', ${Date.now()})`,
+      );
+      const out = await batch(stmts);
+      testEnv.db.db.exec(`DELETE FROM project_resource_binding WHERE resourceId = '${resourceId}'`);
+      return out;
+    }) as typeof env.DB.batch;
+  }
+  const statusOf = (id: string) =>
+    (
+      testEnv.db.db.prepare("SELECT status FROM resource WHERE id = ?").get(id) as {
+        status: string;
+      }
+    ).status;
+
+  test("an attach-then-detach during the delete never reads as 404: it deletes on a retry", async () => {
+    seedResource("res-flap", { kind: "database", cfResourceId: "d1-flap", cfResourceType: "d1" });
+    attachAroundBatches("res-flap", seedProject(testEnv, "flapper"), 1);
+
+    const res = await req("DELETE", "/resources/res-flap");
+
+    expect(res.status).toBe(200);
+    expect(statusOf("res-flap")).toBe("deleted");
+    expect(cleanupRows()).toHaveLength(1);
+  });
+
+  test("a resource that keeps changing under the delete is a retryable 409, never a 404", async () => {
+    seedResource("res-busy", { kind: "database", cfResourceId: "d1-busy", cfResourceType: "d1" });
+    attachAroundBatches("res-busy", seedProject(testEnv, "busy"), 2);
+
+    const res = await req("DELETE", "/resources/res-busy");
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "conflict", retryable: true });
+    expect(statusOf("res-busy")).toBe("active");
+    expect(cleanupRows()).toEqual([]);
+  });
+
   test("a deleted resource can't be attached, so it can't be torn down under a project", async () => {
     seedResource("res-gone", { kind: "database", cfResourceId: "d1-gone", cfResourceType: "d1" });
     seedProject(testEnv, "late-app");

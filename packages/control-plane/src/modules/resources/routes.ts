@@ -299,10 +299,11 @@ resources.delete(
     // attach the resource after it. Both statements therefore also require it
     // to be unbound, and attach inserts only for a live resource, so D1's
     // serialized writes settle the race one way or the other.
-    const now = Date.now();
-    const [, res] = await c.env.DB.batch([
-      c.env.DB.prepare(
-        `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
+    const softDelete = async () => {
+      const now = Date.now();
+      const [, res] = await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO resource_cleanup_queue (resourceType, cfResourceId, cfResourceName, status, reason, createdAt)
        SELECT type, cfResourceId, 'creek-' || substr(replace(id, '-', ''), 1, 26), 'pending', 'resource_deleted', ?
        FROM (
          -- Older rows may lack cfResourceType; fall back to kind, as provisioning does.
@@ -319,34 +320,52 @@ resources.delete(
              AND other.status != 'deleted'
          )
          AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = r.id)`,
-      ).bind(Math.floor(now / 1000), id, teamId),
-      c.env.DB.prepare(
-        `UPDATE resource SET status = 'deleted', updatedAt = ?
+        ).bind(Math.floor(now / 1000), id, teamId),
+        c.env.DB.prepare(
+          `UPDATE resource SET status = 'deleted', updatedAt = ?
        WHERE id = ? AND teamId = ? AND status != 'deleted'
          AND NOT EXISTS (SELECT 1 FROM project_resource_binding b WHERE b.resourceId = resource.id)`,
-      ).bind(now, id, teamId),
-    ]);
-    if (!res.meta.changes) {
-      // Either it's gone, or a project attached it since the check above.
-      const bound = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM project_resource_binding b
-       JOIN resource r ON r.id = b.resourceId
-       WHERE r.id = ? AND r.teamId = ? AND r.status != 'deleted'`,
+        ).bind(now, id, teamId),
+      ]);
+      return res.meta.changes > 0;
+    };
+
+    // When the delete changed nothing, say why from the row as it is now,
+    // never from a guess: a 404 tells a caller the resource is gone. A
+    // project can attach (blocking the delete) and detach again before this
+    // looks, leaving the resource live and unbound; then delete again, once.
+    for (let attempt = 1; ; attempt++) {
+      if (await softDelete()) return c.json({ id, status: "deleted" });
+
+      const row = await c.env.DB.prepare(
+        `SELECT r.status,
+                (SELECT COUNT(*) FROM project_resource_binding b WHERE b.resourceId = r.id) AS n
+         FROM resource r WHERE r.id = ? AND r.teamId = ?`,
       )
         .bind(id, teamId)
-        .first<{ n: number }>();
-      if ((bound?.n ?? 0) > 0) {
+        .first<{ status: string; n: number }>();
+      if (!row || row.status === "deleted") return c.json({ error: "not_found" }, 404);
+      if (row.n > 0) {
         return c.json(
           {
             error: "has_bindings",
-            message: `Resource is attached to ${bound?.n} project(s). Detach first.`,
+            message: `Resource is attached to ${row.n} project(s). Detach first.`,
           },
           409,
         );
       }
-      return c.json({ error: "not_found" }, 404);
+      if (attempt >= 2) {
+        return c.json(
+          {
+            error: "conflict",
+            retryable: true,
+            message:
+              "The resource changed while it was being deleted (a project attached or detached it); it was not deleted. Retry.",
+          },
+          409,
+        );
+      }
     }
-    return c.json({ id, status: "deleted" });
   },
 );
 
