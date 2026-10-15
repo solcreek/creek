@@ -100,6 +100,8 @@ export const logoutCommand = defineCommand({
   meta: {
     name: "logout",
     description: "Forget the saved API key (--revoke also revokes the keys on the server)",
+    // --revoke revokes keys on the server.
+    destructive: true,
   },
   args: {
     revoke: {

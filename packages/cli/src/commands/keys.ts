@@ -50,6 +50,7 @@ const selfCommand = defineCommand({
   meta: {
     name: "self",
     description: "Show the API key in use: kind, team, scopes, expiry, last use",
+    destructive: false,
   },
   args: { ...globalArgs },
   async run({ args }) {
@@ -97,6 +98,8 @@ const lsCommand = defineCommand({
   meta: {
     name: "ls",
     description: "List your API keys (needs the dashboard; see `creek keys self`)",
+    // Only answers session_required, locally.
+    destructive: false,
   },
   args: {
     team: { type: "string", description: "Team id or slug", required: false },
@@ -111,6 +114,8 @@ const createCommand = defineCommand({
   meta: {
     name: "create",
     description: "Create an API key (needs the dashboard)",
+    // Only answers session_required, locally.
+    destructive: false,
   },
   // Declared so that the natural invocation reaches session_required
   // instead of failing on an unknown flag.
@@ -130,6 +135,7 @@ const revokeCommand = defineCommand({
   meta: {
     name: "revoke",
     description: "Revoke the API key in use (--self); other keys are revoked in the dashboard",
+    destructive: true,
   },
   args: {
     id: {
