@@ -203,11 +203,11 @@ Do not pass `apiKey` as a tool argument. Prefer the CLI when you have a shell (`
 
 ## Rate Limits
 
-MCP requests are rate-limited per client IP (not per MCP server):
+Sandbox deploys through MCP are rate-limited per client IP (not per MCP server): the MCP server forwards your IP, and the sandbox API counts it like a direct caller's.
 
-- **10 sandbox deploys per hour** per IP
-- **Demo deploys are exempt** from rate limits
-- Rate limit info is returned in tool output when triggered
+- **15 sandbox deploys per hour** per IP (the sandbox API's unverified tier)
+- **`deploy_demo` is exempt**
+- When the limit is hit, `deploy` answers `{ ok: false, error: "rate_limited", status: 429, details: { retryAfter, limit, reset, hint, … } }`
 
 ## Technical Details
 

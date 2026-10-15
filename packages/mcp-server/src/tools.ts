@@ -276,6 +276,9 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       "Content-Type": "application/json",
       "X-Forwarded-For": clientIp,
       "X-Internal-Secret": env.INTERNAL_SECRET,
+      // Rate-limit sandbox deploys per forwarded client IP, like a direct
+      // caller; without it a trusted internal caller is exempt.
+      "X-Creek-Rate-Limit": "client-ip",
     };
   }
   // ================================================================

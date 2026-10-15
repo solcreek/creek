@@ -85,6 +85,8 @@ describe("MCP deploy tool", () => {
     // client IP forwarded so sandbox-api rate-limits the real caller
     expect(deployHeaders["x-forwarded-for"]).toBe("203.0.113.7");
     expect(deployHeaders["x-internal-secret"]).toBe("test-internal-secret");
+    // …and asks to be rate-limited per that IP, not exempted as internal
+    expect(deployHeaders["x-creek-rate-limit"]).toBe("client-ip");
   });
 
   it("returns an MCP error result when the sandbox API rejects the deploy", async () => {

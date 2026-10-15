@@ -130,3 +130,94 @@ describe("DELETE /:id — creator check", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// --- POST /deploy — per-IP rate limit for the MCP server's clients ---
+
+/**
+ * A DB whose rate-limit count says the window is full. Any other query
+ * throws, so a request that is not limited stops right after the check
+ * (as a 500), which is all these tests need.
+ */
+function fullWindowEnv() {
+  const counted: unknown[][] = [];
+  return {
+    counted,
+    env: {
+      INTERNAL_SECRET: "internal",
+      IP_HASH_SALT: "test-salt",
+      DB: {
+        prepare: (sql: string) => ({
+          bind: (...args: unknown[]) => ({
+            first: async () => {
+              if (!sql.includes("COUNT(*)")) throw new Error("past the rate limit");
+              counted.push(args);
+              return { count: 100, oldest: Date.now() };
+            },
+            run: async () => {
+              throw new Error("past the rate limit");
+            },
+          }),
+        }),
+      },
+    },
+  };
+}
+
+async function deployAs(headers: Record<string, string>, source = "mcp") {
+  const { env, counted } = fullWindowEnv();
+  const res = await routes.request(
+    "/deploy",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ assets: { "index.html": btoa("<h1>hi</h1>") }, source }),
+    },
+    env,
+  );
+  return { status: res.status, counted };
+}
+
+const MCP_HEADERS = {
+  "cf-connecting-ip": "2a06:98c0:3600::103",
+  "x-forwarded-for": "203.0.113.7",
+  "x-internal-secret": "internal",
+  "x-creek-rate-limit": "client-ip",
+};
+
+describe("POST /deploy — rate limit for forwarded clients", () => {
+  it("limits the MCP server's deploys per forwarded client IP", async () => {
+    const { status, counted } = await deployAs(MCP_HEADERS);
+    expect(status).toBe(429);
+    expect(counted[0][0]).toBe(await ipHashOf("203.0.113.7"));
+  });
+
+  it("keeps other trusted internal callers (remote-builder) exempt", async () => {
+    const { status, counted } = await deployAs({
+      "x-internal-secret": "internal",
+      "x-forwarded-for": "198.51.100.9",
+    });
+    expect(status).not.toBe(429);
+    expect(counted).toHaveLength(0);
+  });
+
+  it("keeps the MCP demo deploy exempt", async () => {
+    const { status, counted } = await deployAs(MCP_HEADERS, "mcp-demo");
+    expect(status).not.toBe(429);
+    expect(counted).toHaveLength(0);
+  });
+
+  it("ignores the opt-in without the internal secret: the connecting IP is limited", async () => {
+    const { status, counted } = await deployAs({
+      "cf-connecting-ip": "198.51.100.1",
+      "x-forwarded-for": "203.0.113.7",
+      "x-creek-rate-limit": "client-ip",
+    });
+    expect(status).toBe(429);
+    expect(counted[0][0]).toBe(await ipHashOf("198.51.100.1"));
+  });
+
+  it("does not exempt mcp-demo from a direct caller", async () => {
+    const { status } = await deployAs({ "cf-connecting-ip": "198.51.100.1" }, "mcp-demo");
+    expect(status).toBe(429);
+  });
+});

@@ -155,14 +155,21 @@ routes.post("/deploy", async (c) => {
   }
 
   // Tiered rate limiting
-  // - Demo deploys (source = "cli-demo") are exempt.
+  // - Demo deploys (source = "cli-demo", or "mcp-demo" from the MCP
+  //   server, whose demo page is fixed) are exempt.
   // - Trusted internal calls (remote-builder via X-Internal-Secret) are
   //   exempt because rate limiting was already applied at the control-plane
   //   level with the real user IP. Without this exemption, ALL web deploys
   //   share a single rate limit bucket because remote-builder doesn't
   //   forward the original user IP → ipHash = hash("unknown").
-  const isDemo = body.source === "cli-demo";
-  const isRateLimitExempt = isDemo || isTrustedInternal;
+  // - Except a trusted caller that forwards each end client's IP and asks to
+  //   be limited by it (X-Creek-Rate-Limit: client-ip — the MCP server):
+  //   ipHash is then the forwarded client's, limited like a direct caller.
+  //   An explicit opt-in, since X-Forwarded-For alone may be set by the edge.
+  const limitByForwardedClient =
+    isTrustedInternal && c.req.header("x-creek-rate-limit") === "client-ip";
+  const isDemo = body.source === "cli-demo" || (isTrustedInternal && body.source === "mcp-demo");
+  const isRateLimitExempt = isDemo || (isTrustedInternal && !limitByForwardedClient);
   const tier = await resolveRateTier(c, env, ipHash);
   const RATE_LIMIT = RATE_LIMITS[tier];
   const RATE_WINDOW = 3600_000; // 1 hour
