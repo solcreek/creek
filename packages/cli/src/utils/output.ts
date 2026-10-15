@@ -63,13 +63,38 @@ export interface Breadcrumb {
   description: string;
 }
 
-/** Output structured JSON and exit. */
+/**
+ * The envelope every `--json` result carries: `ok: boolean`, and on failure
+ * also `error` (a machine code) and `message` (for a person). A result that
+ * leaves `ok` out gets it from the exit code; a failure without `error` or
+ * `message` gets a generic one, so an agent can always branch on `ok` and
+ * report `error` / `message`. Commands should still set all three
+ * themselves: this is the floor, not the contract's source.
+ */
+export function withEnvelope(data: Record<string, unknown>, exitCode: number) {
+  const ok = typeof data.ok === "boolean" ? data.ok : exitCode === 0;
+  // `ok` first, where an agent reading the output looks.
+  const out: Record<string, unknown> = { ok, ...data };
+  out.ok = ok;
+  if (ok) return out;
+  const error = typeof data.error === "string" && data.error ? data.error : "command_failed";
+  out.error = error;
+  if (typeof data.message !== "string" || !data.message) out.message = error;
+  return out;
+}
+
+/**
+ * Output structured JSON and exit. The one way a command prints a `--json`
+ * result: {@link withEnvelope} guarantees `ok` (and `error` / `message` on a
+ * failure), and a test fails on a command that prints JSON any other way.
+ */
 export function jsonOutput(
   data: Record<string, unknown>,
   exitCode = 0,
   breadcrumbs?: Breadcrumb[],
 ): never {
-  const output = breadcrumbs?.length ? { ...data, breadcrumbs } : data;
+  const enveloped = withEnvelope(data, exitCode);
+  const output = breadcrumbs?.length ? { ...enveloped, breadcrumbs } : enveloped;
   writingJson = true;
   try {
     process.stdout.write(JSON.stringify(output, null, 2) + "\n");
@@ -77,6 +102,21 @@ export function jsonOutput(
     writingJson = false;
   }
   process.exit(exitCode);
+}
+
+/**
+ * Write one NDJSON line to stdout and keep running: the streaming
+ * counterpart of {@link jsonOutput}, for output an agent reads line by line
+ * (`creek logs --json`, `creek deployments logs --raw`). Each record is one
+ * compact JSON object.
+ */
+export function jsonLine(record: Record<string, unknown>): void {
+  writingJson = true;
+  try {
+    process.stdout.write(JSON.stringify(record) + "\n");
+  } finally {
+    writingJson = false;
+  }
 }
 
 /** Resolve JSON mode: explicit --json flag OR non-TTY environment. */

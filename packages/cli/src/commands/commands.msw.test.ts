@@ -1151,3 +1151,55 @@ describe("creek projects delete", () => {
     expect(listCalls).toBe(0);
   });
 });
+
+describe("creek logs --json (NDJSON)", () => {
+  beforeEach(() => {
+    process.env.CREEK_TOKEN = "tok";
+  });
+  const entry = (timestamp: number) => ({
+    v: 1,
+    timestamp,
+    project: "p",
+    outcome: "ok",
+    logs: [],
+    exceptions: [],
+  });
+  const lines = () =>
+    stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+  it("with no entries still prints a summary line, never an empty stdout", async () => {
+    server.use(
+      http.get(`${API}/projects/p/logs`, () =>
+        HttpResponse.json({ entries: [], truncated: false }),
+      ),
+    );
+    await logsCommand.run!({ args: { project: "p", _: [] } } as never);
+    expect(lines()).toEqual([
+      {
+        ok: true,
+        type: "summary",
+        project: "p",
+        projectSource: "flag",
+        count: 0,
+        truncated: false,
+      },
+    ]);
+  });
+
+  it("prints each entry as a type: entry line, then the summary last", async () => {
+    server.use(
+      http.get(`${API}/projects/p/logs`, () =>
+        HttpResponse.json({ entries: [entry(2), entry(1)], truncated: true }),
+      ),
+    );
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await logsCommand.run!({ args: { project: "p", _: [] } } as never);
+    const out = lines();
+    expect(out.map((l) => l.type)).toEqual(["entry", "entry", "summary"]);
+    expect(out[0]).toMatchObject({ timestamp: 2, projectSource: "flag" });
+    expect(out[2]).toMatchObject({ ok: true, count: 2, truncated: true });
+  });
+});

@@ -96,7 +96,7 @@ you meant to target.
 
 ## JSON Output Format
 
-Every command returns structured JSON with breadcrumbs:
+Every command returns one JSON document with `ok: true | false`; a failure (`ok: false`, non-zero exit) also carries `error` (a code to branch on) and `message` (for the user). Most add `breadcrumbs`. The exception is `creek logs --json`, which is NDJSON ending in a `{"ok":true,"type":"summary","count":N}` line — see [observability](observability.md#runtime-logs--creek-logs).
 
 ```json
 {
@@ -151,6 +151,8 @@ Act on `apiError`:
 | `unauthorized` (`status` 401) | The key was not accepted | `creek login` with a valid key |
 
 `error: "api_unreachable"` (no `status`) means communication with the server failed — it was never reached, or the connection broke mid-request — not that the key was refused. Re-run the command only when `retryable` is `true`: the failure is transient (refused, reset, timeout, network down) and nothing this run changes can have been applied — it only read, or its writes provably never left. `mayHaveApplied: true` means a write of this run (this request or an earlier step, e.g. `creek deploy`'s create-deployment before its upload) may have been applied: check (`creek status`, `creek deployments`) before running the command again. Otherwise stop and tell the user: `reason` (absent when the failure gave none) names what to fix — `ENOTFOUND` (no network, or a wrong host in `CREEK_API_URL`), a certificate error (e.g. a proxy's self-signed certificate), `bad port`, `unknown scheme`.
+
+Where it applies: a network failure of a Creek API or sandbox API call is `api_unreachable`, replacing the command's own error code. This holds whether the command reports the failure itself (env, domains, projects, db/storage/cache, rollback, logs, metrics, status, deployments, doctor, queue, claim, `creek deploy` to production) or leaves it to the CLI. Exception, for now: a sandbox `creek deploy` that loses the sandbox API reports `deploy_failed` without `retryable`. Treat that one as not retryable unless `creek status <sandboxId>` shows nothing was created. Self-host (`--server`, `--host`) commands report creekd's own errors.
 
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 

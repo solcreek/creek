@@ -7,7 +7,13 @@ import {
   type WaitForDeploymentResult,
 } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  jsonLine,
+  AUTH_BREADCRUMBS,
+} from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 import {
   pasteableBreadcrumbs,
@@ -41,7 +47,16 @@ const deploymentsList = defineCommand({
     const token = getToken();
 
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -124,7 +139,16 @@ const deploymentsLogs = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const token = getToken();
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -185,7 +209,7 @@ const deploymentsLogs = defineCommand({
     }
 
     if (args.raw) {
-      for (const e of log.entries) consola.log(JSON.stringify(e));
+      for (const e of log.entries) jsonLine(e as unknown as Record<string, unknown>);
       return;
     }
 

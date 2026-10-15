@@ -181,7 +181,16 @@ function printSandbox(sandboxId: string, status: Record<string, unknown>, jsonMo
 async function projectStatus(projectArgSlug: string | undefined, jsonMode: boolean) {
   const token = getToken();
   if (!token) {
-    if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "not_authenticated",
+          message: "Not authenticated. Run `creek login` first.",
+        },
+        1,
+        AUTH_BREADCRUMBS,
+      );
     consola.error("Not authenticated. Run `creek login` first.");
     consola.info("To check a sandbox: creek status <sandboxId>");
     process.exit(1);
