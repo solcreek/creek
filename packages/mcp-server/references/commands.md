@@ -27,6 +27,10 @@ you meant to target.
 | Authenticate (CI / agent) | `creek login --token <KEY> --json` |
 | Authenticate (human) | `creek login` |
 | Check auth | `creek whoami --json` |
+| Show the API key in use | `creek keys self --json` |
+| Log out (key stays valid) | `creek logout --json` |
+| Log out and revoke the key | `creek logout --revoke --json` |
+| Revoke the key in use | `creek keys revoke --self --json` |
 | Init project | `creek init --json` |
 | Preview deploy plan | `creek deploy --dry-run --json` |
 | Deploy sandbox | `creek deploy --sandbox --json` |
@@ -84,6 +88,51 @@ you meant to target.
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
 | Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
+
+## API keys
+
+The CLI authenticates every request with an API key. `CREEK_TOKEN`, when
+set (even empty), wins over the key `creek login --token` saved in
+`~/.creek/config.json`; `creek login` then returns a `warning` saying so.
+
+`creek whoami --json` says which key is in use:
+
+```json
+{
+  "ok": true,
+  "email": "owner@example.com",
+  "tokenSource": "env:CREEK_TOKEN",
+  "key": {
+    "id": "…", "name": "ci", "kind": "scoped",
+    "team": { "id": "…", "slug": "acme" },
+    "scopes": ["env:read", "env:write", "project:read"],
+    "effectiveScopes": ["env:read", "project:read"],
+    "expiresAt": "2027-01-01T00:00:00.000Z", "lastUsedAt": "…"
+  },
+  "warning": "CREEK_TOKEN is set: it overrides the key saved by `creek login` …"
+}
+```
+
+- `tokenSource`: `env:CREEK_TOKEN` or `config`.
+- `kind: "legacy"`: no scopes, the owner's full access in every team (`scopes`
+  and `effectiveScopes` are `null`, `key.warning` says it will be retired).
+  `kind: "scoped"`: pinned to `team`; `effectiveScopes` is what the key can
+  use now (its scopes the owner's current role still allows). Check it before
+  a write instead of waiting for `insufficient_scope`.
+- `key: null` with `keyLookup.error: "server_unsupported"` means the API
+  predates key details; whoami still exits 0.
+
+A key can read and revoke only itself. Minting, listing and revoking other
+keys need a signed-in dashboard session, which the CLI never holds:
+`creek keys ls` and `creek keys create` exit 1 with
+`error: "session_required"` and `dashboardUrl`, without calling the API.
+
+`creek logout` forgets the saved key; the key stays valid
+(`keyStillValid: true`). `creek logout --revoke` revokes the key in use
+first (`revoked: true`, `keyId`). It is safe to re-run: a key already
+revoked or expired reports `revoked: false, reason: "already_invalid"` and
+local state is still cleared. Any other failure exits 1 and keeps the saved
+key. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
 
 ## JSON Output Format
 

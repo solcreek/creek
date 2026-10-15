@@ -201,6 +201,32 @@ creek login --token <key>       # Non-interactive (CI/CD)
 creek login --json
 ```
 
+The key is saved in `~/.creek/config.json`. The `CREEK_TOKEN` environment variable, when set, wins over it for every command; `creek login` warns when that is the case (`warning` in `--json` output).
+
+### `creek logout`
+
+Forget the saved API key.
+
+```bash
+creek logout              # The key stays valid on the server
+creek logout --revoke     # Revoke the key in use first, then forget it
+creek logout --revoke --json
+```
+
+`--revoke` revokes the key in use (the one `creek whoami` shows, so `CREEK_TOKEN`'s when that is set). Re-running it is safe: a key that is already revoked or expired reports `revoked: false, reason: "already_invalid"` and the saved key is still removed. If the revocation fails for another reason, nothing is removed and the command exits 1.
+
+### `creek keys`
+
+The API key in use.
+
+```bash
+creek keys self --json             # Kind, team, scopes, effective scopes, expiry, last use
+creek keys revoke --self           # Revoke it (asks first in a terminal)
+creek keys revoke --self --dry-run
+```
+
+The CLI authenticates with an API key, and a key can read and revoke only itself. Creating, listing and revoking other keys needs a signed-in session: use the dashboard (**API Keys**). `creek keys ls` and `creek keys create` exit with `error: "session_required"` and the dashboard URL.
+
 ### `creek init`
 
 Create a `creek.toml` configuration file. A directory with only `index.html` (no `package.json`) gets a no-build config that deploys the directory as is.
@@ -262,12 +288,14 @@ creek domains add app.example.com --project my-app  # Specify project
 
 ### `creek whoami`
 
-Show the currently authenticated user.
+Show the authenticated user, the API key in use and where it comes from.
 
 ```bash
 creek whoami
 creek whoami --json
 ```
+
+`--json` output includes `tokenSource` (`env:CREEK_TOKEN` or `config`) and `key`: `id`, `name`, `kind` (`legacy` — full access in every team — or `scoped` to one `team`), `scopes`, `effectiveScopes` (the scopes your current team role still allows), `expiresAt` and `lastUsedAt`. Against an API that cannot describe keys, `key` is `null` and `keyLookup` says why; whoami still succeeds.
 
 ## Configuration
 

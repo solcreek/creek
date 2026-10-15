@@ -84,6 +84,16 @@ Delete a sandbox before it expires. Only the client that created it can delete i
 
 **Output:** `{ ok: true, sandboxId, deleted: true }`. Errors: `forbidden` (another client created it), `already_expired`, `not_found`.
 
+### `whoami`
+
+The API key this MCP connection authenticates with. Read-only. Call it before a write to check the key can do it.
+
+**Auth:** `Authorization: Bearer` or `x-api-key`
+
+**Output:** `{ ok, key: { id, name, start, kind, team, scopes, effectiveScopes, role, access, expiresAt, expired, createdAt, lastUsedAt, warning? } }`. `kind` is `legacy` (no scopes; the owner's full access in every team, `scopes` and `effectiveScopes` are `null`) or `scoped` (pinned to `team`). `effectiveScopes` is what the key can use now: its scopes that the owner's current role still allows. Errors: `unauthorized` (the key was refused), `server_unsupported` (the control plane cannot describe keys).
+
+There is no tool to revoke a key: an agent revoking the key its own connection uses would cut itself off. Revoke keys in the dashboard, or with `creek logout --revoke` / `creek keys revoke --self`.
+
 ### `list_projects`
 
 List projects in the authenticated team.
@@ -191,6 +201,7 @@ Agent:
 |-------|:------------:|
 | Sandbox tools (`deploy`, `deploy_demo`, `deploy_status`, `deploy_delete`) | No |
 | Build log (`get_build_log`) | `Authorization: Bearer` or `x-api-key` header |
+| Key in use (`whoami`) | same header |
 | Projects (`list_projects`, `get_status`) | same header |
 | Env (`env_ls`, `env_set`, `env_rm`) | same header |
 | Production (`deploy_prod`, `list_deployments`, `get_deployment`, `wait_for_deployment`, `rollback`) | same header |
