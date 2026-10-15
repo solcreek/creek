@@ -36,7 +36,10 @@ export const restartCommand = defineCommand({
       const app = await client.restartApp(args.id as string);
       if (jsonMode) {
         jsonOutput({ ok: true, app }, 0, [
-          { command: `creek logs ${app.id}`, description: "Stream app logs" },
+          {
+            command: `creek logs --server ${args.server || getCreekdUrl()} --project ${app.id}`,
+            description: "Stream app logs",
+          },
           { command: `creek top`, description: "Live process overview" },
         ]);
       }

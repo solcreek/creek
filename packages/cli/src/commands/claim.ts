@@ -88,9 +88,22 @@ export const claimCommand = defineCommand({
       statusRes = await fetch(`${sandboxApiUrl}/api/sandbox/${sandboxId}/status`);
     } catch (err) {
       const msg = `Couldn't reach the sandbox API: ${err instanceof Error ? err.message : String(err)}`;
+      // A network failure: api_unreachable with reason / retryable, like
+      // every other command (the GET wrote nothing, so it is retryable when
+      // transient).
       if (jsonMode)
-        jsonOutput({ ok: false, error: "sandbox_api_unreachable", message: msg }, 1, []);
+        jsonOutput(
+          {
+            ok: false,
+            error: "sandbox_api_unreachable",
+            message: msg,
+            ...apiErrorFields(err),
+          },
+          1,
+          [],
+        );
       consola.error(msg);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
     }
 

@@ -3,7 +3,13 @@ import consola from "consola";
 import WebSocket from "ws";
 import { CreekClient, type LogEntry, type LogQueryFilters } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  jsonLine,
+  AUTH_BREADCRUMBS,
+} from "../utils/output.js";
 import { matchesClientSide, describeFilters, safeStringify as ssExport } from "./logs-filter.js";
 import { CreekdClient, CreekdApiError, getCreekdUrl } from "../utils/creekd-client.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
@@ -25,7 +31,15 @@ import { projectArg, resolveProject, type ProjectSource } from "../utils/command
  * Output:
  *   default → human-friendly multi-line per entry, colored by
  *             outcome (ok=dim, exception=red, etc.)
- *   --json  → newline-delimited LogEntry JSON, suitable for `| jq`
+ *   --json  → NDJSON, one object per line, suitable for `| jq`:
+ *             every entry as `{ "type": "entry", ...LogEntry, projectSource }`
+ *             (newest first, as the API returns them), then one last line
+ *             `{ "ok": true, "type": "summary", "count", "truncated", ... }`.
+ *             The summary is always there, so no entries is `count: 0`,
+ *             never an empty stdout. With --follow the history is followed
+ *             by `{ "ok": true, "type": "following", "count", ... }` instead,
+ *             then live entries until interrupted. A failure before any
+ *             line is a single `{ ok: false, error, message }` document.
  */
 export const logsCommand = defineCommand({
   meta: {
@@ -106,7 +120,16 @@ export const logsCommand = defineCommand({
 
     const token = getToken();
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -159,8 +182,18 @@ export const logsCommand = defineCommand({
     // when --follow streams in below, it continues chronologically).
     if (jsonMode) {
       for (const entry of response.entries) {
-        process.stdout.write(JSON.stringify({ ...entry, projectSource }) + "\n");
+        jsonLine({ type: "entry", ...entry, projectSource });
       }
+      // The last line says the stream is complete and how much it held, so an
+      // agent can tell "no entries" from "no output".
+      jsonLine({
+        ok: true,
+        type: args.follow ? "following" : "summary",
+        project: projectSlug,
+        projectSource,
+        count: response.entries.length,
+        truncated: response.truncated === true,
+      });
       if (response.truncated && !args.follow) {
         process.stderr.write(
           `# truncated — more entries match. Refine --since/--limit to narrow.\n`,
@@ -293,7 +326,7 @@ async function follow(
         if (!matchesClientSide(entry, filters)) return;
         seenAfter = Math.max(seenAfter, entry.timestamp);
         if (jsonMode) {
-          process.stdout.write(JSON.stringify({ ...entry, projectSource }) + "\n");
+          jsonLine({ type: "entry", ...entry, projectSource });
         } else {
           printEntry(entry);
         }

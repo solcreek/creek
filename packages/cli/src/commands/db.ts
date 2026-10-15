@@ -58,7 +58,16 @@ const shellCommand = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const token = getToken();
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -368,7 +377,16 @@ const migrateCommand = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const token = getToken();
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -571,7 +589,6 @@ const migrateCommand = defineCommand({
             {
               ok: false,
               error: "migration_failed",
-              ...apiErrorFields(err),
               file: file.name,
               totalStatements: statements.length,
               message: msg,
@@ -580,6 +597,7 @@ const migrateCommand = defineCommand({
               ...(alreadyExists
                 ? { hint: "Re-run with --resume to reconcile a partially-applied migration." }
                 : {}),
+              ...apiErrorFields(err),
             },
             1,
           );
@@ -648,7 +666,16 @@ const seedCommand = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const token = getToken();
     if (!token) {
-      if (jsonMode) jsonOutput({ ok: false, error: "not_authenticated" }, 1, AUTH_BREADCRUMBS);
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            error: "not_authenticated",
+            message: "Not authenticated. Run `creek login` first.",
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
       consola.error("Not authenticated. Run `creek login` first.");
       process.exit(1);
     }
@@ -724,10 +751,10 @@ const seedCommand = defineCommand({
             {
               ok: false,
               error: "seed_failed",
-              ...apiErrorFields(err),
               statement: i + 1,
               totalStatements: statements.length,
               message: msg,
+              ...apiErrorFields(err),
             },
             1,
           );

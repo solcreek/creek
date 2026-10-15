@@ -31,7 +31,20 @@ export const opsCommand = defineCommand({
       return await health(jsonMode);
     }
 
-    jsonOutput({ error: `Unknown subcommand: ${sub}`, usage: "creek ops [deployments|health]" }, 1);
+    const message = `Unknown subcommand: ${sub}. Use: creek ops [deployments|health]`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "unknown_command",
+          message,
+          usage: "creek ops [deployments|health]",
+        },
+        1,
+        [{ command: "creek ops --help --json", description: "List ops subcommands" }],
+      );
+    console.error(message);
+    process.exit(1);
   },
 });
 
@@ -154,9 +167,18 @@ async function health(jsonMode: boolean) {
     checks["sandbox-api"] = `unreachable: ${err instanceof Error ? err.message : String(err)}`;
   }
 
+  const failing = Object.entries(checks).filter(([, v]) => v !== "ok");
   if (jsonMode) {
-    const allOk = Object.values(checks).every((v) => v === "ok");
-    jsonOutput({ ok: allOk, checks });
+    if (failing.length === 0) jsonOutput({ ok: true, checks });
+    jsonOutput(
+      {
+        ok: false,
+        error: "unhealthy",
+        message: `Unhealthy: ${failing.map(([name, v]) => `${name} (${v})`).join(", ")}`,
+        checks,
+      },
+      1,
+    );
   }
 
   console.log("\n  Platform Health\n");
@@ -165,6 +187,8 @@ async function health(jsonMode: boolean) {
     console.log(`  ${icon} ${name}: ${status}`);
   }
   console.log();
+  // Same exit code as --json: a script can check health without parsing.
+  if (failing.length > 0) process.exit(1);
 }
 
 function timeAgo(iso: string): string {

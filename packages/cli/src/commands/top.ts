@@ -46,7 +46,10 @@ export const topCommand = defineCommand({
       const snapshot = await collectSnapshot(client);
       jsonOutput({ ok: true, ...snapshot }, 0, [
         { command: "creek top --json", description: "Refresh snapshot" },
-        { command: "creek logs <app-id>", description: "Stream app logs" },
+        {
+          command: `creek logs --server ${args.server || getCreekdUrl()} --project <app-id>`,
+          description: "Stream app logs",
+        },
       ]);
     }
 

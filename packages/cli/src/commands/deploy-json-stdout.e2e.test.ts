@@ -184,71 +184,88 @@ function parseOnlyJson(stdout: string): Record<string, unknown> {
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
-describe.skipIf(!existsSync(CLI))("creek deploy --json: stdout is one JSON document (#62)", () => {
-  test("sandbox deploy with a noisy build", async () => {
-    const r = await deploy(["--sandbox", "--json"]);
-    const out = parseOnlyJson(r.stdout);
-    expect(out).toMatchObject({ ok: true, mode: "sandbox" });
-    expect(r.code).toBe(0);
-    // Every source that used to leak is still visible, on stderr.
-    expect(r.stderr).toContain("Terms of Service");
-    // npm's own script banner ("> build" on npm 11, "npm notice run build" on
-    // stderr from npm 12) is covered by stdout parsing as JSON; its wording
-    // depends on the npm version, so it isn't asserted here.
-    expect(r.stderr).toContain("LEAK-BUILD-STDOUT");
-    expect(r.stderr).toContain("LEAK-GRANDCHILD");
-    expect(r.stderr).toContain("BUILD-STDERR");
-    expect(r.stdout).not.toContain("LEAK-");
-  });
+// Each test spawns the CLI, and most run a real `npm run build`: a second or
+// two alone, far more under a full parallel suite, where vitest's 5 s default
+// timed out the two-deploy test. deploy() fails a single run itself at 60 s,
+// so allow two of those plus margin.
+const E2E_TIMEOUT_MS = 130_000;
 
-  test("sandbox deploy with --skip-build (the Terms notice alone used to break it)", async () => {
-    const r = await deploy(["--sandbox", "--skip-build", "--json"]);
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true });
-    expect(r.stderr).toContain("Terms of Service");
-  });
-
-  test("production deploy through the control-plane API", async () => {
-    const r = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true, mode: "production" });
-    expect(r.stderr).toContain("LEAK-GRANDCHILD");
-  });
-
-  test("the production build log records whether the build ran", async () => {
-    const built = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
-    expect(built.code, built.stderr).toBe(0);
-    expect(buildLogs.join("\n")).toContain("ran: npm run build");
-
-    buildLogs = [];
-    const skipped = await deploy(["--prod", "--skip-build", "--json"], {
-      CREEK_TOKEN: "test-token",
+describe.skipIf(!existsSync(CLI))(
+  "creek deploy --json: stdout is one JSON document (#62)",
+  { timeout: E2E_TIMEOUT_MS },
+  () => {
+    test("sandbox deploy with a noisy build", async () => {
+      const r = await deploy(["--sandbox", "--json"]);
+      const out = parseOnlyJson(r.stdout);
+      expect(out).toMatchObject({ ok: true, mode: "sandbox" });
+      expect(r.code).toBe(0);
+      // Every source that used to leak is still visible, on stderr.
+      expect(r.stderr).toContain("Terms of Service");
+      // npm's own script banner ("> build" on npm 11, "npm notice run build" on
+      // stderr from npm 12) is covered by stdout parsing as JSON; its wording
+      // depends on the npm version, so it isn't asserted here.
+      expect(r.stderr).toContain("LEAK-BUILD-STDOUT");
+      expect(r.stderr).toContain("LEAK-GRANDCHILD");
+      expect(r.stderr).toContain("BUILD-STDERR");
+      expect(r.stdout).not.toContain("LEAK-");
     });
-    expect(skipped.code, skipped.stderr).toBe(0);
-    const log = buildLogs.join("\n");
-    expect(log).toContain("build skipped (--skip-build)");
-    expect(log).not.toContain("ran: npm run build");
-  });
 
-  test("a failing build still yields one JSON error document", async () => {
-    const r = await deploy(["--sandbox", "--json"], { FAIL_BUILD: "1" });
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "build_failed" });
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("LEAK-BUILD-STDOUT");
-  });
+    test("sandbox deploy with --skip-build (the Terms notice alone used to break it)", async () => {
+      const r = await deploy(["--sandbox", "--skip-build", "--json"]);
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true });
+      expect(r.stderr).toContain("Terms of Service");
+    });
 
-  test("template deploy: a rejected template name is a JSON error", async () => {
-    const r = await deploy(["--template", "../etc", "--sandbox", "--json"]);
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_template" });
-    expect(r.code).toBe(1);
-  });
+    test("production deploy through the control-plane API", async () => {
+      const r = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true, mode: "production" });
+      expect(r.stderr).toContain("LEAK-GRANDCHILD");
+    });
 
-  test("template deploy: malformed --data is a JSON error", async () => {
-    const r = await deploy(["--template", "landing", "--data", "{not json", "--sandbox", "--json"]);
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_data" });
-    expect(r.code).toBe(1);
-  });
+    test("the production build log records whether the build ran", async () => {
+      const built = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
+      expect(built.code, built.stderr).toBe(0);
+      expect(buildLogs.join("\n")).toContain("ran: npm run build");
 
-  test("JSON mode switched on by a pipe, without --json", async () => {
-    const r = await deploy(["--sandbox"]);
-    expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true });
-  });
-});
+      buildLogs = [];
+      const skipped = await deploy(["--prod", "--skip-build", "--json"], {
+        CREEK_TOKEN: "test-token",
+      });
+      expect(skipped.code, skipped.stderr).toBe(0);
+      const log = buildLogs.join("\n");
+      expect(log).toContain("build skipped (--skip-build)");
+      expect(log).not.toContain("ran: npm run build");
+    });
+
+    test("a failing build still yields one JSON error document", async () => {
+      const r = await deploy(["--sandbox", "--json"], { FAIL_BUILD: "1" });
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "build_failed" });
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain("LEAK-BUILD-STDOUT");
+    });
+
+    test("template deploy: a rejected template name is a JSON error", async () => {
+      const r = await deploy(["--template", "../etc", "--sandbox", "--json"]);
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_template" });
+      expect(r.code).toBe(1);
+    });
+
+    test("template deploy: malformed --data is a JSON error", async () => {
+      const r = await deploy([
+        "--template",
+        "landing",
+        "--data",
+        "{not json",
+        "--sandbox",
+        "--json",
+      ]);
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: false, error: "invalid_data" });
+      expect(r.code).toBe(1);
+    });
+
+    test("JSON mode switched on by a pipe, without --json", async () => {
+      const r = await deploy(["--sandbox"]);
+      expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true });
+    });
+  },
+);

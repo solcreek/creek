@@ -76,7 +76,20 @@ export const verifyCommand = defineCommand({
         ]
       : [{ command: "creek deploy --sandbox --json", description: "Deploy a preview" }];
 
-    if (jsonMode) return jsonOutput({ ...result }, result.ok ? 0 : 1, crumbs);
+    if (jsonMode) {
+      if (result.ok) jsonOutput({ ...result }, 0, crumbs);
+      // `error` is the envelope's code, as in the deploy proof and the MCP
+      // tool; what went wrong is the `message`.
+      jsonOutput(
+        {
+          ...result,
+          error: "verify_failed",
+          message: result.error ?? `Verify failed (HTTP ${result.status})`,
+        },
+        1,
+        crumbs,
+      );
+    }
 
     if (result.ok) {
       consola.success(`  Live → ${result.url}  HTTP ${result.status}  ${result.ttfbMs}ms`);
