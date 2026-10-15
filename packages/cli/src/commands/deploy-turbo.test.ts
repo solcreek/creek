@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { tryTurboDeploy } from "./deploy.js";
+import { reportWaitTimeout, tryTurboDeploy } from "./deploy.js";
 
 // A cache-hit (turbo) deploy polls the deployment until it is terminal. That
 // poll must honour --wait like the regular path, not a fixed 30s.
@@ -57,10 +57,31 @@ describe("tryTurboDeploy --wait budget", () => {
     await run;
     expect(exitSpy).toHaveBeenCalledWith(1);
     const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
-    expect(JSON.parse(out.slice(out.indexOf("{")))).toMatchObject({
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    // Same report as the regular deploy poll: how long the CLI waited, and
+    // where to look next.
+    expect(payload).toMatchObject({
       ok: false,
       error: "timeout",
+      waited: "90s",
+      deploymentId: "dep-1",
+      project: "app",
     });
+    expect(payload.message).toContain("CLI stopped waiting after 90s");
+    expect(payload.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
+      "creek status",
+      "creek deployments logs dep-1",
+    ]);
+  });
+
+  it("reportWaitTimeout formats whole minutes as Nm and the rest as seconds", () => {
+    reportWaitTimeout({ jsonMode: true, waitedMs: 120_000, deploymentId: "d" });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(JSON.parse(out.slice(out.indexOf("{")))).toMatchObject({
+      waited: "2m",
+      message: "CLI stopped waiting after 2m; the deploy may still be in progress",
+    });
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it("defaults to the same 2m budget as the regular deploy path", async () => {

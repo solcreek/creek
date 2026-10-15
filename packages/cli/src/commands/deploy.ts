@@ -725,6 +725,53 @@ export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<
   return Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 }
 
+/** A poll budget as people read it: whole minutes as "Nm", else seconds. */
+export function formatWaited(ms: number): string {
+  // A 90s budget must not read as "2m".
+  return ms % 60_000 === 0 ? `${ms / 60_000}m` : `${Math.round(ms / 1000)}s`;
+}
+
+/**
+ * The CLI stopped polling before the deploy reached a terminal state. The
+ * server may still finish it, so say how long we waited and where to look,
+ * instead of reading as a failure to retry. Shared by the regular and the
+ * cache-hit (turbo) deploy polls. Exported for tests.
+ */
+export function reportWaitTimeout(opts: {
+  jsonMode: boolean;
+  waitedMs: number;
+  deploymentId: string;
+  extra?: Record<string, unknown>;
+}): never {
+  const waited = formatWaited(opts.waitedMs);
+  const breadcrumbs: Breadcrumb[] = [
+    { command: `creek status`, description: "Check whether the deploy finished" },
+    {
+      command: `creek deployments logs ${opts.deploymentId}`,
+      description: "View the build log so far",
+    },
+  ];
+  if (opts.jsonMode)
+    jsonOutput(
+      {
+        ok: false,
+        error: "timeout",
+        message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
+        waited,
+        deploymentId: opts.deploymentId,
+        ...opts.extra,
+      },
+      1,
+      breadcrumbs,
+    );
+  consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
+  // The server keeps deploying; a longer --wait lets the CLI observe the end.
+  consola.info(`  Wait longer:   creek deploy … --wait 15m`);
+  consola.info(`  Check status:  creek status`);
+  consola.info(`  View the log:  creek deployments logs ${opts.deploymentId}`);
+  return process.exit(1);
+}
+
 /** Minimal surface of CreekClient that stageDeploymentBundle needs (for tests). */
 export interface BundleStager {
   uploadServerFile(
@@ -2653,12 +2700,6 @@ async function deployAuthenticated(
     // The CLI gave up before the deploy reached a terminal state — the server
     // may still be working. Upload what we have so `creek deployments logs`
     // isn't empty, and point the user there instead of a bare "retry".
-    // Whole minutes read as "Nm"; anything else as seconds so a 90s budget
-    // isn't misreported as "2m".
-    const waited =
-      POLL_TIMEOUT % 60_000 === 0
-        ? `${POLL_TIMEOUT / 60_000}m`
-        : `${Math.round(POLL_TIMEOUT / 1000)}s`;
     buildLog.warn("activate", "CLI stopped waiting before the deploy reached a terminal state");
     await ensureDriftLogged();
     await flushBuildLog(
@@ -2667,28 +2708,7 @@ async function deployAuthenticated(
         startedAt: buildLog.startedAt,
       }),
     );
-    if (jsonMode)
-      jsonOutput(
-        {
-          ok: false,
-          error: "timeout",
-          message: `CLI stopped waiting after ${waited}; the deploy may still be in progress`,
-        },
-        1,
-        [
-          { command: `creek status`, description: "Check whether the deploy finished" },
-          {
-            command: `creek deployments logs ${deployment.id}`,
-            description: "View the build log so far",
-          },
-        ],
-      );
-    consola.error(`CLI stopped waiting after ${waited} — the deploy may still be in progress.`);
-    // The server keeps deploying; a longer --wait lets the CLI observe the end.
-    consola.info(`  Wait longer:   creek deploy … --wait 15m`);
-    consola.info(`  Check status:  creek status`);
-    consola.info(`  View the log:  creek deployments logs ${deployment.id}`);
-    process.exit(1);
+    return reportWaitTimeout({ jsonMode, waitedMs: POLL_TIMEOUT, deploymentId: deployment.id });
   } catch (err) {
     if (err instanceof CreekAuthError) {
       // JSON mode must still print a result: the stdout contract holds on
@@ -3024,25 +3044,16 @@ export async function tryTurboDeploy(
     }
 
     // Timeout — the CLI gave up waiting; the deploy may still complete, but we
-    // can't confirm success. Treat like the non-turbo poll timeout: structured
-    // JSON + non-zero exit so automation doesn't read an unconfirmed deploy as
-    // a green success.
-    if (jsonMode) {
-      jsonOutput(
-        {
-          ok: false,
-          error: "timeout",
-          message:
-            "Cache deploy timed out; the deploy may still be in progress. Check `creek status`.",
-          deploymentId: res.deployment.id,
-          project: project.slug,
-        },
-        1,
-        [],
-      );
-    }
-    consola.warn("  Cache deploy timed out — check `creek status`");
-    process.exit(1);
+    // can't confirm success. Same report as the regular poll's timeout:
+    // structured JSON + non-zero exit, so automation doesn't read an
+    // unconfirmed deploy as a green success.
+    reportWaitTimeout({
+      jsonMode,
+      waitedMs: POLL_TIMEOUT,
+      deploymentId: res.deployment.id,
+      extra: { project: project.slug, turbo: true },
+    });
+    return true;
   } catch {
     // API error — fall through to normal build
     return false;
