@@ -17,6 +17,7 @@ import { projectArg, projectBreadcrumbs, resolveProject } from "../utils/command
 const deploymentsList = defineCommand({
   meta: {
     name: "list",
+    destructive: false,
     description: "List recent deployments",
   },
   args: {
@@ -98,6 +99,7 @@ const deploymentsList = defineCommand({
 const deploymentsLogs = defineCommand({
   meta: {
     name: "logs",
+    destructive: false,
     description:
       "Read the build log for a deployment (production + branch + preview). Use --project to target a different project; --raw to print ndjson for piping. Designed so AI coding agents can diagnose failed deploys without a human relay.",
   },
@@ -279,6 +281,7 @@ function stepDuration(lines: Array<{ ts: number }>): string | null {
 export const deploymentsCommand = defineCommand({
   meta: {
     name: "deployments",
+    destructive: false,
     description: "List deployments and read build logs",
   },
   args: {

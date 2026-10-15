@@ -260,11 +260,149 @@ describe("creek domains structured errors (JSON mode)", () => {
     ]);
   });
 
-  it("emits a structured not_found when removing a hostname that isn't on the project", async () => {
+  it("emits a structured not_found for a string that is not a hostname", async () => {
     server.use(listHandler("pending"));
-    const code = await runExit(rmCmd.run!({ args: { hostname: "nope.example.com" } } as never));
-    expect(code).toBe(1);
-    expect(json()).toMatchObject({ ok: false, error: "not_found", hostname: "nope.example.com" });
+    for (const hostname of ["https://course.example.com", "course", "course example.com"]) {
+      stdout = "";
+      const code = await runExit(rmCmd.run!({ args: { hostname } } as never));
+      expect(code, hostname).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "not_found", hostname });
+    }
+  });
+});
+
+describe("creek domains rm, run twice", () => {
+  type Row = { id: string; projectId: string; hostname: string; status: string; createdAt: number };
+  let rows: Row[];
+  let deletes: number;
+
+  // Like the control-plane: DELETE removes the row, and 404s once it's gone.
+  function liveServer() {
+    rows = [{ id: DOM_ID, projectId: "p1", hostname: HOST, status: "active", createdAt: 0 }];
+    deletes = 0;
+    server.use(
+      http.get(`${API}/projects/${SLUG}/domains`, () => HttpResponse.json(rows)),
+      http.delete(`${API}/projects/${SLUG}/domains/:id`, ({ params }) => {
+        deletes++;
+        const before = rows.length;
+        rows = rows.filter((r) => r.id !== params.id);
+        if (rows.length === before)
+          return HttpResponse.json(
+            { error: "not_found", message: "Domain not found" },
+            { status: 404 },
+          );
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+  }
+
+  it("a second rm of the same hostname succeeds with alreadyAbsent", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: false, removed: true });
+
+    stdout = "";
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      hostname: HOST,
+      alreadyAbsent: true,
+      removed: false,
+      project: SLUG,
+    });
+    expect(json().message).toContain("nothing was removed");
+    // Nothing listed, so nothing to DELETE.
+    expect(deletes).toBe(1);
+  });
+
+  it("matches the hostname case-insensitively and removes the listed domain", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { hostname: "Course.Example.COM" } } as never))).toBe(
+      0,
+    );
+    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: false, removed: true });
+    expect(deletes).toBe(1);
+    expect(rows).toEqual([]);
+  });
+
+  it("a padded hostname still finds and removes the listed domain", async () => {
+    liveServer();
+    expect(await runExit(rmCmd.run!({ args: { hostname: `  ${HOST}  ` } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, hostname: HOST, alreadyAbsent: false, removed: true });
+    expect(deletes).toBe(1);
+    expect(rows).toEqual([]);
+  });
+
+  it("a removal that loses to a concurrent one reports alreadyAbsent", async () => {
+    liveServer();
+    // The other removal lands between this one's list and its DELETE.
+    server.use(
+      http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () => {
+        rows = [];
+        return HttpResponse.json(
+          { error: "not_found", message: "Domain not found" },
+          { status: 404 },
+        );
+      }),
+    );
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(0);
+    expect(json()).toMatchObject({ ok: true, alreadyAbsent: true, removed: false });
+  });
+
+  it("a hostname removed and re-added (new id) between list and DELETE is an error", async () => {
+    liveServer();
+    // Another process removes the domain and adds the same hostname again
+    // after this run listed it: the DELETE by the old id 404s, but the
+    // hostname is attached under a new id.
+    server.use(
+      http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () => {
+        deletes++;
+        rows = [{ id: "dom-2", projectId: "p1", hostname: HOST, status: "pending", createdAt: 1 }];
+        return HttpResponse.json(
+          { error: "not_found", message: "Domain not found" },
+          { status: 404 },
+        );
+      }),
+    );
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "delete_failed",
+      status: 404,
+      details: { existing: { id: "dom-2", hostname: HOST } },
+    });
+    expect(json().message).toContain("re-added concurrently");
+    expect(json().alreadyAbsent).toBeUndefined();
+    expect(deletes).toBe(1);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("a 404 for a domain that is still listed is an error, not alreadyAbsent", async () => {
+    liveServer();
+    server.use(
+      http.delete(`${API}/projects/${SLUG}/domains/${DOM_ID}`, () =>
+        HttpResponse.json({ error: "not_found", message: "Project not found" }, { status: 404 }),
+      ),
+    );
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST } } as never))).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "delete_failed", status: 404 });
+    expect(json().alreadyAbsent).toBeUndefined();
+  });
+
+  it("--dry-run on a hostname that is gone plans nothing and says alreadyAbsent", async () => {
+    liveServer();
+    rows = [];
+    expect(await runExit(rmCmd.run!({ args: { hostname: HOST, "dry-run": true } } as never))).toBe(
+      0,
+    );
+    expect(json()).toMatchObject({
+      ok: true,
+      mode: "dry-run",
+      wouldExecute: false,
+      alreadyAbsent: true,
+      hostname: HOST,
+    });
+    expect(deletes).toBe(0);
   });
 });
 

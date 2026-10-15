@@ -74,6 +74,7 @@ Stable handles (JSON keys and flags from this repo, not prompt text):
 | Init with database | `creek init <name> --db --yes --json` | `database: true`, `worker/index.ts` exists, `workerDependencies` is `["hono","creek","d1-schema"]` |
 | Pre-deploy check | `creek doctor --json` | `ok`, `cwd`, `findings[].code` (`CK-*`) |
 | Preview a deploy | `creek deploy --dry-run --json` | `mode: "dry-run"`, `wouldDeploy`, `target.type`, `sideEffects.networkCalls === false` |
+| Production while signed out | `creek deploy --prod [--dry-run] --json` | exit 1, `error: "not_authenticated"`, never a sandbox plan |
 | Auth state | `creek whoami --json` | unauthenticated: exit 1, `error: "not_authenticated"` |
 | Agent login refusal | `creek login --json` | exit 1, `error: "interactive_login_unsupported"` |
 

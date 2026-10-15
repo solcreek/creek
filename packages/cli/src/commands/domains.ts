@@ -1,12 +1,12 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { CreekClient } from "@solcreek/sdk";
+import { CreekApiError, CreekClient } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
 import { requireClient, resolveProject, apiCall, projectArg } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const domainsLs = defineCommand({
-  meta: { name: "ls", description: "List custom domains" },
+  meta: { name: "ls", destructive: false, description: "List custom domains" },
   args: {
     ...projectArg,
     ...globalArgs,
@@ -47,7 +47,7 @@ const domainsLs = defineCommand({
 });
 
 const domainsAdd = defineCommand({
-  meta: { name: "add", description: "Add a custom domain" },
+  meta: { name: "add", destructive: false, description: "Add a custom domain" },
   args: {
     hostname: {
       type: "positional",
@@ -132,6 +132,15 @@ const domainsAdd = defineCommand({
   },
 });
 
+/**
+ * A hostname as the API stores it (trimmed, lowercased). Every lookup and
+ * the already-absent check use this one form, so a padded or mixed-case
+ * argument can't miss a listed domain and then read as already removed.
+ */
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().toLowerCase();
+}
+
 async function resolveDomain(
   client: CreekClient,
   slug: string,
@@ -139,7 +148,8 @@ async function resolveDomain(
   jsonMode: boolean,
 ) {
   const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
-  return domains.find((d) => d.hostname === hostname.toLowerCase());
+  const wanted = normalizeHostname(hostname);
+  return domains.find((d) => d.hostname === wanted);
 }
 
 /** Emit a structured `not_found` (JSON mode) or human error, then exit 1. */
@@ -155,7 +165,11 @@ function domainNotFound(hostname: string, slug: string, jsonMode: boolean): neve
 }
 
 const domainsShow = defineCommand({
-  meta: { name: "show", description: "Show a domain's status and the DNS records to set" },
+  meta: {
+    name: "show",
+    destructive: false,
+    description: "Show a domain's status and the DNS records to set",
+  },
   args: {
     hostname: { type: "positional", description: "Domain to show", required: true },
     ...projectArg,
@@ -199,8 +213,73 @@ const domainsShow = defineCommand({
   },
 });
 
+// The API's own hostname shape (control-plane domains/validation.ts): a
+// hostname that doesn't match it can never have been added.
+const HOSTNAME_SHAPE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+
+/**
+ * `domains rm` of a hostname the project doesn't have succeeds with
+ * `alreadyAbsent: true`, so a re-run converges. Removed domains leave no
+ * record, so one removed earlier and one never added can't be told apart —
+ * except a string that isn't a hostname at all (a URL, a name with no dot),
+ * which is still `not_found`.
+ */
+function domainAlreadyAbsent(
+  hostname: string,
+  slug: string,
+  projectSource: string,
+  jsonMode: boolean,
+  dryRun: boolean,
+): void {
+  const normalized = normalizeHostname(hostname);
+  if (!HOSTNAME_SHAPE.test(normalized)) {
+    const message = `"${hostname}" is not a hostname (e.g. app.example.com), so it was never a domain of ${slug}.`;
+    if (jsonMode) {
+      jsonOutput({ ok: false, error: "not_found", hostname, project: slug, message }, 1, [
+        { command: `creek domains ls --project ${slug}`, description: "List configured domains" },
+      ]);
+    }
+    consola.error(message);
+    process.exit(1);
+  }
+  const lsCrumb = {
+    command: `creek domains ls --project ${slug} --json`,
+    description: "List configured domains",
+  };
+  if (dryRun) {
+    emitDryRunPlan(jsonMode, {
+      command: `creek domains rm ${normalized}`,
+      wouldExecute: false,
+      alreadyAbsent: true,
+      project: slug,
+      projectSource,
+      hostname: normalized,
+      sideEffects: [`${normalized} is not a domain of ${slug} — nothing to remove`],
+      nextStep: lsCrumb.command,
+    });
+    return;
+  }
+  const message = `${normalized} is not a domain of ${slug}; nothing was removed. If you expected it, check the name with \`creek domains ls --project ${slug}\`.`;
+  if (jsonMode) {
+    jsonOutput(
+      {
+        ok: true,
+        hostname: normalized,
+        alreadyAbsent: true,
+        removed: false,
+        project: slug,
+        projectSource,
+        message,
+      },
+      0,
+      [lsCrumb],
+    );
+  }
+  consola.success(message);
+}
+
 const domainsRm = defineCommand({
-  meta: { name: "rm", description: "Remove a custom domain" },
+  meta: { name: "rm", destructive: true, description: "Remove a custom domain" },
   args: {
     hostname: { type: "positional", description: "Domain to remove", required: true },
     ...projectArg,
@@ -213,12 +292,16 @@ const domainsRm = defineCommand({
     const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
 
     const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
-    if (!domain) domainNotFound(args.hostname, slug, jsonMode);
+    if (!domain) {
+      domainAlreadyAbsent(args.hostname, slug, projectSource, jsonMode, isDryRun(args));
+      return;
+    }
 
     if (isDryRun(args)) {
       emitDryRunPlan(jsonMode, {
         command: `creek domains rm ${domain.hostname}`,
         wouldExecute: true,
+        alreadyAbsent: false,
         project: slug,
         projectSource,
         hostname: domain.hostname,
@@ -233,11 +316,53 @@ const domainsRm = defineCommand({
       return;
     }
 
-    await apiCall(jsonMode, "delete_failed", () => client.deleteDomain(slug, domain.id));
+    const gone = await apiCall(jsonMode, "delete_failed", () =>
+      client.deleteDomain(slug, domain.id).then(
+        () => false,
+        async (err: unknown) => {
+          // Listed a moment ago, 404 now: a concurrent removal got there first
+          // only if the project's list loads without this domain — neither
+          // its id nor its hostname. The hostname under a new id means it was
+          // removed and re-added meanwhile: it is attached, so that is an
+          // error, not alreadyAbsent. Anything else (the project gone, the
+          // list failing) stays an error too.
+          if (err instanceof CreekApiError && err.status === 404) {
+            const after = await client.listDomains(slug).catch(() => null);
+            const readded = after?.find(
+              (d) => d.id !== domain.id && d.hostname === domain.hostname,
+            );
+            if (readded) {
+              throw new CreekApiError(
+                err.status,
+                err.code,
+                `${domain.hostname} was removed and re-added concurrently (new id ${readded.id}); it is still a domain of ${slug} and nothing was removed. Re-run to remove it.`,
+                {
+                  ...err.details,
+                  existing: { id: readded.id, hostname: readded.hostname, status: readded.status },
+                },
+              );
+            }
+            if (after && !after.some((d) => d.id === domain.id)) return true;
+          }
+          throw err;
+        },
+      ),
+    );
+    if (gone) {
+      domainAlreadyAbsent(domain.hostname, slug, projectSource, jsonMode, false);
+      return;
+    }
 
     if (jsonMode) {
       jsonOutput(
-        { ok: true, hostname: domain.hostname, removed: true, project: slug, projectSource },
+        {
+          ok: true,
+          hostname: domain.hostname,
+          alreadyAbsent: false,
+          removed: true,
+          project: slug,
+          projectSource,
+        },
         0,
         [{ command: `creek domains ls --project ${slug}`, description: "List remaining domains" }],
       );
@@ -249,7 +374,7 @@ const domainsRm = defineCommand({
 });
 
 const domainsActivate = defineCommand({
-  meta: { name: "activate", description: "Activate a pending custom domain" },
+  meta: { name: "activate", destructive: false, description: "Activate a pending custom domain" },
   args: {
     hostname: { type: "positional", description: "Domain to activate", required: true },
     ...projectArg,

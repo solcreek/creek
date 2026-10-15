@@ -13,6 +13,7 @@ import { fmtBytes, fmtDuration, calcCpuPercent } from "../utils/top-format.js";
 export const topCommand = defineCommand({
   meta: {
     name: "top",
+    destructive: false,
     description: "Live view of apps on a creekd instance",
   },
   args: {

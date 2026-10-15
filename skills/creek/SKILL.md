@@ -5,17 +5,17 @@ description: Deploy, configure, and troubleshoot Creek projects via the CLI and 
 
 # Creek
 
-Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTTP. Non-interactive (agent/CI) deploys **must** pass `--sandbox` or `--prod`; a bare `creek deploy --json` is refused.
+Creek deploys full-stack apps to Cloudflare Workers. Prefer the CLI over raw HTTP. Non-interactive (agent/CI) deploys **must** name a target — pass `--sandbox` or `--prod` (`--yes` also gets past the gate, see below); a bare `creek deploy --json` is refused.
 
 ## Discover commands
 
 ```bash
-creek --help --json                    # full command tree (args, dryRun, destructive)
+creek --help --json                    # full command tree (args, enum, aliases, dryRun, destructive)
 creek deploy --help --json             # one command
 creek env set --help --json            # nested subcommand
 ```
 
-Do not scrape human `--help`. `destructive: true` means the command has `--dry-run`.
+Do not scrape human `--help`. `destructive: true` means running the command may delete or overwrite existing data or change what is live: confirm with the user first. `dryRun: true` means it accepts `--dry-run` (not every destructive command does, and some additive ones do). An arg's `enum` lists the only values it accepts. A command reachable under another name lists it in `aliases` (`env rm` has `unset`).
 
 ## Default loop
 
@@ -33,11 +33,14 @@ Signed-in production:
 creek deploy --prod --json
 ```
 
-`--yes` skips prompts (ToS). It is **not** implied by `--json`. `--sandbox` / `--prod` is what unblocks a non-TTY deploy.
+`--yes` skips prompts (ToS). It is **not** implied by `--json`. `--sandbox`, `--prod` **or** `--yes` unblocks a non-TTY deploy, but `--yes` leaves the target implicit: signed in it deploys to **production** (with a deprecation warning on stderr), signed out to a sandbox. Prefer `--sandbox` / `--prod` so the destination is explicit.
+
+`creek deploy --prod` waits up to 2 minutes for the deploy to finish. `--wait 15m` (or `900s`, `1h`, bare ms; clamped to 1s–60m) waits longer. `error: "timeout"` means the **CLI** stopped waiting, not that the deploy failed — it may still be running and go live. Check with `creek status --json` / `creek deployments --json` (and `creek deployments logs <ID> --json`) before redeploying.
 
 ## Do not
 
-- Do not run `creek deploy` or `creek deploy --json` without `--sandbox` or `--prod` in a non-TTY. You will get `confirmation_required`.
+- Do not run `creek deploy` or `creek deploy --json` without `--sandbox`, `--prod` or `--yes` in a non-TTY. You will get `confirmation_required`.
+- Do not treat a deploy `timeout` as a failure and redeploy blindly. Check `creek status --json` first; pass a longer `--wait` next time.
 - Do not treat dry-run `wouldDeploy: true` as a license to omit the flags in `nextStep`.
 - Do not use a branch (preview) deploy of a project to try unreviewed code: it runs with the project's production database and every env var not marked `--target production`. Use `--sandbox` (no secrets, no project resources). See `references/deployment-modes.md`.
 - Do not assert the entire HTML document after a sandbox deploy — Creek injects a banner script. Assert **your** markup with `--contains`.
@@ -45,7 +48,7 @@ creek deploy --prod --json
 - Production deploy on MCP is `deploy_prod` (GitHub connection, same as `creek deploy --from-github --prod`). It returns as soon as the build is dispatched, with a `deploymentId` — pass it to `wait_for_deployment` (or `get_deployment`), and on `deployment_failed` read `get_build_log`. If `deploymentId` is `null`, find the newest row for its `commitSha` with `list_deployments`. Rollback is `rollback`. Project listing/status/env: `list_projects`, `get_status`, `env_ls`, `env_set`, `env_rm`.
 - Do not run `creek login` in a headless agent. Use `creek login --token <KEY> --json` or `CREEK_TOKEN`. Non-TTY `creek login` without `--token` returns `interactive_login_unsupported` (it used to hang on a browser callback).
 - Mutating commands (`rollback`, `env set`/`rm`, `domains rm`, `db delete`, `storage delete`, `cache delete`) accept `--dry-run --json`. Follow `nextStep`; do not strip flags.
-- Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`destructive: true` means `--dry-run` exists).
+- Do not retry an `unknown_flag` error by dropping `--dry-run`. That flag was not a preview — older CLIs silently ignored it and executed the mutation. Use `--help --json` (`dryRun: true` means `--dry-run` exists).
 - `creek rollback` without an id skips synthetic `triggerType=rollback` rows. Prefer the id from `creek rollback --dry-run --json` / `list_deployments`.
 
 ## MCP (https://mcp.creek.dev)

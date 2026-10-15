@@ -5,6 +5,14 @@ common multi-command flows.
 
 Discover the live tree with `creek --help --json` (or `creek <cmd> --help --json`). Do not scrape human usage text.
 
+Each command in the schema carries:
+- `destructive`: running it may delete or overwrite existing data or change what is live. Set per command and reviewed.
+- `dryRun`: it accepts `--dry-run`.
+- `aliases`: other names for the same command, e.g. `env rm` → `["unset"]`.
+- `args[].enum`: when present, the only values an arg accepts, e.g. `env set --target`.
+
+Destructive: `deploy`, `rollback`, `init`, `env set`/`rm`, `domains rm`, `projects delete`, `db|storage|cache detach`/`delete`, `db shell`/`migrate`/`seed`, `restart`, `stop`.
+
 Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
@@ -57,17 +65,18 @@ you meant to target.
 | Remove one target's value | `creek env rm <KEY> --target <production\|preview\|all> --json` |
 | Preview env set | `creek env set <KEY> <VALUE> --dry-run --json` |
 | Preview env rm | `creek env rm <KEY> --dry-run --json` |
-| List env vars | `creek env ls --json` |
-| Show env values | `creek env ls --show --json` |
+| List env keys and targets (values are write-only) | `creek env ls --json` |
 | Remove env var | `creek env rm <KEY> --json` |
 | Add domain | `creek domains add <HOSTNAME> --json` |
 | List domains | `creek domains ls --json` |
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
-| Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
+| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; the CLI rejects `--parse-json` as `unknown_flag`) |
+| Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
-| Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
+| Trigger a cron firing in dev | type `cron` + Enter in the running `creek dev` terminal (only when `[triggers] cron` is set; there is no `--trigger-cron` flag) |
+| Send a queue message in dev | type `queue <JSON-OR-TEXT>` + Enter in the running `creek dev` terminal (only when `[triggers] queue = true`) |
 | List team databases | `creek db ls --json` |
 | Create a team database | `creek db create <NAME> --json` |
 | Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DATABASE --json` |
@@ -81,6 +90,7 @@ you meant to target.
 | Read a deployment's build log | `creek deployments logs <DEPLOYMENT_ID> --json` |
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
+| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
 
 ## JSON Output Format
 
@@ -142,5 +152,9 @@ Act on `apiError`:
 MCP tools return the same `error` (the API's code), `message`, `status` and `details`.
 
 `creek db|storage|cache create/attach/detach/delete` are safe to re-run. When the result is already in place they succeed (`ok: true`, exit 0) and say so: `alreadyExists: true` on `create` (with the existing `resource`) and `attach` (with the existing `binding`), `alreadyAbsent: true` on `detach` and `delete`. A fresh result carries `alreadyExists` / `alreadyAbsent: false`. A real clash still fails — see [resources](resources.md#re-running-commands).
+
+`creek env rm` (alias `unset`) and `creek domains rm` follow the same rule. A key (or the `--target` value) that isn't set, or a hostname the project doesn't have, succeeds with `alreadyAbsent: true`, `removed: false` (`env rm` also `removedValues: 0`), including in `--dry-run` (`wouldExecute: false`) and when a concurrent removal wins. A fresh removal carries `alreadyAbsent: false`. Env vars and domains are deleted outright, so a key or hostname removed earlier and one never set (a typo) look the same: `alreadyAbsent: true` doesn't prove it existed. If you expected it, check the name with `creek env ls` / `creek domains ls`. Still errors: a missing project (`rm_failed` / `delete_failed`, `status: 404`), for `env rm` a key that can't exist, e.g. padded or lowercase (`invalid_key`, nothing sent), and for `domains rm` a string that isn't a hostname at all (`not_found`; padding and case are normalized). `env rm` keeps `pendingDeploy: true` on `alreadyAbsent`: an earlier run may have removed the key without a deploy since.
+
+Env var values are write-only: `creek env ls --json` returns `vars[]` with `key` and `target` only (and `valuesWriteOnly: true`). No command or MCP tool returns a value. `--show` exits 1 with `values_write_only`. To change a value, `creek env set` it again.
 
 Dry-run `nextStep` is a copy-pasteable command (`creek deploy --sandbox --json` or `--prod`). Follow it; do not strip the flags.

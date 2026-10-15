@@ -203,13 +203,16 @@ creek login --json
 
 ### `creek init`
 
-Create a `creek.toml` configuration file.
+Create a `creek.toml` configuration file. A directory with only `index.html` (no `package.json`) gets a no-build config that deploys the directory as is.
 
 ```bash
 creek init
 creek init --name my-app
 creek init --json --yes
+creek init --force              # Replace an existing creek.toml
 ```
+
+An existing `creek.toml` is never replaced silently: an interactive terminal asks first, and a non-interactive run (`--json`, `--yes`, CI, agents) exits `already_exists` unless you pass `--force`.
 
 ### `creek claim <sandboxId>`
 
@@ -226,9 +229,8 @@ Manage environment variables.
 
 ```bash
 creek env set DATABASE_URL "postgres://..."
-creek env ls                    # Values redacted by default
-creek env ls --show             # Show plaintext values
-creek env rm DATABASE_URL
+creek env ls                    # Keys and targets; values are write-only
+creek env rm DATABASE_URL       # Alias: creek env unset
 creek env ls --json
 creek env set API_KEY "..." --project my-app   # Another project, or outside a project dir
 ```
@@ -244,6 +246,10 @@ creek env rm STRIPE_KEY                                      # remove every valu
 
 A deploy uses its own target's value, else the all-deploys value. Branch deploys run with the project's resources, so mark secrets that preview code must not see as `--target production`.
 
+Values are **write-only**: Creek stores them encrypted and never returns them, so `creek env ls` lists keys and targets only (`--show` exits 1 with `values_write_only`). To change a value, set it again.
+
+`creek env rm` is safe to re-run: a key (or `--target` value) that isn't set succeeds with `alreadyAbsent: true` and `removed: false`. Removed variables leave no record, so this can't tell a key removed earlier from a typo. Check `creek env ls` if you expected the key.
+
 ### `creek domains`
 
 Manage custom domains. See [Custom Domains](/docs/custom-domains) for full guide.
@@ -256,6 +262,8 @@ creek domains rm app.example.com    # Remove a domain
 creek domains ls --json             # JSON output
 creek domains add app.example.com --project my-app  # Specify project
 ```
+
+`creek domains rm` is safe to re-run: a hostname the project doesn't have succeeds with `alreadyAbsent: true` and `removed: false`. Removed domains leave no record, so this can't tell a hostname removed earlier from a typo. A string that isn't a hostname at all (a URL, a name with no dot) is still `not_found`.
 
 ### `creek whoami`
 
@@ -331,6 +339,7 @@ Creek is designed for programmatic use:
 - **Non-TTY auto-detection** — pipes, CI, and agents automatically get JSON output
 - **`--json --yes`** — explicit structured output, skip all prompts
 - **Exit codes** — `0` success, `1` failure
+- **`creek --help --json`** — the command tree as JSON. Each command has `destructive` (it may delete or overwrite data or change what is live: confirm first) and `dryRun` (it accepts `--dry-run`). Aliases are listed as `aliases` (`env rm` → `unset`), and an arg's `enum` lists its allowed values
 - **Error format** — `{"ok": false, "error": "...", "message": "..."}`. When the Creek API refused the call, it also has `status` (HTTP), `apiError` (the API's code, e.g. `insufficient_scope`, `binding_conflict`) and `details` (e.g. the scopes the key lacks)
 
 ```bash

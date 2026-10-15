@@ -5,11 +5,11 @@ import { requireClient, resolveProject, projectArg } from "../utils/command-cont
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
 const queueSend = defineCommand({
-  meta: { name: "send", description: "Send a message to the project's queue" },
+  meta: { name: "send", destructive: false, description: "Send a message to the project's queue" },
   args: {
     message: {
       type: "positional",
-      description: "Message body (string, or use --json for JSON content)",
+      description: "Message body (sent as a string; pass --parseJson / -j to send it as JSON)",
       required: true,
     },
     parseJson: {

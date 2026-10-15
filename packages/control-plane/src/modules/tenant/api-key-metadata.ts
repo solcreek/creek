@@ -66,8 +66,16 @@ export async function refuseClientKeyMetadata(c: Context): Promise<Response | nu
 
 /** Whether a path names an api-key endpoint, however it is spelled. */
 function mentionsApiKey(pathname: string): boolean {
+  return squashPath(pathname).includes("apikey");
+}
+
+/**
+ * A path percent-decoded (repeatedly, so %2D, %252D and the like all
+ * collapse), lowercased, with everything but letters and digits removed:
+ * "/api/auth/api-key/create" becomes "apiauthapikeycreate".
+ */
+export function squashPath(pathname: string): string {
   let path = pathname;
-  // Decode repeatedly (bounded) so %2D, %252D and the like all collapse.
   for (let i = 0; i < 5; i++) {
     let decoded: string;
     try {
@@ -78,8 +86,5 @@ function mentionsApiKey(pathname: string): boolean {
     if (decoded === path) break;
     path = decoded;
   }
-  return path
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .includes("apikey");
+  return path.toLowerCase().replace(/[^a-z0-9]/g, "");
 }

@@ -23,6 +23,7 @@ import { projectBreadcrumbs, resolveProject } from "../utils/command-context.js"
 export const doctorCommand = defineCommand({
   meta: {
     name: "doctor",
+    destructive: false,
     description:
       "Analyze the project for pre-deploy issues — missing build output, deprecated config keys, Workers-incompatible deps, portability leaks.",
   },
