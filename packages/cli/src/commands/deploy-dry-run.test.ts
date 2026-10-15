@@ -9,11 +9,26 @@ import {
   productionSuccessBreadcrumbs,
 } from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
+import { sandboxDeploy } from "../utils/sandbox.js";
 import { materializeVinextFixture } from "../../../sdk/src/framework/__fixtures__/vinext-cf-output/materialize.js";
 
 vi.mock("../utils/config.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../utils/config.js")>();
   return { ...orig, getToken: () => null };
+});
+
+// The real-run test below must never reach the network or write ToS state.
+vi.mock("../utils/tos.js", () => ({
+  ensureTosAccepted: vi.fn(async () => ({ version: "test", acceptedAt: "test" })),
+}));
+vi.mock("../utils/sandbox.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../utils/sandbox.js")>();
+  return {
+    ...orig,
+    sandboxDeploy: vi.fn(async () => {
+      throw new Error("sandboxDeploy must not run in this test");
+    }),
+  };
 });
 
 describe("hasDeployablePayload", () => {
@@ -67,6 +82,19 @@ describe("dryRunNextStep", () => {
     });
     expect(step).toContain("Nothing deployable yet");
     expect(step).toContain(AGENT_SANDBOX_DEPLOY);
+  });
+
+  it("never suggests a command the destination refuses when nothing is deployable", () => {
+    const creekd = dryRunNextStep({ blockingCount: 0, wouldDeploy: false, targetType: "creekd" });
+    expect(creekd).toContain("creek deploy --yes --json");
+    expect(creekd).not.toContain("--sandbox");
+    const dir = dryRunNextStep({
+      blockingCount: 0,
+      wouldDeploy: false,
+      targetType: "sandbox",
+      dir: "site",
+    });
+    expect(dir).toContain("creek deploy site --sandbox --json");
   });
 
   it("emits a copy-pasteable --sandbox/--prod command, never a bare creek deploy", () => {
@@ -143,7 +171,8 @@ describe("creek deploy --dry-run (agent path)", () => {
     writeFileSync(join(dist, "style.css"), "body{color:red}");
     const plan = await dryRunJson({ dir: dist });
     expect(plan.wouldDeploy).toBe(true);
-    expect(plan.nextStep).toBe(AGENT_SANDBOX_DEPLOY);
+    // The next command names the same directory the plan was made for.
+    expect(plan.nextStep).toBe(`creek deploy ${dist} --sandbox --json`);
   });
 
   it("cwd with only style.css (no explicit dir) is not wouldDeploy", async () => {
@@ -172,6 +201,46 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.wouldDeploy).toBe(false);
     expect(String(plan.nextStep)).toMatch(/creek doctor --json/);
     expect(String(plan.nextStep)).not.toContain("npx creek deploy");
+  });
+
+  it("signed out, --prod --dry-run refuses with not_authenticated instead of planning a sandbox", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const out = await dryRunJson({ prod: true });
+    expect(out).toMatchObject({ ok: false, error: "not_authenticated" });
+    expect(out.target).toBeUndefined();
+    const crumbs = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(crumbs).toContain("creek login --token <KEY> --json");
+    expect(crumbs).toContain(AGENT_SANDBOX_DEPLOY);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("signed out, a real --prod run refuses with not_authenticated before deploying", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    await (deployCommand.run as (ctx: { args: Record<string, unknown> }) => Promise<unknown>)({
+      args: { prod: true, json: true },
+    });
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const parsed = JSON.parse(out.slice(out.indexOf("{")));
+    expect(parsed).toMatchObject({ ok: false, error: "not_authenticated" });
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(sandboxDeploy).not.toHaveBeenCalled();
+  });
+
+  it("signed out, --prod --dry-run on a creekd target is not refused (creekd has its own token)", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    writeFileSync(
+      join(dir, "creek.toml"),
+      '[project]\nname = "self-hosted"\ntarget = "creekd"\n\n[build]\ncommand = ""\noutput = "."\n',
+    );
+    const out = await dryRunJson({ prod: true });
+    expect(out.error).toBeUndefined();
+    expect(out).toMatchObject({ mode: "dry-run", supported: true, target: { type: "creekd" } });
+  });
+
+  it("signed out, no target flag still plans a sandbox (implicit behaviour unchanged)", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    const plan = await dryRunJson();
+    expect(plan.target).toMatchObject({ type: "sandbox" });
   });
 });
 

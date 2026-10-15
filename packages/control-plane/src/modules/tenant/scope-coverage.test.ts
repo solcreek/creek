@@ -74,6 +74,7 @@ const MANIFEST: Record<string, string> = {
   "POST /github/scan/:owner/:repo": "github:write",
   "GET /api-keys/self": "api-key-self",
   "DELETE /api-keys/self": "api-key-self",
+  "GET /api-keys/scopes": "authenticated",
   "POST /api-keys": "session-only",
   "GET /api-keys": "session-only",
   "DELETE /api-keys/:id": "session-only",

@@ -5,6 +5,14 @@ common multi-command flows.
 
 Discover the live tree with `creek --help --json` (or `creek <cmd> --help --json`). Do not scrape human usage text.
 
+Each command in the schema carries:
+- `destructive`: running it may delete or overwrite existing data or change what is live. Set per command and reviewed.
+- `dryRun`: it accepts `--dry-run`.
+- `aliases`: other names for the same command, e.g. `env rm` → `["unset"]`.
+- `args[].enum`: when present, the only values an arg accepts, e.g. `env set --target`.
+
+Destructive: `deploy`, `rollback`, `init`, `env set`/`rm`, `domains rm`, `projects delete`, `db|storage|cache detach`/`delete`, `db shell`/`migrate`/`seed`, `restart`, `stop`.
+
 Non-interactive deploys need an explicit target: `--sandbox` (60-min
 preview) or `--prod` (permanent, requires sign-in). `--json` is
 auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
@@ -64,9 +72,11 @@ you meant to target.
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
-| Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
+| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; the CLI rejects `--parse-json` as `unknown_flag`) |
+| Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
-| Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
+| Trigger a cron firing in dev | type `cron` + Enter in the running `creek dev` terminal (only when `[triggers] cron` is set; there is no `--trigger-cron` flag) |
+| Send a queue message in dev | type `queue <JSON-OR-TEXT>` + Enter in the running `creek dev` terminal (only when `[triggers] queue = true`) |
 | List team databases | `creek db ls --json` |
 | Create a team database | `creek db create <NAME> --json` |
 | Attach database to project | `creek db attach <NAME> --to <PROJECT> --as DATABASE --json` |
@@ -80,6 +90,7 @@ you meant to target.
 | Read a deployment's build log | `creek deployments logs <DEPLOYMENT_ID> --json` |
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
+| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
 
 ## JSON Output Format
 

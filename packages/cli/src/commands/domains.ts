@@ -6,7 +6,7 @@ import { requireClient, resolveProject, apiCall, projectArg } from "../utils/com
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const domainsLs = defineCommand({
-  meta: { name: "ls", description: "List custom domains" },
+  meta: { name: "ls", destructive: false, description: "List custom domains" },
   args: {
     ...projectArg,
     ...globalArgs,
@@ -47,7 +47,7 @@ const domainsLs = defineCommand({
 });
 
 const domainsAdd = defineCommand({
-  meta: { name: "add", description: "Add a custom domain" },
+  meta: { name: "add", destructive: false, description: "Add a custom domain" },
   args: {
     hostname: {
       type: "positional",
@@ -165,7 +165,11 @@ function domainNotFound(hostname: string, slug: string, jsonMode: boolean): neve
 }
 
 const domainsShow = defineCommand({
-  meta: { name: "show", description: "Show a domain's status and the DNS records to set" },
+  meta: {
+    name: "show",
+    destructive: false,
+    description: "Show a domain's status and the DNS records to set",
+  },
   args: {
     hostname: { type: "positional", description: "Domain to show", required: true },
     ...projectArg,
@@ -275,7 +279,7 @@ function domainAlreadyAbsent(
 }
 
 const domainsRm = defineCommand({
-  meta: { name: "rm", description: "Remove a custom domain" },
+  meta: { name: "rm", destructive: true, description: "Remove a custom domain" },
   args: {
     hostname: { type: "positional", description: "Domain to remove", required: true },
     ...projectArg,
@@ -353,7 +357,7 @@ const domainsRm = defineCommand({
 });
 
 const domainsActivate = defineCommand({
-  meta: { name: "activate", description: "Activate a pending custom domain" },
+  meta: { name: "activate", destructive: false, description: "Activate a pending custom domain" },
   args: {
     hostname: { type: "positional", description: "Domain to activate", required: true },
     ...projectArg,
