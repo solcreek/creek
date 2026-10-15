@@ -397,6 +397,143 @@ describe("creek env", () => {
   });
 });
 
+describe("creek env in a wrangler-only project", () => {
+  // No creek.toml: the project is the wrangler config's name, the same one
+  // `creek deploy` deploys as. Previously env failed here with no_project and
+  // pointed at a --project flag it did not accept.
+  let projDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    projDir = mkdtempSync(join(tmpdir(), "creek-env-wrangler-test-"));
+    writeFileSync(
+      join(projDir, "wrangler.jsonc"),
+      '{\n  // a worker\n  "name": "wrangler-app",\n  "main": "src/index.ts",\n  "compatibility_date": "2026-01-01"\n}\n',
+    );
+    process.chdir(projDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("`set` with no flags targets the wrangler name", async () => {
+    let body: unknown;
+    server.use(
+      http.post(`${API}/projects/wrangler-app/env`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ok: true, key: "K" });
+      }),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+    );
+    expect(code).toBe(0);
+    expect(body).toEqual({ key: "K", value: "v" });
+    expect(json()).toMatchObject({ ok: true, key: "K", project: "wrangler-app" });
+  });
+
+  it("`ls` and `rm` with no flags target the wrangler name", async () => {
+    server.use(
+      http.get(`${API}/projects/wrangler-app/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+      http.delete(`${API}/projects/wrangler-app/env/K`, () => HttpResponse.json({ ok: true })),
+    );
+    expect(
+      await runExit(envCommand.subCommands!.ls.run!({ args: { show: false, _: [] } } as never)),
+    ).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "wrangler-app", vars: [{ key: "K" }] });
+    stdout = "";
+    expect(
+      await runExit(envCommand.subCommands!.rm.run!({ args: { key: "K", _: [] } } as never)),
+    ).toBe(0);
+    expect(json()).toMatchObject({ ok: true, key: "K", removed: true, project: "wrangler-app" });
+  });
+
+  it("--project wins over the wrangler name and is carried into breadcrumbs", async () => {
+    server.use(
+      http.get(`${API}/projects/other/env`, () =>
+        HttpResponse.json([{ key: "K", value: "secret-value", target: "all" }]),
+      ),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.ls.run!({
+        args: { project: "other", show: false, _: [] },
+      } as never),
+    );
+    expect(code).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({ ok: true, project: "other" });
+    const commands = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(commands).toContain("creek env rm K --project other");
+  });
+});
+
+describe("project commands outside any project", () => {
+  let emptyDir: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    emptyDir = mkdtempSync(join(tmpdir(), "creek-no-project-test-"));
+    process.chdir(emptyDir);
+    process.env.CREEK_TOKEN = "tok";
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  it("`env set` is no_project, and its hint is a flag env accepts", async () => {
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({ args: { key: "K", value: "v", _: [] } } as never),
+    );
+    expect(code).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({ ok: false, error: "no_project" });
+    expect(out.message).toContain("--project");
+    expect(envCommand.subCommands!.set.args).toHaveProperty("project");
+    expect(Array.isArray(out.breadcrumbs)).toBe(true);
+  });
+
+  it("`env set --project` works from anywhere", async () => {
+    server.use(
+      http.post(`${API}/projects/named/env`, () => HttpResponse.json({ ok: true, key: "K" })),
+    );
+    const code = await runExit(
+      envCommand.subCommands!.set.run!({
+        args: { key: "K", value: "v", project: "named", _: [] },
+      } as never),
+    );
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "named" });
+  });
+
+  it("`status --project` reports the server side without a local config", async () => {
+    server.use(
+      http.get(`${API}/projects/named`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "named",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: { project: "named" } } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      type: "project",
+      project: "named",
+      config: null,
+      bindings: [],
+    });
+  });
+});
+
 describe("db shell resolution (resolveShellDatabase)", () => {
   const client = () => new CreekClient(API, "tok");
 
@@ -427,6 +564,39 @@ describe("db shell resolution (resolveShellDatabase)", () => {
     );
     const db = await resolveShellDatabase(client(), { project: "hivemind", jsonMode: true });
     expect(db).toEqual({ id: "res-d1", name: "creek-97d8c075" });
+  });
+
+  it("with no name or --project, infers the project from a wrangler-only directory", async () => {
+    const prevCwd = process.cwd();
+    const projDir = mkdtempSync(join(tmpdir(), "creek-db-wrangler-test-"));
+    writeFileSync(
+      join(projDir, "wrangler.toml"),
+      'name = "wr-app"\nmain = "src/index.ts"\ncompatibility_date = "2026-01-01"\n',
+    );
+    process.chdir(projDir);
+    try {
+      server.use(
+        http.get(`${API}/projects/wr-app/bindings`, () =>
+          HttpResponse.json({
+            bindings: [
+              {
+                bindingName: "DB",
+                resourceId: "res-wr",
+                kind: "database",
+                name: "creek-wr",
+                status: "active",
+                createdAt: 0,
+              },
+            ],
+          }),
+        ),
+      );
+      const db = await resolveShellDatabase(client(), { jsonMode: true });
+      expect(db).toEqual({ id: "res-wr", name: "creek-wr" });
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(projDir, { recursive: true, force: true });
+    }
   });
 
   it("--project with no bound database exits with a structured error", async () => {
