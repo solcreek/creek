@@ -277,6 +277,28 @@ describe("creek deployments wait <id>", () => {
   });
 });
 
+describe("creek deployments (no subcommand) lists", () => {
+  // The parent's run() skips the list only when the args name a subcommand.
+  for (const project of ["get", "wait", "logs", "list", "constructor"]) {
+    it(`with --project ${project}, an option value, not a subcommand`, async () => {
+      server.use(http.get(`${API}/projects/${project}/deployments`, () => HttpResponse.json([])));
+      const code = await runExit(
+        deploymentsCommand.run!({
+          args: { project },
+          rawArgs: ["--project", project, "--json"],
+        } as never),
+      );
+      expect(code).toBe(0);
+      expect(json()).toMatchObject({ ok: true, project, deployments: [] });
+    });
+  }
+
+  it("still skips the list after a real subcommand", async () => {
+    await deploymentsCommand.run!({ args: {}, rawArgs: ["get", FULL, "--json"] } as never);
+    expect(stdout).toBe("");
+  });
+});
+
 describe("creek status <id>", () => {
   it("resolves a deployment id of this directory's project and says so", async () => {
     serve(deployment({ status: "active" }, { url: "https://site-team.test" }));

@@ -495,7 +495,48 @@ function stepDuration(lines: Array<{ ts: number }>): string | null {
 
 // --- Public export ---
 
-const SUBCOMMANDS = { list: 1, get: 1, wait: 1, logs: 1 };
+const DEPLOYMENTS_ARGS = {
+  ...projectArg,
+  ...globalArgs,
+};
+
+const DEPLOYMENTS_SUBCOMMANDS = {
+  list: deploymentsList,
+  get: deploymentsGet,
+  wait: deploymentsWait,
+  logs: deploymentsLogs,
+};
+
+/**
+ * The subcommand `rawArgs` names, or null: the first bare token that is not
+ * the value of an option (`--project get` names a project, not `get`), and
+ * only when it is one of these subcommands' own keys (not `constructor`).
+ * Exported for tests.
+ */
+export function namedSubcommand(
+  rawArgs: readonly string[],
+  args: Record<string, { type?: string; alias?: string | string[] }>,
+  subCommands: Record<string, unknown>,
+): string | null {
+  const takesValue = new Set<string>();
+  for (const [name, def] of Object.entries(args)) {
+    if (def.type !== "string") continue;
+    takesValue.add(`--${name}`);
+    for (const a of ([] as string[]).concat(def.alias ?? [])) {
+      takesValue.add(a.length === 1 ? `-${a}` : `--${a}`);
+    }
+  }
+  for (let i = 0; i < rawArgs.length; i++) {
+    const token = rawArgs[i];
+    if (token === "--") return null;
+    if (token.startsWith("-")) {
+      if (!token.includes("=") && takesValue.has(token)) i++; // skip its value
+      continue;
+    }
+    return Object.hasOwn(subCommands, token) ? token : null;
+  }
+  return null;
+}
 
 export const deploymentsCommand = defineCommand({
   meta: {
@@ -503,23 +544,14 @@ export const deploymentsCommand = defineCommand({
     destructive: false,
     description: "List deployments, follow one to its result, and read build logs",
   },
-  args: {
-    ...projectArg,
-    ...globalArgs,
-  },
-  subCommands: {
-    list: deploymentsList,
-    get: deploymentsGet,
-    wait: deploymentsWait,
-    logs: deploymentsLogs,
-  },
+  args: DEPLOYMENTS_ARGS,
+  subCommands: DEPLOYMENTS_SUBCOMMANDS,
   // Default behaviour (no subcommand) = list. Citty runs a parent's run()
-  // after a subcommand that returned (human mode), so skip it when the first
-  // bare token named a subcommand; otherwise `deployments get <id>` would
-  // print the list after the deployment.
+  // after a subcommand that returned (human mode), so skip it when the args
+  // named a subcommand; otherwise `deployments get <id>` would print the
+  // list after the deployment.
   async run(ctx) {
-    const first = (ctx.rawArgs ?? []).find((a) => !a.startsWith("-"));
-    if (first && first in SUBCOMMANDS) return;
+    if (namedSubcommand(ctx.rawArgs ?? [], DEPLOYMENTS_ARGS, DEPLOYMENTS_SUBCOMMANDS)) return;
     const run = deploymentsList.run;
     if (!run) return;
     return run(ctx as Parameters<NonNullable<typeof deploymentsList.run>>[0]);
