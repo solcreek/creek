@@ -6,7 +6,6 @@ import {
   dryRunNextStep,
   hasDeployablePayload,
   deployCommand,
-  isCreekdTarget,
   productionSuccessBreadcrumbs,
 } from "./deploy.js";
 import { AGENT_PROD_DEPLOY, AGENT_SANDBOX_DEPLOY } from "../utils/output.js";
@@ -159,7 +158,8 @@ describe("creek deploy --dry-run (agent path)", () => {
     writeFileSync(join(dist, "style.css"), "body{color:red}");
     const plan = await dryRunJson({ dir: dist });
     expect(plan.wouldDeploy).toBe(true);
-    expect(plan.nextStep).toBe(AGENT_SANDBOX_DEPLOY);
+    // The next command names the same directory the plan was made for.
+    expect(plan.nextStep).toBe(`creek deploy ${dist} --sandbox --json`);
   });
 
   it("cwd with only style.css (no explicit dir) is not wouldDeploy", async () => {
@@ -219,16 +219,9 @@ describe("creek deploy --dry-run (agent path)", () => {
       join(dir, "creek.toml"),
       '[project]\nname = "self-hosted"\ntarget = "creekd"\n\n[build]\ncommand = ""\noutput = "."\n',
     );
-    expect(isCreekdTarget(dir)).toBe(true);
     const out = await dryRunJson({ prod: true });
     expect(out.error).toBeUndefined();
-    expect(out).toMatchObject({ mode: "dry-run", supported: true });
-  });
-
-  it("isCreekdTarget is false for a Cloudflare config and for no config", () => {
-    expect(isCreekdTarget(dir)).toBe(false);
-    writeFileSync(join(dir, "creek.toml"), '[project]\nname = "cf-app"\n');
-    expect(isCreekdTarget(dir)).toBe(false);
+    expect(out).toMatchObject({ mode: "dry-run", supported: true, target: { type: "creekd" } });
   });
 
   it("signed out, no target flag still plans a sandbox (implicit behaviour unchanged)", async () => {
