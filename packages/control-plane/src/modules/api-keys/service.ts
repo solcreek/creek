@@ -385,6 +385,8 @@ export interface KeyView {
   createdAt: string | null;
   lastUsedAt: string | null;
   warning?: string;
+  /** Set when the stored scopes cannot be read: the key is refused everywhere. */
+  unreadable?: true;
 }
 
 function viewOf(row: ApiKeyRow, grant: ApiKeyGrant, slugs: Map<string, string>): KeyView {
@@ -407,6 +409,7 @@ function viewOf(row: ApiKeyRow, grant: ApiKeyGrant, slugs: Map<string, string>):
   if (grant.kind === "legacy") view.warning = LEGACY_KEY_WARNING;
   if (grant.kind === "invalid") {
     view.scopes = [];
+    view.unreadable = true;
     view.warning = "This key's stored scopes are unreadable; it is refused everywhere. Revoke it.";
   }
   return view;
@@ -504,6 +507,9 @@ export async function describeKey(
 /**
  * A user's keys, newest first. With `teamId`, only the keys that can act on
  * that team: keys pinned to it, and legacy keys (which can act on any team).
+ * A key with unreadable scopes acts on no team, so it is left out of every
+ * team's list; the unfiltered list shows it, marked `unreadable`, so its
+ * owner can revoke it.
  */
 export async function listKeys(
   db: D1Database,
@@ -516,7 +522,10 @@ export async function listKeys(
     .all<ApiKeyRow>();
   const keys = rows.results.map((row) => ({ row, grant: parseGrant(row.id, row.permissions) }));
   const visible = teamId
-    ? keys.filter(({ grant }) => grant.kind !== "scoped" || grant.teamId === teamId)
+    ? keys.filter(
+        ({ grant }) =>
+          grant.kind === "legacy" || (grant.kind === "scoped" && grant.teamId === teamId),
+      )
     : keys;
   const slugs = await teamSlugs(
     db,

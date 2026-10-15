@@ -580,6 +580,38 @@ describe("GET /api-keys", () => {
     expect(byId.map((k: Json) => k.name).sort()).toEqual(["a", "legacy"]);
   });
 
+  it("shows a key with unreadable scopes only in the unfiltered list, marked unreadable", async () => {
+    const scoped = await json(
+      await h.create(owner.cookie, { name: "ok", team: owner.orgSlug, scopes: ["project:read"] }),
+    );
+    await f.legacyKey(owner.cookie);
+    const broken = await json(
+      await h.create(owner.cookie, { name: "broken", team: "team-b", scopes: ["project:read"] }),
+    );
+    await f.sql("UPDATE apikey SET permissions = '{\"creek\":1}' WHERE id = ?", broken.id);
+
+    const all = (await json(await h.list(owner.cookie))).keys as Json[];
+    expect(all.map((k) => k.name).sort()).toEqual(["broken", "legacy", "ok"]);
+    const shown = all.find((k) => k.id === broken.id)!;
+    expect(shown).toMatchObject({ unreadable: true, legacy: false, scopes: [], team: null });
+    expect(shown.warning).toMatch(/unreadable/);
+    expect(all.find((k) => k.id === scoped.id)!.unreadable).toBeUndefined();
+
+    for (const team of [owner.orgSlug, "team-b", owner.orgId]) {
+      const keys = (await json(await h.list(owner.cookie, team))).keys as Json[];
+      expect(
+        keys.map((k) => k.id),
+        team,
+      ).not.toContain(broken.id);
+      expect(
+        keys.some((k) => k.legacy),
+        team,
+      ).toBe(true);
+    }
+    // And the owner can still revoke it.
+    expect((await h.revoke(owner.cookie, broken.id)).status).toBe(200);
+  });
+
   it("refuses a team the user is not in, and API keys", async () => {
     const other = await f.signUp("other@example.com");
     const res = await h.list(owner.cookie, other.orgSlug);
