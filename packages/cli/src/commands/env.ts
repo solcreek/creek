@@ -1,12 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import {
-  requireClient,
-  resolveProjectSlug,
-  apiCall,
-  projectArg,
-} from "../utils/command-context.js";
+import { requireClient, resolveProject, apiCall, projectArg } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 import type { EnvTarget } from "@solcreek/sdk";
 
@@ -73,7 +68,7 @@ const envSet = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const target = parseTarget(jsonMode, args.target, "all")!;
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const targetFlag = target === "all" ? "" : ` --target ${target}`;
     const pf = projectFlag(args.project);
     if (isDryRun(args)) {
@@ -81,6 +76,7 @@ const envSet = defineCommand({
         command: `creek env set ${args.key} '$VALUE'${targetFlag}${pf}`,
         wouldExecute: true,
         project: slug,
+        projectSource,
         key: args.key,
         target,
         pendingDeploy: true,
@@ -111,7 +107,15 @@ const envSet = defineCommand({
     // structurally so an agent doesn't assume it took effect immediately.
     if (jsonMode)
       jsonOutput(
-        { ok: true, key: args.key, target, project: slug, applied: false, pendingDeploy: true },
+        {
+          ok: true,
+          key: args.key,
+          target,
+          project: slug,
+          projectSource,
+          applied: false,
+          pendingDeploy: true,
+        },
         0,
         [
           { command: `creek env ls${pf} --json`, description: "List all environment variables" },
@@ -144,7 +148,7 @@ const envGet = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const vars = await apiCall(jsonMode, "api_error", () => client.listEnvVars(slug));
     const pf = projectFlag(args.project);
 
@@ -166,6 +170,7 @@ const envGet = defineCommand({
         {
           ok: true,
           project: slug,
+          projectSource,
           vars: vars.map((v) => ({
             key: v.key,
             target: v.target ?? "all",
@@ -210,7 +215,7 @@ const envRm = defineCommand({
     const jsonMode = resolveJsonMode(args);
     const target = parseTarget(jsonMode, args.target);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const targetFlag = target ? ` --target ${target}` : "";
     const pf = projectFlag(args.project);
     if (isDryRun(args)) {
@@ -223,6 +228,7 @@ const envRm = defineCommand({
         command: `creek env rm ${args.key}${targetFlag}${pf}`,
         wouldExecute: exists,
         project: slug,
+        projectSource,
         key: args.key,
         targets: matching,
         exists,
@@ -277,6 +283,7 @@ const envRm = defineCommand({
           removed: true,
           removedValues: result.removed ?? 1,
           project: slug,
+          projectSource,
           applied: false,
           pendingDeploy: true,
         },

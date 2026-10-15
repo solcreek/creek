@@ -2,12 +2,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput } from "../utils/output.js";
-import {
-  requireClient,
-  resolveProjectSlug,
-  apiCall,
-  projectArg,
-} from "../utils/command-context.js";
+import { requireClient, resolveProject, apiCall, projectArg } from "../utils/command-context.js";
 import { dryRunArg, emitDryRunPlan, isDryRun } from "../utils/dry-run.js";
 
 const domainsLs = defineCommand({
@@ -19,11 +14,11 @@ const domainsLs = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
     const domains = await apiCall(jsonMode, "api_error", () => client.listDomains(slug));
 
     if (jsonMode) {
-      jsonOutput({ ok: true, project: slug, domains }, 0, [
+      jsonOutput({ ok: true, project: slug, projectSource, domains }, 0, [
         {
           command: `creek domains add <HOSTNAME> --project ${slug}`,
           description: "Add a custom domain",
@@ -65,7 +60,7 @@ const domainsAdd = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
 
     const result = await apiCall(jsonMode, "add_failed", () =>
       client.addDomain(slug, args.hostname),
@@ -87,7 +82,14 @@ const domainsAdd = defineCommand({
               },
             ];
       jsonOutput(
-        { ok: true, project: slug, domain, verification, idempotent: idempotent ?? false },
+        {
+          ok: true,
+          project: slug,
+          projectSource,
+          domain,
+          verification,
+          idempotent: idempotent ?? false,
+        },
         0,
         crumbs,
       );
@@ -162,7 +164,7 @@ const domainsShow = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
 
     const found = await resolveDomain(client, slug, args.hostname, jsonMode);
     if (!found) domainNotFound(args.hostname, slug, jsonMode);
@@ -173,7 +175,7 @@ const domainsShow = defineCommand({
     const detail = await apiCall(jsonMode, "api_error", () => client.getDomain(slug, found.id));
 
     if (jsonMode) {
-      jsonOutput({ ok: true, project: slug, domain: detail, dns: detail.dns }, 0, [
+      jsonOutput({ ok: true, project: slug, projectSource, domain: detail, dns: detail.dns }, 0, [
         {
           command: `creek domains activate ${detail.hostname} --project ${slug}`,
           description: "Activate once DNS resolves",
@@ -208,7 +210,7 @@ const domainsRm = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
 
     const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
     if (!domain) domainNotFound(args.hostname, slug, jsonMode);
@@ -218,6 +220,7 @@ const domainsRm = defineCommand({
         command: `creek domains rm ${domain.hostname}`,
         wouldExecute: true,
         project: slug,
+        projectSource,
         hostname: domain.hostname,
         domainId: domain.id,
         status: domain.status,
@@ -233,9 +236,11 @@ const domainsRm = defineCommand({
     await apiCall(jsonMode, "delete_failed", () => client.deleteDomain(slug, domain.id));
 
     if (jsonMode) {
-      jsonOutput({ ok: true, hostname: domain.hostname, removed: true, project: slug }, 0, [
-        { command: `creek domains ls --project ${slug}`, description: "List remaining domains" },
-      ]);
+      jsonOutput(
+        { ok: true, hostname: domain.hostname, removed: true, project: slug, projectSource },
+        0,
+        [{ command: `creek domains ls --project ${slug}`, description: "List remaining domains" }],
+      );
       return;
     }
 
@@ -253,14 +258,17 @@ const domainsActivate = defineCommand({
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
     const client = requireClient(jsonMode);
-    const slug = resolveProjectSlug(args.project, jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
 
     const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
     if (!domain) domainNotFound(args.hostname, slug, jsonMode);
 
     if (domain.status === "active") {
       if (jsonMode) {
-        jsonOutput({ ok: true, hostname: domain.hostname, status: "active", project: slug }, 0);
+        jsonOutput(
+          { ok: true, hostname: domain.hostname, status: "active", project: slug, projectSource },
+          0,
+        );
         return;
       }
       consola.info(`${domain.hostname} is already active.`);
@@ -292,6 +300,7 @@ const domainsActivate = defineCommand({
             status,
             message,
             project: slug,
+            projectSource,
           },
           1,
           [showCrumb],
@@ -312,6 +321,7 @@ const domainsActivate = defineCommand({
           status: "active",
           manual: result.manual ?? false,
           project: slug,
+          projectSource,
         },
         0,
         [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }],

@@ -11,6 +11,7 @@ import { claimCommand } from "./claim.js";
 import { envCommand } from "./env.js";
 import { resolveShellDatabase } from "./db.js";
 import { projectsCommand } from "./projects.js";
+import { domainsCommand } from "./domains.js";
 
 // Drive the citty commands' .run() directly with MSW mocking their HTTP and
 // process.exit stubbed so assertions fire on the exit code + JSON output
@@ -82,6 +83,31 @@ describe("creek status (project)", () => {
   afterEach(() => {
     process.chdir(prevCwd);
     rmSync(projDir, { recursive: true, force: true });
+  });
+
+  it("says the project came from creek.toml", async () => {
+    server.use(
+      http.get(`${API}/projects/demo`, () =>
+        HttpResponse.json({
+          id: "p1",
+          slug: "demo",
+          framework: null,
+          production_deployment_id: null,
+          created_at: 0,
+        }),
+      ),
+    );
+    const code = await runExit(statusCommand.run!({ args: {} } as never));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
+  });
+
+  it("`domains ls` says where its project came from", async () => {
+    server.use(http.get(`${API}/projects/demo/domains`, () => HttpResponse.json([])));
+    const ls = (domainsCommand.subCommands as Record<string, { run?: (c: never) => unknown }>).ls;
+    const code = await runExit(Promise.resolve(ls.run!({ args: { _: [] } } as never)));
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, project: "demo", projectSource: "creek.toml" });
   });
 
   it("reports a missing project (404) as not_found", async () => {
@@ -431,7 +457,12 @@ describe("creek env in a wrangler-only project", () => {
     );
     expect(code).toBe(0);
     expect(body).toEqual({ key: "K", value: "v" });
-    expect(json()).toMatchObject({ ok: true, key: "K", project: "wrangler-app" });
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "K",
+      project: "wrangler-app",
+      projectSource: "wrangler",
+    });
   });
 
   it("`ls` and `rm` with no flags target the wrangler name", async () => {
@@ -449,7 +480,13 @@ describe("creek env in a wrangler-only project", () => {
     expect(
       await runExit(envCommand.subCommands!.rm.run!({ args: { key: "K", _: [] } } as never)),
     ).toBe(0);
-    expect(json()).toMatchObject({ ok: true, key: "K", removed: true, project: "wrangler-app" });
+    expect(json()).toMatchObject({
+      ok: true,
+      key: "K",
+      removed: true,
+      project: "wrangler-app",
+      projectSource: "wrangler",
+    });
   });
 
   it("--project wins over the wrangler name and is carried into breadcrumbs", async () => {
@@ -465,7 +502,7 @@ describe("creek env in a wrangler-only project", () => {
     );
     expect(code).toBe(0);
     const out = json();
-    expect(out).toMatchObject({ ok: true, project: "other" });
+    expect(out).toMatchObject({ ok: true, project: "other", projectSource: "flag" });
     const commands = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
     expect(commands).toContain("creek env rm K --project other");
   });
@@ -555,7 +592,7 @@ describe("project commands outside any project", () => {
       } as never),
     );
     expect(code).toBe(0);
-    expect(json()).toMatchObject({ ok: true, project: "named" });
+    expect(json()).toMatchObject({ ok: true, project: "named", projectSource: "flag" });
   });
 
   it("`status --project` reports the server side without a local config", async () => {
@@ -576,6 +613,7 @@ describe("project commands outside any project", () => {
       ok: true,
       type: "project",
       project: "named",
+      projectSource: "flag",
       config: null,
       bindings: [],
     });

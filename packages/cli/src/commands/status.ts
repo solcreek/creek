@@ -8,7 +8,7 @@ import {
   type ResolvedConfig,
 } from "@solcreek/sdk";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { projectArg, projectFromDirectory, resolveProjectSlug } from "../utils/command-context.js";
+import { projectArg, projectFromDirectory, resolveProject } from "../utils/command-context.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
 
@@ -102,7 +102,7 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
     process.exit(1);
   }
 
-  const slug = resolveProjectSlug(projectArgSlug, jsonMode);
+  const { slug, source: projectSource } = resolveProject(projectArgSlug, jsonMode);
   // The local config describes the project only when this directory deploys
   // as it; `--project other` from elsewhere reports the server side alone.
   let resolved: ResolvedConfig | null = null;
@@ -170,6 +170,7 @@ async function projectStatus(projectArgSlug: string | undefined, jsonMode: boole
         ok: true,
         type: "project",
         project: project.slug,
+        projectSource,
         config: resolved?.source ?? null,
         framework: project.framework,
         productionDeploymentId: project.production_deployment_id,
