@@ -45,8 +45,8 @@ const MATRIX: Record<Scenario, { out: Record<Flag, Outcome>; in: Record<Flag, Ou
     in: { prod: "production", sandbox: "sandbox", yes: "production", none: "production" },
   },
   "project-creekd": {
-    out: { prod: "creekd", sandbox: "creekd", yes: "creekd", none: "creekd" },
-    in: { prod: "creekd", sandbox: "creekd", yes: "creekd", none: "creekd" },
+    out: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
+    in: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
   },
   directory: {
     out: { prod: "prod_unsupported", sandbox: "sandbox", yes: "sandbox", none: "sandbox" },
@@ -253,6 +253,16 @@ describe("creek deploy destination matrix", () => {
     setUp(dir, "project-creekd");
     const creekdPlan = await runDeploy({ prod: true, "dry-run": true });
     expect(creekdPlan.nextStep).toBe("creek deploy --yes --json");
+  });
+
+  it("--sandbox on a creekd project is refused, pointing at an explicit creekd deploy", async () => {
+    setUp(dir, "project-creekd");
+    const out = await runDeploy({ sandbox: true });
+    expect(out).toMatchObject({ ok: false, error: "sandbox_unsupported" });
+    expect(String(out.message)).toContain("creekd");
+    const cmds = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek deploy --yes --json");
+    expect(handlerSpies.deployCreekd).not.toHaveBeenCalled();
   });
 
   it("prod_unsupported points at what works instead", async () => {

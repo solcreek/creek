@@ -931,7 +931,7 @@ export const deployCommand = defineCommand({
     sandbox: {
       type: "boolean",
       description:
-        "Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Mutually exclusive with --prod.",
+        'Deploy to an ephemeral 60-minute sandbox even when signed in — preview without touching production. Never ends in production or creekd: --from-github and a creekd project (target = "creekd") have no sandbox and refuse with sandbox_unsupported. Mutually exclusive with --prod.',
       default: false,
     },
     wait: {

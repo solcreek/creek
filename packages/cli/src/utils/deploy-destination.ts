@@ -10,7 +10,10 @@
  * The rules:
  * - `--prod` never ends in a sandbox. Signed out it is `not_authenticated`;
  *   on a path with no production support it is `prod_unsupported`.
- * - `--sandbox` never ends in production (`--from-github` has no sandbox).
+ * - `--sandbox` never ends in production (or creekd): `--from-github` and a
+ *   creekd project have no sandbox, so `--sandbox` there is
+ *   `sandbox_unsupported` — agents use it as the safe flag, and a creekd
+ *   deploy replaces the live self-hosted app.
  * - A creekd project deploys to creekd; it authenticates with its own token
  *   (CREEKD_TOKEN / CREEKCTL_TOKEN), never the creek.dev session.
  */
@@ -123,9 +126,23 @@ export function deployDestination(input: DestinationInput): DeployDestination {
     };
   }
 
-  // A creekd project deploys to the user's own creekd, whatever the flags.
+  // A creekd project deploys to the user's own creekd.
   if (input.localTarget === "creekd") {
     if (input.path === "project") {
+      if (input.sandbox) {
+        // --sandbox is the "safe preview" flag; on a creekd project a deploy
+        // replaces the live self-hosted app, so never treat it as a preview.
+        return {
+          kind: "refused",
+          error: "sandbox_unsupported",
+          message:
+            'This project targets creekd (creek.toml target = "creekd"), which has no sandbox: a deploy replaces the live app on your creekd. Nothing was deployed. Deploy to creekd explicitly, or preview with `creek dev`.',
+          breadcrumbs: [
+            { command: "creek deploy --yes --json", description: "Deploy to your creekd" },
+            { command: "creek deploy --dry-run --json", description: "Preview the plan first" },
+          ],
+        };
+      }
       return {
         kind: "creekd",
         reason:
