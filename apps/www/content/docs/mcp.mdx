@@ -48,7 +48,6 @@ Deploy files to a sandbox preview (60 min).
 
 **Input:**
 - `files` — `Record<string, string>` — file path to content (UTF-8 strings, not base64)
-- `source` — `string` (optional) — source identifier for tracking
 
 **Output:** `{ ok: true, url, sandboxId, deployDurationMs, expiresAt, expiresInSeconds, proof }` — `proof` is `{ ok, status, title, ttfbMs }`.
 

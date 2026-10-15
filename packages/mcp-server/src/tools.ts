@@ -298,14 +298,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       description: "Deploy files to a sandbox preview (60 min, no account needed)",
       inputSchema: {
         files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
-        source: z
-          .string()
-          .optional()
-          .describe("Source identifier for tracking (e.g. 'cursor', 'claude')"),
       },
       annotations: ANNOTATIONS["deploy"],
     },
-    async ({ files, source }) => {
+    async ({ files }) => {
       // Convert string content to base64 for sandbox API
       const assets: Record<string, string> = {};
       for (const [path, content] of Object.entries(files)) {
@@ -315,7 +311,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       const posted = await sandboxFetch("/api/sandbox/deploy", {
         method: "POST",
         headers: apiHeaders(),
-        body: JSON.stringify({ assets, source: source ?? "mcp" }),
+        // Always "mcp": the source is the sandbox API's record of where a
+        // deploy came from, so a caller never chooses it. (A `source`
+        // argument from an older client is dropped by the schema.)
+        body: JSON.stringify({ assets, source: "mcp" }),
       });
       if (!posted.ok) return posted.result;
 

@@ -5,6 +5,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerTools, type ToolContext } from "./tools.js";
+// The sandbox API's real routes, for end-to-end checks of what MCP sends.
+import { routes as sandboxRoutes } from "../../sandbox-api/src/routes.js";
 import type { Env } from "./types.js";
 
 // MSW mocks the sandbox API so we can drive the MCP tool handlers (which the
@@ -1541,5 +1543,58 @@ describe("MCP polling budgets hold when a response stalls", () => {
     const payload = parse(result);
     expect(payload).toMatchObject({ ok: true, triggered: true, deploymentId: null });
     expect(payload.nextStep).toContain("list_deployments");
+  });
+});
+
+// ----------------------------------------------------------------
+// End to end with the real sandbox API routes: a caller cannot label
+// its way out of the rate limit
+// ----------------------------------------------------------------
+
+describe("MCP deploy against the sandbox API's rate limit", () => {
+  /** Route the MCP server's sandbox calls into sandbox-api, whose window is full. */
+  function fullWindowSandbox() {
+    const bodies: unknown[] = [];
+    const env = {
+      INTERNAL_SECRET: "test-internal-secret",
+      IP_HASH_SALT: "test-salt",
+      SANDBOX_DOMAIN: "creeksandbox.test",
+      DB: {
+        prepare: (sql: string) => ({
+          bind: () => ({
+            first: async () => {
+              if (!sql.includes("COUNT(*)")) throw new Error("past the rate limit");
+              return { count: 100, oldest: Date.now() };
+            },
+            run: async () => {
+              throw new Error("past the rate limit");
+            },
+          }),
+        }),
+      },
+    };
+    server.use(
+      http.post(`${SANDBOX}/api/sandbox/deploy`, async ({ request }) => {
+        const text = await request.text();
+        bodies.push(JSON.parse(text));
+        return sandboxRoutes.request(
+          "/deploy",
+          { method: "POST", headers: request.headers, body: text },
+          env as never,
+        );
+      }),
+    );
+    return bodies;
+  }
+
+  it("deploy with source mcp-demo is rate-limited like any deploy (429)", async () => {
+    const bodies = fullWindowSandbox();
+    const result = await registerAndCapture().get("deploy")!({
+      files: { "index.html": "<h1>not a demo</h1>" },
+      source: "mcp-demo",
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toMatchObject({ ok: false, error: "rate_limited", status: 429 });
+    expect((bodies[0] as { source?: unknown }).source).toBe("mcp");
   });
 });
