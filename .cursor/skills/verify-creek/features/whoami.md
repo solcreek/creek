@@ -24,7 +24,7 @@ Preconditions:
 
 - **Signed out.** Ask who is logged in. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/whoami/signed-out -- whoami --json`. Exit code `1`. stdout JSON has `ok: false`, `authenticated: false`, `error: "not_authenticated"`. `breadcrumbs` include `creek login --token <KEY> --json`.
 - **Login refusal.** Attempt interactive login. Run `creek.sh "$RUN_ENV" --evidence .cursor/skills/verify-creek/artifacts/whoami/login-refused -- login --json`. Exit code `1`. stdout JSON has `ok: false` and `error: "interactive_login_unsupported"`. No browser process was started by this command. `$HOME/.creek/config.json` is still absent.
-- **Signed-in unreachable.** `creek whoami --json` with a valid `CREEK_TOKEN` against a live API is the signed-in path. Do not set a token in this harness. Record the path as `verified-unreachable` (auth + live API).
+- **Signed-in unreachable.** `creek whoami --json` with a valid `CREEK_TOKEN` against a live API is the signed-in path. Do not set a token against the dead API. Record the path as `verified-unreachable` (auth + live API) here; [API key identity](api-key-identity.md) drives it against a local control-plane.
 - **Proof.** Keep both evidence directories. Confirm `$HOME/.creek/config.json` is absent after `login --json`.
 
 ## Gotchas
