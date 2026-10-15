@@ -5,8 +5,10 @@ import { homedir } from "node:os";
 interface CliConfig {
   token?: string;
   /**
-   * The API the saved token was saved for (by `creek login`). The token is
-   * only ever sent there. Absent in configs written before it existed.
+   * The API `creek login` verified the saved token against: the token is
+   * bound to it and never sent to another API. Absent in configs written
+   * by older CLIs: such a token is unbound (its API is unknown) and is
+   * sent to the API in use, as before.
    */
   tokenApiUrl?: string;
   apiUrl?: string;
@@ -80,15 +82,6 @@ export function clearCliToken(expected?: string): boolean {
   return true;
 }
 
-/**
- * The API the saved key belongs to. A config written before tokenApiUrl
- * existed counts as saved for the API the config itself selects: its
- * apiUrl, else the default API.
- */
-export function savedTokenApiUrl(config: CliConfig = readCliConfig()): string {
-  return config.tokenApiUrl ?? config.apiUrl ?? DEFAULT_API_URL;
-}
-
 /** Where the API key in use comes from. */
 export type TokenSource = "env:CREEK_TOKEN" | "config";
 
@@ -103,11 +96,16 @@ export interface TokenInfo {
   shadowsConfigToken: boolean;
   /** The key saved by `creek login`, if any (whether or not it is in use). */
   savedToken: string | undefined;
-  /** The API the saved key belongs to (see savedTokenApiUrl). */
+  /** The API the saved key is bound to; undefined when unbound or none. */
   savedApiUrl: string | undefined;
   /**
-   * The API the CLI would talk to now differs from the saved key's: the
-   * saved key must not be sent (or revoked, or cleared) here.
+   * A saved key from an older CLI, with no recorded API: it is sent to the
+   * API in use, as before. `creek login` again binds it.
+   */
+  savedKeyUnbound: boolean;
+  /**
+   * The saved key is bound to another API than the one the CLI would talk
+   * to now: it must not be sent (or revoked, or cleared) here.
    */
   savedKeyApiMismatch: boolean;
 }
@@ -119,10 +117,11 @@ export interface TokenInfo {
 export function getTokenInfo(): TokenInfo {
   const config = readCliConfig();
   const stored = config.token || undefined;
-  const savedApiUrl = stored ? savedTokenApiUrl(config) : undefined;
+  const savedApiUrl = stored ? config.tokenApiUrl : undefined;
   const saved = {
     savedToken: stored,
     savedApiUrl,
+    savedKeyUnbound: Boolean(stored) && !config.tokenApiUrl,
     savedKeyApiMismatch: savedApiUrl !== undefined && !sameApiUrl(savedApiUrl, getApiUrl()),
   };
   const env = process.env.CREEK_TOKEN;

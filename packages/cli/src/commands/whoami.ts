@@ -11,6 +11,9 @@ import {
   lookupKey,
 } from "../utils/api-key.js";
 
+const UNBOUND_NOTE =
+  "This key was saved by an older CLI and isn't bound to an API. Run `creek login --token <KEY>` again against the intended API to bind it.";
+
 export const whoamiCommand = defineCommand({
   meta: {
     name: "whoami",
@@ -105,7 +108,11 @@ export const whoamiCommand = defineCommand({
     // Key details are extra: an API without /api-keys/self, or a failed
     // lookup, never fails whoami.
     const key = lookup.ok ? lookup.key : null;
-    const warnings = [warning, key?.warning].filter((w): w is string => Boolean(w));
+    // A saved key from an older CLI has no recorded API: it keeps working
+    // against the API in use, but nothing stops it being sent elsewhere.
+    const unbound = info.source === "config" && info.savedKeyUnbound;
+    const bindingNote = unbound ? UNBOUND_NOTE : undefined;
+    const warnings = [warning, key?.warning, bindingNote].filter((w): w is string => Boolean(w));
 
     if (jsonMode) {
       jsonOutput(
@@ -116,6 +123,9 @@ export const whoamiCommand = defineCommand({
           email: session.user.email,
           api: getApiUrl(),
           tokenSource: info.source,
+          ...(info.source === "config"
+            ? { keyBinding: unbound ? "unbound" : "bound", ...(bindingNote ? { bindingNote } : {}) }
+            : {}),
           key,
           ...(lookup.ok
             ? {}
@@ -130,6 +140,14 @@ export const whoamiCommand = defineCommand({
         },
         0,
         [
+          ...(unbound
+            ? [
+                {
+                  command: "creek login --token <KEY> --json",
+                  description: "Bind the saved key to the API it is meant for",
+                },
+              ]
+            : []),
           { command: "creek projects", description: "List your projects" },
           { command: "creek deploy --sandbox --json", description: "Deploy a 60-minute preview" },
         ],

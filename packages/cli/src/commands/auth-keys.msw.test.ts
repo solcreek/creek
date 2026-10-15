@@ -297,43 +297,59 @@ describe("a saved key goes only to the API it was saved for", () => {
     expect(readConfig()).toMatchObject({ token: SCOPED_KEY, tokenApiUrl: API });
   });
 
+  it("a key bound to another API is never sent: whoami, keys self, keys revoke --self → api_mismatch", async () => {
+    saveConfig({ token: SCOPED_KEY, tokenApiUrl: OTHER_API });
+    // No handlers: any request fails the test.
+    for (const drive of [
+      () => run(whoamiCommand, {}),
+      () => run(sub("self"), {}),
+      () => run(sub("revoke"), { self: true, yes: true }),
+    ]) {
+      stdout = "";
+      expect(await drive()).toBe(1);
+      expect(json()).toMatchObject({
+        ok: false,
+        error: "api_mismatch",
+        savedKeyApiUrl: OTHER_API,
+        apiUrl: API,
+      });
+    }
+    expect(readConfig().token).toBe(SCOPED_KEY);
+  });
+
+  // A config from an older CLI has no tokenApiUrl: the key's API is
+  // unknown. Don't guess (refusing would break every self-hoster): send it
+  // to the API in use, as before, and say it is unbound.
   it.each([
-    ["saved for another API", { token: SCOPED_KEY, tokenApiUrl: OTHER_API }, OTHER_API],
-    // Written before tokenApiUrl: counts as the config's own API (here the default).
-    [
-      "from an older config (no tokenApiUrl)",
-      { token: SCOPED_KEY, tokenApiUrl: undefined },
-      OTHER_API,
-    ],
+    ["no apiUrl either", { token: SCOPED_KEY, tokenApiUrl: undefined }],
+    ["an apiUrl for another API", { token: SCOPED_KEY, tokenApiUrl: undefined, apiUrl: OTHER_API }],
   ])(
-    "a key %s is never sent: whoami, keys self, keys revoke --self → api_mismatch",
-    async (_, config, savedFor) => {
+    "a key from an older config (%s) is unbound: used as before, and whoami says so",
+    async (_, config) => {
       saveConfig(config);
-      // No handlers: any request fails the test.
-      for (const drive of [
-        () => run(whoamiCommand, {}),
-        () => run(sub("self"), {}),
-        () => run(sub("revoke"), { self: true, yes: true }),
-      ]) {
-        stdout = "";
-        expect(await drive()).toBe(1);
-        expect(json()).toMatchObject({
-          ok: false,
-          error: "api_mismatch",
-          savedKeyApiUrl: savedFor,
-          apiUrl: API,
-        });
-      }
-      expect(readConfig().token).toBe(SCOPED_KEY);
+      api({ [SCOPED_KEY]: SCOPED });
+      expect(await run(whoamiCommand, {})).toBe(0);
+      const out = json();
+      expect(out).toMatchObject({
+        ok: true,
+        tokenSource: "config",
+        keyBinding: "unbound",
+        key: { id: "key-scoped" },
+      });
+      expect(out.bindingNote).toContain("saved by an older CLI and isn't bound to an API");
+      // Never a guessed URL.
+      const commands = out.breadcrumbs.map((b: { command: string }) => b.command);
+      expect(commands.filter((c: string) => c.includes("CREEK_API_URL="))).toEqual([]);
+      expect(commands[0]).toBe("creek login --token <KEY> --json");
     },
   );
 
-  it("an older config whose apiUrl is the API in use still works", async () => {
-    delete process.env.CREEK_API_URL;
-    saveConfig({ token: SCOPED_KEY, tokenApiUrl: undefined, apiUrl: API });
+  it("a key creek login bound to the API in use reports keyBinding bound", async () => {
+    saveConfig({ token: SCOPED_KEY });
     api({ [SCOPED_KEY]: SCOPED });
     expect(await run(whoamiCommand, {})).toBe(0);
-    expect(json()).toMatchObject({ ok: true, tokenSource: "config", key: { id: "key-scoped" } });
+    expect(json()).toMatchObject({ ok: true, keyBinding: "bound" });
+    expect(json().bindingNote).toBeUndefined();
   });
 
   it("CREEK_TOKEN is sent to the API in use whatever the saved key's API", async () => {
