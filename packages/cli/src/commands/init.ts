@@ -182,7 +182,7 @@ export const initCommand = defineCommand({
 
     writeFileSync(configPath, stringify(config));
 
-    // init appends Creek + AI-agent entries to .gitignore. Capture what
+    // init appends Creek's local-state entries to .gitignore. Capture what
     // changed so we can disclose it — a silent mutation of the user's
     // .gitignore is surprising, doubly so in agent/CI runs.
     const gitignoreAdded = ensureGitignoreEntries(cwd);
@@ -334,7 +334,7 @@ export default app;
       }
       if (gitignoreAdded.length > 0) {
         consola.info(
-          `Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`,
+          `Added ${gitignoreAdded.length} entries to .gitignore (Creek local state): ${gitignoreAdded.join(", ")}`,
         );
       }
       if (dbPromptSkipped) {

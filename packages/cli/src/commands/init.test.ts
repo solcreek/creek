@@ -128,11 +128,12 @@ describe("creek init --db (non-interactive)", () => {
 
     const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
     const payload = JSON.parse(out.slice(out.indexOf("{")));
-    // init silently appended Creek + AI-agent entries before this fix.
     // The agent/CI path must learn that .gitignore was touched.
     expect(Array.isArray(payload.gitignoreAdded)).toBe(true);
     expect(payload.gitignoreAdded).toContain(".creek");
-    expect(payload.gitignoreAdded).toContain(".claude");
+    // Team-shared agent configuration stays committable.
+    expect(payload.gitignoreAdded).not.toContain(".claude");
+    expect(payload.gitignoreAdded).not.toContain(".cursor");
     expect(existsSync(join(dir, ".gitignore"))).toBe(true);
   });
 });

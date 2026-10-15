@@ -6,23 +6,10 @@ import { fetchTemplate } from "./fetch.js";
 import { applyData } from "./apply-data.js";
 import { validateData } from "./validate.js";
 
-const GITIGNORE_ENTRIES = [
-  ".creek",
-  ".agent",
-  ".agents",
-  ".augment",
-  ".claude",
-  ".cline",
-  ".cursor",
-  ".github/copilot*",
-  ".kilocode",
-  ".kiro",
-  ".qoder",
-  ".qwen",
-  ".roo",
-  ".trae",
-  ".windsurf",
-];
+// Machine-local state only — keep in sync with packages/cli/src/utils/gitignore.ts.
+// Agent configuration directories (.claude, .cursor, .github/copilot*, …) hold
+// team-shared settings and stay committable.
+const GITIGNORE_ENTRIES = [".creek", ".claude/settings.local.json"];
 
 function ensureGitignoreEntries(dir: string): void {
   const gitignorePath = join(dir, ".gitignore");
@@ -30,7 +17,7 @@ function ensureGitignoreEntries(dir: string): void {
   const lines = new Set(existing.split("\n").map((l) => l.trim()));
   const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry));
   if (!missing.length) return;
-  const block = `\n# Creek & AI agent configs\n${missing.join("\n")}\n`;
+  const block = `\n# Creek local state\n${missing.join("\n")}\n`;
   appendFileSync(gitignorePath, block);
 }
 
@@ -125,7 +112,7 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
     }
   }
 
-  // 6b. Ensure AI agent configs are gitignored
+  // 6b. Ensure Creek's local state is gitignored
   ensureGitignoreEntries(dir);
 
   // 7. Git init
