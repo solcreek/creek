@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import consola from "consola";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -275,8 +276,8 @@ describe("creek logout", () => {
     expect(json()).toMatchObject({
       ok: true,
       revoked: true,
-      keyId: "key-scoped",
       configCleared: true,
+      keys: [{ source: "config", keyPrefix: "tok-scoped", revoked: true, keyId: "key-scoped" }],
     });
     expect(calls).toEqual(["DELETE self tok-scoped"]);
     expect(readConfig().token).toBeUndefined();
@@ -289,8 +290,8 @@ describe("creek logout", () => {
     expect(json()).toMatchObject({
       ok: true,
       revoked: false,
-      reason: "already_invalid",
       configCleared: true,
+      keys: [{ source: "config", revoked: false, reason: "already_invalid" }],
     });
     expect(readConfig().token).toBeUndefined();
   });
@@ -307,25 +308,92 @@ describe("creek logout", () => {
       revoked: false,
       keyStillValid: true,
       configCleared: false,
+      keys: [{ source: "config", revoked: false, reason: "server_unsupported" }],
     });
     expect(readConfig().token).toBe("tok-scoped");
   });
 
-  it("--revoke with CREEK_TOKEN revokes that key and warns that the variable still holds it", async () => {
+  it("--revoke with CREEK_TOKEN and a different saved key revokes both, each with itself", async () => {
     saveConfig({ token: "tok-scoped" });
     process.env.CREEK_TOKEN = "tok-legacy";
     const calls = api({ "tok-scoped": SCOPED, "tok-legacy": LEGACY });
+    const success = vi.spyOn(consola, "success").mockImplementation(() => {});
     expect(await run(logoutCommand, { revoke: true })).toBe(0);
     const out = json();
     expect(out).toMatchObject({
+      ok: true,
       revoked: true,
-      keyId: "key-legacy",
       tokenSource: "env:CREEK_TOKEN",
       configCleared: true,
-      savedKeyStillValid: true,
+      keys: [
+        { source: "env:CREEK_TOKEN", keyPrefix: "tok-legacy", revoked: true, keyId: "key-legacy" },
+        { source: "config", keyPrefix: "tok-scoped", revoked: true, keyId: "key-scoped" },
+      ],
     });
+    expect(out.savedKeyStillValid).toBeUndefined();
     expect(out.warning).toContain("CREEK_TOKEN is still set");
+    expect(calls).toEqual(["DELETE self tok-legacy", "DELETE self tok-scoped"]);
+    expect(readConfig().token).toBeUndefined();
+    // The human lines name each key's outcome.
+    const lines = success.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContain("Revoked the CREEK_TOKEN key tok-legacy (id key-legacy).");
+    expect(lines).toContain("Revoked the saved key tok-scoped (id key-scoped).");
+  });
+
+  it("--revoke keeps a saved key it could not revoke, and exits 1", async () => {
+    saveConfig({ token: "tok-scoped" });
+    process.env.CREEK_TOKEN = "tok-legacy";
+    const calls = api({ "tok-legacy": LEGACY });
+    // The saved key's revocation hits an outage.
+    server.use(
+      http.delete(`${API}/api-keys/self`, ({ request }) =>
+        request.headers.get("x-api-key") === "tok-scoped"
+          ? HttpResponse.json({ error: "unavailable", message: "Down" }, { status: 503 })
+          : undefined,
+      ),
+    );
+    const error = vi.spyOn(consola, "error").mockImplementation(() => {});
+    expect(await run(logoutCommand, { revoke: true })).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "revoke_failed",
+      configCleared: false,
+      keys: [
+        { source: "env:CREEK_TOKEN", revoked: true },
+        { source: "config", revoked: false, reason: "revoke_failed", status: 503 },
+      ],
+    });
     expect(calls).toEqual(["DELETE self tok-legacy"]);
+    expect(readConfig().token).toBe("tok-scoped");
+    expect(error.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringContaining("Could not revoke the saved key tok-scoped"),
+    );
+  });
+
+  it("--revoke with an empty CREEK_TOKEN still revokes the saved key", async () => {
+    saveConfig({ token: "tok-scoped" });
+    process.env.CREEK_TOKEN = "";
+    const calls = api({ "tok-scoped": SCOPED });
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    expect(json()).toMatchObject({
+      ok: true,
+      revoked: true,
+      configCleared: true,
+      keys: [{ source: "config", revoked: true }],
+    });
+    expect(calls).toEqual(["DELETE self tok-scoped"]);
+  });
+
+  it("--revoke sends one request when CREEK_TOKEN and the saved key are the same key", async () => {
+    saveConfig({ token: "tok-scoped" });
+    process.env.CREEK_TOKEN = "tok-scoped";
+    const calls = api({ "tok-scoped": SCOPED });
+    expect(await run(logoutCommand, { revoke: true })).toBe(0);
+    expect(json()).toMatchObject({
+      configCleared: true,
+      keys: [{ source: "env:CREEK_TOKEN+config", revoked: true }],
+    });
+    expect(calls).toEqual(["DELETE self tok-scoped"]);
   });
 
   it("--revoke with no key at all succeeds without a request", async () => {

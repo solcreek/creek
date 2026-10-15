@@ -209,11 +209,11 @@ Forget the saved API key.
 
 ```bash
 creek logout              # The key stays valid on the server
-creek logout --revoke     # Revoke the key in use first, then forget it
+creek logout --revoke     # Revoke every key the CLI holds, then forget the saved one
 creek logout --revoke --json
 ```
 
-`--revoke` revokes the key in use (the one `creek whoami` shows, so `CREEK_TOKEN`'s when that is set). Re-running it is safe: a key that is already revoked or expired reports `revoked: false, reason: "already_invalid"` and the saved key is still removed. If the revocation fails for another reason, nothing is removed and the command exits 1.
+`--revoke` revokes every distinct key the CLI holds: the one in `CREEK_TOKEN` and the one `creek login` saved. Each key's outcome is reported (`keys: [{ source, keyPrefix, revoked, reason }]` in `--json`). Re-running it is safe: a key that is already revoked or expired reports `reason: "already_invalid"`. The saved key is removed only once it is revoked or already invalid; if a revocation fails for another reason, that key is kept and the command exits 1.
 
 ### `creek keys`
 

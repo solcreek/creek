@@ -184,7 +184,7 @@ All commands support `--json` and `--yes` global flags.
 | `creek init` | Scaffold a `creek.toml` in the current directory |
 | `creek login --token <KEY>` | Authenticate with an API key (required in non-TTY). Browser login is TTY-only. |
 | `creek whoami` | Show the user, the API key in use (kind, team, effective scopes, expiry) and its source (`CREEK_TOKEN` wins over the saved key) |
-| `creek logout [--revoke]` | Forget the saved key; `--revoke` revokes the key in use first (safe to re-run) |
+| `creek logout [--revoke]` | Forget the saved key; `--revoke` revokes every key the CLI holds (CREEK_TOKEN and saved) first (safe to re-run) |
 | `creek keys self` / `keys revoke --self` | Show or revoke the API key in use. Creating and listing keys needs the dashboard (`session_required`). |
 | `creek status` | Show project status, recent deployments, trigger config |
 | `creek projects` | List your projects |

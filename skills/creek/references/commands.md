@@ -128,11 +128,13 @@ keys need a signed-in dashboard session, which the CLI never holds:
 `error: "session_required"` and `dashboardUrl`, without calling the API.
 
 `creek logout` forgets the saved key; the key stays valid
-(`keyStillValid: true`). `creek logout --revoke` revokes the key in use
-first (`revoked: true`, `keyId`). It is safe to re-run: a key already
-revoked or expired reports `revoked: false, reason: "already_invalid"` and
-local state is still cleared. Any other failure exits 1 and keeps the saved
-key. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
+(`keyStillValid: true`). `creek logout --revoke` revokes every key the CLI
+holds — `CREEK_TOKEN`'s and the saved one — and reports each in
+`keys: [{ source, keyPrefix, revoked, reason?, keyId? }]`. It is safe to
+re-run: a key already revoked or expired reports
+`revoked: false, reason: "already_invalid"`. The saved key is removed only
+once it is revoked or already invalid; any other failure exits 1 and keeps
+it. With `CREEK_TOKEN` set, `unset CREEK_TOKEN` afterwards.
 
 ## JSON Output Format
 
