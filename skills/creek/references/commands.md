@@ -68,6 +68,7 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Read a deployment's build log | `creek deployments logs <DEPLOYMENT_ID> --json` |
 | Read raw build log ndjson | `creek deployments logs <DEPLOYMENT_ID> --raw` |
 | Pre-deploy diagnostic | `creek doctor --json` |
+| Wait longer for a production deploy | `creek deploy --prod --wait 15m --json` (default 2m; a `timeout` result means the CLI stopped waiting — the deploy may still be running) |
 
 ## JSON Output Format
 
