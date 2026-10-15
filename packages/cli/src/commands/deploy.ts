@@ -3260,7 +3260,8 @@ export async function tryTurboDeploy(
           jsonOutput(
             {
               ok: false,
-              error: s === "cancelled" ? "cancelled" : "deploy_failed",
+              // deploy_failed for a cancel too, as before: `status` says which.
+              error: "deploy_failed",
               message: `Deploy from cache failed: ${errMsg}`,
               deploymentId: res.deployment.id,
               project: project.slug,

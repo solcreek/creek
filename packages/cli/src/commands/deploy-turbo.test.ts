@@ -76,6 +76,33 @@ describe("tryTurboDeploy --wait budget", () => {
     ]);
   });
 
+  async function turboOutcome(status: string) {
+    const client = {
+      createDeployment: vi.fn(async () => ({ cacheHit: true, deployment: { id: "dep-3" } })),
+      getDeploymentStatus: vi.fn(async () => ({
+        deployment: { status, failedStep: null, errorMessage: null },
+        url: null,
+        previewUrl: null,
+      })),
+    } as unknown as Parameters<typeof tryTurboDeploy>[1];
+    // A real exit never returns; stop the poll loop the way it would.
+    exitSpy.mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    await tryTurboDeploy(dir, client, { id: "p1", slug: "app" }, false, true);
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    return JSON.parse(out.slice(out.indexOf("{")));
+  }
+
+  it("a cancelled cache deploy keeps error deploy_failed; status says it was cancelled", async () => {
+    expect(await turboOutcome("cancelled")).toMatchObject({
+      ok: false,
+      error: "deploy_failed",
+      status: "cancelled",
+      deploymentId: "dep-3",
+    });
+  });
+
   it("a failed cache deploy carries deploymentId, failedStep and the classified reason", async () => {
     const client = {
       createDeployment: vi.fn(async () => ({ cacheHit: true, deployment: { id: "dep-2" } })),
