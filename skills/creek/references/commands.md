@@ -50,7 +50,8 @@ auto-enabled when stdout is not a TTY; it does **not** skip the target gate.
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
-| Send a message to the project queue | `creek queue send '<JSON-BODY>' --json` |
+| Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; `--parse-json` is not recognised) |
+| Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |
 | Dev server (local) | `creek dev` |
 | Dev server + trigger a cron firing | `creek dev --trigger-cron "*/5 * * * *"` |
 | List team databases | `creek db ls --json` |
