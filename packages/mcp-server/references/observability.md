@@ -22,6 +22,21 @@ creek logs --since 24h --search "order"  # free text within a window
 creek logs --deployment <id>           # specific deploy
 ```
 
+`--json` is NDJSON: one compact JSON object per line. Each entry is
+`{"type":"entry", …LogEntry, "projectSource": …}`, newest first. The last
+line is always a summary, so no entries still prints one line:
+
+```json
+{"ok":true,"type":"summary","project":"my-app","projectSource":"creek.toml","count":0,"truncated":false}
+```
+
+Read lines until `type` is `"summary"`; `truncated: true` means more
+entries match — narrow `--since` / `--limit`. With `--follow` the history
+ends with a `{"ok":true,"type":"following",…}` line instead, and live
+`entry` lines follow until interrupted (no summary). A failure before any
+line (not signed in, no project, API error) is a single
+`{ "ok": false, "error", "message" }` JSON document, not NDJSON.
+
 Note: **edge-cached HTML requests don't appear** — they never invoke
 the worker, so no log event fires. See the Analytics tab in the
 dashboard for total HTTP traffic (including cache hits).
