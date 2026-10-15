@@ -3272,14 +3272,14 @@ export async function tryTurboDeploy(
               ...(status.errorHint ? { errorHint: status.errorHint } : {}),
             },
             1,
+            // No "rebuild" crumb: this function knows neither the deploy's
+            // source (a repo-URL deploy builds a temp clone, not the cwd)
+            // nor its target flag, and a bare `creek deploy` is refused in a
+            // non-TTY run.
             pasteableBreadcrumbs(project.slug, [
               {
                 command: `creek deployments logs ${res.deployment.id} --json`,
                 description: "Read the build log to see why it failed",
-              },
-              {
-                command: "creek deploy --no-cache",
-                description: "Rebuild from source instead of the cache",
               },
             ]),
           );

@@ -103,6 +103,13 @@ describe("tryTurboDeploy --wait budget", () => {
     });
   });
 
+  it("suggests no re-deploy it cannot make pasteable, only the project-aware log", async () => {
+    const out = await turboOutcome("failed");
+    expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
+      "creek deployments logs dep-3 --project app --json",
+    ]);
+  });
+
   it("a failed cache deploy carries deploymentId, failedStep and the classified reason", async () => {
     const client = {
       createDeployment: vi.fn(async () => ({ cacheHit: true, deployment: { id: "dep-2" } })),
