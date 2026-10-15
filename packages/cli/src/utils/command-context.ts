@@ -133,6 +133,28 @@ export function projectFromDirectory(cwd: string = process.cwd()): DirectoryProj
   }
 }
 
+/**
+ * {@link projectFromDirectory} for a command that needs the answer: a config
+ * that exists but can't be read or parsed emits a structured
+ * `invalid_config` carrying the parser's diagnostic, then exits 1. Only a
+ * directory with no config at all yields null. Don't catch and swallow
+ * projectFromDirectory's error instead: that turns a typo in the config into
+ * a misleading "no project" / "no database" error.
+ */
+export function readDirectoryProject(
+  jsonMode: boolean,
+  cwd: string = process.cwd(),
+): DirectoryProject | null {
+  try {
+    return projectFromDirectory(cwd);
+  } catch (err) {
+    const message = `Couldn't read the project config: ${err instanceof Error ? err.message : String(err)}`;
+    if (jsonMode) jsonOutput({ ok: false, error: "invalid_config", message }, 1);
+    consola.error(message);
+    process.exit(1);
+  }
+}
+
 /** Why a directory with a config still names no project. */
 export function unnamedProjectMessage(file: string): string {
   const what =
@@ -154,17 +176,7 @@ export function resolveProject(
   jsonMode: boolean,
 ): { slug: string; source: ProjectSource } {
   if (argSlug) return { slug: argSlug, source: "flag" };
-  let found: DirectoryProject | null;
-  try {
-    found = projectFromDirectory();
-  } catch (err) {
-    // An unreadable or malformed config would otherwise throw past the
-    // structured-error contract and surface as a raw stack trace in JSON mode.
-    const message = `Couldn't read the project config: ${err instanceof Error ? err.message : String(err)}`;
-    if (jsonMode) jsonOutput({ ok: false, error: "invalid_config", message }, 1);
-    consola.error(message);
-    process.exit(1);
-  }
+  const found = readDirectoryProject(jsonMode);
   if (!found || found.slug === null) {
     const message = found ? unnamedProjectMessage(found.file) : NO_PROJECT_MESSAGE;
     if (jsonMode)

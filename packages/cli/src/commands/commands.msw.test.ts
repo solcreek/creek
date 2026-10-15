@@ -742,6 +742,23 @@ describe("db shell resolution (resolveShellDatabase)", () => {
     }
   });
 
+  it("a malformed wrangler config is invalid_config with the parser's diagnostic, not no_database_specified", async () => {
+    const prevCwd = process.cwd();
+    const projDir = mkdtempSync(join(tmpdir(), "creek-db-badconfig-test-"));
+    writeFileSync(join(projDir, "wrangler.jsonc"), '{ "name": "x", "main": ');
+    process.chdir(projDir);
+    try {
+      const code = await runExit(resolveShellDatabase(client(), { jsonMode: true }));
+      expect(code).toBe(1);
+      const out = json();
+      expect(out).toMatchObject({ ok: false, error: "invalid_config" });
+      expect(out.message).toMatch(/^Couldn't read the project config: \S/);
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(projDir, { recursive: true, force: true });
+    }
+  });
+
   it("--project with no bound database exits with a structured error", async () => {
     server.use(
       http.get(`${API}/projects/empty/bindings`, () => HttpResponse.json({ bindings: [] })),

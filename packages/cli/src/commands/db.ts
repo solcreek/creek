@@ -15,7 +15,7 @@ import {
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
-import { projectFromDirectory } from "../utils/command-context.js";
+import { readDirectoryProject } from "../utils/command-context.js";
 
 const base = createResourceCommand({
   kind: "database",
@@ -155,7 +155,7 @@ export async function resolveProjectDatabase(
   }
 
   // 2/3. Resolve via project bindings.
-  const slug = opts.project ?? projectFromCwd();
+  const slug = opts.project ?? projectFromCwd(jsonMode);
   if (!slug) {
     const msg = `Provide a database name (${usage}), pass --project <slug>, or run inside a project directory (creek.toml or wrangler config).`;
     if (jsonMode) jsonOutput({ ok: false, error: "no_database_specified", message: msg }, 1);
@@ -219,16 +219,13 @@ export async function resolveProjectDatabase(
 export const resolveShellDatabase = resolveProjectDatabase;
 
 /**
- * The project the cwd deploys as (creek.toml, else the wrangler config name —
- * the same resolution `creek deploy` uses), or null if absent/unreadable or
- * if the config names no project (never the directory name).
+ * The project the cwd names (creek.toml, wrangler config or package.json
+ * name; never the directory name), or null when there is no config or it
+ * names no project. A config that can't be read or parsed exits with
+ * `invalid_config` and the parser's diagnostic.
  */
-function projectFromCwd(): string | null {
-  try {
-    return projectFromDirectory()?.slug ?? null;
-  } catch {
-    return null;
-  }
+function projectFromCwd(jsonMode: boolean): string | null {
+  return readDirectoryProject(jsonMode)?.slug ?? null;
 }
 
 async function executeAndPrint(
