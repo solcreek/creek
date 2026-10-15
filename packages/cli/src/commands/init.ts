@@ -119,6 +119,17 @@ export const initCommand = defineCommand({
     let framework: string | undefined;
     let buildCommand = "npm run build";
     let buildOutput = "dist";
+    // A plain static site (index.html, no package.json) has nothing to build:
+    // deploy the directory as is, like resolveConfig's index.html fallback
+    // does when there is no creek.toml. Writing the npm defaults here would
+    // make the next deploy look for a dist/ that never exists.
+    const staticSite =
+      !existsSync(pkgPath) &&
+      (existsSync(join(cwd, "index.html")) || existsSync(join(cwd, "public/index.html")));
+    if (staticSite) {
+      buildCommand = "";
+      buildOutput = existsSync(join(cwd, "index.html")) ? "." : "public";
+    }
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const detected = detectFramework(pkg);
@@ -268,6 +279,8 @@ export default app;
           databasePromptSkipped: dbPromptSkipped,
           path: configPath,
           replaced,
+          staticSite,
+          build: { command: buildCommand, output: buildOutput },
           gitignoreAdded,
           ...(scaffoldedWorker ? { workerDependencies: WORKER_SCAFFOLD_DEPS } : {}),
           ...(compatBlockers.length ? { compatibilityWarnings: compatBlockers } : {}),
@@ -314,6 +327,11 @@ export default app;
     consola.success(`${replaced ? "Replaced" : "Created"} creek.toml for "${name}"`);
 
     if (!jsonMode) {
+      if (staticSite) {
+        consola.info(
+          `Static site: no build step; deploys ${buildOutput === "." ? "this directory" : `${buildOutput}/`} as is.`,
+        );
+      }
       if (gitignoreAdded.length > 0) {
         consola.info(
           `Added ${gitignoreAdded.length} entries to .gitignore (Creek + AI agent configs): ${gitignoreAdded.join(", ")}`,

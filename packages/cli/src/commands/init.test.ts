@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveConfig } from "@solcreek/sdk";
@@ -137,7 +137,7 @@ describe("creek init --db (non-interactive)", () => {
   });
 });
 
-describe("creek init (existing creek.toml)", () => {
+describe("creek init (existing creek.toml, static sites)", () => {
   let dir: string;
   let prevCwd: string;
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -189,6 +189,42 @@ describe("creek init (existing creek.toml)", () => {
   it("reports replaced: false when there was no creek.toml", async () => {
     await runInit({ name: "demo", yes: true });
     expect(payload()).toMatchObject({ ok: true, replaced: false });
+  });
+
+  it("a plain static site (index.html, no package.json) deploys the directory as is", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    await runInit({ name: "site", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.source).toBe("creek.toml");
+    expect(resolved.buildCommand).toBe("");
+    expect(resolved.buildOutput).toBe(".");
+    expect(payload()).toMatchObject({
+      ok: true,
+      staticSite: true,
+      build: { command: "", output: "." },
+    });
+  });
+
+  it("a static site under public/ deploys public/", async () => {
+    mkdirSync(join(dir, "public"));
+    writeFileSync(join(dir, "public/index.html"), "<h1>hi</h1>");
+    await runInit({ name: "site", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.buildCommand).toBe("");
+    expect(resolved.buildOutput).toBe("public");
+  });
+
+  it("a package.json project keeps the npm build defaults", async () => {
+    writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x" }));
+    await runInit({ name: "app", yes: true });
+
+    const resolved = resolveConfig(dir);
+    expect(resolved.buildCommand).toBe("npm run build");
+    expect(resolved.buildOutput).toBe("dist");
+    expect(payload()).toMatchObject({ staticSite: false });
   });
 });
 
