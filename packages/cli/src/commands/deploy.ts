@@ -1903,7 +1903,14 @@ async function deploySandbox(
     const cwdIndex = existsSync(join(cwd, "index.html"));
     const publicIndex = existsSync(join(cwd, "public/index.html"));
     if (cwdIndex || publicIndex) {
-      const staticDir = cwdIndex ? cwd : join(cwd, "public");
+      // Honour the config's [build].output when it holds an index.html (e.g.
+      // init's output = "public" next to a root index.html), so the sandbox
+      // uploads what production uploads; otherwise prefer the root index.
+      const staticDir = resolved
+        ? staticSiteUploadDir(cwd, resolved)
+        : cwdIndex
+          ? cwd
+          : join(cwd, "public");
       if (!jsonMode) {
         consola.info("  No package.json found — deploying as static site (no build step).");
       }
