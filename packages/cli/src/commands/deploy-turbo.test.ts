@@ -69,10 +69,45 @@ describe("tryTurboDeploy --wait budget", () => {
     });
     expect(payload.message).toContain("CLI stopped waiting after 90s");
     // The cwd names no project, so the follow-ups carry --project (pasteable).
+    // The first one follows this deploy to its result without re-deploying.
     expect(payload.breadcrumbs.map((b: { command: string }) => b.command)).toEqual([
-      "creek status --project app",
-      "creek deployments logs dep-1 --project app",
+      "creek deployments wait dep-1 --project app --json",
+      "creek deployments logs dep-1 --project app --json",
     ]);
+  });
+
+  it("a failed cache deploy carries deploymentId, failedStep and the classified reason", async () => {
+    const client = {
+      createDeployment: vi.fn(async () => ({ cacheHit: true, deployment: { id: "dep-2" } })),
+      getDeploymentStatus: vi.fn(async () => ({
+        deployment: { status: "failed", failedStep: "activate", errorMessage: "boom" },
+        url: null,
+        previewUrl: null,
+        errorCode: "CK-X",
+        errorHint: "do y",
+      })),
+    } as unknown as Parameters<typeof tryTurboDeploy>[1];
+    // A real exit never returns; stop the poll loop the way it would.
+    exitSpy.mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    // tryTurboDeploy swallows the throw (any error falls back to a full build).
+    await tryTurboDeploy(dir, client, { id: "p1", slug: "app" }, false, true);
+    const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    const payload = JSON.parse(out.slice(out.indexOf("{")));
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "deploy_failed",
+      deploymentId: "dep-2",
+      status: "failed",
+      failedStep: "activate",
+      errorCode: "CK-X",
+      errorHint: "do y",
+    });
+    expect(payload.breadcrumbs[0].command).toBe(
+      "creek deployments logs dep-2 --project app --json",
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it("reportWaitTimeout formats whole minutes as Nm and the rest as seconds", () => {
