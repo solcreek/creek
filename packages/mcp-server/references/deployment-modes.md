@@ -88,6 +88,14 @@ creek deploy --from-github --project my-app --prod --json
 
 The command polls the deployments list until the new row settles on
 `active`, `failed`, or `cancelled`, and prints each status transition.
+It follows the new row for the triggered commit (`matchedBy: "commit"`),
+waiting up to 20 s for it even when other new rows appear first. Only then
+does the newest new row stand in, flagged `matchedBy: "newest_row"`,
+`commitMatched: false` with `expectedCommitSha` and its `commitSha`: it may
+be someone else's deploy, so check it. Every result carries its
+`deploymentId`; a failure carries `error`, `message`, `failedStep` and
+`errorCode` / `errorHint`. Still in flight after 15 minutes, it returns
+`error: "timeout"` with a `creek deployments wait <id> --json` breadcrumb.
 Fails fast if the project has no github_connection or the connection's
 production branch has no accessible commit.
 

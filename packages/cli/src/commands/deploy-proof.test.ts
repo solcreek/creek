@@ -46,6 +46,8 @@ describe("productionProofPayload", () => {
     expect(productionProofPayload(proof.url, proof)).toEqual({
       ok: false,
       error: "verify_failed",
+      // An error result always says why, not only a code.
+      message: `Deployed, but ${proof.url} did not answer with a 2xx/3xx (HTTP 500). Re-check with: creek verify ${proof.url} --json`,
       url: proof.url,
       proof,
     });

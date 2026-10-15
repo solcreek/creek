@@ -30,6 +30,10 @@ export interface Project {
   slug: string;
   team_id: string;
   production_deployment_id: string | null;
+  /** The column's real name: GET /projects/:idOrSlug returns the raw camelCase row. */
+  productionDeploymentId?: string | null;
+  /** The column's real name (epoch ms); `created_at` is not what the API sends. */
+  createdAt?: number;
   production_branch: string;
   framework: Framework | null;
   github_repo: string | null;

@@ -22,11 +22,7 @@ const COMMANDS = join(import.meta.dirname, "commands");
  * Sites other agents own right now, as `file: error code` (the first error
  * code the catch prints). Fix the catch, then delete the line.
  */
-const KNOWN_MISSING = new Set([
-  // Sandbox deploy status polling (deploy.ts is being edited elsewhere).
-  "deploy.ts: deploy_failed",
-  "deploy.ts: deploy_failed#2",
-]);
+const KNOWN_MISSING = new Set<string>([]);
 
 /** utils/sandbox.ts helpers that call the sandbox API. */
 const SANDBOX_CALLS = new Set(["sandboxDeploy", "pollSandboxStatus"]);

@@ -98,14 +98,16 @@ Clicking the button takes visitors to a landing page with a ready-to-run deploy 
 
 ### `creek status [id]`
 
-Check project or sandbox status.
+Check a project, or one deployment or sandbox by id.
 
 ```bash
 creek status                    # Current project (see "Which project" below)
 creek status --project my-app   # Any project, from any directory
-creek status a1b2c3d4           # Sandbox status (no auth needed)
+creek status 0b6f2c1e           # A deployment of the current project (full or 8-char id), else a sandbox
 creek status --json
 ```
+
+With an id, Creek looks for a deployment of `--project` (or the current directory's project) first, then a sandbox (no auth needed). The JSON `type` says which it found: `deployment` or `sandbox`. A project's JSON reports `productionDeploymentId`, the deployment production serves.
 
 **Which project.** Commands that act on a project (`status`, `deployments`, `logs`, `metrics`, `env`, `domains`, `queue`, `rollback`, `db shell`, `db migrate`, `doctor --last`) act on the project the current directory names: `--project <slug>` if you pass it, else `creek.toml`'s `[project].name`, else the wrangler config's `name` (`wrangler.jsonc`, `wrangler.json`, `wrangler.toml`), else the framework `package.json` `name` — the names `creek deploy` creates the project under. They never fall back to the directory name: in a static site (`index.html`), or with a wrangler config or `package.json` that has no `name`, they stop with `no_project` instead of acting on a project that merely shares the folder's name. Pass `--project <slug>` there, to pick another project, or to run from outside a project directory. With `--json`, the output's `projectSource` (`flag`, `creek.toml`, `wrangler` or `package.json`) says where the project came from.
 
@@ -127,6 +129,18 @@ creek deployments
 creek deployments --project my-app
 creek deployments --json
 ```
+
+#### Follow one deployment
+
+Every `creek deploy --json` result names its deployment (`deploymentId`), including failures and timeouts. Follow it with that id instead of deploying again:
+
+```bash
+creek deployments get 0b6f2c1e --json              # status, final, failedStep, errorCode/errorHint, url, commit, branch
+creek deployments wait 0b6f2c1e --timeout 5m --json # until active, failed or cancelled
+creek deployments logs 0b6f2c1e --json             # the build log
+```
+
+`wait` exits 0 once the deployment is active. A failed or cancelled deployment exits 1 with `error: "deployment_failed"` (with `failedStep`, `errorCode`, `errorHint`) or `"deployment_cancelled"`. If it is still running at `--timeout` (default `2m`, max `60m`), it exits 1 with `error: "timeout"`, `retryable: true` and the last `status`: run it again. Ids are the full id or the 8-char short id; a short id matches the newest 20 deployments. The fields are the same as the MCP `get_deployment` and `wait_for_deployment` tools.
 
 ### `creek logs`
 

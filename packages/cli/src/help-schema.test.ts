@@ -255,6 +255,8 @@ const REVIEWED_DESTRUCTIVE: Record<string, boolean> = {
   deployments: false, // runs `deployments list`
   "deployments list": false,
   "deployments logs": false,
+  "deployments get": false,
+  "deployments wait": false, // polls only
   logs: false,
   metrics: false,
   doctor: false,

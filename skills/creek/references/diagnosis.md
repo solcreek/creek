@@ -21,11 +21,15 @@ files; do not retry deploy.
 
 ## 2. Find the failed deployment
 
+The failed deploy's own `--json` result names it (`deploymentId`). Without
+it:
+
 ```bash
 creek deployments --json                    # list, newest first
 ```
 
-Scan for `status: "failed"` rows; note the `id`.
+Scan for `status: "failed"` rows; note the `id`. `creek deployments get
+<id> --json` shows its `failedStep` and `errorCode` / `errorHint`.
 
 ## 3. Read the build log
 
