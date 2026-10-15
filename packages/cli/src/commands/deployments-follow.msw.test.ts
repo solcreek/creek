@@ -10,6 +10,7 @@ import { reportWaitTimeout } from "./deploy.js";
 import { printDeployment } from "../utils/deployment-follow.js";
 import { toDeploymentView } from "@solcreek/sdk";
 import consola from "consola";
+import { AUTH_BREADCRUMBS } from "../utils/output.js";
 
 // Following a deploy to its result with one id: `deployments get`,
 // `deployments wait` and `status <id>`. Same harness as commands.msw.test.ts:
@@ -272,6 +273,21 @@ describe("creek deployments wait <id>", () => {
       terminal: false,
       final: false,
     });
+  });
+
+  it("signed out, get and wait say how to log in, like list and logs", async () => {
+    process.env.CREEK_TOKEN = "";
+    for (const name of ["get", "wait"]) {
+      stdout = "";
+      const code = await runExit(sub(name).run!({ args: { id: FULL } } as never));
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({
+        ok: false,
+        error: "not_authenticated",
+        message: "Not authenticated. Run `creek login` first.",
+        breadcrumbs: AUTH_BREADCRUMBS,
+      });
+    }
   });
 
   it("rejects an unparseable --timeout before any request", async () => {
