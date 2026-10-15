@@ -409,6 +409,18 @@ describe("following a deployment", () => {
     expect(result.view).toMatchObject({ status: "deploying", terminal: false });
   });
 
+  test("waitForDeployment uses the whole budget when it is shorter than the interval", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse(200, statusBody()));
+    const result = await client.waitForDeployment("site", FULL, {
+      intervalMs: 2000,
+      timeoutMs: 150,
+    });
+    expect(result.timedOut).toBe(true);
+    expect(result.waitedMs).toBeGreaterThanOrEqual(150);
+    // A first read, then one more at the deadline.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   test("waitForDeployment: a read that hangs past the budget is a timeout, not an error", async () => {
     mockFetch.mockImplementation(
       (_url: string, init: RequestInit) =>

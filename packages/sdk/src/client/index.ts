@@ -279,7 +279,8 @@ export class CreekClient {
   /**
    * Poll a deployment until it reaches a final status (active, failed,
    * cancelled) or the budget runs out. The budget covers everything: id
-   * resolution, each read (aborted at the deadline) and the pauses between.
+   * resolution, each read (aborted at the deadline, or 500 ms after it for a
+   * read that starts there) and the pauses between.
    * A budget that runs out returns `timedOut: true` with the last read; it
    * never throws for that. API errors throw as usual.
    */
@@ -292,7 +293,8 @@ export class CreekClient {
     const intervalMs = options.intervalMs ?? 2_000;
     const started = Date.now();
     const deadline = started + timeoutMs;
-    const remaining = () => Math.max(deadline - Date.now(), 1);
+    // A read started at the deadline still gets a short grace to answer.
+    const remaining = () => Math.max(deadline - Date.now(), READ_GRACE_MS);
     let view: DeploymentView | null = null;
     const done = (timedOut: boolean): WaitForDeploymentResult => ({
       view,
@@ -327,8 +329,11 @@ export class CreekClient {
       }
       options.onPoll?.(view);
       if (view.terminal) return done(false);
-      if (Date.now() + intervalMs >= deadline) return done(true);
-      await new Promise((r) => setTimeout(r, intervalMs));
+      // Use the whole budget: the last pause is cut short so one more read
+      // lands at the deadline instead of giving up an interval early.
+      const left = deadline - Date.now();
+      if (left <= 0) return done(true);
+      await new Promise((r) => setTimeout(r, Math.min(intervalMs, left)));
     }
   }
 
@@ -648,6 +653,9 @@ export class CreekClient {
  * code (else `fallbackCode`), its `message` (else the status text), and its
  * other fields as `details`. A 401 is a CreekAuthError.
  */
+/** How long a deployment read that starts at the wait's deadline may take. */
+const READ_GRACE_MS = 500;
+
 /** A request aborted by its signal (AbortSignal.timeout fires a TimeoutError). */
 function isAbort(err: unknown): boolean {
   return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
