@@ -4,6 +4,15 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.56
+
+- Bundles [`@solcreek/cli@0.4.56`](../cli/CHANGELOG.md#0456) and requires
+  [`@solcreek/sdk@0.4.26`](../sdk/CHANGELOG.md#0426): `creek deploy` uploads
+  server files in parallel, with per-request timeouts, retries and progress,
+  so a vinext deploy of hundreds of modules takes seconds instead of minutes
+  and no longer hangs on one stalled request. Publish `sdk@0.4.26` before
+  `cli@0.4.56` / `creek@0.4.56`.
+
 ## 0.4.55
 
 - Bundles [`@solcreek/cli@0.4.55`](../cli/CHANGELOG.md#0455) and requires

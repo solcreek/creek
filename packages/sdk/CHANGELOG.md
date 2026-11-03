@@ -1,5 +1,10 @@
 # @solcreek/sdk
 
+## 0.4.26
+
+- **`uploadServerFile(project, deployment, name, bytes, { signal })`** takes
+  an `AbortSignal`, so a caller can bound one upload with a timeout (#141).
+
 ## 0.4.25
 
 ### Deployments

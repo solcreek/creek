@@ -1,5 +1,24 @@
 # @solcreek/cli
 
+## 0.4.56
+
+Requires `@solcreek/sdk@0.4.26`. Publish `sdk@0.4.26` before `cli@0.4.56` /
+`creek@0.4.56`.
+
+### Deploy uploads
+
+- **Server files upload in parallel, with timeouts and retries** (#141). A
+  vinext worker is hundreds of modules; each went up as its own request, one
+  after another, with no timeout, so a 300-module worker could take 6-15
+  minutes and one stalled or reset connection hung or failed the deploy,
+  leaving it `queued`. They now go up 8 at a time (at most 32 MB in flight).
+  Each attempt times out after 60 s plus 16 KB/s of its size, and a network
+  failure, a timeout, a 429 or a 5xx is retried up to 3 times with backoff.
+  Measured on a 214-module vinext worker: 122.7 s to 17.5 s.
+- **`creek deploy` shows upload progress**: `Server files: 43/214 (0.4/6.5
+  MB)` at each tenth of the files, a warning per retry, and the total time.
+  Nothing is added to `--json` output.
+
 ## 0.4.55
 
 Requires `@solcreek/sdk@0.4.25`. Publish `sdk@0.4.25` before `cli@0.4.55` /
