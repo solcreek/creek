@@ -318,17 +318,27 @@ async function syncPendingDomains(env: Env): Promise<number> {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(
-      Promise.all([
-        sweepStaleDeployments(env),
-        sweepAbandonedQueuedDeployments(env),
-        processResourceCleanupQueue(env),
-        syncPendingDomains(env),
-        purgeAuditIpLogs(env.DB),
-        purgeExpiredBuildLogs(env),
-        aggregateUsageSafe(env),
-      ]),
-    );
+    // Awaited, not only handed to waitUntil: the invocation then lasts until
+    // every task settles (a cron's wall-clock budget), instead of being cut
+    // off a fixed time after this handler returns. One task failing doesn't
+    // stop the others; its error is logged.
+    const tasks = {
+      sweepStaleDeployments: sweepStaleDeployments(env),
+      sweepAbandonedQueuedDeployments: sweepAbandonedQueuedDeployments(env),
+      processResourceCleanupQueue: processResourceCleanupQueue(env),
+      syncPendingDomains: syncPendingDomains(env),
+      purgeAuditIpLogs: purgeAuditIpLogs(env.DB),
+      purgeExpiredBuildLogs: purgeExpiredBuildLogs(env),
+      aggregateUsage: aggregateUsageSafe(env),
+    };
+    const done = Promise.allSettled(Object.values(tasks)).then((results) => {
+      const names = Object.keys(tasks);
+      results.forEach((r, i) => {
+        if (r.status === "rejected") console.error(`[cron] ${names[i]} failed:`, r.reason);
+      });
+    });
+    ctx.waitUntil(done);
+    await done;
   },
   // Deploy jobs run here (creek-deploy-jobs), not in the bundle-upload
   // request's waitUntil — workerd cancels waitUntil ~30s after the response,

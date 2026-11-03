@@ -615,22 +615,45 @@ export function isValidServerFileName(name: string): boolean {
   );
 }
 
+/** R2 deletes at most this many keys in one call. */
+const R2_DELETE_BATCH = 1000;
+
 /**
  * Best-effort removal of a deployment's R2 staging: the bundle JSON plus every
  * separately-staged binary server file. Lists the server-file prefix rather than
  * needing the bundle, so it also reclaims staging for a job that was killed
- * (e.g. OOM) before it could clean up — the reaper calls this for reaped
- * deployments. Never throws (allSettled), so it can't fail the caller.
+ * (e.g. OOM) before it could clean up — the reapers call this for the
+ * deployments they fail.
+ *
+ * Deletes in bulk, one call per listed page, so a vinext worker's hundreds
+ * of staged modules cost a few R2 operations rather than one each: one delete
+ * per file let a sweep of 50 such deployments run to thousands of operations,
+ * past the invocation's subrequest limit, and the rest failed unseen. Never
+ * throws, so it can't fail the caller; a failure is logged and the staging is
+ * left for the bucket's lifecycle rule.
  */
 export async function deleteStagedBundle(env: Env, deploymentId: string): Promise<void> {
-  const keys = [`bundles/${deploymentId}.json`];
+  const failed = (what: string, err: unknown) =>
+    console.error(
+      `[staging] could not reclaim ${what} of ${deploymentId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   try {
-    const listed = await env.ASSETS.list({ prefix: `bundles/${deploymentId}-server/` });
-    for (const obj of listed.objects) keys.push(obj.key);
-  } catch {
-    // Listing failed — still attempt the bundle JSON below.
+    await env.ASSETS.delete(`bundles/${deploymentId}.json`);
+  } catch (err) {
+    failed("the bundle", err);
   }
-  await Promise.allSettled(keys.map((key) => env.ASSETS.delete(key)));
+  try {
+    const prefix = `bundles/${deploymentId}-server/`;
+    let cursor: string | undefined;
+    do {
+      const page = await env.ASSETS.list({ prefix, cursor, limit: R2_DELETE_BATCH });
+      const keys = page.objects.map((o) => o.key);
+      if (keys.length > 0) await env.ASSETS.delete(keys);
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  } catch (err) {
+    failed("the server files", err);
+  }
 }
 
 /**
