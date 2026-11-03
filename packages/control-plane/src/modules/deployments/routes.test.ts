@@ -6,6 +6,7 @@ import {
   type LocalTestEnv,
 } from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
+import { ABANDONED_UPLOAD_MESSAGE, sweepAbandonedQueuedDeployments } from "./sweep-queued.js";
 
 let testEnv: LocalTestEnv;
 let app: ReturnType<typeof createTestApp>;
@@ -43,6 +44,15 @@ function req(method: string, path: string, body?: unknown) {
 
 const PROJECT_ID = "proj-1";
 const DEPLOYMENT_ID = "deploy-1";
+
+/** Fail a deployment the way the queued sweep does. */
+function abandon(id: string) {
+  testEnv.db.db
+    .prepare(
+      "UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ? WHERE id = ?",
+    )
+    .run(ABANDONED_UPLOAD_MESSAGE, id);
+}
 
 function seedTestProject() {
   const now = Date.now();
@@ -346,6 +356,154 @@ describe("PUT /bundle", () => {
   });
 });
 
+describe("PUT /bundle on a deployment the queued sweep abandoned", () => {
+  const bundle = {
+    manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null, renderMode: "spa" },
+    workerScript: null,
+    assets: { "index.html": btoa("<h1>hi</h1>") },
+  };
+  const path = `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/bundle`;
+  function seed(status: string, errorMessage: string | null = null) {
+    const now = Date.now();
+    testEnv.db.db
+      .prepare(
+        `INSERT INTO deployment (id, projectId, version, status, errorMessage, triggerType, createdAt, updatedAt)
+         VALUES (?, ?, 1, ?, ?, 'cli', ?, ?)`,
+      )
+      .run(DEPLOYMENT_ID, PROJECT_ID, status, errorMessage, now, now);
+  }
+  const status = () =>
+    testEnv.db.db.prepare("SELECT status FROM deployment WHERE id = ?").get(DEPLOYMENT_ID) as {
+      status: string;
+    };
+
+  test("refuses it with 409 abandoned and stages nothing", async () => {
+    seedTestProject();
+    seed("queued");
+    abandon(DEPLOYMENT_ID);
+
+    const res = await req("PUT", path, bundle);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toBe("abandoned");
+    expect(status().status).toBe("failed");
+    expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}.json`)).toBeNull();
+  });
+
+  test("still restarts a deployment that failed for another reason", async () => {
+    seedTestProject();
+    seed("failed", "Upload exceeded the 10-minute deploy window");
+    const res = await req("PUT", path, bundle);
+    expect(res.status).toBe(202);
+  });
+
+  test("refuses it when the sweep abandons it after the route read it as queued", async () => {
+    seedTestProject();
+    seed("queued");
+    // Run the sweep between the route's status read and its claim: the read
+    // sees `queued`, but the row is abandoned by the time the route claims it.
+    const db = testEnv.env.DB;
+    const prepare = db.prepare.bind(db);
+    let swept = false;
+    (db as any).prepare = (sql: string) => {
+      const stmt = prepare(sql);
+      if (swept || !sql.startsWith("SELECT id, status, branch, errorMessage FROM deployment")) {
+        return stmt;
+      }
+      const bind = stmt.bind.bind(stmt);
+      stmt.bind = (...args: unknown[]) => {
+        const bound = bind(...args);
+        const first = bound.first.bind(bound) as () => Promise<unknown>;
+        (bound as any).first = async () => {
+          const row = await first();
+          swept = true;
+          testEnv.db.db
+            .prepare("UPDATE deployment SET updatedAt = 0 WHERE id = ?")
+            .run(DEPLOYMENT_ID);
+          await sweepAbandonedQueuedDeployments(testEnv.env, Date.now());
+          return row;
+        };
+        return bound;
+      };
+      return stmt;
+    };
+
+    const res = await req("PUT", path, bundle);
+    expect(swept).toBe(true);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toBe("abandoned");
+    expect(status().status).toBe("failed");
+    expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}.json`)).toBeNull();
+  });
+
+  /** PUT /bundle whose body runs `during` while the route reads it, then fails. */
+  function putFailingBody(during: () => Promise<void> | void) {
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          await during();
+          controller.error(new Error("connection lost mid-body"));
+        },
+      },
+      { highWaterMark: 0 },
+    ); // pull only once the route reads the body
+    return app.request(
+      path,
+      { method: "PUT", body, duplex: "half" } as RequestInit,
+      testEnv.env,
+      executionCtx as any,
+    );
+  }
+  const row = () =>
+    testEnv.db.db
+      .prepare("SELECT status, errorMessage FROM deployment WHERE id = ?")
+      .get(DEPLOYMENT_ID) as { status: string; errorMessage: string | null };
+
+  test("a body that fails after the sweep abandoned the deployment keeps it abandoned", async () => {
+    seedTestProject();
+    seed("queued");
+
+    const res = await putFailingBody(async () => {
+      testEnv.db.db.prepare("UPDATE deployment SET updatedAt = 0 WHERE id = ?").run(DEPLOYMENT_ID);
+      await sweepAbandonedQueuedDeployments(testEnv.env, Date.now());
+    });
+    expect(res.status).toBe(500);
+    expect(row()).toEqual({ status: "failed", errorMessage: ABANDONED_UPLOAD_MESSAGE });
+
+    // So a later upload still cannot restart it.
+    const later = await req("PUT", path, bundle);
+    expect(later.status).toBe(409);
+    expect(((await later.json()) as any).error).toBe("abandoned");
+  });
+
+  test("a body that fails after another upload started the deploy leaves that deploy alone", async () => {
+    seedTestProject();
+    seed("queued");
+    const res = await putFailingBody(() => {
+      testEnv.db.db
+        .prepare("UPDATE deployment SET status = 'uploading' WHERE id = ?")
+        .run(DEPLOYMENT_ID);
+    });
+    expect(res.status).toBe(500);
+    expect(row()).toEqual({ status: "uploading", errorMessage: null });
+  });
+
+  test("a body that fails on a deployment still waiting for it records the failure", async () => {
+    seedTestProject();
+    seed("queued");
+    const res = await putFailingBody(() => {});
+    expect(res.status).toBe(500);
+    expect(row().status).toBe("failed");
+    expect(row().errorMessage).toMatch(/connection lost mid-body/);
+  });
+
+  test("lets only one of two concurrent uploads start the deploy", async () => {
+    seedTestProject();
+    seed("queued");
+    const [a, b] = await Promise.all([req("PUT", path, bundle), req("PUT", path, bundle)]);
+    expect([a.status, b.status].sort()).toEqual([202, 409]);
+  });
+});
+
 // --- PUT /projects/:id/deployments/:id/serverfile ---
 
 describe("PUT /serverfile (separate binary server files)", () => {
@@ -417,6 +575,19 @@ describe("PUT /serverfile (separate binary server files)", () => {
     });
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).message).toContain("too large");
+  });
+
+  test("refuses a deployment the queued sweep abandoned, storing nothing", async () => {
+    seedTestProject();
+    seedDeployment("queued");
+    abandon(DEPLOYMENT_ID);
+    const res = await putBin(
+      `${base}?name=worker.js`,
+      new TextEncoder().encode("x").buffer as ArrayBuffer,
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toBe("abandoned");
+    expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}-server/worker.js`)).toBeNull();
   });
 
   test("rejects upload once the deploy is active", async () => {

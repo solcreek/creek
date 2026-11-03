@@ -12,6 +12,8 @@
 
 export type DeployFailureCode =
   | "upload_timeout"
+  | "upload_incomplete"
+  | "build_incomplete"
   | "provision_timeout"
   | "activation_timeout"
   | "bundle_too_large"
@@ -56,6 +58,21 @@ export function classifyDeployFailure(
         hint: "No migrations were applied and the new version was not activated. Bind one database as DATABASE (or declare [resources] database = true), then redeploy.",
       };
     }
+  }
+
+  // The queued sweep (deployments/sweep-queued.ts): the bundle or the remote
+  // build never arrived. Not a timeout of a running stage — nothing ran.
+  if (failedStep === "uploading" && msg.startsWith("the bundle upload never arrived")) {
+    return {
+      code: "upload_incomplete",
+      hint: "The deploy command stopped before the bundle reached Creek, so nothing was activated. Run the deploy again; a current CLI retries a dropped upload on its own.",
+    };
+  }
+  if (failedStep === "building" && msg.startsWith("the remote build never reported back")) {
+    return {
+      code: "build_incomplete",
+      hint: "The remote build never finished, so nothing was activated. Push again or redeploy from the dashboard.",
+    };
   }
 
   // The reaper writes "...exceeded the N-minute deploy window..."; older rows
