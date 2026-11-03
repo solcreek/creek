@@ -105,6 +105,11 @@ import {
 } from "../utils/deploy-destination.js";
 import { shellQuote } from "../utils/shell-quote.js";
 import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import {
+  uploadServerFiles,
+  type ServerFileUploader,
+  type UploadServerFilesOptions,
+} from "../utils/upload-server-files.js";
 
 function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
@@ -835,14 +840,37 @@ export function reportWaitTimeout(opts: {
   return process.exit(1);
 }
 
+/**
+ * Progress lines for the server-file upload: one at each tenth of the files
+ * (so a 300-module worker prints ~10 lines, not 300), a warning per retry,
+ * and a summary. Exported for tests.
+ */
+export function serverFileProgress(
+  progress: Pick<ReturnType<typeof makeProgress>, "info" | "warn">,
+  now: () => number = Date.now,
+): UploadServerFilesOptions {
+  const started = now();
+  let lastTenth = 0;
+  const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+  return {
+    onProgress(done, total, bytesDone, bytesTotal) {
+      const tenth = Math.floor((done * 10) / total);
+      if (done === total) {
+        const secs = ((now() - started) / 1000).toFixed(1);
+        progress.info(`  Server files: ${total}/${total} (${mb(bytesTotal)} MB) in ${secs}s`);
+      } else if (tenth > lastTenth) {
+        progress.info(`  Server files: ${done}/${total} (${mb(bytesDone)}/${mb(bytesTotal)} MB)`);
+      }
+      lastTenth = Math.max(lastTenth, tenth);
+    },
+    onRetry(name, retry, reason) {
+      progress.warn(`  Server file ${name}: ${reason}, retrying (${retry})`);
+    },
+  };
+}
+
 /** Minimal surface of CreekClient that stageDeploymentBundle needs (for tests). */
-export interface BundleStager {
-  uploadServerFile(
-    projectId: string,
-    deploymentId: string,
-    name: string,
-    bytes: Uint8Array,
-  ): Promise<{ ok: boolean }>;
+export interface BundleStager extends ServerFileUploader {
   uploadDeploymentBundle(
     projectId: string,
     deploymentId: string,
@@ -857,13 +885,15 @@ export interface BundleStager {
  * each as a SEPARATE binary object first, then send a slim bundle that lists
  * them in `serverFileNames`. Falls back to the legacy all-in-one-JSON bundle if
  * the server predates the /serverfile route (404), so a new CLI still works
- * against an old server. Exported for tests.
+ * against an old server. Server files go up in parallel, each with a timeout
+ * and retries (utils/upload-server-files.ts). Exported for tests.
  */
 export async function stageDeploymentBundle(
   client: BundleStager,
   projectId: string,
   deploymentId: string,
   bundle: Record<string, unknown> & { serverFiles?: Record<string, string> },
+  uploadOptions: UploadServerFilesOptions = {},
 ): Promise<void> {
   const serverFiles = bundle.serverFiles;
   if (!serverFiles || Object.keys(serverFiles).length === 0) {
@@ -871,9 +901,11 @@ export async function stageDeploymentBundle(
     return;
   }
   try {
-    for (const [name, b64] of Object.entries(serverFiles)) {
-      await client.uploadServerFile(projectId, deploymentId, name, Buffer.from(b64, "base64"));
-    }
+    const files = Object.entries(serverFiles).map(([name, b64]): [string, Uint8Array] => [
+      name,
+      Buffer.from(b64, "base64"),
+    ]);
+    await uploadServerFiles(client, projectId, deploymentId, files, uploadOptions);
     const slim: Record<string, unknown> = { ...bundle, serverFileNames: Object.keys(serverFiles) };
     delete slim.serverFiles;
     await client.uploadDeploymentBundle(projectId, deploymentId, slim);
@@ -2676,7 +2708,13 @@ async function deployAuthenticated(
     };
 
     try {
-      await stageDeploymentBundle(client, project.id, deployment.id, bundle);
+      await stageDeploymentBundle(
+        client,
+        project.id,
+        deployment.id,
+        bundle,
+        serverFileProgress(progress),
+      );
     } catch (err) {
       // The deployment row exists: an API refusal reports its id. A network
       // failure keeps the runner's own report (retryable / mayHaveApplied).

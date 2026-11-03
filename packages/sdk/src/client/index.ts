@@ -175,11 +175,13 @@ export class CreekClient {
     deploymentId: string,
     name: string,
     bytes: ArrayBuffer | Uint8Array,
+    options?: { signal?: AbortSignal },
   ): Promise<{ ok: boolean }> {
     return this.request(
       "PUT",
       `/projects/${projectId}/deployments/${deploymentId}/serverfile?name=${encodeURIComponent(name)}`,
       bytes,
+      options?.signal,
     );
   }
 
