@@ -223,7 +223,7 @@ describe("deleteStagedBundle (staging cleanup)", () => {
         list: async ({ prefix }: { prefix: string }) => ({
           objects: [{ key: `${prefix}worker.js` }, { key: `${prefix}q.wasm` }],
         }),
-        delete: async (key: string) => void deleted.push(key),
+        delete: async (key: string | string[]) => void deleted.push(...[key].flat()),
       },
     } as unknown as Env;
     await deleteStagedBundle(env, "dep9");
@@ -241,7 +241,7 @@ describe("deleteStagedBundle (staging cleanup)", () => {
         list: async () => {
           throw new Error("R2 list down");
         },
-        delete: async (key: string) => void deleted.push(key),
+        delete: async (key: string | string[]) => void deleted.push(...[key].flat()),
       },
     } as unknown as Env;
     await expect(deleteStagedBundle(env, "dep9")).resolves.toBeUndefined();

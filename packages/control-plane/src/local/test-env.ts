@@ -267,14 +267,15 @@ class TestR2Bucket {
     }
   }
 
-  async list(options?: { prefix?: string; limit?: number }) {
+  /** Keys in order; `cursor` is the last key of the previous page, like R2's. */
+  async list(options?: { prefix?: string; limit?: number; cursor?: string }) {
     const prefix = options?.prefix ?? "";
     const limit = options?.limit ?? 1000;
+    const after = options?.cursor;
     const objects: TestR2Object[] = [];
     const walk = (dir: string) => {
       if (!existsSync(dir)) return;
       for (const e of readdirSync(dir, { withFileTypes: true })) {
-        if (objects.length > limit) return;
         const fp = join(dir, e.name);
         if (e.isDirectory()) {
           walk(fp);
@@ -285,9 +286,14 @@ class TestR2Bucket {
       }
     };
     walk(this.root);
+    objects.sort((x, y) => (x.key < y.key ? -1 : 1));
+    const rest = after === undefined ? objects : objects.filter((o) => o.key > after);
+    const page = rest.slice(0, limit);
+    const truncated = rest.length > limit;
     return {
-      objects: objects.slice(0, limit),
-      truncated: objects.length > limit,
+      objects: page,
+      truncated,
+      ...(truncated ? { cursor: page[page.length - 1].key } : {}),
       delimitedPrefixes: [],
     };
   }
