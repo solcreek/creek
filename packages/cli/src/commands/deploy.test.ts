@@ -101,16 +101,21 @@ describe("stageDeploymentBundle (separate binary server files)", () => {
     expect(client.bundleUploads).toHaveLength(0);
   });
 
-  it("propagates a non-404 server-file upload error (no silent fallback)", async () => {
+  it("propagates a non-404 server-file upload error after its retries (no silent fallback)", async () => {
     const client = mockClient();
     client.serverFileError = new CreekApiError(500, "server_error", "boom");
+    const retries: number[] = [];
     await expect(
-      stageDeploymentBundle(client, "p1", "d1", {
-        manifest: { hasWorker: true },
-        assets: {},
-        serverFiles: { "worker.js": "dw==" },
-      }),
+      stageDeploymentBundle(
+        client,
+        "p1",
+        "d1",
+        { manifest: { hasWorker: true }, assets: {}, serverFiles: { "worker.js": "dw==" } },
+        { backoffMs: () => 0, onRetry: (_n, retry) => retries.push(retry) },
+      ),
     ).rejects.toThrow(/boom/);
+    expect(retries).toEqual([1, 2, 3]);
+    expect(client.bundleUploads).toHaveLength(0);
   });
 });
 
