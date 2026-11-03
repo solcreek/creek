@@ -227,6 +227,10 @@ deployments.put(
       );
     }
 
+    // Whether this request moved the deployment to uploading. Until it has,
+    // the row may belong to a concurrent upload or to the queued sweep, and a
+    // failure here must not overwrite that.
+    let claimedByThisRequest = false;
     try {
       // --- Bundle guardrails ---
       const bundleBody = await c.req.text();
@@ -422,7 +426,8 @@ deployments.put(
       )
         .bind(Date.now(), deploymentId, ABANDONED_UPLOAD_MESSAGE, ABANDONED_BUILD_MESSAGE)
         .run();
-      if (!claimed.meta.changes) {
+      claimedByThisRequest = claimed.meta.changes > 0;
+      if (!claimedByThisRequest) {
         const current = await c.env.DB.prepare(
           "SELECT status, errorMessage FROM deployment WHERE id = ?",
         )
@@ -499,11 +504,32 @@ deployments.put(
 
       return c.json({ deployment: updatedDeployment }, 202);
     } catch (err) {
-      await c.env.DB.prepare(
-        `UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ?, updatedAt = ? WHERE id = ?`,
-      )
-        .bind(err instanceof Error ? err.message : "Unknown error", Date.now(), deploymentId)
-        .run();
+      // Record the failure on a row this request claimed. Before the claim
+      // (a body that failed to read, a failed check), record it only on a row
+      // still waiting for its bundle: never over a deploy a concurrent upload
+      // started, nor over the sweep's abandonment, which a later upload would
+      // then no longer see.
+      const message = err instanceof Error ? err.message : "Unknown error";
+      if (claimedByThisRequest) {
+        await c.env.DB.prepare(
+          `UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ?, updatedAt = ? WHERE id = ?`,
+        )
+          .bind(message, Date.now(), deploymentId)
+          .run();
+      } else {
+        await c.env.DB.prepare(
+          `UPDATE deployment SET status = 'failed', failedStep = 'uploading', errorMessage = ?, updatedAt = ?
+           WHERE id = ? AND status IN ('queued', 'failed') AND COALESCE(errorMessage, '') NOT IN (?, ?)`,
+        )
+          .bind(
+            message,
+            Date.now(),
+            deploymentId,
+            ABANDONED_UPLOAD_MESSAGE,
+            ABANDONED_BUILD_MESSAGE,
+          )
+          .run();
+      }
 
       return c.json(
         { error: "deploy_failed", message: err instanceof Error ? err.message : "Unknown error" },

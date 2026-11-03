@@ -435,6 +435,67 @@ describe("PUT /bundle on a deployment the queued sweep abandoned", () => {
     expect(await testEnv.env.ASSETS.get(`bundles/${DEPLOYMENT_ID}.json`)).toBeNull();
   });
 
+  /** PUT /bundle whose body runs `during` while the route reads it, then fails. */
+  function putFailingBody(during: () => Promise<void> | void) {
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          await during();
+          controller.error(new Error("connection lost mid-body"));
+        },
+      },
+      { highWaterMark: 0 },
+    ); // pull only once the route reads the body
+    return app.request(
+      path,
+      { method: "PUT", body, duplex: "half" } as RequestInit,
+      testEnv.env,
+      executionCtx as any,
+    );
+  }
+  const row = () =>
+    testEnv.db.db
+      .prepare("SELECT status, errorMessage FROM deployment WHERE id = ?")
+      .get(DEPLOYMENT_ID) as { status: string; errorMessage: string | null };
+
+  test("a body that fails after the sweep abandoned the deployment keeps it abandoned", async () => {
+    seedTestProject();
+    seed("queued");
+
+    const res = await putFailingBody(async () => {
+      testEnv.db.db.prepare("UPDATE deployment SET updatedAt = 0 WHERE id = ?").run(DEPLOYMENT_ID);
+      await sweepAbandonedQueuedDeployments(testEnv.env, Date.now());
+    });
+    expect(res.status).toBe(500);
+    expect(row()).toEqual({ status: "failed", errorMessage: ABANDONED_UPLOAD_MESSAGE });
+
+    // So a later upload still cannot restart it.
+    const later = await req("PUT", path, bundle);
+    expect(later.status).toBe(409);
+    expect(((await later.json()) as any).error).toBe("abandoned");
+  });
+
+  test("a body that fails after another upload started the deploy leaves that deploy alone", async () => {
+    seedTestProject();
+    seed("queued");
+    const res = await putFailingBody(() => {
+      testEnv.db.db
+        .prepare("UPDATE deployment SET status = 'uploading' WHERE id = ?")
+        .run(DEPLOYMENT_ID);
+    });
+    expect(res.status).toBe(500);
+    expect(row()).toEqual({ status: "uploading", errorMessage: null });
+  });
+
+  test("a body that fails on a deployment still waiting for it records the failure", async () => {
+    seedTestProject();
+    seed("queued");
+    const res = await putFailingBody(() => {});
+    expect(res.status).toBe(500);
+    expect(row().status).toBe("failed");
+    expect(row().errorMessage).toMatch(/connection lost mid-body/);
+  });
+
   test("lets only one of two concurrent uploads start the deploy", async () => {
     seedTestProject();
     seed("queued");
