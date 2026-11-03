@@ -9,6 +9,12 @@ import {
   isValidServerFileName,
   deleteStagedBundle,
 } from "./deploy-job.js";
+import {
+  ABANDONED_BUILD_MESSAGE,
+  ABANDONED_REFUSAL,
+  ABANDONED_UPLOAD_MESSAGE,
+  isAbandonedDeployment,
+} from "./sweep-queued.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { recordAudit } from "../audit/service.js";
@@ -184,10 +190,10 @@ deployments.put(
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT id, status, branch FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status, branch, errorMessage FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
-      .first<{ id: string; status: string; branch: string | null }>();
+      .first<{ id: string; status: string; branch: string | null; errorMessage: string | null }>();
 
     if (!deployment) {
       return c.json({ error: "not_found", message: "Deployment not found" }, 404);
@@ -195,6 +201,10 @@ deployments.put(
 
     const scopeDenied = assertScope(c, deployScopeFor(deployment.branch, project.productionBranch));
     if (scopeDenied) return scopeDenied;
+
+    if (isAbandonedDeployment(deployment)) {
+      return c.json({ error: "abandoned", message: ABANDONED_REFUSAL }, 409);
+    }
 
     // Idempotency guards
     const IN_PROGRESS = new Set(["uploading", "provisioning", "deploying"]);
@@ -400,16 +410,33 @@ deployments.put(
         }
       }
 
+      // Claim the deployment before staging anything: move it to uploading
+      // only if it is still queued or failed, and not abandoned. The status
+      // read above can be stale — a concurrent upload may have started it, or
+      // the queued sweep may have abandoned it and be deleting its staging —
+      // and staging over either would corrupt a running deploy or restart one
+      // whose files are gone.
+      const claimed = await c.env.DB.prepare(
+        `UPDATE deployment SET status = 'uploading', failedStep = NULL, errorMessage = NULL, updatedAt = ?
+         WHERE id = ? AND status IN ('queued', 'failed') AND COALESCE(errorMessage, '') NOT IN (?, ?)`,
+      )
+        .bind(Date.now(), deploymentId, ABANDONED_UPLOAD_MESSAGE, ABANDONED_BUILD_MESSAGE)
+        .run();
+      if (!claimed.meta.changes) {
+        const current = await c.env.DB.prepare(
+          "SELECT status, errorMessage FROM deployment WHERE id = ?",
+        )
+          .bind(deploymentId)
+          .first<{ status: string; errorMessage: string | null }>();
+        if (current && isAbandonedDeployment(current)) {
+          return c.json({ error: "abandoned", message: ABANDONED_REFUSAL }, 409);
+        }
+        return c.json({ error: "conflict", message: "Deployment is already in progress" }, 409);
+      }
+
       // Stage bundle to R2
       const bundleKey = `bundles/${deploymentId}.json`;
       await c.env.ASSETS.put(bundleKey, bundleBody);
-
-      // Mark as uploading
-      await c.env.DB.prepare(
-        "UPDATE deployment SET status = 'uploading', failedStep = NULL, errorMessage = NULL, updatedAt = ? WHERE id = ?",
-      )
-        .bind(Date.now(), deploymentId)
-        .run();
 
       // Get team plan
       const team = await c.env.DB.prepare("SELECT plan FROM organization WHERE id = ?")
@@ -516,10 +543,10 @@ deployments.put(
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT id, status, branch FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status, branch, errorMessage FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
-      .first<{ id: string; status: string; branch: string | null }>();
+      .first<{ id: string; status: string; branch: string | null; errorMessage: string | null }>();
     if (!deployment) {
       return c.json({ error: "not_found", message: "Deployment not found" }, 404);
     }
@@ -527,6 +554,9 @@ deployments.put(
     // preview-only key must not stage one into a production deployment.
     const scopeDenied = assertScope(c, deployScopeFor(deployment.branch, project.productionBranch));
     if (scopeDenied) return scopeDenied;
+    if (isAbandonedDeployment(deployment)) {
+      return c.json({ error: "abandoned", message: ABANDONED_REFUSAL }, 409);
+    }
     // Only before the deploy runs — same window as the bundle upload.
     if (deployment.status !== "queued" && deployment.status !== "failed") {
       return c.json(

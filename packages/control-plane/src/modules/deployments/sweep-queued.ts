@@ -64,3 +64,20 @@ export async function sweepAbandonedQueuedDeployments(
   }
   return ids.length;
 }
+
+/**
+ * Whether the queued sweep failed this deployment. Such a deployment is
+ * final: the upload routes refuse it (409 `abandoned`), so nothing restages
+ * it while the sweep reclaims its staging, and a late upload cannot restart
+ * a deploy whose files were just deleted. The deploy command creates a new
+ * deployment instead.
+ */
+export function isAbandonedDeployment(row: { status: string; errorMessage?: string | null }) {
+  return (
+    row.status === "failed" &&
+    (row.errorMessage === ABANDONED_UPLOAD_MESSAGE || row.errorMessage === ABANDONED_BUILD_MESSAGE)
+  );
+}
+
+export const ABANDONED_REFUSAL =
+  "This deployment was abandoned: its upload did not arrive within an hour, so it was failed and its staged files were removed. Run the deploy again; that creates a new deployment.";
