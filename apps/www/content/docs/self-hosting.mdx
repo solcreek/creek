@@ -60,6 +60,10 @@ npx wrangler d1 create creek-db
 
 # R2 bucket
 npx wrangler r2 bucket create creek-assets
+# Expire deploy staging (bundles/) after 3 days. Deploy jobs read it only
+# while they run and clean up after themselves; this catches what a failed
+# or interrupted deploy leaves behind.
+npx wrangler r2 bucket lifecycle add creek-assets expire-deploy-staging bundles/ --expire-days 3
 
 # KV namespace
 npx wrangler kv namespace create BUILD_STATUS
