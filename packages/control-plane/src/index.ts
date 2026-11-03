@@ -15,6 +15,7 @@ import { purgeAuditIpLogs } from "./modules/audit/service.js";
 import { projects } from "./modules/projects/routes.js";
 import { deployments } from "./modules/deployments/routes.js";
 import { deleteStagedBundle, consumeDeployJobBatch } from "./modules/deployments/deploy-job.js";
+import { sweepAbandonedQueuedDeployments } from "./modules/deployments/sweep-queued.js";
 import { domains } from "./modules/domains/routes.js";
 import { linkUnregisteredDomains } from "./modules/domains/edge.js";
 import { logs } from "./modules/logs/routes.js";
@@ -320,6 +321,7 @@ export default {
     ctx.waitUntil(
       Promise.all([
         sweepStaleDeployments(env),
+        sweepAbandonedQueuedDeployments(env),
         processResourceCleanupQueue(env),
         syncPendingDomains(env),
         purgeAuditIpLogs(env.DB),
