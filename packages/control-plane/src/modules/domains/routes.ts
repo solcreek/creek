@@ -427,11 +427,11 @@ domains.patch(
   async (c) => {
     const teamId = c.get("teamId");
     const projectId = c.req.param("projectId");
-    const body = await c.req
-      .json<{ redirectToPrimary?: unknown }>()
-      .catch(() => ({}) as { redirectToPrimary?: unknown });
+    // `null` is valid JSON and parses without error, so it is checked for here
+    // rather than left to throw on the property read below.
+    const body = await c.req.json<{ redirectToPrimary?: unknown } | null>().catch(() => null);
 
-    if (typeof body.redirectToPrimary !== "boolean") {
+    if (typeof body?.redirectToPrimary !== "boolean") {
       return c.json(
         { error: "validation", message: "redirectToPrimary must be true or false" },
         400,

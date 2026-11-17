@@ -317,6 +317,8 @@ describe("PATCH /projects/:id/domains", () => {
     ["a number", { redirectToPrimary: 0 }],
     ["missing", {}],
     ["not JSON", "nope"],
+    ["JSON null", "null"],
+    ["a JSON array", "[true]"],
   ])("rejects a value that is %s", async (_label, body) => {
     const res = await req("PATCH", `/projects/${PROJECT_ID}/domains`, body);
 
