@@ -65,6 +65,45 @@ describe("localTarget.deploy", () => {
     expect(await stored("p/d1/assets/app.js")).toBe("console.log(1)");
   });
 
+  // Asset names come from the uploaded bundle. The local bucket turns a key
+  // into a file path, so a name that climbs out of the deployment's prefix
+  // would write wherever it points.
+  test.each([
+    ["into another project's deployment", "../../other/dep/index.html"],
+    ["out of the bucket", "../../../outside.txt"],
+    ["with a backslash separator", "..\\..\\other\\dep\\index.html"],
+    ["from a nested segment", "assets/../../../other/dep/index.html"],
+    ["as an absolute path", "/etc/creek-escape"],
+    ["as a Windows absolute path", "C:\\creek-escape"],
+    ["as an empty name", ""],
+  ])("refuses an asset name that escapes %s, storing nothing", async (_label, name) => {
+    await t.env.ASSETS.put("other/dep/index.html", "<h1>theirs</h1>");
+
+    await expect(
+      localTarget.deploy(
+        t.env,
+        "site",
+        "team",
+        "d1",
+        // A valid asset first: nothing may be stored before the bad name is seen.
+        input({ "index.html": "<h1>mine</h1>", [name]: "<h1>overwritten</h1>" }),
+      ),
+    ).rejects.toThrow(/unsafe asset path/);
+
+    expect(await stored("other/dep/index.html")).toBe("<h1>theirs</h1>");
+    expect(await stored("p/d1/index.html")).toBeNull();
+    expect(await stored("../outside.txt")).toBeNull();
+  });
+
+  test.each(["a..b.js", "..hidden/file.js", "dir/.well-known/x.json", "assets/app.v1.2.js"])(
+    "keeps an ordinary name containing dots: %s",
+    async (name) => {
+      await localTarget.deploy(t.env, "site", "team", "d1", input({ [name]: "ok" }));
+
+      expect(await stored(`p/d1/${name}`)).toBe("ok");
+    },
+  );
+
   test("refuses a deployment it cannot place, storing nothing", async () => {
     await expect(
       localTarget.deploy(t.env, "site", "team", "missing", input({ "index.html": "x" })),

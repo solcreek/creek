@@ -17,7 +17,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { join, dirname, relative, resolve, sep } from "node:path";
 
 interface R2ObjectMeta {
   key: string;
@@ -86,8 +86,18 @@ export class LocalR2Bucket {
     mkdirSync(root, { recursive: true });
   }
 
+  /**
+   * The file a key maps to. R2 keys are flat strings; here they become paths,
+   * so a key with `..` could name a file outside the bucket. Refused for every
+   * operation: callers validate what they accept, and this holds regardless.
+   */
   private keyPath(key: string): string {
-    return join(this.root, key);
+    const root = resolve(this.root);
+    const path = resolve(root, key);
+    if (path !== root && !path.startsWith(root + sep)) {
+      throw new Error(`key escapes the bucket: ${JSON.stringify(key)}`);
+    }
+    return path;
   }
 
   async get(key: string): Promise<LocalR2ObjectBody | null> {
