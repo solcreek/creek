@@ -65,7 +65,9 @@ app.use(
       return isAllowedOrigin(origin) ? origin : null;
     },
     allowHeaders: ["Content-Type", "Authorization", "x-creek-team"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    // Every method a route here uses: a browser refuses to send one the
+    // preflight doesn't name (cors.test.ts checks this list against the routes).
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
     maxAge: 600,
   }),
