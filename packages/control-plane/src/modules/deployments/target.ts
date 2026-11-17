@@ -1,6 +1,7 @@
 import type { Env } from "../../types.js";
 import { deployWithAssets, type DeployAssetsInput } from "./deploy.js";
 import { creekdFleetTarget } from "./creekd-fleet.js";
+import { localTarget } from "./local-target.js";
 
 /**
  * A deploy target is the execution substrate a built artifact is pushed to.
@@ -54,6 +55,10 @@ export function resolveDeployTarget(env: Env): DeployTarget {
       // The June Cloud / self-host-on-VM substrate. Requires CREEKD_ADMIN_URL
       // (validated at deploy time, per-call, like the CF target's token check).
       return creekdFleetTarget;
+    case "local":
+      // The local development server: keeps the assets where its preview
+      // route serves them. Set by src/local/serve.ts, never by a deployment.
+      return localTarget;
     default:
       throw new Error(`unknown DEPLOY_TARGET: ${env.DEPLOY_TARGET}`);
   }

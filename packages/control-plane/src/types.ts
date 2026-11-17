@@ -27,7 +27,7 @@ export interface Env {
    * CREEKD_* config below is optional. See modules/deployments/creekd-fleet.ts
    * and docs/june-cloud-on-creek.md.
    */
-  DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet";
+  DEPLOY_TARGET?: "cloudflare-wfp" | "creekd-fleet" | "local";
 
   // --- creekd-fleet target config (only read when DEPLOY_TARGET="creekd-fleet") ---
   /** creekd admin API base, e.g. "https://fleet-1.june.app:9080". */

@@ -93,6 +93,8 @@ async function main() {
     SANDBOX_API_URL: envVars.SANDBOX_API_URL || "",
     INTERNAL_SECRET: envVars.INTERNAL_SECRET || "local-dev-secret",
     DISPATCH_NAMESPACE: envVars.DISPATCH_NAMESPACE || "",
+    // Deploys keep their assets locally, where /preview/:slug/* serves them.
+    DEPLOY_TARGET: "local",
 
     CLOUDFLARE_API_TOKEN: envVars.CLOUDFLARE_API_TOKEN || "",
     CLOUDFLARE_ZONE_ID: envVars.CLOUDFLARE_ZONE_ID || "",
