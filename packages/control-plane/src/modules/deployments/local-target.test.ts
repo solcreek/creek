@@ -1,6 +1,12 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createFixture, type Fixture } from "../tenant/scoped-key-fixture.js";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
 import { mountLocalPreview } from "../../local/preview-route.js";
 import { localTarget } from "./local-target.js";
 import type { DeployAssetsInput } from "./deploy.js";
@@ -14,50 +20,41 @@ import type { Env } from "../../types.js";
  * files kept, and the preview answered 404.
  */
 
-let f: Fixture;
-afterEach(() => f.cleanup());
-
 const bytes = (text: string) => new TextEncoder().encode(text).buffer as ArrayBuffer;
 const input = (assets: Record<string, string>) =>
   ({
     clientAssets: Object.fromEntries(Object.entries(assets).map(([k, v]) => [k, bytes(v)])),
   }) as DeployAssetsInput;
 
-async function stored(key: string): Promise<string | null> {
-  const object = await f.env.ASSETS.get(key);
-  return object ? await object.text() : null;
-}
-
-function preview(path: string) {
+function preview(env: Env, path: string) {
   const local = new Hono<{ Bindings: Env }>();
   mountLocalPreview(local);
-  return local.request(path, {}, f.env);
+  return local.request(path, {}, env);
 }
 
 describe("localTarget.deploy", () => {
-  async function seed() {
-    f = createFixture();
-    const owner = await f.signUp("owner@example.com");
+  let t: LocalTestEnv;
+
+  beforeEach(() => {
+    t = createLocalTestEnv();
+    seedTestData(t);
+    seedProject(t, "site", { id: "p" });
     const now = Date.now();
-    await f.sql(
-      "INSERT INTO project (id, slug, organizationId, createdAt, updatedAt) VALUES ('p', 'site', ?, ?, ?)",
-      owner.orgId,
-      now,
-      now,
-    );
-    await f.sql(
+    t.db.db.exec(
       `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
-       VALUES ('d1', 'p', 1, 'deploying', 'cli', ?, ?)`,
-      now,
-      now,
+       VALUES ('d1', 'p', 1, 'deploying', 'cli', ${now}, ${now})`,
     );
+  });
+  afterEach(() => t.cleanup());
+
+  async function stored(key: string): Promise<string | null> {
+    const object = await t.env.ASSETS.get(key);
+    return object ? await object.text() : null;
   }
 
   test("keeps each client asset under the deployment's prefix", async () => {
-    await seed();
-
     await localTarget.deploy(
-      f.env,
+      t.env,
       "site",
       "team",
       "d1",
@@ -69,42 +66,60 @@ describe("localTarget.deploy", () => {
   });
 
   test("refuses a deployment it cannot place, storing nothing", async () => {
-    await seed();
-
     await expect(
-      localTarget.deploy(f.env, "site", "team", "missing", input({ "index.html": "x" })),
+      localTarget.deploy(t.env, "site", "team", "missing", input({ "index.html": "x" })),
     ).rejects.toThrow(/deployment missing not found/);
 
-    expect((await f.env.ASSETS.list()).objects).toEqual([]);
+    expect((await t.env.ASSETS.list()).objects).toEqual([]);
   });
 });
 
-describe("a deploy on the local server (DEPLOY_TARGET=local)", () => {
-  async function setup() {
+/**
+ * Through the real routes and deploy job. One account for the whole block
+ * (sign-up hashes a password, which is slow); each test deploys to a project
+ * of its own.
+ */
+describe("a deploy through the API", () => {
+  let f: Fixture;
+  let key: string;
+
+  beforeAll(async () => {
     f = createFixture();
-    f.env.DEPLOY_TARGET = "local";
     const owner = await f.signUp("owner@example.com");
-    const key = await f.legacyKey(owner.cookie);
-    const created = await f.call("POST", "/projects", { "x-api-key": key }, { slug: "site" });
+    key = await f.legacyKey(owner.cookie);
+  });
+  afterAll(() => f.cleanup());
+  beforeEach(() => {
+    f.env.DEPLOY_TARGET = "local";
+  });
+
+  async function project(slug: string) {
+    const created = await f.call("POST", "/projects", { "x-api-key": key }, { slug });
     expect(created.status).toBe(201);
-    return key;
+    const [{ id }] = await f.sql<{ id: string }>("SELECT id FROM project WHERE slug = ?", slug);
+    return id;
   }
 
-  /** A CLI deploy, through the real routes and deploy job. Returns the deployment id. */
-  async function deploy(key: string, assets: Record<string, string>): Promise<string> {
+  /** A CLI deploy of `slug`. Returns the deployment id. */
+  async function deploy(slug: string, assets: Record<string, string>): Promise<string> {
     const headers = { "x-api-key": key };
-    const res = await f.call("POST", "/projects/site/deployments", headers, {});
+    const res = await f.call("POST", `/projects/${slug}/deployments`, headers, {});
     expect(res.status).toBe(201);
     const { deployment } = (await res.json()) as { deployment: { id: string } };
-    const put = await f.call("PUT", `/projects/site/deployments/${deployment.id}/bundle`, headers, {
-      assets: Object.fromEntries(Object.entries(assets).map(([k, v]) => [k, btoa(v)])),
-      manifest: {
-        assets: Object.keys(assets),
-        hasWorker: false,
-        entrypoint: null,
-        renderMode: "spa",
+    const put = await f.call(
+      "PUT",
+      `/projects/${slug}/deployments/${deployment.id}/bundle`,
+      headers,
+      {
+        assets: Object.fromEntries(Object.entries(assets).map(([k, v]) => [k, btoa(v)])),
+        manifest: {
+          assets: Object.keys(assets),
+          hasWorker: false,
+          entrypoint: null,
+          renderMode: "spa",
+        },
       },
-    });
+    );
     expect(put.status).toBe(202);
     await f.settle();
     const [row] = await f.sql<{ status: string }>(
@@ -115,67 +130,73 @@ describe("a deploy on the local server (DEPLOY_TARGET=local)", () => {
     return deployment.id;
   }
 
-  test("the preview serves what was deployed", async () => {
-    const key = await setup();
-    await deploy(key, { "index.html": "<h1>first</h1>", "app.css": "h1{}" });
+  const body = async (path: string) => (await preview(f.env, path)).text();
 
-    const index = await preview("/preview/site/");
+  test("the preview serves what was deployed", async () => {
+    await project("served");
+    await deploy("served", { "index.html": "<h1>first</h1>", "app.css": "h1{}" });
+
+    const index = await preview(f.env, "/preview/served/");
     expect(index.status).toBe(200);
     expect(await index.text()).toBe("<h1>first</h1>");
 
-    const css = await preview("/preview/site/app.css");
+    const css = await preview(f.env, "/preview/served/app.css");
     expect(css.headers.get("content-type")).toBe("text/css; charset=utf-8");
     expect(await css.text()).toBe("h1{}");
   });
 
   test("a second deploy replaces what the preview serves", async () => {
-    const key = await setup();
-    await deploy(key, { "index.html": "<h1>first</h1>" });
-    await deploy(key, { "index.html": "<h1>second</h1>" });
+    await project("twice");
+    await deploy("twice", { "index.html": "<h1>first</h1>" });
+    await deploy("twice", { "index.html": "<h1>second</h1>" });
 
-    expect(await (await preview("/preview/site/")).text()).toBe("<h1>second</h1>");
+    expect(await body("/preview/twice/")).toBe("<h1>second</h1>");
   });
 
   test("a rollback brings the earlier deployment's files back", async () => {
-    const key = await setup();
-    await deploy(key, { "index.html": "<h1>first</h1>" });
-    await deploy(key, { "index.html": "<h1>second</h1>" });
+    await project("back");
+    await deploy("back", { "index.html": "<h1>first</h1>" });
+    await deploy("back", { "index.html": "<h1>second</h1>" });
 
-    const res = await f.call("POST", "/projects/site/rollback", { "x-api-key": key }, {});
+    const res = await f.call("POST", "/projects/back/rollback", { "x-api-key": key }, {});
     expect(res.status).toBe(200);
     await f.settle();
 
-    expect(await (await preview("/preview/site/")).text()).toBe("<h1>first</h1>");
+    expect(await body("/preview/back/")).toBe("<h1>first</h1>");
   });
 
   test("staging is still reclaimed: only the served files and the manifest remain", async () => {
-    const key = await setup();
-    const id = await deploy(key, { "index.html": "<h1>first</h1>" });
+    const projectId = await project("tidy");
+    const id = await deploy("tidy", { "index.html": "<h1>first</h1>" });
 
-    const keys = (await f.env.ASSETS.list()).objects.map((o) => o.key).sort();
-    const [{ id: projectId }] = await f.sql<{ id: string }>("SELECT id FROM project");
+    const keys = (await f.env.ASSETS.list()).objects
+      .map((o) => o.key)
+      .filter(
+        (k) =>
+          !k.startsWith("logs/") && (k.startsWith(`${projectId}/`) || k.startsWith("bundles/")),
+      )
+      .sort();
 
     expect(keys).toEqual([`${projectId}/${id}/_manifest.json`, `${projectId}/${id}/index.html`]);
   });
-});
 
-describe("a deploy without the local target", () => {
-  test("keeps no files, so the preview has nothing to serve", async () => {
+  test("one project's preview never serves another's files", async () => {
+    await project("mine");
+    await project("theirs");
+    await deploy("mine", { "index.html": "<h1>mine</h1>" });
+    await deploy("theirs", { "index.html": "<h1>theirs</h1>" });
+
+    expect(await body("/preview/mine/")).toBe("<h1>mine</h1>");
+    expect(await body("/preview/theirs/")).toBe("<h1>theirs</h1>");
+  });
+
+  test("without the local target no files are kept, so the preview has nothing to serve", async () => {
     // The Cloudflare target with no API token is a no-op: this is the state
     // the local server was in, and why it now selects the local target.
-    f = createFixture();
-    const owner = await f.signUp("owner@example.com");
-    const key = await f.legacyKey(owner.cookie);
-    const headers = { "x-api-key": key };
-    await f.call("POST", "/projects", headers, { slug: "site" });
-    const res = await f.call("POST", "/projects/site/deployments", headers, {});
-    const { deployment } = (await res.json()) as { deployment: { id: string } };
-    await f.call("PUT", `/projects/site/deployments/${deployment.id}/bundle`, headers, {
-      assets: { "index.html": btoa("<h1>first</h1>") },
-      manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null, renderMode: "spa" },
-    });
-    await f.settle();
+    f.env.DEPLOY_TARGET = undefined;
+    await project("bare");
+    await deploy("bare", { "index.html": "<h1>first</h1>" });
 
-    expect((await preview("/preview/site/")).status).toBe(404);
+    expect((await preview(f.env, "/preview/bare/")).status).toBe(404);
   });
 });
