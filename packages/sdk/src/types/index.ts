@@ -140,6 +140,12 @@ export interface CustomDomain {
   projectId: string;
   hostname: string;
   status: "pending" | "provisioning" | "active" | "failed";
+  /**
+   * 1 on the project's primary domain: the one its default
+   * `{project}-{team}` hostname redirects to. Absent from an API that
+   * predates primary domains.
+   */
+  isPrimary?: number;
   createdAt: number;
 }
 
@@ -182,6 +188,25 @@ export interface ActivateDomainResult {
   status?: "active" | "pending_dns" | "pending_edge";
   message?: string;
   manual?: boolean;
+}
+
+/** Result of making a domain the project's primary one. */
+export interface SetPrimaryDomainResult {
+  ok: boolean;
+  /** False when the domain already was the primary. */
+  changed: boolean;
+  domain: Pick<CustomDomain, "id" | "hostname" | "status" | "isPrimary">;
+}
+
+/**
+ * Result of turning the default-hostname redirect on or off. `primary` is
+ * what the setting acts on: null when the project has no primary domain, and
+ * a primary that isn't `active` doesn't redirect yet.
+ */
+export interface DomainRedirectResult {
+  ok: boolean;
+  redirectToPrimary: boolean;
+  primary: Pick<CustomDomain, "hostname" | "status"> | null;
 }
 
 export interface ApiError {

@@ -126,6 +126,33 @@ describe("CreekClient", () => {
     await expect(client.listProjects()).rejects.toThrow(CreekApiError);
   });
 
+  test("setPrimaryDomain posts to the domain's primary route", async () => {
+    const result = {
+      ok: true,
+      changed: true,
+      domain: { id: "d1", hostname: "app.example.com", status: "active", isPrimary: 1 },
+    };
+    mockFetch.mockResolvedValue(jsonResponse(200, result));
+
+    await expect(client.setPrimaryDomain("site", "d1")).resolves.toEqual(result);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8787/projects/site/domains/d1/primary");
+    expect(init.method).toBe("POST");
+  });
+
+  test.each([true, false])("setDomainRedirect sends redirectToPrimary: %s", async (value) => {
+    const result = { ok: true, redirectToPrimary: value, primary: null };
+    mockFetch.mockResolvedValue(jsonResponse(200, result));
+
+    await expect(client.setDomainRedirect("site", value)).resolves.toEqual(result);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8787/projects/site/domains");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ redirectToPrimary: value });
+  });
+
   test("listResources asks for deleted resources only when told to", async () => {
     mockFetch.mockImplementation(async () => jsonResponse(200, { resources: [] }));
 
