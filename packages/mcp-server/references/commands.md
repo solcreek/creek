@@ -77,6 +77,8 @@ you meant to target.
 | List domains | `creek domains ls --json` |
 | Activate domain | `creek domains activate <HOSTNAME> --json` |
 | Remove domain | `creek domains rm <HOSTNAME> --json` |
+| Make a domain the project's primary one (the default `*.bycreek.com` address redirects to it once it is active) | `creek domains primary <HOSTNAME> --json` |
+| Stop / resume redirecting the default address to the primary domain (off: it serves, marked noindex) | `creek domains redirect <on\|off> --json` (`redirecting` says whether the redirect is live now) |
 | Preview domain remove | `creek domains rm <HOSTNAME> --dry-run --json` |
 | Send a JSON message to the project queue | `creek queue send '<JSON-BODY>' --parseJson --json` (`-j` for short; the CLI rejects `--parse-json` as `unknown_flag`) |
 | Send a plain-string message | `creek queue send '<TEXT>' --json` (without `--parseJson` the body is sent as a string, even if it looks like JSON) |

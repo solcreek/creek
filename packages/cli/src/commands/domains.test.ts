@@ -23,6 +23,8 @@ const activateCmd = subs.activate;
 const addCmd = subs.add;
 const lsCmd = subs.ls;
 const rmCmd = subs.rm;
+const primaryCmd = subs.primary;
+const redirectCmd = subs.redirect;
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -426,5 +428,216 @@ describe("creek domains add", () => {
       idempotent: true,
       verification: { cname: { target: "cname.bycreek.com" } },
     });
+  });
+});
+
+describe("creek domains primary", () => {
+  it("makes the named domain primary", async () => {
+    let called = 0;
+    server.use(
+      listHandler("active"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/primary`, () => {
+        called++;
+        return HttpResponse.json({
+          ok: true,
+          changed: true,
+          domain: { id: DOM_ID, hostname: HOST, status: "active", isPrimary: 1 },
+        });
+      }),
+    );
+
+    const code = await runExit(primaryCmd.run!({ args: { hostname: HOST } } as never));
+
+    expect(code).toBe(0);
+    expect(called).toBe(1);
+    expect(json()).toMatchObject({
+      ok: true,
+      hostname: HOST,
+      primary: true,
+      changed: true,
+      status: "active",
+      project: SLUG,
+      projectSource: "creek.toml",
+    });
+  });
+
+  it("finds the domain whatever the case or padding of the argument", async () => {
+    server.use(
+      listHandler("active"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/primary`, () =>
+        HttpResponse.json({
+          ok: true,
+          changed: true,
+          domain: { id: DOM_ID, hostname: HOST, status: "active", isPrimary: 1 },
+        }),
+      ),
+    );
+
+    const code = await runExit(
+      primaryCmd.run!({ args: { hostname: `  ${HOST.toUpperCase()} ` } } as never),
+    );
+
+    expect(code).toBe(0);
+    expect(json().hostname).toBe(HOST);
+  });
+
+  it("reports changed: false when the domain already was primary", async () => {
+    server.use(
+      listHandler("active"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/primary`, () =>
+        HttpResponse.json({
+          ok: true,
+          changed: false,
+          domain: { id: DOM_ID, hostname: HOST, status: "active", isPrimary: 1 },
+        }),
+      ),
+    );
+
+    const code = await runExit(primaryCmd.run!({ args: { hostname: HOST } } as never));
+
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ ok: true, changed: false });
+  });
+
+  it("points at activate when the new primary isn't active yet", async () => {
+    server.use(
+      listHandler("pending"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/primary`, () =>
+        HttpResponse.json({
+          ok: true,
+          changed: true,
+          domain: { id: DOM_ID, hostname: HOST, status: "pending", isPrimary: 1 },
+        }),
+      ),
+    );
+
+    const code = await runExit(primaryCmd.run!({ args: { hostname: HOST } } as never));
+
+    expect(code).toBe(0);
+    const out = json();
+    expect(out.status).toBe("pending");
+    expect(JSON.stringify(out)).toContain(`creek domains activate ${HOST} --project ${SLUG}`);
+  });
+
+  it("exits 1 with not_found, sending nothing, when the project doesn't have the domain", async () => {
+    // No POST handler: an unexpected request fails the test (onUnhandledRequest).
+    server.use(listHandler("active"));
+
+    const code = await runExit(
+      primaryCmd.run!({ args: { hostname: "nope.example.com" } } as never),
+    );
+
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "not_found", project: SLUG });
+  });
+
+  it("reports an API that doesn't support primary domains yet as primary_failed", async () => {
+    server.use(
+      listHandler("active"),
+      http.post(`${API}/projects/${SLUG}/domains/${DOM_ID}/primary`, () =>
+        HttpResponse.json(
+          { error: "unavailable", message: "Primary domains aren't available yet." },
+          { status: 503 },
+        ),
+      ),
+    );
+
+    const code = await runExit(primaryCmd.run!({ args: { hostname: HOST } } as never));
+
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "primary_failed" });
+  });
+});
+
+describe("creek domains redirect", () => {
+  /** MSW handler recording the body the CLI sent. */
+  function redirectHandler(sent: unknown[], primary: { hostname: string; status: string } | null) {
+    return http.patch(`${API}/projects/${SLUG}/domains`, async ({ request }) => {
+      const body = (await request.json()) as { redirectToPrimary: boolean };
+      sent.push(body);
+      return HttpResponse.json({ ok: true, redirectToPrimary: body.redirectToPrimary, primary });
+    });
+  }
+
+  it("on: sends true and reports the redirect as live when the primary is active", async () => {
+    const sent: unknown[] = [];
+    server.use(redirectHandler(sent, { hostname: HOST, status: "active" }));
+
+    const code = await runExit(redirectCmd.run!({ args: { state: "on" } } as never));
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ redirectToPrimary: true }]);
+    expect(json()).toMatchObject({
+      ok: true,
+      redirectToPrimary: true,
+      redirecting: true,
+      primary: { hostname: HOST, status: "active" },
+      project: SLUG,
+      projectSource: "creek.toml",
+    });
+  });
+
+  it("off: sends false and reports nothing redirecting", async () => {
+    const sent: unknown[] = [];
+    server.use(redirectHandler(sent, { hostname: HOST, status: "active" }));
+
+    const code = await runExit(redirectCmd.run!({ args: { state: "off" } } as never));
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ redirectToPrimary: false }]);
+    expect(json()).toMatchObject({ ok: true, redirectToPrimary: false, redirecting: false });
+  });
+
+  it("on with a pending primary is not redirecting yet", async () => {
+    server.use(redirectHandler([], { hostname: HOST, status: "pending" }));
+
+    const code = await runExit(redirectCmd.run!({ args: { state: "on" } } as never));
+
+    expect(code).toBe(0);
+    expect(json()).toMatchObject({ redirectToPrimary: true, redirecting: false });
+  });
+
+  it("on with no domain is not redirecting, and points at domains add", async () => {
+    server.use(redirectHandler([], null));
+
+    const code = await runExit(redirectCmd.run!({ args: { state: "on" } } as never));
+
+    expect(code).toBe(0);
+    const out = json();
+    expect(out).toMatchObject({ redirectToPrimary: true, redirecting: false, primary: null });
+    expect(JSON.stringify(out)).toContain("creek domains add <HOSTNAME>");
+  });
+
+  it("accepts the state in any case", async () => {
+    const sent: unknown[] = [];
+    server.use(redirectHandler(sent, null));
+
+    await runExit(redirectCmd.run!({ args: { state: " OFF " } } as never));
+
+    expect(sent).toEqual([{ redirectToPrimary: false }]);
+  });
+
+  it.each(["true", "0", "disable", "", "constructor"])(
+    "rejects %j before sending anything",
+    async (state) => {
+      // No PATCH handler: a request here fails the test (onUnhandledRequest).
+      const code = await runExit(redirectCmd.run!({ args: { state } } as never));
+
+      expect(code).toBe(1);
+      expect(json()).toMatchObject({ ok: false, error: "invalid_state" });
+    },
+  );
+
+  it("reports an API failure as redirect_failed", async () => {
+    server.use(
+      http.patch(`${API}/projects/${SLUG}/domains`, () =>
+        HttpResponse.json({ error: "forbidden", message: "Forbidden" }, { status: 403 }),
+      ),
+    );
+
+    const code = await runExit(redirectCmd.run!({ args: { state: "off" } } as never));
+
+    expect(code).toBe(1);
+    expect(json()).toMatchObject({ ok: false, error: "redirect_failed" });
   });
 });

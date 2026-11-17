@@ -7,6 +7,8 @@ export type AuditAction =
   | "deployment.rollback"
   | "domain.add"
   | "domain.activate"
+  | "domain.set_primary"
+  | "domain.redirect_update"
   | "domain.remove"
   | "envvar.set"
   | "envvar.delete"

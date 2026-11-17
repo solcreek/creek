@@ -205,6 +205,8 @@ describe("the no_project hint names only flags the command accepts", () => {
     "domains add": sub(domainsCommand, "add"),
     "domains rm": sub(domainsCommand, "rm"),
     "domains activate": sub(domainsCommand, "activate"),
+    "domains primary": sub(domainsCommand, "primary"),
+    "domains redirect": sub(domainsCommand, "redirect"),
     "queue send": sub(queueCommand, "send"),
     logs: logsCommand,
     metrics: metricsCommand,

@@ -42,6 +42,8 @@ const MANIFEST: Record<string, string> = {
   "GET /projects/:projectId/domains": "domain:read",
   "GET /projects/:projectId/domains/:domainId": "domain:read",
   "POST /projects/:projectId/domains": "domain:write",
+  "PATCH /projects/:projectId/domains": "domain:write",
+  "POST /projects/:projectId/domains/:domainId/primary": "domain:write",
   "POST /projects/:projectId/domains/:domainId/activate": "domain:write",
   "DELETE /projects/:projectId/domains/:domainId": "domain:write",
   "GET /projects/:projectId/env": "env:read",

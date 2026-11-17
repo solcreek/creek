@@ -159,6 +159,20 @@ const ROWS: Row[] = [
     code: "activate_failed",
   },
   {
+    name: "domains primary a.example.com",
+    file: "domains.ts",
+    run: () => sub(domainsCommand, "primary")({ hostname: "a.example.com", project: "demo" }),
+    fail: "POST /projects/demo/domains/d1/primary",
+    code: "primary_failed",
+  },
+  {
+    name: "domains redirect off",
+    file: "domains.ts",
+    run: () => sub(domainsCommand, "redirect")({ state: "off", project: "demo" }),
+    fail: "PATCH /projects/demo/domains",
+    code: "redirect_failed",
+  },
+  {
     name: "env set K V",
     file: "env.ts",
     run: () => sub(envCommand, "set")({ key: "K", value: "V", project: "demo" }),

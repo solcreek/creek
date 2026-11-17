@@ -5,6 +5,8 @@ import type {
   DomainDetail,
   DomainDnsInstruction,
   ActivateDomainResult,
+  SetPrimaryDomainResult,
+  DomainRedirectResult,
   CreateProjectRequest,
   CreateProjectResponse,
   CreateDeploymentResponse,
@@ -695,6 +697,26 @@ export class CreekClient {
 
   async activateDomain(projectId: string, domainId: string): Promise<ActivateDomainResult> {
     return this.request("POST", `/projects/${projectId}/domains/${domainId}/activate`);
+  }
+
+  /**
+   * Make a domain the project's primary one: the address its default
+   * `{project}-{team}` hostname redirects to once the domain is active.
+   */
+  async setPrimaryDomain(projectId: string, domainId: string): Promise<SetPrimaryDomainResult> {
+    return this.request("POST", `/projects/${projectId}/domains/${domainId}/primary`);
+  }
+
+  /**
+   * Turn the redirect from the project's default hostname to its primary
+   * domain on or off. Off, the default hostname serves alongside the primary
+   * domain, marked noindex.
+   */
+  async setDomainRedirect(
+    projectId: string,
+    redirectToPrimary: boolean,
+  ): Promise<DomainRedirectResult> {
+    return this.request("PATCH", `/projects/${projectId}/domains`, { redirectToPrimary });
   }
 }
 

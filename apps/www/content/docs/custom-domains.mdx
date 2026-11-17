@@ -105,6 +105,37 @@ creek domains add staging.example.com --project my-app
 creek domains ls --project my-app
 ```
 
+## Primary Domain and Redirect
+
+Every project keeps its default address, `my-app-your-team.bycreek.com`. Once a custom domain is active, the same site would be reachable at both, so search engines index it twice and visitors can end up with a session on each. Creek avoids this with a **primary domain**:
+
+- The first domain you add to a project is its primary domain.
+- Once the primary domain is active, the default address answers every request with a `308` redirect to the same path and query on the primary domain. `308` keeps the method and body, so a `POST` to the default address is replayed as a `POST`.
+- Your other custom domains are not redirected. Each keeps serving the site.
+
+Choose a different primary domain:
+
+```bash
+creek domains primary www.example.com --project my-app
+```
+
+`creek domains ls` marks the primary domain. If you remove it, the project's oldest active domain becomes the primary.
+
+Turn the redirect off if something calls the default address directly, such as a webhook or an API client that doesn't follow redirects:
+
+```bash
+creek domains redirect off --project my-app
+creek domains redirect on --project my-app
+```
+
+With the redirect off, the default address serves the site and its responses carry `X-Robots-Tag: noindex`, so it stays out of search results while the primary domain is indexed. If your app sets `X-Robots-Tag` itself, Creek leaves it alone.
+
+A change to the primary domain or the redirect takes effect within a minute. Browsers may reuse a redirect they have already seen for up to five minutes.
+
+Projects that already had a custom domain before this feature keep the redirect off, with their oldest active domain as the primary. Run `creek domains redirect on` to opt in.
+
+Preview addresses (a branch or a single deployment) never redirect, and always carry `X-Robots-Tag: noindex`.
+
 ## JSON Output
 
 All domain commands support `--json` for scripting, CI/CD and agents. `verification.records` lists every record to set, routing first:

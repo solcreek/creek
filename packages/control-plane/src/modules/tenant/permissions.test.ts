@@ -195,4 +195,29 @@ describe("domain:manage permission", () => {
     const res = await req(app, "DELETE", `/projects/${PROJECT_ID}/domains/dom-1`);
     expect(res.status).toBe(403);
   });
+
+  test("member cannot change the primary domain", async () => {
+    const app = makeApp("member");
+    setupProject();
+    const res = await req(app, "POST", `/projects/${PROJECT_ID}/domains/dom-1/primary`);
+    expect(res.status).toBe(403);
+  });
+
+  test("member cannot change the redirect to the primary domain", async () => {
+    const app = makeApp("member");
+    setupProject();
+    const res = await req(app, "PATCH", `/projects/${PROJECT_ID}/domains`, {
+      redirectToPrimary: false,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("owner can change the redirect to the primary domain", async () => {
+    const app = makeApp("owner");
+    setupProject();
+    const res = await req(app, "PATCH", `/projects/${PROJECT_ID}/domains`, {
+      redirectToPrimary: false,
+    });
+    expect(res.status).toBe(200);
+  });
 });
