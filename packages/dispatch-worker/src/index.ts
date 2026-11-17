@@ -386,6 +386,8 @@ function redirectToCanonical(requestUrl: URL, host: string): Response {
   const target = new URL(requestUrl);
   target.protocol = "https:";
   target.host = host;
+  // Assigning `host` without a port keeps the old one.
+  target.port = "";
   return new Response(null, {
     status: 308,
     headers: {

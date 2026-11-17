@@ -179,6 +179,15 @@ describe("default hostname of a project with an active primary domain", () => {
     expect(res.headers.get("Location")).toBe("https://app.example.com/x");
   });
 
+  test("drops a port the request carried", async () => {
+    const res = await worker.fetch(
+      new Request("http://site-acme.bycreek.com:8787/x"),
+      makeEnv(REDIRECTING),
+    );
+
+    expect(res.headers.get("Location")).toBe("https://app.example.com/x");
+  });
+
   test("answers a POST with 308 too, so the client replays the method and body", async () => {
     const res = await worker.fetch(
       new Request("https://site-acme.bycreek.com/api/hook", { method: "POST", body: "{}" }),
