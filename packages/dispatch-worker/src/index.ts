@@ -96,6 +96,10 @@ async function getTeams(db: D1Database): Promise<TeamInfo[]> {
 //
 // Negative results are NOT cached — a project created seconds ago must
 // not stay 404 for a minute.
+//
+// The canonical-host decision (redirect to the primary custom domain, or
+// noindex) rides in the same entry, so it costs no lookup of its own and a
+// change to it lands within the same minute.
 const ROUTE_CACHE_TTL = 60 * 1000;
 /** Bounds isolate memory; hostnames are attacker-suppliable. */
 const ROUTE_CACHE_MAX = 2000;
@@ -115,7 +119,18 @@ interface RouteEntry {
    * becomes custom, and that needs the team list.
    */
   isCustomDomain: boolean;
+  /** Custom domain this default hostname redirects to; null when it serves. */
+  redirectHost: string | null;
+  /** Whether responses are marked `X-Robots-Tag: noindex`. */
+  noindex: boolean;
   expires: number;
+}
+
+/** Where a hostname routes, as resolved from D1. */
+interface ResolvedRoute {
+  scriptName: string;
+  redirectHost: string | null;
+  noindex: boolean;
 }
 
 const routeCache = new Map<string, RouteEntry>();
@@ -132,7 +147,7 @@ function getCachedRoute(hostname: string): RouteEntry | null {
 
 function cacheRoute(
   hostname: string,
-  scriptName: string,
+  route: ResolvedRoute,
   plan: string,
   isCustomDomain: boolean,
 ): void {
@@ -142,7 +157,7 @@ function cacheRoute(
     if (oldest !== undefined) routeCache.delete(oldest);
   }
   routeCache.set(hostname, {
-    scriptName,
+    ...route,
     plan,
     isCustomDomain,
     expires: Date.now() + ROUTE_CACHE_TTL,
@@ -160,21 +175,69 @@ async function parseHostname(
   return parseHostnameWithTeams(hostname, domain, teams);
 }
 
-// --- Script resolution ---
+// --- Route resolution ---
 
-async function resolveScriptName(parsed: ParsedHostname, db: D1Database): Promise<string | null> {
+interface ProductionRow {
+  productionDeploymentId: string | null;
+  redirectToPrimaryDomain?: number | null;
+  primaryDomain?: string | null;
+}
+
+const PRODUCTION_FROM = `FROM project p
+           JOIN organization t ON p.organizationId = t.id
+           WHERE p.slug = ? AND t.slug = ?`;
+
+/**
+ * The production project row, with its primary custom domain when that domain
+ * is active. One statement, so the canonical-host decision adds no round trip.
+ *
+ * The Worker deploys on merge and migrations are applied by hand: before
+ * migration 0014 the two columns don't exist, and routing must not depend on
+ * them. A missing column falls back to the plain lookup (no redirect, no
+ * noindex); any other failure propagates as a routing failure.
+ */
+async function queryProduction(
+  db: D1Database,
+  project: string,
+  team: string,
+): Promise<ProductionRow | null> {
+  try {
+    return await db
+      .prepare(
+        `SELECT p.productionDeploymentId, p.redirectToPrimaryDomain,
+                (SELECT cd.hostname FROM custom_domain cd
+                 WHERE cd.projectId = p.id AND cd.isPrimary = 1 AND cd.status = 'active'
+                 LIMIT 1) AS primaryDomain
+           ${PRODUCTION_FROM}`,
+      )
+      .bind(project, team)
+      .first<ProductionRow>();
+  } catch (e: unknown) {
+    if (!/no such column/i.test(e instanceof Error ? e.message : String(e))) throw e;
+    return db
+      .prepare(`SELECT p.productionDeploymentId ${PRODUCTION_FROM}`)
+      .bind(project, team)
+      .first<ProductionRow>();
+  }
+}
+
+async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<ResolvedRoute | null> {
   switch (parsed.type) {
     case "production": {
-      const row = await db
-        .prepare(
-          `SELECT p.productionDeploymentId FROM project p
-           JOIN organization t ON p.organizationId = t.id
-           WHERE p.slug = ? AND t.slug = ?`,
-        )
-        .bind(parsed.project, parsed.team)
-        .first<{ productionDeploymentId: string | null }>();
+      const row = await queryProduction(db, parsed.project!, parsed.team!);
       if (!row?.productionDeploymentId) return null;
-      return `${parsed.project}-${parsed.team}`;
+      // A project with an active primary domain has two addresses for the same
+      // content. Its default hostname either redirects there, or — when the
+      // project turned the redirect off — serves but stays out of search
+      // indexes. A project with no custom domain is untouched: the default
+      // hostname is its only address.
+      const primary = row.primaryDomain || null;
+      const redirects = Boolean(primary && row.redirectToPrimaryDomain);
+      return {
+        scriptName: `${parsed.project}-${parsed.team}`,
+        redirectHost: redirects ? primary : null,
+        noindex: Boolean(primary) && !redirects,
+      };
     }
 
     case "branch": {
@@ -190,11 +253,20 @@ async function resolveScriptName(parsed: ParsedHostname, db: D1Database): Promis
         .bind(parsed.project, parsed.team, parsed.branch)
         .first<{ id: string }>();
       if (!row) return null;
-      return `${parsed.project}-git-${parsed.branch}-${parsed.team}`;
+      // Previews exist to be looked at, never to be found by a crawler.
+      return {
+        scriptName: `${parsed.project}-git-${parsed.branch}-${parsed.team}`,
+        redirectHost: null,
+        noindex: true,
+      };
     }
 
     case "deployment":
-      return `${parsed.project}-${parsed.deployId}-${parsed.team}`;
+      return {
+        scriptName: `${parsed.project}-${parsed.deployId}-${parsed.team}`,
+        redirectHost: null,
+        noindex: true,
+      };
 
     case "custom": {
       const row = await db
@@ -207,7 +279,7 @@ async function resolveScriptName(parsed: ParsedHostname, db: D1Database): Promis
         .bind(parsed.customHostname)
         .first<{ slug: string; team_slug: string }>();
       if (!row) return null;
-      return `${row.slug}-${row.team_slug}`;
+      return { scriptName: `${row.slug}-${row.team_slug}`, redirectHost: null, noindex: false };
     }
   }
 }
@@ -296,11 +368,39 @@ function routingUnavailable(): Response {
   });
 }
 
+// --- Canonical host ---
+
+/**
+ * How long a client may reuse the redirect to the primary domain. A 308 is
+ * cacheable indefinitely by default, which would leave browsers redirecting
+ * long after a project turned the redirect off or changed its primary domain.
+ */
+const CANONICAL_REDIRECT_MAX_AGE = 300;
+
+/**
+ * 308 to the same path and query on the project's primary custom domain. 308
+ * (not 301) so a POST or PUT to the default hostname is replayed as-is rather
+ * than turned into a GET.
+ */
+function redirectToCanonical(requestUrl: URL, host: string): Response {
+  const target = new URL(requestUrl);
+  target.protocol = "https:";
+  target.host = host;
+  return new Response(null, {
+    status: 308,
+    headers: {
+      Location: target.toString(),
+      "Cache-Control": `public, max-age=${CANONICAL_REDIRECT_MAX_AGE}`,
+    },
+  });
+}
+
 // --- Main handler ---
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const hostname = new URL(request.url).hostname;
+    const url = new URL(request.url);
+    const hostname = url.hostname;
 
     // NOTE: No dispatch-level edge cache.
     // WfP Static Assets has its own CDN cache layer.
@@ -325,23 +425,23 @@ export default {
     // Cache lookup precedes parsing so a hit costs no D1 work at all —
     // not even the team-list read that `parseHostname` needs. During a D1
     // outage, already-seen hostnames keep serving.
-    let scriptName: string | null;
+    let route: ResolvedRoute | null;
     let plan: string;
     let isCustomDomain: boolean;
 
     const cached = getCachedRoute(hostname);
     if (cached) {
-      scriptName = cached.scriptName;
+      route = cached;
       plan = cached.plan;
       isCustomDomain = cached.isCustomDomain;
     } else {
       try {
         const parsed = await parseHostname(hostname, env.CREEK_DOMAIN, env.DB);
         isCustomDomain = parsed.type === "custom";
-        scriptName = await resolveScriptName(parsed, env.DB);
+        route = await resolveRoute(parsed, env.DB);
         // Only worth a third D1 round trip once we know we have somewhere to
         // dispatch to — an unknown host must stay a single-lookup 404.
-        plan = scriptName ? await resolveTeamPlan(parsed, env.DB) : "free";
+        plan = route ? await resolveTeamPlan(parsed, env.DB) : "free";
       } catch (e: unknown) {
         console.error(
           `[dispatch] routing lookup failed for ${hostname}: ${
@@ -351,11 +451,19 @@ export default {
         return routingUnavailable();
       }
 
-      if (scriptName) cacheRoute(hostname, scriptName, plan, isCustomDomain);
+      if (route) cacheRoute(hostname, route, plan, isCustomDomain);
     }
 
-    if (!scriptName) {
+    if (!route) {
       return new Response("Not Found", { status: 404 });
+    }
+    const { scriptName, noindex } = route;
+
+    // The default hostname of a project whose primary custom domain is active.
+    // The hostname check is a loop guard: a primary domain can never be the
+    // host that is redirecting to it.
+    if (route.redirectHost && route.redirectHost !== hostname) {
+      return redirectToCanonical(url, route.redirectHost);
     }
 
     // Resolve plan-based limits
@@ -378,16 +486,25 @@ export default {
       //   2. narrow Set-Cookie Domain to host-only on shared *.bycreek.com
       //      subdomains, so one tenant cannot scope a cookie to the parent and
       //      have it land on a sibling tenant. Custom domains are exempt.
+      //   3. mark previews, and a default hostname kept alongside a primary
+      //      custom domain, `X-Robots-Tag: noindex` — unless the tenant set the
+      //      header itself. A WebSocket upgrade is passed through untouched:
+      //      rebuilding a 101 would drop the socket.
       const needsContentType = response.ok && !response.headers.get("Content-Type");
 
       const setCookies = response.headers.getSetCookie();
       const narrowCookies = !isCustomDomain && setCookies.some(cookieHasDomain);
 
-      if (needsContentType || narrowCookies) {
+      const needsNoindex =
+        noindex && response.status !== 101 && !response.headers.has("X-Robots-Tag");
+
+      if (needsContentType || narrowCookies || needsNoindex) {
         const headers = new Headers(response.headers);
 
+        if (needsNoindex) headers.set("X-Robots-Tag", "noindex");
+
         if (needsContentType) {
-          headers.set("Content-Type", inferContentType(new URL(request.url).pathname));
+          headers.set("Content-Type", inferContentType(url.pathname));
         }
 
         if (narrowCookies) {

@@ -14,6 +14,8 @@
  * mutations dispatch-worker is allowed to make on a successful
  * response are:
  *   - inferring `Content-Type` when WfP Static Assets omitted it
+ *   - adding `X-Robots-Tag: noindex` on previews, and on a default hostname
+ *     served alongside a primary custom domain (canonical-host.test.ts)
  *
  * Anything else — Cache-Control, Set-Cookie, Vary, etc. — must
  * round-trip unchanged.
