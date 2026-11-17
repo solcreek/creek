@@ -14,7 +14,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -134,7 +134,8 @@ function deploy(
 const sent = (method: string, path: string) =>
   requests.findIndex((r) => r.method === method && r.path === path);
 
-describe("creek deploy and the project it creates", () => {
+// Runs the built CLI: skipped, like the other built-CLI suites, when dist/ is absent.
+describe.skipIf(!existsSync(CLI))("creek deploy and the project it creates", () => {
   test("nothing to deploy: the project is not created", async () => {
     // creek.toml names a project, but there is no dist/ to upload.
     const { code, stdout } = await deploy();
