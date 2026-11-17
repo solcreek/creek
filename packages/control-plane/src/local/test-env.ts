@@ -186,7 +186,10 @@ class TestKVNamespace {
   }
 }
 
-// --- R2 adapter (filesystem, same as local/r2-adapter) ---
+// --- R2 adapter (filesystem, like local/r2-adapter) ---
+// Unlike LocalR2Bucket it does not refuse keys that resolve outside its root:
+// tests own every key they write. That guard is covered against the real
+// class in r2-bucket-containment.test.ts.
 
 class TestR2Object {
   key: string;

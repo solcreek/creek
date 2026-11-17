@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { LocalR2Bucket } from "./r2-adapter";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -70,6 +70,34 @@ describe("LocalR2Bucket", () => {
     it("handles deeply nested paths", async () => {
       await bucket.put("a/b/c/d/e/f.txt", "deep");
       expect(await (await bucket.get("a/b/c/d/e/f.txt"))!.text()).toBe("deep");
+    });
+  });
+
+  // Keys become file paths here, unlike in R2. A key must never name a file
+  // outside the bucket's own directory.
+  describe("keys that would leave the bucket", () => {
+    const escapes = ["../outside.txt", "a/../../outside.txt", "/../outside.txt"];
+
+    for (const key of escapes) {
+      it(`refuses to put ${key}`, async () => {
+        await expect(bucket.put(key, "x")).rejects.toThrow(/escapes the bucket/);
+        expect(existsSync(join(root, "..", "outside.txt"))).toBe(false);
+      });
+
+      it(`refuses to get or head ${key}`, async () => {
+        await expect(bucket.get(key)).rejects.toThrow(/escapes the bucket/);
+        await expect(bucket.head(key)).rejects.toThrow(/escapes the bucket/);
+      });
+    }
+
+    it("keeps a key that only looks like one", async () => {
+      await bucket.put("a/..b/c..d.txt", "ok");
+      expect(await (await bucket.get("a/..b/c..d.txt"))!.text()).toBe("ok");
+    });
+
+    it("keeps a key whose .. stays inside the bucket", async () => {
+      await bucket.put("a/../b.txt", "ok");
+      expect(await (await bucket.get("b.txt"))!.text()).toBe("ok");
     });
   });
 

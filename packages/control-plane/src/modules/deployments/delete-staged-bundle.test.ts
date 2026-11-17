@@ -46,7 +46,9 @@ describe("deleteStagedBundle", () => {
     // Another deployment's staging is untouched.
     expect(await count("bundles/other-server/")).toBe(3);
     expect(await t.env.ASSETS.get("bundles/other.json")).not.toBeNull();
-  });
+    // Writes and deletes 2,500 files on disk: about a second alone, but past
+    // the default 5 s when the rest of the suite is competing for the disk.
+  }, 30_000);
 
   it("deletes only the bundle JSON when no server files were staged", async () => {
     await t.env.ASSETS.put("bundles/spa.json", "{}");

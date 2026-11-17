@@ -1,6 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { resolveDeployTarget, cloudflareWfpTarget } from "./target.js";
 import { creekdFleetTarget } from "./creekd-fleet.js";
+import { localTarget } from "./local-target.js";
 import type { Env } from "../../types.js";
 
 const env = (t?: Env["DEPLOY_TARGET"]) => ({ DEPLOY_TARGET: t }) as Env;
@@ -16,6 +17,10 @@ describe("resolveDeployTarget", () => {
 
   test("returns the creekd fleet target for 'creekd-fleet'", () => {
     expect(resolveDeployTarget(env("creekd-fleet"))).toBe(creekdFleetTarget);
+  });
+
+  test("returns the local target for 'local'", () => {
+    expect(resolveDeployTarget(env("local"))).toBe(localTarget);
   });
 
   test("throws 'unknown DEPLOY_TARGET' for an unrecognized value", () => {
