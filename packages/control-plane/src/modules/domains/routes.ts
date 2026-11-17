@@ -8,6 +8,12 @@ import { validateHostname } from "./validation.js";
 import { getCustomHostname, deleteCustomHostname } from "../resources/cloudflare.js";
 import { createOrAdoptCustomHostname, linkCustomHostname, recordCustomHostnameId } from "./edge.js";
 import { requireScopes } from "../tenant/scope-guard.js";
+import {
+  claimPrimaryIfNone,
+  isMissingPrimaryColumn,
+  promotePrimaryIfNone,
+  setPrimary,
+} from "./primary.js";
 
 type DomainEnv = {
   Bindings: Env;
@@ -266,6 +272,9 @@ domains.post(
       .bind(id, project.id, hostname, initialStatus, cfCustomHostnameId, now)
       .run();
 
+    // A project's first domain is its primary one.
+    await claimPrimaryIfNone(c.env, project.id, id);
+
     const domain = await c.env.DB.prepare("SELECT * FROM custom_domain WHERE id = ?")
       .bind(id)
       .first();
@@ -396,6 +405,137 @@ domains.post(
   },
 );
 
+// Response for the primary-domain routes on a database that migration 0014
+// hasn't reached yet (the Worker deploys before migrations are applied).
+function primaryUnavailable(c: { json: (body: unknown, status: 503) => Response }) {
+  return c.json(
+    {
+      error: "unavailable",
+      message: "Primary domains aren't available on this install yet. Retry shortly.",
+    },
+    503,
+  );
+}
+
+// Redirect the project's default hostname to its primary domain, or stop.
+// A PATCH on the collection: the setting belongs to the project's domains as
+// a whole, not to one of them.
+domains.patch(
+  "/:projectId/domains",
+  requireScopes("domain:write"),
+  requirePermission("domain:manage"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
+    const body = await c.req
+      .json<{ redirectToPrimary?: unknown }>()
+      .catch(() => ({}) as { redirectToPrimary?: unknown });
+
+    if (typeof body.redirectToPrimary !== "boolean") {
+      return c.json(
+        { error: "validation", message: "redirectToPrimary must be true or false" },
+        400,
+      );
+    }
+
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
+
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
+
+    let primary: { hostname: string; status: string } | null;
+    try {
+      await c.env.DB.prepare("UPDATE project SET redirectToPrimaryDomain = ? WHERE id = ?")
+        .bind(body.redirectToPrimary ? 1 : 0, project.id)
+        .run();
+      primary = await c.env.DB.prepare(
+        "SELECT hostname, status FROM custom_domain WHERE projectId = ? AND isPrimary = 1",
+      )
+        .bind(project.id)
+        .first<{ hostname: string; status: string }>();
+    } catch (err) {
+      if (isMissingPrimaryColumn(err)) return primaryUnavailable(c);
+      throw err;
+    }
+
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      c.get("teamId"),
+      {
+        action: "domain.redirect_update",
+        resourceType: "project",
+        resourceId: project.id,
+        metadata: { projectId, redirectToPrimary: body.redirectToPrimary },
+      },
+      c.get("auditCtx"),
+    );
+
+    return c.json({
+      ok: true,
+      redirectToPrimary: body.redirectToPrimary,
+      // What the setting acts on right now: null means the project has no
+      // primary domain, and a primary that isn't active doesn't redirect yet.
+      primary,
+    });
+  },
+);
+
+// Make a domain the project's primary one
+domains.post(
+  "/:projectId/domains/:domainId/primary",
+  requireScopes("domain:write"),
+  requirePermission("domain:manage"),
+  async (c) => {
+    const teamId = c.get("teamId");
+    const projectId = c.req.param("projectId");
+    const domainId = c.req.param("domainId");
+
+    const project = await resolveProject(c.env.DB, projectId!, teamId);
+
+    if (!project) {
+      return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
+
+    try {
+      const domain = await c.env.DB.prepare(
+        "SELECT id, hostname, status, isPrimary FROM custom_domain WHERE id = ? AND projectId = ?",
+      )
+        .bind(domainId, project.id)
+        .first<{ id: string; hostname: string; status: string; isPrimary: number }>();
+
+      if (!domain) {
+        return c.json({ error: "not_found", message: "Domain not found" }, 404);
+      }
+
+      if (domain.isPrimary) {
+        return c.json({ ok: true, domain, changed: false });
+      }
+
+      await setPrimary(c.env, project.id, domain.id);
+
+      await recordAudit(
+        c.env.DB,
+        c.get("user"),
+        c.get("teamId"),
+        {
+          action: "domain.set_primary",
+          resourceType: "domain",
+          resourceId: domain.id,
+          metadata: { projectId, hostname: domain.hostname },
+        },
+        c.get("auditCtx"),
+      );
+
+      return c.json({ ok: true, domain: { ...domain, isPrimary: 1 }, changed: true });
+    } catch (err) {
+      if (isMissingPrimaryColumn(err)) return primaryUnavailable(c);
+      throw err;
+    }
+  },
+);
+
 // Remove a custom domain
 domains.delete(
   "/:projectId/domains/:domainId",
@@ -436,6 +576,9 @@ domains.delete(
     await c.env.DB.prepare("DELETE FROM custom_domain WHERE id = ? AND projectId = ?")
       .bind(domainId, project.id)
       .run();
+
+    // If that was the primary domain, another of the project's domains takes over.
+    await promotePrimaryIfNone(c.env, project.id);
 
     await recordAudit(
       c.env.DB,
