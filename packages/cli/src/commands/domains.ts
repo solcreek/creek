@@ -41,7 +41,8 @@ const domainsLs = defineCommand({
             : d.status === "failed"
               ? "\x1b[31m✕\x1b[0m"
               : "○";
-      consola.log(`  ${statusIcon} ${d.hostname}  ${d.status}  (${d.id.slice(0, 8)})`);
+      const primary = d.isPrimary ? "  primary" : "";
+      consola.log(`  ${statusIcon} ${d.hostname}  ${d.status}${primary}  (${d.id.slice(0, 8)})`);
     }
   },
 });
@@ -462,6 +463,150 @@ const domainsActivate = defineCommand({
   },
 });
 
+const domainsPrimary = defineCommand({
+  meta: {
+    name: "primary",
+    destructive: false,
+    description: "Make a domain the project's primary one (its default hostname redirects there)",
+  },
+  args: {
+    hostname: { type: "positional", description: "Domain to make primary", required: true },
+    ...projectArg,
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const client = requireClient(jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
+
+    const domain = await resolveDomain(client, slug, args.hostname, jsonMode);
+    if (!domain) domainNotFound(args.hostname, slug, jsonMode);
+
+    const result = await apiCall(jsonMode, "primary_failed", () =>
+      client.setPrimaryDomain(slug, domain.id),
+    );
+
+    // A primary domain that isn't active yet redirects nothing: the default
+    // hostname keeps serving until the edge confirms the domain.
+    const active = result.domain.status === "active";
+
+    if (jsonMode) {
+      jsonOutput(
+        {
+          ok: true,
+          hostname: domain.hostname,
+          primary: true,
+          changed: result.changed,
+          status: result.domain.status,
+          project: slug,
+          projectSource,
+        },
+        0,
+        active
+          ? [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }]
+          : [
+              {
+                command: `creek domains activate ${domain.hostname} --project ${slug}`,
+                description: "Activate it: the redirect starts once the domain is active",
+              },
+            ],
+      );
+      return;
+    }
+
+    consola.success(
+      result.changed
+        ? `${domain.hostname} is now the primary domain of ${slug}`
+        : `${domain.hostname} is already the primary domain of ${slug}`,
+    );
+    if (!active) {
+      consola.info(
+        `  It is ${result.domain.status}: the default hostname redirects there once it is active.`,
+      );
+    }
+  },
+});
+
+const REDIRECT_STATES: Record<string, boolean> = { on: true, off: false };
+
+const domainsRedirect = defineCommand({
+  meta: {
+    name: "redirect",
+    destructive: false,
+    description:
+      "Turn the redirect from the project's default hostname to its primary domain on or off",
+  },
+  args: {
+    state: { type: "positional", description: "on or off", required: true },
+    ...projectArg,
+    ...globalArgs,
+  },
+  async run({ args }) {
+    const jsonMode = resolveJsonMode(args);
+    const state = String(args.state).trim().toLowerCase();
+    // Checked before any request: a typo must not be read as "off".
+    if (!Object.hasOwn(REDIRECT_STATES, state)) {
+      const message = `"${args.state}" is not a redirect state. Use \`on\` or \`off\`.`;
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "invalid_state", state: args.state, message }, 1);
+      consola.error(message);
+      process.exit(1);
+    }
+    const client = requireClient(jsonMode);
+    const { slug, source: projectSource } = resolveProject(args.project, jsonMode);
+
+    const result = await apiCall(jsonMode, "redirect_failed", () =>
+      client.setDomainRedirect(slug, REDIRECT_STATES[state]!),
+    );
+    const primary = result.primary;
+    // Whether the default hostname is redirecting right now.
+    const redirecting = result.redirectToPrimary && primary?.status === "active";
+
+    if (jsonMode) {
+      jsonOutput(
+        {
+          ok: true,
+          redirectToPrimary: result.redirectToPrimary,
+          redirecting,
+          primary,
+          project: slug,
+          projectSource,
+        },
+        0,
+        primary
+          ? [{ command: `creek domains ls --project ${slug}`, description: "List all domains" }]
+          : [
+              {
+                command: `creek domains add <HOSTNAME> --project ${slug}`,
+                description: "Add a domain: a project's first domain becomes its primary",
+              },
+            ],
+      );
+      return;
+    }
+
+    if (!result.redirectToPrimary) {
+      consola.success(`Redirect off: the default hostname of ${slug} serves the site itself.`);
+      if (primary) {
+        consola.info(`  It is marked noindex while ${primary.hostname} is the primary domain.`);
+      }
+      return;
+    }
+    if (redirecting) {
+      consola.success(
+        `Redirect on: the default hostname of ${slug} redirects to ${primary!.hostname}.`,
+      );
+      return;
+    }
+    consola.success(`Redirect on for ${slug}.`);
+    consola.info(
+      primary
+        ? `  ${primary.hostname} is ${primary.status}: the redirect starts once it is active.`
+        : "  The project has no domain yet: the redirect starts once one is added and active.",
+    );
+  },
+});
+
 export const domainsCommand = defineCommand({
   meta: {
     name: "domains",
@@ -473,5 +618,7 @@ export const domainsCommand = defineCommand({
     add: domainsAdd,
     rm: domainsRm,
     activate: domainsActivate,
+    primary: domainsPrimary,
+    redirect: domainsRedirect,
   },
 });

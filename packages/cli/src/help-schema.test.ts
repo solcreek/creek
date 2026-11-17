@@ -300,6 +300,8 @@ const REVIEWED_DESTRUCTIVE: Record<string, boolean> = {
   "domains add": false,
   "domains rm": true,
   "domains activate": false,
+  "domains primary": false,
+  "domains redirect": false,
   rollback: true,
   top: false,
   dashboard: false,

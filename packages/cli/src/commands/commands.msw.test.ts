@@ -712,6 +712,9 @@ describe("every project command reports projectSource", () => {
         }),
       ),
       http.get(`${API}/projects/p/domains`, () => HttpResponse.json([])),
+      http.patch(`${API}/projects/p/domains`, () =>
+        HttpResponse.json({ ok: true, redirectToPrimary: false, primary: null }),
+      ),
       http.get(`${API}/projects/p/logs`, () =>
         HttpResponse.json({
           entries: [{ v: 1, timestamp: 1, project: "p", outcome: "ok", logs: [], exceptions: [] }],
@@ -777,6 +780,7 @@ describe("every project command reports projectSource", () => {
     ["env rm", () => sub(envCommand as Cmd, "rm"), { key: "K" }],
     ["status", () => statusCommand as Cmd, {}],
     ["domains ls", () => sub(domainsCommand as Cmd, "ls"), {}],
+    ["domains redirect", () => sub(domainsCommand as Cmd, "redirect"), { state: "off" }],
     ["logs", () => logsCommand as Cmd, {}],
     ["metrics", () => metricsCommand as Cmd, {}],
     ["queue send", () => sub(queueCommand as Cmd, "send"), { message: "hi", parseJson: false }],
