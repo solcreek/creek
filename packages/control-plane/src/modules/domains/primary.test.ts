@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createLocalTestEnv, seedTestData, type LocalTestEnv } from "../../local/test-env.js";
 import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
+import { setPrimary } from "./primary.js";
 
 /**
  * Primary domain: the one custom domain per project that its default
@@ -223,6 +224,58 @@ describe("POST /projects/:id/domains/:domainId/primary", () => {
 
     expect(res.status).toBe(404);
     expect(primaryOf("proj-x")).toEqual([]);
+  });
+});
+
+/**
+ * The route reads the target, then moves the mark. A domain removed in
+ * between must not cost the project the primary it had.
+ */
+describe("the target is removed while the primary is being moved", () => {
+  test("setPrimary leaves the current primary and reports nothing moved", async () => {
+    seedDomain("a", { isPrimary: true });
+
+    const moved = await setPrimary(testEnv.env, PROJECT_ID, "gone");
+
+    expect(moved).toBe(false);
+    expect(primaryOf()).toEqual(["a"]);
+  });
+
+  test("setPrimary ignores a domain of another project", async () => {
+    seedDomain("a", { isPrimary: true });
+    seedDomain("x", { projectId: OTHER_PROJECT_ID });
+
+    const moved = await setPrimary(testEnv.env, PROJECT_ID, "x");
+
+    expect(moved).toBe(false);
+    expect(primaryOf()).toEqual(["a"]);
+    expect(primaryOf(OTHER_PROJECT_ID)).toEqual([]);
+  });
+
+  test("setPrimary reports a move", async () => {
+    seedDomain("a", { isPrimary: true });
+    seedDomain("b");
+
+    expect(await setPrimary(testEnv.env, PROJECT_ID, "b")).toBe(true);
+    expect(primaryOf()).toEqual(["b"]);
+  });
+
+  test("the route answers 404, keeps the primary and records nothing", async () => {
+    seedDomain("a", { isPrimary: true });
+    seedDomain("b");
+    // The concurrent DELETE lands after the route has read `b`.
+    const db = testEnv.env.DB;
+    const batch = db.batch.bind(db);
+    db.batch = (async (statements: Parameters<typeof batch>[0]) => {
+      testEnv.db.db.exec("DELETE FROM custom_domain WHERE id = 'b'");
+      return batch(statements);
+    }) as typeof db.batch;
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/domains/b/primary`);
+
+    expect(res.status).toBe(404);
+    expect(primaryOf()).toEqual(["a"]);
+    expect(auditActions()).toEqual([]);
   });
 });
 

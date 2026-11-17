@@ -66,18 +66,26 @@ export async function promotePrimaryIfNone(env: Env, projectId: string): Promise
 }
 
 /**
- * Moves the primary mark to `domainId`. The two statements run as one batch
- * (a transaction on D1): the old mark is cleared first because the unique
- * index allows one primary per project at every step.
+ * Moves the primary mark to `domainId`. Returns whether it moved: false when
+ * the domain is no longer one of the project's (removed since the caller read
+ * it), in which case the current primary keeps the mark.
+ *
+ * The two statements run as one batch (a transaction on D1). The old mark is
+ * cleared first because the unique index allows one primary per project at
+ * every step, and only while the target still exists: clearing unconditionally
+ * would leave the project with no primary when the target is gone.
  */
-export async function setPrimary(env: Env, projectId: string, domainId: string): Promise<void> {
-  await env.DB.batch([
+export async function setPrimary(env: Env, projectId: string, domainId: string): Promise<boolean> {
+  const [, marked] = await env.DB.batch([
     env.DB.prepare(
-      "UPDATE custom_domain SET isPrimary = 0 WHERE projectId = ? AND isPrimary = 1 AND id != ?",
-    ).bind(projectId, domainId),
+      `UPDATE custom_domain SET isPrimary = 0
+       WHERE projectId = ? AND isPrimary = 1 AND id != ?
+         AND EXISTS (SELECT 1 FROM custom_domain WHERE id = ? AND projectId = ?)`,
+    ).bind(projectId, domainId, domainId, projectId),
     env.DB.prepare("UPDATE custom_domain SET isPrimary = 1 WHERE id = ? AND projectId = ?").bind(
       domainId,
       projectId,
     ),
   ]);
+  return (marked?.meta?.changes ?? 0) > 0;
 }

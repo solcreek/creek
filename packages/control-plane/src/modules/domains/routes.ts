@@ -513,7 +513,10 @@ domains.post(
         return c.json({ ok: true, domain, changed: false });
       }
 
-      await setPrimary(c.env, project.id, domain.id);
+      // Removed since it was read above: nothing moved, the primary stands.
+      if (!(await setPrimary(c.env, project.id, domain.id))) {
+        return c.json({ error: "not_found", message: "Domain not found" }, 404);
+      }
 
       await recordAudit(
         c.env.DB,
