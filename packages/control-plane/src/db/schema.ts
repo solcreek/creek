@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   sqliteTable,
   text,
@@ -155,6 +156,13 @@ export const project = sqliteTable(
     githubRepo: text("githubRepo"),
     /** JSON: cron schedules + queue toggle. Managed by PATCH /:projectId/triggers. */
     triggers: text("triggers"),
+    /**
+     * Whether the default {project}-{team} hostname redirects to the project's
+     * primary custom domain (custom_domain.isPrimary) once that is active.
+     */
+    redirectToPrimaryDomain: integer("redirectToPrimaryDomain", { mode: "boolean" })
+      .notNull()
+      .default(true),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
@@ -211,9 +219,16 @@ export const customDomain = sqliteTable(
     status: text("status").notNull().default("pending"),
     /** Cloudflare for SaaS custom hostname id; null until provisioned. */
     cfCustomHostnameId: text("cfCustomHostnameId"),
+    /** The project's canonical domain; at most one per project. */
+    isPrimary: integer("isPrimary", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
   },
-  (table) => [index("idx_custom_domain_project").on(table.projectId)],
+  (table) => [
+    index("idx_custom_domain_project").on(table.projectId),
+    uniqueIndex("idx_custom_domain_primary")
+      .on(table.projectId)
+      .where(sql`${table.isPrimary} = 1`),
+  ],
 );
 
 // ============================================================================
