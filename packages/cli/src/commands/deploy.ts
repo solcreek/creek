@@ -2519,11 +2519,15 @@ async function deployAuthenticated(
     progress.info(`  Deploying as ${session.user.email}`);
     progress.info(`  Project: ${resolved.projectName}`);
 
-    // Ensure project exists — confirm before auto-creating
-    let project: { id: string; slug: string };
+    // Look the project up — and confirm before auto-creating — but create it
+    // only once there is a bundle to deploy (below). A deploy that stops at
+    // the build or finds nothing to upload must not leave an empty project
+    // behind.
+    let existingProject: { id: string; slug: string } | null;
     try {
-      project = await client.getProject(resolved.projectName);
+      existingProject = await client.getProject(resolved.projectName);
     } catch {
+      existingProject = null;
       if (!jsonMode && isTTY) {
         const confirm = await consola.prompt(
           `Project "${resolved.projectName}" does not exist. Create it?`,
@@ -2534,12 +2538,6 @@ async function deployAuthenticated(
           process.exit(0);
         }
       }
-      const res = await client.createProject({
-        slug: resolved.projectName,
-        framework: resolved.framework ?? undefined,
-      });
-      project = res.project;
-      if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
     }
 
     // Surface resource bindings attached server-side (`creek <kind> attach`)
@@ -2552,9 +2550,14 @@ async function deployAuthenticated(
     // Human-only: skip the lookup under --json so automated deploys don't pay
     // an extra round-trip for a note they'd never see (`creek status --json`
     // carries the structured `undeclaredBindings` field for agents).
-    if (!jsonMode && resolved.target === "cf") {
+    // A project that doesn't exist yet has no attachments to report.
+    if (!jsonMode && resolved.target === "cf" && existingProject) {
       const declaredNames = resolvedConfigToBindingRequirements(resolved).map((b) => b.bindingName);
-      const bindingDrift = await findUndeclaredBindings(client, project.slug, declaredNames);
+      const bindingDrift = await findUndeclaredBindings(
+        client,
+        existingProject.slug,
+        declaredNames,
+      );
       if (bindingDrift.length > 0) {
         consola.info(
           `  ${bindingDrift.length} attached binding(s) not in your config: ${formatBindingDrift(bindingDrift)}`,
@@ -2590,10 +2593,11 @@ async function deployAuthenticated(
     // which promises to upload the existing local output as-is, nor with
     // [release] migrations, since that path skips the deploy job that applies
     // them.
+    // Nor for a project that doesn't exist yet: it has no cached build.
     const turboResult =
-      skipBuild || resolved.releaseMigrations
+      skipBuild || resolved.releaseMigrations || !existingProject
         ? false
-        : await tryTurboDeploy(cwd, client, project, noCache, jsonMode, waitMs);
+        : await tryTurboDeploy(cwd, client, existingProject, noCache, jsonMode, waitMs);
     if (turboResult) {
       return; // ⚡ done — server deployed from cache
     }
@@ -2614,6 +2618,19 @@ async function deployAuthenticated(
       serverFiles,
     } = prepared;
     void detectedFramework; // framework var above is the source of truth here
+
+    // There is something to deploy: create the project now if it is new.
+    let project: { id: string; slug: string };
+    if (existingProject) {
+      project = existingProject;
+    } else {
+      const res = await client.createProject({
+        slug: resolved.projectName,
+        framework: resolved.framework ?? undefined,
+      });
+      project = res.project;
+      if (!jsonMode) consola.success(`  Created project: ${project.slug}`);
+    }
 
     // Resource / runtime anchors — inline lines that pre-empt the most
     // common wrong assumptions an AI agent reads from Creek running on
