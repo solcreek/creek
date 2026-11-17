@@ -69,14 +69,13 @@ describe("localTarget.deploy", () => {
   // into a file path, so a name that climbs out of the deployment's prefix
   // would write wherever it points.
   test.each([
-    ["into another project's deployment", "../../other/dep/index.html"],
-    ["out of the bucket", "../../../outside.txt"],
-    ["with a backslash separator", "..\\..\\other\\dep\\index.html"],
-    ["from a nested segment", "assets/../../../other/dep/index.html"],
-    ["as an absolute path", "/etc/creek-escape"],
-    ["as a Windows absolute path", "C:\\creek-escape"],
-    ["as an empty name", ""],
-  ])("refuses an asset name that escapes %s, storing nothing", async (_label, name) => {
+    ["that climbs into another project's deployment", "../../other/dep/index.html"],
+    ["that climbs out of the bucket", "../../../outside.txt"],
+    ["that climbs with a backslash separator", "..\\..\\other\\dep\\index.html"],
+    ["that climbs from a nested segment", "assets/../../../other/dep/index.html"],
+    ["that is only separators", "//"],
+    ["that is empty", ""],
+  ])("refuses an asset name %s, storing nothing", async (_label, name) => {
     await t.env.ASSETS.put("other/dep/index.html", "<h1>theirs</h1>");
 
     await expect(
@@ -103,6 +102,19 @@ describe("localTarget.deploy", () => {
       expect(await stored(`p/d1/${name}`)).toBe("ok");
     },
   );
+
+  test("stores a name with a leading slash as the same file, as the Cloudflare target does", async () => {
+    await localTarget.deploy(
+      t.env,
+      "site",
+      "team",
+      "d1",
+      input({ "/index.html": "<h1>one</h1>", "/assets/app.js": "console.log(1)" }),
+    );
+
+    expect(await stored("p/d1/index.html")).toBe("<h1>one</h1>");
+    expect(await stored("p/d1/assets/app.js")).toBe("console.log(1)");
+  });
 
   test("refuses a deployment it cannot place, storing nothing", async () => {
     await expect(

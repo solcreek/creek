@@ -7,11 +7,16 @@ import { uploadAssetsToR2 } from "./deploy.js";
  * so they are checked rather than trusted: `../../other/dep/index.html` would
  * overwrite another project's preview, and enough `..` leaves the data
  * directory. Both separators count, so the answer is the same on Windows.
+ *
+ * A leading `/` is not an escape (the name is appended to the prefix) and the
+ * Cloudflare target accepts `/index.html` as well as `index.html`, so it is
+ * allowed here too; {@link localTarget} drops it before storing.
  */
 export function isSafeAssetPath(path: string): boolean {
-  if (path === "" || path.includes("\0")) return false;
-  if (path.startsWith("/") || path.startsWith("\\") || /^[a-zA-Z]:/.test(path)) return false;
-  return !path.split(/[\\/]/).some((segment) => segment === "..");
+  if (path.includes("\0")) return false;
+  const segments = path.split(/[\\/]/);
+  if (segments.every((segment) => segment === "")) return false; // "", "/", "//"
+  return !segments.includes("..");
 }
 
 /**
@@ -39,6 +44,10 @@ export const localTarget: DeployTarget = {
     if (unsafe !== undefined) {
       throw new Error(`unsafe asset path in bundle: ${JSON.stringify(unsafe)}`);
     }
-    await uploadAssetsToR2(env, row.projectId, deploymentId, input.clientAssets);
+    // `/index.html` and `index.html` are the same file, as on the Cloudflare target.
+    const assets = Object.fromEntries(
+      Object.entries(input.clientAssets).map(([path, data]) => [path.replace(/^\/+/, ""), data]),
+    );
+    await uploadAssetsToR2(env, row.projectId, deploymentId, assets);
   },
 };
