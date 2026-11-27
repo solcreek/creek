@@ -15,3 +15,8 @@ onlyBuiltDependencies:
   - esbuild
   - lightningcss
   - better-sqlite3
+
+# GHSA-mrhx-c7xc-m3w5: zod < 4.6.6 can exhaust memory validating a large array.
+# better-auth pulls zod 4.5.x into control-plane; lift every zod 4 to the fix.
+overrides:
+  "zod@>=4.0.0 <4.6.6": "^4.6.6"
