@@ -170,7 +170,7 @@ jobs:
     # Run after worker deploys succeed (or are skipped) so any coupled
     # control-plane API changes land before the dashboard ships.
     if: >-
-      always() &&
+      !cancelled() &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.dashboard == 'true' &&
       (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
