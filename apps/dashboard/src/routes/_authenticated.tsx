@@ -1,7 +1,14 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import {
+  CatchBoundary,
+  createFileRoute,
+  Outlet,
+  redirect,
+  useLocation,
+} from "@tanstack/react-router";
 import { authClient } from "@/lib/auth";
 import { detectApiMode } from "@/lib/adapter";
 import { AppShell } from "@/components/app-shell";
+import { FullScreenErrorFallback, RouteErrorFallback } from "@/components/route-error";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -24,12 +31,17 @@ export const Route = createFileRoute("/_authenticated")({
     }
   },
   component: AuthenticatedLayout,
+  errorComponent: FullScreenErrorFallback,
 });
 
 function AuthenticatedLayout() {
+  const location = useLocation();
+
   return (
     <AppShell>
-      <Outlet />
+      <CatchBoundary getResetKey={() => location.pathname} errorComponent={RouteErrorFallback}>
+        <Outlet />
+      </CatchBoundary>
     </AppShell>
   );
 }

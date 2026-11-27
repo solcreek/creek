@@ -1,5 +1,6 @@
 import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
+import { FullScreenErrorFallback } from "@/components/route-error";
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -7,6 +8,7 @@ interface RouterContext {
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootLayout,
+  errorComponent: FullScreenErrorFallback,
   notFoundComponent: () => (
     <div className="flex h-screen items-center justify-center">
       <div className="text-center">

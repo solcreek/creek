@@ -1,6 +1,9 @@
 import { render, type RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import type { ReactElement } from "react";
+import { ApiProvider } from "@/lib/api-context";
+import { routeTree } from "@/routeTree.gen";
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -23,5 +26,29 @@ export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptio
   return {
     ...render(ui, { wrapper: Wrapper, ...options }),
     queryClient,
+  };
+}
+
+/** Render the full dashboard router in memory for integration and UI interaction tests. */
+export function renderDashboardApp(initialPath = "/projects") {
+  const queryClient = createTestQueryClient();
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: [initialPath] }),
+    context: { queryClient },
+  });
+
+  const result = render(
+    <ApiProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ApiProvider>,
+  );
+
+  return {
+    ...result,
+    queryClient,
+    router,
   };
 }
