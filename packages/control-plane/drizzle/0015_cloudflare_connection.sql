@@ -15,7 +15,9 @@
 -- the same token and lose the grant. generation is a fresh random value on
 -- every write (connect, reconnect, refresh) — never a counter, which would
 -- restart at 1 after a disconnect and let a refresh begun against the old
--- grant match the new one.
+-- grant match the new one. refreshLeaseOwner names the caller holding the
+-- lease, so one whose lease ran out cannot write over, or release, the
+-- lease of the caller that took over.
 CREATE TABLE `cloudflare_oauth_state` (
   `state` text PRIMARY KEY NOT NULL,
   `teamId` text NOT NULL,
@@ -37,6 +39,7 @@ CREATE TABLE `cloudflare_connection` (
   `accounts` text NOT NULL DEFAULT '[]',
   `generation` text NOT NULL,
   `refreshLeaseUntil` integer,
+  `refreshLeaseOwner` text,
   `createdAt` integer NOT NULL,
   `updatedAt` integer NOT NULL,
   FOREIGN KEY (`teamId`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade,

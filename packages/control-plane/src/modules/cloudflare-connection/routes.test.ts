@@ -525,6 +525,51 @@ describe("getCloudflareAccessToken", () => {
     });
   });
 
+  describe("a refresh that outlives its lease", () => {
+    const SUCCESSOR_LEASE = 9_999_999_999_999;
+
+    /** Mid-refresh, our lease expires and another caller takes it over. */
+    function refreshWhoseLeaseIsTaken(response: () => Response | Promise<Response>) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          t.db.db.exec(
+            `UPDATE cloudflare_connection SET refreshLeaseUntil = ${SUCCESSOR_LEASE},
+               refreshLeaseOwner = 'successor'`,
+          );
+          return response();
+        }),
+      );
+    }
+
+    it("does not release the successor's lease when it fails", async () => {
+      await saveWith({ expiresAt: 1 });
+      refreshWhoseLeaseIsTaken(() => Promise.reject(new Error("network down")));
+      await store.getCloudflareAccessToken(env, config(), TEAM).catch(() => {});
+      expect(connectionRow()!.refreshLeaseUntil).toBe(SUCCESSOR_LEASE);
+    });
+
+    it("does not write its tokens over the successor's refresh", async () => {
+      await saveWith({ expiresAt: 1 });
+      refreshWhoseLeaseIsTaken(() =>
+        Response.json({ access_token: "late-at", refresh_token: "late-rt", expires_in: 3600 }),
+      );
+      await store
+        .getCloudflareAccessToken(env, config(), TEAM, { maxWaits: 0, sleep: async () => {} })
+        .catch(() => {});
+      expect(connectionRow()!.refreshLeaseUntil).toBe(SUCCESSOR_LEASE);
+      expect(connectionRow()!.accessTokenExpiresAt).toBe(1);
+    });
+
+    it("gives up on the token endpoint well before the lease runs out", async () => {
+      expect(store.REFRESH_TIMEOUT_MS * 2).toBeLessThanOrEqual(store.REFRESH_LEASE_MS);
+      await saveWith({ expiresAt: 1 });
+      const fetch = mockCloudflare({ access_token: "at2" });
+      await store.getCloudflareAccessToken(env, config(), TEAM);
+      expect(fetch.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    });
+  });
+
   it("throws CloudflareNotConnectedError for a team without a grant", async () => {
     await expect(store.getCloudflareAccessToken(env, config(), TEAM)).rejects.toBeInstanceOf(
       store.CloudflareNotConnectedError,

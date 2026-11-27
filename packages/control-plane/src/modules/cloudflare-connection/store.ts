@@ -24,7 +24,13 @@ export const STATE_TTL_MS = 10 * 60 * 1000;
 /** Refresh this long before the access token actually expires. */
 export const EXPIRY_SKEW_MS = 60 * 1000;
 /** How long one caller may hold the refresh lease. */
-export const REFRESH_LEASE_MS = 15 * 1000;
+export const REFRESH_LEASE_MS = 30 * 1000;
+/**
+ * The token request is aborted after this, well inside the lease, so a slow
+ * Cloudflare cannot keep a refresh running after another caller may have
+ * taken the lease over and spent the same (rotating) refresh token.
+ */
+export const REFRESH_TIMEOUT_MS = 10 * 1000;
 
 export const CALLBACK_PATH = "/oauth/cloudflare/callback";
 
@@ -127,6 +133,7 @@ interface ConnectionRow {
   accounts: string;
   generation: string;
   refreshLeaseUntil: number | null;
+  refreshLeaseOwner: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -167,6 +174,7 @@ export async function saveConnection(
        accounts = excluded.accounts,
        generation = excluded.generation,
        refreshLeaseUntil = NULL,
+       refreshLeaseOwner = NULL,
        updatedAt = excluded.updatedAt`,
   )
     .bind(
@@ -300,12 +308,16 @@ export async function getCloudflareAccessToken(
       throw new CloudflareReauthRequiredError("access token expired and no refresh token");
     }
 
+    // Every write below is fenced by both the grant generation and this
+    // lease owner: once our lease has run out and someone else holds it, we
+    // neither store our tokens nor release their lease.
+    const owner = crypto.randomUUID();
     const lease = await env.DB.prepare(
-      `UPDATE cloudflare_connection SET refreshLeaseUntil = ?
+      `UPDATE cloudflare_connection SET refreshLeaseUntil = ?, refreshLeaseOwner = ?
        WHERE teamId = ? AND generation = ?
          AND (refreshLeaseUntil IS NULL OR refreshLeaseUntil < ?)`,
     )
-      .bind(now + REFRESH_LEASE_MS, teamId, row.generation, now)
+      .bind(now + REFRESH_LEASE_MS, owner, teamId, row.generation, now)
       .run();
 
     if (lease.meta.changes !== 1) {
@@ -320,6 +332,7 @@ export async function getCloudflareAccessToken(
         config,
         await decrypt(row.encryptedRefreshToken, key),
         row.grantedScopes.split(" ").filter(Boolean),
+        AbortSignal.timeout(REFRESH_TIMEOUT_MS),
       );
     } catch (err) {
       if (err instanceof OAuthGrantError && err.code === "invalid_grant") {
@@ -328,20 +341,21 @@ export async function getCloudflareAccessToken(
         // meanwhile. Any other error (a 429, invalid_client from our own
         // misconfiguration) leaves the token for the next attempt.
         const dropped = await env.DB.prepare(
-          `UPDATE cloudflare_connection SET encryptedRefreshToken = NULL, refreshLeaseUntil = NULL
-           WHERE teamId = ? AND generation = ?`,
+          `UPDATE cloudflare_connection
+           SET encryptedRefreshToken = NULL, refreshLeaseUntil = NULL, refreshLeaseOwner = NULL
+           WHERE teamId = ? AND generation = ? AND refreshLeaseOwner = ?`,
         )
-          .bind(teamId, row.generation)
+          .bind(teamId, row.generation, owner)
           .run();
-        // The team reconnected meanwhile: the rejected token was the old grant's.
+        // The team reconnected, or our lease was taken over: not ours to drop.
         if (dropped.meta.changes !== 1) continue;
         throw new CloudflareReauthRequiredError(err.code);
       }
       await env.DB.prepare(
-        `UPDATE cloudflare_connection SET refreshLeaseUntil = NULL
-         WHERE teamId = ? AND generation = ?`,
+        `UPDATE cloudflare_connection SET refreshLeaseUntil = NULL, refreshLeaseOwner = NULL
+         WHERE teamId = ? AND generation = ? AND refreshLeaseOwner = ?`,
       )
-        .bind(teamId, row.generation)
+        .bind(teamId, row.generation, owner)
         .run();
       throw err;
     }
@@ -349,8 +363,9 @@ export async function getCloudflareAccessToken(
     const write = await env.DB.prepare(
       `UPDATE cloudflare_connection SET
          encryptedAccessToken = ?, encryptedRefreshToken = ?, accessTokenExpiresAt = ?,
-         grantedScopes = ?, generation = ?, refreshLeaseUntil = NULL, updatedAt = ?
-       WHERE teamId = ? AND generation = ?`,
+         grantedScopes = ?, generation = ?, refreshLeaseUntil = NULL, refreshLeaseOwner = NULL,
+         updatedAt = ?
+       WHERE teamId = ? AND generation = ? AND refreshLeaseOwner = ?`,
     )
       .bind(
         await encrypt(tokens.accessToken, key),
@@ -361,10 +376,11 @@ export async function getCloudflareAccessToken(
         Date.now(),
         teamId,
         row.generation,
+        owner,
       )
       .run();
     if (write.meta.changes !== 1) {
-      // The team reconnected (or disconnected) while we refreshed; ours is stale.
+      // The team reconnected, or our lease was taken over: ours is stale.
       continue;
     }
     return tokens.accessToken;

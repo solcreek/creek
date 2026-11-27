@@ -119,9 +119,11 @@ async function tokenRequest(
   config: OAuthClientConfig,
   params: Record<string, string>,
   fallbackScopes: string[],
+  signal?: AbortSignal,
 ): Promise<TokenSet> {
   const res = await fetch(new URL("/oauth2/token", CLOUDFLARE_AUTH_ORIGIN), {
     method: "POST",
+    signal,
     headers: {
       authorization: basicAuth(config),
       "content-type": "application/x-www-form-urlencoded",
@@ -174,11 +176,13 @@ export async function refreshTokens(
   config: OAuthClientConfig,
   refreshToken: string,
   previousScopes: string[],
+  signal?: AbortSignal,
 ): Promise<TokenSet> {
   const tokens = await tokenRequest(
     config,
     { grant_type: "refresh_token", refresh_token: refreshToken },
     previousScopes,
+    signal,
   );
   // A server that doesn't rotate returns no new refresh token: keep the old one.
   return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };

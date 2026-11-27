@@ -489,6 +489,7 @@ export const cloudflareConnection = sqliteTable("cloudflare_connection", {
   // Fresh random value on every write; fences refresh updates (see 0015).
   generation: text("generation").notNull(),
   refreshLeaseUntil: integer("refreshLeaseUntil"),
+  refreshLeaseOwner: text("refreshLeaseOwner"),
   createdAt: integer("createdAt").notNull(),
   updatedAt: integer("updatedAt").notNull(),
 });
