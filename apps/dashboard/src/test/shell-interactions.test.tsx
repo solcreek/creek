@@ -19,6 +19,28 @@ import { server } from "./mocks/server.js";
 
 const API_URL = "http://localhost:8787";
 
+function mockBrokenResource() {
+  server.use(
+    http.get(`${API_URL}/resources/broken`, () =>
+      HttpResponse.json({
+        id: "broken",
+        teamId: "org-1",
+        kind: "database",
+        name: "broken",
+        cfResourceId: null,
+        cfResourceType: null,
+        status: "active",
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+        // Triggers a render-time TypeError in BindingsSection so the
+        // authenticated layout's CatchBoundary catches it with AppShell intact.
+        bindings: null,
+      }),
+    ),
+    http.get(`${API_URL}/resources/broken/metrics`, () => HttpResponse.json({})),
+  );
+}
+
 describe("dashboard shell interactions", () => {
   test("opens TeamSwitcher dropdown without Base UI errors", async () => {
     const user = userEvent.setup();
@@ -212,6 +234,52 @@ describe("dashboard shell interactions", () => {
       await waitFor(() => {
         expect(screen.getByRole("heading", { name: "Recovered Page" })).toBeInTheDocument();
       });
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  test("authenticated layout preserves AppShell on child page crash and resets on sidebar navigation", async () => {
+    const user = userEvent.setup();
+    mockBrokenResource();
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      renderDashboardApp("/resources/broken");
+
+      expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
+
+      const sidebar = document.querySelector('[data-sidebar="sidebar"]') as HTMLElement;
+      expect(sidebar).toBeTruthy();
+      expect(screen.getByRole("button", { name: /All Projects/i })).toBeInTheDocument();
+
+      await user.click(within(sidebar).getByRole("link", { name: "Settings" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Settings", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  test("Go to Projects button recovers from authenticated child page error", async () => {
+    const user = userEvent.setup();
+    mockBrokenResource();
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      renderDashboardApp("/resources/broken");
+
+      expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /Go to Projects/i }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Projects", level: 1 }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
     } finally {
       consoleSpy.mockRestore();
     }
