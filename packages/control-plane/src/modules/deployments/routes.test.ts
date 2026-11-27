@@ -676,6 +676,65 @@ describe("GET /deployments/:id", () => {
     expect(json.errorCode).toBeUndefined();
     expect(json.errorHint).toBeUndefined();
   });
+
+  test("uses active primary custom domain as url and preserves defaultUrl", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', '${DEPLOYMENT_ID}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, isPrimary, createdAt) VALUES
+       ('cd-primary', '${PROJECT_ID}', 'app.example.com', 'active', 1, ${now}),
+       ('cd-alt', '${PROJECT_ID}', 'alt.example.com', 'active', 0, ${now + 1}),
+       ('cd-pending', '${PROJECT_ID}', 'pending.example.com', 'pending', 0, ${now + 2})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.url).toBe("https://app.example.com");
+    expect(json.defaultUrl).toBe(`https://my-app-${teamSlug}.bycreek.com`);
+    expect(json.primaryDomain).toBe("app.example.com");
+    expect(json.customDomains).toEqual(["app.example.com", "alt.example.com"]);
+  });
+
+  test("does not override url with pending primary custom domain or on preview deployments", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', '${DEPLOYMENT_ID}', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt) VALUES
+       ('${DEPLOYMENT_ID}', '${PROJECT_ID}', 2, 'active', 'cli', ${now}, ${now}),
+       ('dep-preview', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, isPrimary, createdAt)
+       VALUES ('cd-pending-primary', '${PROJECT_ID}', 'pending.example.com', 'pending', 1, ${now})`,
+    );
+
+    const prodRes = await req("GET", `/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}`);
+    const prodJson = (await prodRes.json()) as any;
+    expect(prodJson.url).toBe(`https://my-app-${teamSlug}.bycreek.com`);
+    expect(prodJson.primaryDomain).toBeUndefined();
+    expect(prodJson.customDomains).toBeUndefined();
+
+    // Activate the domain, then verify preview deployment still omits custom domains and keeps url: null
+    testEnv.db.db.exec(
+      "UPDATE custom_domain SET status = 'active' WHERE id = 'cd-pending-primary'",
+    );
+    const previewRes = await req("GET", `/projects/${PROJECT_ID}/deployments/dep-preview`);
+    const previewJson = (await previewRes.json()) as any;
+    expect(previewJson.url).toBeNull();
+    expect(previewJson.primaryDomain).toBeUndefined();
+    expect(previewJson.customDomains).toBeUndefined();
+  });
 });
 
 // --- GET /projects/:id/deployments ---
@@ -710,5 +769,41 @@ describe("GET /deployments list", () => {
     // Active non-production -> preview URL with 8-char short id
     const preview = json.find((d) => d.id === "d3preview000")!;
     expect(preview.url).toBe(`https://my-app-d3previe-${TEST_TEAM.slug}.${"bycreek.com"}`);
+  });
+
+  test("attaches active primary custom domain onto active production row", async () => {
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT OR IGNORE INTO project (id, slug, organizationId, productionDeploymentId, productionBranch, createdAt, updatedAt)
+       VALUES ('${PROJECT_ID}', 'my-app', '${teamId}', 'd1abcdef12345', 'main', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt) VALUES
+       ('d1abcdef12345', '${PROJECT_ID}', 2, 'active', 'cli', ${now}, ${now}),
+       ('d3preview000', '${PROJECT_ID}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `INSERT INTO custom_domain (id, projectId, hostname, status, isPrimary, createdAt)
+       VALUES ('cd-1', '${PROJECT_ID}', 'app.example.com', 'active', 1, ${now})`,
+    );
+
+    const res = await req("GET", `/projects/${PROJECT_ID}/deployments`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Array<{
+      id: string;
+      url: string | null;
+      defaultUrl?: string;
+      primaryDomain?: string;
+      customDomains?: string[];
+    }>;
+    const prod = json.find((d) => d.id === "d1abcdef12345")!;
+    expect(prod.url).toBe("https://app.example.com");
+    expect(prod.defaultUrl).toBe(`https://my-app-${teamSlug}.bycreek.com`);
+    expect(prod.primaryDomain).toBe("app.example.com");
+    expect(prod.customDomains).toEqual(["app.example.com"]);
+
+    const preview = json.find((d) => d.id === "d3preview000")!;
+    expect(preview.url).toBe(`https://my-app-d3previe-${teamSlug}.bycreek.com`);
+    expect(preview.primaryDomain).toBeUndefined();
   });
 });

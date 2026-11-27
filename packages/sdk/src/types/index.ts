@@ -238,6 +238,12 @@ export interface CreateDeploymentResponse {
 export interface DeploymentStatusResponse {
   deployment: Deployment;
   url: string | null;
+  /** Default `{slug}-{team}.{domain}` URL when `url` is an active primary custom domain. */
+  defaultUrl?: string | null;
+  /** Hostname of the active primary custom domain, when present on production. */
+  primaryDomain?: string | null;
+  /** Hostnames of active custom domains attached to the project (primary first). */
+  customDomains?: string[];
   previewUrl: string;
   /**
    * Present only when `deployment.status === "failed"`. A stable, machine-

@@ -89,6 +89,46 @@ describe("CreekClient errors", () => {
     expect(err).toBeInstanceOf(CreekAuthError);
     expect((err as Error).message).toBe("Invalid key");
   });
+
+  test("reads Better Auth `code` when `error` field is absent", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, { message: "Invalid API key.", code: "INVALID_API_KEY" }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekApiError);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "INVALID_API_KEY",
+      message: "Invalid API key.",
+    });
+  });
+
+  test("preserves edge metadata on non-JSON 403 responses", async () => {
+    mockFetch.mockResolvedValue(
+      new Response("<html><body>Blocked</body></html>", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: {
+          "content-type": "text/html",
+          "cf-ray": "abc123-DFW",
+          "cf-mitigated": "challenge",
+        },
+      }),
+    );
+    const err = await client.listProjects().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekApiError);
+    expect(err).toMatchObject({
+      status: 403,
+      code: "unknown",
+      message: "Forbidden",
+      details: {
+        nonJson: true,
+        contentType: "text/html",
+        cfRay: "abc123-DFW",
+        cfMitigated: "challenge",
+      },
+    });
+  });
 });
 
 describe("CreekClient", () => {
@@ -177,6 +217,36 @@ describe("CreekClient", () => {
   test("getSession returns null for a key the API will not use (403)", async () => {
     mockFetch.mockResolvedValue(jsonResponse(403, { error: "team_mismatch", message: "x" }));
     expect(await client.getSession()).toBeNull();
+  });
+
+  test("getSession returns null for Better Auth INVALID_API_KEY (403)", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(403, { message: "Invalid API key.", code: "INVALID_API_KEY" }),
+    );
+    expect(await client.getSession()).toBeNull();
+  });
+
+  test("getSession throws on non-JSON 403 (edge/WAF block) instead of returning null", async () => {
+    mockFetch.mockResolvedValue(
+      new Response("<html>Attention Required!</html>", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: {
+          "content-type": "text/html; charset=UTF-8",
+          "cf-ray": "ray-edge-DFW",
+          "cf-mitigated": "challenge",
+        },
+      }),
+    );
+    await expect(client.getSession()).rejects.toMatchObject({
+      status: 403,
+      details: {
+        nonJson: true,
+        contentType: "text/html; charset=UTF-8",
+        cfRay: "ray-edge-DFW",
+        cfMitigated: "challenge",
+      },
+    });
   });
 
   test("getSession throws, not null, when the failure says nothing about the key", async () => {
@@ -512,6 +582,26 @@ describe("following a deployment", () => {
     expect(preview.url).toBe("https://site-0123abcd-team.bycreek.com");
     const building = toDeploymentView("site", FULL, statusBody() as never);
     expect(building).toMatchObject({ url: null, terminal: false, final: false });
+    const custom = toDeploymentView(
+      "site",
+      FULL,
+      statusBody(
+        { status: "active" },
+        {
+          url: "https://app.example.com",
+          defaultUrl: "https://site-team.bycreek.com",
+          primaryDomain: "app.example.com",
+          customDomains: ["app.example.com", "alt.example.com"],
+        },
+      ) as never,
+    );
+    expect(custom).toMatchObject({
+      url: "https://app.example.com",
+      defaultUrl: "https://site-team.bycreek.com",
+      primaryDomain: "app.example.com",
+      customDomains: ["app.example.com", "alt.example.com"],
+      isProduction: true,
+    });
   });
 
   test("waitForDeployment polls until a final status", async () => {

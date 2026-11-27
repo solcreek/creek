@@ -3,7 +3,13 @@ import consola from "consola";
 import { CreekClient } from "@solcreek/sdk";
 import { exitApiMismatch, getTokenInfo, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
-import { describeTokenSource, envOverrideWarning, keyLines, lookupKey } from "../utils/api-key.js";
+import {
+  describeTokenSource,
+  diagnoseTokenFormat,
+  envOverrideWarning,
+  keyLines,
+  lookupKey,
+} from "../utils/api-key.js";
 
 const UNBOUND_NOTE =
   "This key was saved by an older CLI and isn't bound to an API. Run `creek login --token <KEY>` again against the intended API to bind it.";
@@ -44,6 +50,30 @@ export const whoamiCommand = defineCommand({
     if (info.source === "config" && info.savedKeyApiMismatch)
       exitApiMismatch(jsonMode, info, "send it", { authenticated: false });
 
+    const formatIssue = diagnoseTokenFormat(token);
+    if (formatIssue?.code === "contains_newline") {
+      const base =
+        info.source === "env:CREEK_TOKEN"
+          ? "The API key in CREEK_TOKEN could not be sent."
+          : "The saved API key could not be sent.";
+      const message = `${base} ${formatIssue.message}`;
+      if (jsonMode)
+        jsonOutput(
+          {
+            ok: false,
+            authenticated: false,
+            error: "session_expired",
+            message,
+            tokenSource: info.source,
+            tokenFormatIssue: formatIssue.code,
+          },
+          1,
+          AUTH_BREADCRUMBS,
+        );
+      consola.error(message);
+      process.exit(1);
+    }
+
     const client = new CreekClient(getApiUrl(), token);
     // Fetched independently: /api-keys/self also answers for a key the
     // session check refuses (403: its owner left the pinned team, or its
@@ -79,10 +109,11 @@ export const whoamiCommand = defineCommand({
     }
 
     if (!session?.user) {
-      const message =
+      const base =
         info.source === "env:CREEK_TOKEN"
           ? "The API key in CREEK_TOKEN was refused (revoked, expired or invalid). Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
           : "The saved API key was refused (revoked, expired or invalid). Run `creek login` to re-authenticate.";
+      const message = formatIssue ? `${base} ${formatIssue.message}` : base;
       if (jsonMode)
         jsonOutput(
           {
@@ -91,6 +122,7 @@ export const whoamiCommand = defineCommand({
             error: "session_expired",
             message,
             tokenSource: info.source,
+            ...(formatIssue ? { tokenFormatIssue: formatIssue.code } : {}),
           },
           1,
           AUTH_BREADCRUMBS,

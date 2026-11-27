@@ -35,6 +35,12 @@ export interface DeploymentView {
   errorHint: string | null;
   /** The production URL when it serves production, else its preview URL once active. */
   url: string | null;
+  /** Default `{slug}-{team}.{domain}` URL when `url` is an active primary custom domain. */
+  defaultUrl?: string;
+  /** Hostname of the active primary custom domain, when present on production. */
+  primaryDomain?: string;
+  /** Hostnames of active custom domains attached to the project (primary first). */
+  customDomains?: string[];
   previewUrl: string | null;
   isProduction: boolean;
   createdAt: number | null;
@@ -53,6 +59,13 @@ export function toDeploymentView(
   const terminal = status !== null && TERMINAL_DEPLOYMENT_STATUSES.has(status);
   const productionUrl = str(res?.url);
   const previewUrl = str(res?.previewUrl);
+  const defaultUrl = str(res?.defaultUrl);
+  const primaryDomain = str(res?.primaryDomain);
+  const customDomains = Array.isArray(res?.customDomains)
+    ? res.customDomains.filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
+    : [];
   return {
     project,
     deploymentId: str(d.id) ?? requestedId,
@@ -69,6 +82,9 @@ export function toDeploymentView(
     errorHint: str(res?.errorHint),
     // A deployment's own preview URL answers only once it is active.
     url: productionUrl ?? (status === "active" ? previewUrl : null),
+    ...(defaultUrl ? { defaultUrl } : {}),
+    ...(primaryDomain ? { primaryDomain } : {}),
+    ...(customDomains.length > 0 ? { customDomains } : {}),
     previewUrl,
     isProduction: productionUrl !== null,
     createdAt: num(d.createdAt),

@@ -11,7 +11,7 @@ import {
 } from "../utils/config.js";
 import { startAuthServer } from "../utils/auth-server.js";
 import { globalArgs, resolveJsonMode, jsonOutput, isTTY } from "../utils/output.js";
-import { envOverrideWarning } from "../utils/api-key.js";
+import { envOverrideWarning, diagnoseTokenFormat } from "../utils/api-key.js";
 
 function openBrowser(url: string): void {
   try {
@@ -125,6 +125,23 @@ async function headlessLogin() {
  * Validate key against API, save to config, print success.
  */
 async function saveAndVerify(apiKey: string, jsonMode = false) {
+  const formatIssue = diagnoseTokenFormat(apiKey);
+  if (formatIssue?.code === "contains_newline") {
+    const message = `Invalid API key. ${formatIssue.message}`;
+    if (jsonMode)
+      jsonOutput(
+        { ok: false, error: "invalid_token", message, tokenFormatIssue: formatIssue.code },
+        1,
+        [
+          {
+            command: "creek login --token <KEY> --json",
+            description: "Retry with a valid API key",
+          },
+        ],
+      );
+    consola.error(message);
+    process.exit(1);
+  }
   if (!jsonMode) consola.start("Verifying...");
   // One URL for both: the key is bound to exactly the API that verified it,
   // even if the configured API changes while getSession() is pending.
@@ -133,14 +150,28 @@ async function saveAndVerify(apiKey: string, jsonMode = false) {
   const session = await client.getSession();
 
   if (!session?.user) {
+    const message = formatIssue ? `Invalid API key. ${formatIssue.message}` : "Invalid API key";
     if (jsonMode)
-      jsonOutput({ ok: false, error: "invalid_token", message: "Invalid API key" }, 1, [
+      jsonOutput(
         {
-          command: "creek login --token <KEY> --json",
-          description: "Retry with a valid API key",
+          ok: false,
+          error: "invalid_token",
+          message,
+          ...(formatIssue ? { tokenFormatIssue: formatIssue.code } : {}),
         },
-      ]);
-    consola.error("Invalid API key. Please check and try again.");
+        1,
+        [
+          {
+            command: "creek login --token <KEY> --json",
+            description: "Retry with a valid API key",
+          },
+        ],
+      );
+    consola.error(
+      formatIssue
+        ? `Invalid API key. ${formatIssue.message}`
+        : "Invalid API key. Please check and try again.",
+    );
     process.exit(1);
   }
 
