@@ -308,9 +308,12 @@ export async function getCloudflareAccessToken(
       throw new CloudflareReauthRequiredError("access token expired and no refresh token");
     }
 
-    // Every write below is fenced by both the grant generation and this
-    // lease owner: once our lease has run out and someone else holds it, we
-    // neither store our tokens nor release their lease.
+    // Writes below are fenced by the grant generation (the team may have
+    // reconnected meanwhile). Releasing the lease and dropping a rejected
+    // token are also fenced by this owner: once our lease has run out and
+    // someone else holds it, those are theirs to do. Storing tokens we were
+    // served is not: Cloudflare rotates refresh tokens, so a success holds
+    // the only valid one, whoever holds the lease.
     const owner = crypto.randomUUID();
     const lease = await env.DB.prepare(
       `UPDATE cloudflare_connection SET refreshLeaseUntil = ?, refreshLeaseOwner = ?
@@ -365,7 +368,7 @@ export async function getCloudflareAccessToken(
          encryptedAccessToken = ?, encryptedRefreshToken = ?, accessTokenExpiresAt = ?,
          grantedScopes = ?, generation = ?, refreshLeaseUntil = NULL, refreshLeaseOwner = NULL,
          updatedAt = ?
-       WHERE teamId = ? AND generation = ? AND refreshLeaseOwner = ?`,
+       WHERE teamId = ? AND generation = ?`,
     )
       .bind(
         await encrypt(tokens.accessToken, key),
@@ -376,11 +379,10 @@ export async function getCloudflareAccessToken(
         Date.now(),
         teamId,
         row.generation,
-        owner,
       )
       .run();
     if (write.meta.changes !== 1) {
-      // The team reconnected, or our lease was taken over: ours is stale.
+      // The team reconnected (or disconnected) while we refreshed: ours is stale.
       continue;
     }
     return tokens.accessToken;

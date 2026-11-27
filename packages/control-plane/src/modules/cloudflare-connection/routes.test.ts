@@ -549,16 +549,18 @@ describe("getCloudflareAccessToken", () => {
       expect(connectionRow()!.refreshLeaseUntil).toBe(SUCCESSOR_LEASE);
     });
 
-    it("does not write its tokens over the successor's refresh", async () => {
+    it("still stores tokens it was served: with rotation they are the only valid ones", async () => {
       await saveWith({ expiresAt: 1 });
+      const generationBefore = connectionRow()!.generation;
       refreshWhoseLeaseIsTaken(() =>
         Response.json({ access_token: "late-at", refresh_token: "late-rt", expires_in: 3600 }),
       );
-      await store
-        .getCloudflareAccessToken(env, config(), TEAM, { maxWaits: 0, sleep: async () => {} })
-        .catch(() => {});
-      expect(connectionRow()!.refreshLeaseUntil).toBe(SUCCESSOR_LEASE);
-      expect(connectionRow()!.accessTokenExpiresAt).toBe(1);
+      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("late-at");
+      // A new generation: the successor's invalid_grant drop (fenced by the
+      // old generation) now matches nothing, and it re-reads these tokens.
+      expect(connectionRow()!.generation).not.toBe(generationBefore);
+      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
+      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("late-at");
     });
 
     it("gives up on the token endpoint well before the lease runs out", async () => {
