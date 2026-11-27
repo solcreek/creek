@@ -37,6 +37,10 @@ import { purgeExpiredBuildLogs } from "./modules/build-logs/purge.js";
 import { resources, resourceBindings } from "./modules/resources/routes.js";
 import { aggregateYesterday } from "./modules/metering/aggregate.js";
 import { apiKeys, apiKeysAuth } from "./modules/api-keys/routes.js";
+import {
+  cloudflareConnection,
+  cloudflareOAuthCallback,
+} from "./modules/cloudflare-connection/routes.js";
 
 import type { AuditRequestContext } from "./modules/audit/types.js";
 import {
@@ -220,6 +224,15 @@ app.route("/github", githubRoutes);
 app.use("/api-keys/*", apiKeysAuth);
 app.use("/api-keys/*", auditContextMiddleware);
 app.route("/api-keys", apiKeys);
+
+// "Connect Cloudflare": a team's OAuth grant to its own Cloudflare account.
+// The callback is a top-level redirect from dash.cloudflare.com with no team
+// header, so it sits outside tenantMiddleware and checks state + session itself.
+app.use("/integrations/cloudflare", tenantMiddleware, auditContextMiddleware);
+app.use("/integrations/cloudflare/*", tenantMiddleware, auditContextMiddleware);
+app.route("/integrations/cloudflare", cloudflareConnection);
+app.use("/oauth/cloudflare/*", auditContextMiddleware);
+app.route("/oauth/cloudflare", cloudflareOAuthCallback);
 
 // GET /preview/:slug/* (local dispatch stand-in) is mounted by src/local/serve.ts only.
 

@@ -56,6 +56,15 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY: string; // PEM (PKCS#1 or PKCS#8 — auto-detected)
   GITHUB_WEBHOOK_SECRET: string;
 
+  // "Connect Cloudflare" OAuth client (modules/cloudflare-connection). Both
+  // unset = the feature answers 503 not_configured.
+  CLOUDFLARE_OAUTH_CLIENT_ID?: string;
+  CLOUDFLARE_OAUTH_CLIENT_SECRET?: string;
+  /** Space-separated scope ids; overrides DEFAULT_SCOPES in cloudflare-connection/oauth.ts. */
+  CLOUDFLARE_OAUTH_SCOPES?: string;
+  /** Where the OAuth callback sends the browser back to. Default https://app.creek.dev. */
+  DASHBOARD_URL?: string;
+
   // Web deploy (public, no auth required)
   BUILD_STATUS: KVNamespace;
   REMOTE_BUILDER: Fetcher;
