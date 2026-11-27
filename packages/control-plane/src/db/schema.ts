@@ -472,6 +472,9 @@ export const cloudflareOauthState = sqliteTable("cloudflare_oauth_state", {
   expiresAt: integer("expiresAt").notNull(),
 });
 
+// Superseded: a team's grant (tokens and status) now lives in its
+// CloudflareGrant Durable Object (modules/cloudflare-connection/grant-object.ts).
+// Unread; dropped by a later migration.
 export const cloudflareConnection = sqliteTable("cloudflare_connection", {
   teamId: text("teamId")
     .primaryKey()

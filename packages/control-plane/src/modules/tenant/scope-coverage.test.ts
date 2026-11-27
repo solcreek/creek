@@ -82,6 +82,7 @@ const MANIFEST: Record<string, string> = {
   "DELETE /api-keys/:id": "session-only",
   "GET /integrations/cloudflare": "session-only",
   "POST /integrations/cloudflare/authorize": "session-only",
+  "POST /integrations/cloudflare/verify": "session-only",
   "DELETE /integrations/cloudflare": "session-only",
   "GET /oauth/cloudflare/callback": "public",
 };

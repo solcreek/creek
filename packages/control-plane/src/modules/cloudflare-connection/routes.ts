@@ -3,10 +3,14 @@
  *
  *   GET    /integrations/cloudflare            the team's connection, if any
  *   POST   /integrations/cloudflare/authorize  start: returns the consent URL
+ *   POST   /integrations/cloudflare/verify     get a token (refreshing it if due) and call Cloudflare
  *   DELETE /integrations/cloudflare            disconnect (and revoke at Cloudflare)
  *   GET    /oauth/cloudflare/callback          Cloudflare redirects the browser here
  *
- * The first three run behind tenantMiddleware and are dashboard-only: an API
+ * The grant (tokens and status) lives in the team's CloudflareGrant Durable
+ * Object (grant-object.ts); these routes only talk to it.
+ *
+ * The first four run behind tenantMiddleware and are dashboard-only: an API
  * key cannot attach or detach an external account. The callback has no team
  * header (it is a top-level redirect from dash.cloudflare.com), so it is a
  * separate mount; it authenticates by the single-use state AND the session
@@ -22,16 +26,14 @@ import { recordAudit } from "../audit/service.js";
 import { createAuth } from "../tenant/auth.js";
 import { requirePermission, roleGrants } from "../tenant/permissions.js";
 import { isApiKeyRequest, markGuard, publicRoute } from "../tenant/scope-guard.js";
-import { exchangeCode, listAccounts, revokeToken, type CloudflareAccount } from "./oauth.js";
+import { grantClient, type TokenResult } from "./grant-object.js";
+import { exchangeCode, listAccounts, type CloudflareAccount } from "./oauth.js";
 import {
   consumeState,
   createAuthorizationRequest,
   dashboardUrl,
-  deleteConnection,
-  getConnectionStatus,
   oauthConfig,
   safeReturnTo,
-  saveConnection,
 } from "./store.js";
 
 // The dashboard's existing settings page (apps/dashboard has no integrations
@@ -73,8 +75,11 @@ type ManageEnv = {
 export const cloudflareConnection = new Hono<ManageEnv>();
 
 cloudflareConnection.get("/", dashboardOnly, requirePermission("project:read"), async (c) => {
+  // No grant objects on this instance (e.g. a self-host without the
+  // binding): nothing can be connected, and the page must still load.
+  if (!c.env.CLOUDFLARE_GRANTS) return c.json({ configured: false, connected: false });
   const configured = oauthConfig(c.env) !== null;
-  const status = await getConnectionStatus(c.env.DB, c.get("teamId"));
+  const status = await grantClient(c.env, c.get("teamId")).status();
   return c.json(status ? { configured, ...status } : { configured, connected: false });
 });
 
@@ -88,6 +93,14 @@ cloudflareConnection.post(
     if (!c.env.ENCRYPTION_KEY) {
       return c.json({ error: "not_configured", message: "ENCRYPTION_KEY is not configured" }, 503);
     }
+    // Refuse before the consent screen, not after it: without grant objects
+    // the callback could not store what the user authorized.
+    if (!c.env.CLOUDFLARE_GRANTS) {
+      return c.json(
+        { error: "not_configured", message: "CLOUDFLARE_GRANTS binding is not configured" },
+        503,
+      );
+    }
 
     const body = (await c.req.json().catch(() => ({}))) as { returnTo?: unknown };
     const url = await createAuthorizationRequest(c.env, config, {
@@ -99,22 +112,44 @@ cloudflareConnection.post(
   },
 );
 
+const TOKEN_ERROR_STATUS = {
+  not_connected: 404,
+  reauth_required: 409,
+  not_configured: 503,
+  upstream_error: 502,
+} as const;
+
+/**
+ * Prove the grant works end to end: get a token (refreshing it when due)
+ * and list the accounts it reaches. The dashboard's "test connection".
+ */
+cloudflareConnection.post(
+  "/verify",
+  dashboardOnly,
+  requirePermission("project:read"),
+  async (c) => {
+    const result: TokenResult = await grantClient(c.env, c.get("teamId")).token();
+    if (!result.ok) {
+      return c.json(
+        { error: result.error, message: result.message },
+        TOKEN_ERROR_STATUS[result.error],
+      );
+    }
+    try {
+      const accounts = await listAccounts(result.accessToken);
+      return c.json({ ok: true, accounts });
+    } catch (err) {
+      return c.json({ error: "upstream_error", message: String(err) }, 502);
+    }
+  },
+);
+
 cloudflareConnection.delete("/", dashboardOnly, requirePermission("domain:manage"), async (c) => {
   const teamId = c.get("teamId");
-  const deleted = await deleteConnection(c.env, teamId);
-  if (!deleted) return c.json({ error: "not_found", message: "No Cloudflare connection" }, 404);
-  const tokens = deleted.tokens;
-
   // Revoking the refresh token ends the whole grant at Cloudflare; the user
-  // can also see and revoke it under their Cloudflare profile. Best-effort:
-  // the local row is already gone either way.
-  const config = oauthConfig(c.env);
-  let revoked = false;
-  if (config && tokens) {
-    revoked = tokens.refreshToken
-      ? await revokeToken(config, tokens.refreshToken)
-      : await revokeToken(config, tokens.accessToken);
-  }
+  // can also see and revoke it under their Cloudflare profile.
+  const { existed, revoked } = await grantClient(c.env, teamId).disconnect();
+  if (!existed) return c.json({ error: "not_found", message: "No Cloudflare connection" }, 404);
 
   await recordAudit(
     c.env.DB,
@@ -208,7 +243,20 @@ cloudflareOAuthCallback.get("/callback", publicRoute, async (c) => {
     console.error("[cloudflare-oauth] listing accounts failed:", err);
   }
 
-  await saveConnection(c.env, pending.teamId, pending.userId, tokens, accounts);
+  try {
+    await grantClient(c.env, pending.teamId).connect({
+      teamId: pending.teamId,
+      userId: pending.userId,
+      tokens,
+      accounts,
+    });
+  } catch (err) {
+    // The object stores the grant in a single write, so it either has the
+    // whole grant or none of it (the call may also have failed after that
+    // write). Either way connecting again is safe: it replaces the grant.
+    console.error("[cloudflare-oauth] storing the grant failed:", err);
+    return backToDashboard(c, returnTo, { error: "storage_failed" });
+  }
 
   const user: AuthUser = {
     id: session.user.id,

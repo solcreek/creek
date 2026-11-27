@@ -19,6 +19,7 @@ import { LocalR2Bucket } from "./r2-adapter.js";
 import { LocalKVNamespace } from "./kv-adapter.js";
 import { mountLocalPreview } from "./preview-route.js";
 import type { Env } from "../types.js";
+import { createInMemoryGrantNamespace } from "../modules/cloudflare-connection/grant-object.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.CREEK_DATA_DIR || join(__dirname, "../../.creek-local");
@@ -115,6 +116,9 @@ async function main() {
     ENCRYPTION_KEY: envVars.ENCRYPTION_KEY || "",
     IP_HASH_SALT: envVars.IP_HASH_SALT || "",
   };
+  // In-process stand-in for the CloudflareGrant Durable Objects. Grants are
+  // held in memory: a local restart forgets them (reconnect).
+  env.CLOUDFLARE_GRANTS = createInMemoryGrantNamespace(env);
 
   // Import the app — it's a module-level const so we need dynamic import
   // and inject env via Hono's middleware

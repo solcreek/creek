@@ -188,11 +188,15 @@ export async function refreshTokens(
   return { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
 }
 
+export const REVOKE_TIMEOUT_MS = 10 * 1000;
+
 /** Best-effort RFC 7009 revocation. Never throws: disconnect must still succeed locally. */
 export async function revokeToken(config: OAuthClientConfig, token: string): Promise<boolean> {
   try {
     const res = await fetch(new URL("/oauth2/revoke", CLOUDFLARE_AUTH_ORIGIN), {
       method: "POST",
+      // Bounded: a disconnect waits on this, and holds off connects meanwhile.
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
       headers: {
         authorization: basicAuth(config),
         "content-type": "application/x-www-form-urlencoded",
