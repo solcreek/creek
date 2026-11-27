@@ -166,6 +166,40 @@ describe("runCli (JSON mode error conversion)", () => {
     );
   });
 
+  it("reports a non-JSON 403 block with edge_blocked firewall/proxy guidance", async () => {
+    const blocked = defineCommand({
+      meta: { name: "blocked" },
+      run() {
+        throw new CreekApiError(403, "unknown", "", {
+          nonJson: true,
+          contentType: "text/html",
+          cfRay: "ray-h2-DFW",
+          cfMitigated: "challenge",
+        });
+      },
+    });
+    vi.spyOn(consola, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const code = await runExit(runCli(blocked, [], { jsonMode: true }));
+    expect(code).toBe(1);
+    const out = JSON.parse(stdout);
+    expect(out).toMatchObject({
+      ok: false,
+      error: "edge_blocked",
+      status: 403,
+      apiError: "edge_blocked",
+      details: {
+        nonJson: true,
+        contentType: "text/html",
+        cfRay: "ray-h2-DFW",
+        cfMitigated: "challenge",
+      },
+    });
+    expect(out.message).toContain("blocked with HTTP 403 before reaching the Creek API");
+    expect(out.message).toContain("firewall, Cloudflare rule, or proxy");
+    expect(out.message).toContain("ray-h2-DFW");
+  });
+
   it("reports an unreachable server as api_unreachable, not internal_error", async () => {
     const offline = defineCommand({
       meta: { name: "offline" },

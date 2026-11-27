@@ -128,6 +128,9 @@ export function unreachableFields(err: unknown): UnreachableFields | null {
  *   (`insufficient_scope`, `binding_conflict`, …) and its other fields as
  *   `details` (`required` / `granted`, `conflicts`, `newBindings`). The
  *   command's own `error` code stays.
+ * - a non-JSON 403 block: `status: 403`, `apiError: "edge_blocked"`, a diagnostic
+ *   `message` with firewall/proxy guidance, and `details` (`nonJson`, `contentType`,
+ *   `cfRay`, `cfMitigated`).
  * - a network failure: `error: "api_unreachable"`, a `message` that says
  *   whether to retry, `reason`, `retryable` and, when a write of this run may
  *   have been applied, `mayHaveApplied: true` — the same fields the CLI
@@ -135,7 +138,8 @@ export function unreachableFields(err: unknown): UnreachableFields | null {
  *
  * Empty for any other error. Spread it LAST into every error a command
  * reports — `{ ok: false, error: "set_failed", message, ...apiErrorFields(err) }`
- * — so a network failure's `error` and `message` win over the command's.
+ * — so a network failure's `error` and `message` (or `edge_blocked` guidance)
+ * win over the command's.
  */
 export function apiErrorFields(err: unknown): {
   status?: number;
@@ -149,6 +153,7 @@ export function apiErrorFields(err: unknown): {
     return {
       status: 403,
       apiError: "edge_blocked",
+      message: edgeBlockedMessage(err),
       details: err.details,
     };
   }

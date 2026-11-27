@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CreekApiError } from "@solcreek/sdk";
 import { diagnoseTokenFormat } from "../utils/api-key.js";
-import { apiErrorFields, apiErrorHints, isEdgeBlockedError } from "../utils/api-error.js";
+import {
+  apiErrorFields,
+  apiErrorHints,
+  edgeBlockedMessage,
+  isEdgeBlockedError,
+} from "../utils/api-error.js";
 import { whoamiCommand } from "./whoami.js";
 import { loginCommand } from "./login.js";
 import { logoutCommand } from "./logout.js";
@@ -900,6 +905,7 @@ describe("token format diagnosis and non-JSON 403 edge-block diagnostics", () =>
     expect(apiErrorFields(err)).toEqual({
       status: 403,
       apiError: "edge_blocked",
+      message: edgeBlockedMessage(err as CreekApiError),
       details: {
         nonJson: true,
         contentType: "text/html",
