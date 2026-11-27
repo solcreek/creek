@@ -1,14 +1,10 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useFeatures, useApiMode } from "@/lib/api-context";
+import { RouteErrorFallback } from "@/components/route-error";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   component: ProjectLayout,
-  errorComponent: ({ error }) => (
-    <div className="p-6 text-red-400">
-      <p className="font-semibold">Error</p>
-      <pre className="mt-2 text-xs">{error.message}</pre>
-    </div>
-  ),
+  errorComponent: RouteErrorFallback,
 });
 
 function ProjectLayout() {

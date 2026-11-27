@@ -33,6 +33,29 @@ export const handlers = [
     });
   }),
 
+  // Auth: organization list
+  http.get(`${API_URL}/api/auth/organization/list`, () => {
+    return HttpResponse.json([
+      { id: "org-1", name: "Test Team", slug: "test-team" },
+      { id: "org-2", name: "Second Team", slug: "second-team" },
+    ]);
+  }),
+
+  // Auth: organization members
+  http.get(`${API_URL}/api/auth/organization/list-members`, () => {
+    return HttpResponse.json({ members: [] });
+  }),
+
+  // Auth: API keys
+  http.get(`${API_URL}/api/auth/api-key/list`, () => {
+    return HttpResponse.json({ apiKeys: [] });
+  }),
+
+  // Resources: empty list
+  http.get(`${API_URL}/resources`, () => {
+    return HttpResponse.json({ resources: [] });
+  }),
+
   // Projects: empty list
   http.get(`${API_URL}/projects`, () => {
     return HttpResponse.json([]);

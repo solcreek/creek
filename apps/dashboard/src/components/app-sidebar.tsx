@@ -14,6 +14,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -152,26 +153,30 @@ function UserFooter() {
               }
             />
             <DropdownMenuContent className="min-w-56" side="top" align="start">
-              <DropdownMenuLabel>
-                <div className="flex items-center gap-2 py-1">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
-                    {initials}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>
+                  <div className="flex items-center gap-2 py-1">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
+                      {initials}
+                    </div>
+                    <div className="grid text-left text-sm leading-tight">
+                      <span className="truncate font-semibold">{user?.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
+                    </div>
                   </div>
-                  <div className="grid text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">{user?.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
-                  </div>
-                </div>
-              </DropdownMenuLabel>
+                </DropdownMenuLabel>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem render={<Link to="/settings" />}>
-                <Settings className="mr-2 size-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem render={<Link to="/api-keys" />}>
-                <Key className="mr-2 size-4" />
-                API Keys
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem render={<Link to="/settings" />}>
+                  <Settings className="mr-2 size-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem render={<Link to="/api-keys" />}>
+                  <Key className="mr-2 size-4" />
+                  API Keys
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => authClient.signOut()}>
                 <LogOut className="mr-2 size-4" />
@@ -242,17 +247,19 @@ function TeamSwitcher() {
         }
       />
       <DropdownMenuContent className="min-w-56" align="start">
-        <DropdownMenuLabel>Teams</DropdownMenuLabel>
-        {orgList.map((org: any) => (
-          <DropdownMenuItem
-            key={org.id}
-            onClick={() => authClient.organization.setActive({ organizationId: org.id })}
-          >
-            <Rocket className="mr-2 size-4" />
-            <span>{org.name}</span>
-            {org.id === activeOrg?.id && <Check className="ml-auto size-4" />}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Teams</DropdownMenuLabel>
+          {orgList.map((org: any) => (
+            <DropdownMenuItem
+              key={org.id}
+              onClick={() => authClient.organization.setActive({ organizationId: org.id })}
+            >
+              <Rocket className="mr-2 size-4" />
+              <span>{org.name}</span>
+              {org.id === activeOrg?.id && <Check className="ml-auto size-4" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem>
           <Plus className="mr-2 size-4" />
