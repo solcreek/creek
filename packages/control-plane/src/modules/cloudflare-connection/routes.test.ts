@@ -352,6 +352,21 @@ describe("GET/DELETE /integrations/cloudflare", () => {
     expect(JSON.stringify(body)).not.toMatch(/cf-access|cf-refresh|encrypted/);
   });
 
+  it("shows configured: false, not a 500, on an instance without the grant binding", async () => {
+    env.CLOUDFLARE_GRANTS = undefined;
+    const res = await manageApp(OWNER, "owner").request("/integrations/cloudflare", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ configured: false, connected: false });
+
+    // And it refuses to start a flow it could not finish.
+    const authorize = await manageApp(OWNER, "owner").request(
+      "/integrations/cloudflare/authorize",
+      { method: "POST" },
+      env,
+    );
+    expect(authorize.status).toBe(503);
+  });
+
   it("shows connected: false before connecting", async () => {
     const res = await manageApp(OWNER, "owner").request("/integrations/cloudflare", {}, env);
     expect(await res.json()).toEqual({ configured: true, connected: false });

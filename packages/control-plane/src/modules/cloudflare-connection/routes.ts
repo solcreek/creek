@@ -75,6 +75,9 @@ type ManageEnv = {
 export const cloudflareConnection = new Hono<ManageEnv>();
 
 cloudflareConnection.get("/", dashboardOnly, requirePermission("project:read"), async (c) => {
+  // No grant objects on this instance (e.g. a self-host without the
+  // binding): nothing can be connected, and the page must still load.
+  if (!c.env.CLOUDFLARE_GRANTS) return c.json({ configured: false, connected: false });
   const configured = oauthConfig(c.env) !== null;
   const status = await grantClient(c.env, c.get("teamId")).status();
   return c.json(status ? { configured, ...status } : { configured, connected: false });
@@ -89,6 +92,14 @@ cloudflareConnection.post(
     if (!config) return notConfigured(c);
     if (!c.env.ENCRYPTION_KEY) {
       return c.json({ error: "not_configured", message: "ENCRYPTION_KEY is not configured" }, 503);
+    }
+    // Refuse before the consent screen, not after it: without grant objects
+    // the callback could not store what the user authorized.
+    if (!c.env.CLOUDFLARE_GRANTS) {
+      return c.json(
+        { error: "not_configured", message: "CLOUDFLARE_GRANTS binding is not configured" },
+        503,
+      );
     }
 
     const body = (await c.req.json().catch(() => ({}))) as { returnTo?: unknown };
