@@ -1118,6 +1118,81 @@ describe("MCP sandbox deploy keeps the sandboxId on every outcome", () => {
   });
 });
 
+// Input bounds only hold when the SDK validates the arguments, so these tests go
+// through a real MCP client and server rather than the captured handlers.
+describe("MCP input bounds", () => {
+  async function callTool(name: string, args: Record<string, unknown>, headers = new Headers()) {
+    const mcp = new McpServer({ name: "creek", version: "test" });
+    registerTools(mcp, {
+      env: { SANDBOX_API_URL: SANDBOX, CONTROL_PLANE_URL: "https://cp.test" } as unknown as Env,
+      clientIp: "203.0.113.7",
+      requestHeaders: headers,
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0" });
+    await Promise.all([mcp.connect(serverSide), client.connect(clientSide)]);
+    try {
+      const result = await client.callTool({ name, arguments: args });
+      const text = (result.content as Array<{ text: string }>)[0].text;
+      return { isError: result.isError === true, text };
+    } finally {
+      await client.close();
+    }
+  }
+
+  // GHSA-mrhx-c7xc-m3w5: zod records an issue per failing entry. `deploy` needs no
+  // account, so an oversized `files` map must be refused before per-entry checks.
+  // MSW fails any request it has no handler for, so reaching the sandbox fails too.
+  it("refuses an oversized deploy files map without calling the sandbox", async () => {
+    const files = Object.fromEntries(Array.from({ length: 200_000 }, (_, i) => [`f${i}`, 1]));
+    const result = await callTool("deploy", { files });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("At most 10000 files");
+    // One issue, not one per entry: the message stays small.
+    expect(result.text.length).toBeLessThan(2_000);
+  });
+
+  it("forwards 100 query_database params unchanged", async () => {
+    const params = Array.from({ length: 100 }, (_, i) => i);
+    let sent: unknown;
+    server.use(
+      http.post("https://cp.test/resources/r1/query", async ({ request }) => {
+        sent = await request.json();
+        return HttpResponse.json({ columns: [], rows: [], meta: { changes: 0 } });
+      }),
+    );
+    const result = await callTool(
+      "query_database",
+      { resourceId: "r1", sql: "select 1", params },
+      AUTH(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(sent).toEqual({ sql: "select 1", params });
+  });
+
+  it("refuses 101 query_database params before calling the control plane", async () => {
+    let called = false;
+    server.use(
+      http.post("https://cp.test/resources/r1/query", () => {
+        called = true;
+        return HttpResponse.json({ columns: [], rows: [], meta: { changes: 0 } });
+      }),
+    );
+    const params = Array.from({ length: 101 }, (_, i) => i);
+    const result = await callTool(
+      "query_database",
+      { resourceId: "r1", sql: "select 1", params },
+      AUTH(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/params/);
+    expect(called).toBe(false);
+  });
+});
+
 describe("MCP tool annotations", () => {
   /** List tools the way an MCP client sees them, through the real SDK. */
   async function listTools() {

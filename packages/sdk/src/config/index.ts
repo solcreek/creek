@@ -22,6 +22,12 @@ const DATABASE_DRIVERS = ["sqlite", "postgres", "mysql"] as const;
 const CACHE_DRIVERS = ["sqlite", "redis"] as const;
 const STORAGE_DRIVERS = ["fs", "s3"] as const;
 
+// Every array needs a `.max()`: zod records an issue per failing element and
+// stops early only on a length constraint (GHSA-mrhx-c7xc-m3w5). The caps sit
+// well above Cloudflare's own limits (250 cron triggers per account).
+const MAX_ROUTE_PATTERNS = 100;
+const MAX_CRON_TRIGGERS = 250;
+
 export const CreekConfigSchema = z.object({
   project: z.object({
     name: z
@@ -37,9 +43,11 @@ export const CreekConfigSchema = z.object({
       worker: z.string().optional(),
       // Run the worker before static assets: true for every request, or a
       // list of route patterns ("/api/*", "!/api/public/*"). Needs `worker`.
-      run_worker_first: z.union([z.boolean(), z.array(z.string()).min(1)]).optional(),
+      run_worker_first: z
+        .union([z.boolean(), z.array(z.string()).min(1).max(MAX_ROUTE_PATTERNS)])
+        .optional(),
     })
-    .default({}),
+    .prefault({}),
   // v1 format: boolean resource flags (CF Workers bindings)
   resources: z
     .object({
@@ -48,7 +56,7 @@ export const CreekConfigSchema = z.object({
       storage: z.boolean().default(false),
       ai: z.boolean().default(false),
     })
-    .default({}),
+    .prefault({}),
   // v2 format: semantic driver declarations (multi-target)
   database: z
     .object({
@@ -81,10 +89,10 @@ export const CreekConfigSchema = z.object({
     .optional(),
   triggers: z
     .object({
-      cron: z.array(z.string()).default([]),
+      cron: z.array(z.string()).max(MAX_CRON_TRIGGERS).default([]),
       queue: z.boolean().default(false),
     })
-    .default({}),
+    .prefault({}),
 });
 
 export type CreekConfig = z.infer<typeof CreekConfigSchema>;
