@@ -563,8 +563,9 @@ describe("getCloudflareAccessToken", () => {
       expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("late-at");
     });
 
-    it("gives up on the token endpoint well before the lease runs out", async () => {
-      expect(store.REFRESH_TIMEOUT_MS * 2).toBeLessThanOrEqual(store.REFRESH_LEASE_MS);
+    it("gives up on the token endpoint with time left in the lease to store the result", async () => {
+      expect(store.REFRESH_LEASE_MS - store.REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
+      expect(store.REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
       await saveWith({ expiresAt: 1 });
       const fetch = mockCloudflare({ access_token: "at2" });
       await store.getCloudflareAccessToken(env, config(), TEAM);

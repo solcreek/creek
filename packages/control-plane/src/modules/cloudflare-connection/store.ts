@@ -26,11 +26,14 @@ export const EXPIRY_SKEW_MS = 60 * 1000;
 /** How long one caller may hold the refresh lease. */
 export const REFRESH_LEASE_MS = 30 * 1000;
 /**
- * The token request is aborted after this, well inside the lease, so a slow
- * Cloudflare cannot keep a refresh running after another caller may have
- * taken the lease over and spent the same (rotating) refresh token.
+ * The token request is aborted after this, leaving REFRESH_LEASE_MS minus
+ * this for decrypting, encrypting and writing the result while the lease is
+ * still ours. Aborting only stops our side: if Cloudflare rotated the token
+ * anyway, the next caller's retry of the old one ends in invalid_grant —
+ * the same outcome as never retrying, since the rotated token never reached
+ * us. Kept long, so a slow but successful response is not thrown away.
  */
-export const REFRESH_TIMEOUT_MS = 10 * 1000;
+export const REFRESH_TIMEOUT_MS = 20 * 1000;
 
 export const CALLBACK_PATH = "/oauth/cloudflare/callback";
 
