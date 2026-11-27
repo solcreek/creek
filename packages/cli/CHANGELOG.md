@@ -1,5 +1,32 @@
 # @solcreek/cli
 
+## 0.4.57
+
+Requires `@solcreek/sdk@0.4.27`. Publish `sdk@0.4.27` before `cli@0.4.57` /
+`creek@0.4.57`.
+
+### Security
+
+- **No zod below 4.6.6** (#150): the SDK this CLI depends on moved to zod 4.6.6+
+  ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)).
+  Only `creek.toml` was ever validated with it, so a dependency scanner's alert
+  on `creek` / `@solcreek/cli` is what this clears. A `creek.toml` with more than
+  250 `triggers.cron` entries or 100 `build.run_worker_first` patterns is now
+  rejected.
+
+### Domains
+
+- **`creek domains primary <hostname>`** makes a domain the project's primary
+  one, and **`creek domains redirect on|off`** sets whether the default hostname
+  redirects to it. `creek domains ls` marks the primary domain (#146).
+
+### Deploy
+
+- **A first deploy no longer leaves an empty project behind** (#148). The project
+  was created before the build ran, so a deploy that failed its build or found
+  nothing to upload left an empty project. It is now created once the bundle is
+  ready.
+
 ## 0.4.56
 
 Requires `@solcreek/sdk@0.4.26`. Publish `sdk@0.4.26` before `cli@0.4.56` /

@@ -4,6 +4,14 @@ The umbrella package — re-exports [`@solcreek/cli`](../cli/CHANGELOG.md)
 under the `creek`/`ck`/`crk` binaries and [`@solcreek/runtime`](../runtime)
 under `/react` and `/hono` subpaths.
 
+## 0.4.57
+
+- Bundles [`@solcreek/cli@0.4.57`](../cli/CHANGELOG.md#0457) and requires
+  [`@solcreek/sdk@0.4.27`](../sdk/CHANGELOG.md#0427): no zod below 4.6.6 in the
+  dependency tree (GHSA-mrhx-c7xc-m3w5), `creek domains primary` and
+  `creek domains redirect`, and a first deploy that fails no longer leaves an
+  empty project. Publish `sdk@0.4.27` before `cli@0.4.57` / `creek@0.4.57`.
+
 ## 0.4.56
 
 - Bundles [`@solcreek/cli@0.4.56`](../cli/CHANGELOG.md#0456) and requires

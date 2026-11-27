@@ -1,5 +1,24 @@
 # @solcreek/sdk
 
+## 0.4.27
+
+### Security
+
+- **zod 3 → 4.6.6+** (#150). zod below 4.6.6 can run out of memory validating
+  a large array ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5),
+  CVE-2023-54404); 3.x has no fixed release. The SDK only validates
+  `creek.toml` with zod, so this was not reachable from the network, but it
+  clears the dependency alert.
+- **`creek.toml` arrays are capped**: `triggers.cron` at 250 entries (Cloudflare's
+  per-account limit) and `build.run_worker_first` at 100 patterns. zod stops
+  early only on a length constraint, so the upgrade alone would not bound them.
+
+### Domains
+
+- **`setPrimaryDomain(projectId, domainId)`** and
+  **`setDomainRedirect(projectId, redirectToPrimary)`**, and
+  `CustomDomain.isPrimary` (#146).
+
 ## 0.4.26
 
 - **`uploadServerFile(project, deployment, name, bytes, { signal })`** takes
