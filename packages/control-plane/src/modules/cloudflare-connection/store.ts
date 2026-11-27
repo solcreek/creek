@@ -1,8 +1,8 @@
 /**
- * D1 persistence for "Connect Cloudflare": pending authorization requests and
- * each team's grant status. The tokens themselves live in the team's
- * CloudflareGrant Durable Object (grant-object.ts), which is also the only
- * writer of cloudflare_grant.
+ * D1 persistence for "Connect Cloudflare": only the pending authorization
+ * requests (between the redirect to Cloudflare and the callback), plus the
+ * OAuth client config. Everything about a team's grant — tokens and status —
+ * lives in its CloudflareGrant Durable Object (grant-object.ts).
  */
 
 import type { D1Database } from "@cloudflare/workers-types";
@@ -12,7 +12,6 @@ import {
   buildAuthorizeUrl,
   pkceChallenge,
   randomToken,
-  type CloudflareAccount,
   type OAuthClientConfig,
 } from "./oauth.js";
 
@@ -106,53 +105,4 @@ export async function consumeState(
     )
     .bind(state)
     .first<PendingAuthorization>();
-}
-
-// --- Grant status ---
-
-export interface ConnectionStatus {
-  connected: true;
-  accounts: CloudflareAccount[];
-  grantedScopes: string[];
-  connectedByUserId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  /** The grant was refused at refresh (revoked or spent): reconnect. */
-  needsReauth: boolean;
-}
-
-interface GrantRow {
-  connectedByUserId: string | null;
-  grantedScopes: string;
-  accounts: string;
-  needsReauth: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-/** What the dashboard may see about a team's grant. Never includes a token. */
-export async function getConnectionStatus(
-  db: D1Database,
-  teamId: string,
-): Promise<ConnectionStatus | null> {
-  const row = await db
-    .prepare("SELECT * FROM cloudflare_grant WHERE teamId = ?")
-    .bind(teamId)
-    .first<GrantRow>();
-  if (!row) return null;
-  let accounts: CloudflareAccount[] = [];
-  try {
-    accounts = JSON.parse(row.accounts);
-  } catch {
-    // A malformed column shows as no accounts rather than breaking the page.
-  }
-  return {
-    connected: true,
-    accounts,
-    grantedScopes: row.grantedScopes.split(" ").filter(Boolean),
-    connectedByUserId: row.connectedByUserId,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    needsReauth: row.needsReauth === 1,
-  };
 }

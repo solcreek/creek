@@ -7,8 +7,8 @@
  *   DELETE /integrations/cloudflare            disconnect (and revoke at Cloudflare)
  *   GET    /oauth/cloudflare/callback          Cloudflare redirects the browser here
  *
- * Tokens live in the team's CloudflareGrant Durable Object (grant-object.ts);
- * these routes only talk to it.
+ * The grant (tokens and status) lives in the team's CloudflareGrant Durable
+ * Object (grant-object.ts); these routes only talk to it.
  *
  * The first four run behind tenantMiddleware and are dashboard-only: an API
  * key cannot attach or detach an external account. The callback has no team
@@ -32,7 +32,6 @@ import {
   consumeState,
   createAuthorizationRequest,
   dashboardUrl,
-  getConnectionStatus,
   oauthConfig,
   safeReturnTo,
 } from "./store.js";
@@ -77,7 +76,7 @@ export const cloudflareConnection = new Hono<ManageEnv>();
 
 cloudflareConnection.get("/", dashboardOnly, requirePermission("project:read"), async (c) => {
   const configured = oauthConfig(c.env) !== null;
-  const status = await getConnectionStatus(c.env.DB, c.get("teamId"));
+  const status = await grantClient(c.env, c.get("teamId")).status();
   return c.json(status ? { configured, ...status } : { configured, connected: false });
 });
 
@@ -233,12 +232,20 @@ cloudflareOAuthCallback.get("/callback", publicRoute, async (c) => {
     console.error("[cloudflare-oauth] listing accounts failed:", err);
   }
 
-  await grantClient(c.env, pending.teamId).connect({
-    teamId: pending.teamId,
-    userId: pending.userId,
-    tokens,
-    accounts,
-  });
+  try {
+    await grantClient(c.env, pending.teamId).connect({
+      teamId: pending.teamId,
+      userId: pending.userId,
+      tokens,
+      accounts,
+    });
+  } catch (err) {
+    // The object stores the grant in a single write, so it either has the
+    // whole grant or none of it (the call may also have failed after that
+    // write). Either way connecting again is safe: it replaces the grant.
+    console.error("[cloudflare-oauth] storing the grant failed:", err);
+    return backToDashboard(c, returnTo, { error: "storage_failed" });
+  }
 
   const user: AuthUser = {
     id: session.user.id,

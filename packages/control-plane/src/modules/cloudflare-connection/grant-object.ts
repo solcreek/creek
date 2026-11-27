@@ -1,6 +1,8 @@
 /**
  * CloudflareGrant — one Durable Object per team, the only place a team's
- * Cloudflare OAuth tokens live and the only code that refreshes them.
+ * Cloudflare OAuth grant lives: its tokens, its status, and the only code
+ * that refreshes or revokes it. Nothing about the grant is written to D1, so
+ * there is no second copy to fall out of step with this one.
  *
  * Why an object and not rows in D1: Cloudflare rotates refresh tokens, so two
  * refreshes of the same token lose the grant (the second gets invalid_grant).
@@ -8,15 +10,18 @@
  * in-memory single-flight promise serialises refreshes without leases,
  * owners, polling or timing constants that have to agree.
  *
- * One subtlety: an object is NOT strictly single-threaded. While it awaits an
- * outbound fetch (the token request), other requests to it run. That is why
- * every refresh goes through `this.refreshing`, and why a refresh re-checks
- * the grant's generation before storing: a connect or disconnect may have
- * run while it waited.
- *
- * The object also keeps the team's `cloudflare_grant` row in D1 (status
- * metadata, never a token) so the dashboard can list it without waking the
- * object. It is that row's only writer.
+ * One subtlety: an object is NOT strictly single-threaded. While it awaits
+ * something other than its own storage (the token request, a revoke, crypto),
+ * other requests to it run. So:
+ *   - every refresh goes through `this.refreshing`, and the check that starts
+ *     one is repeated after the storage read, with nothing awaited between
+ *     that check and the assignment;
+ *   - a refresh re-checks the grant's generation before storing, so a
+ *     connect or disconnect that ran while it waited wins;
+ *   - a disconnect goes through `this.closing`: it lets a refresh in flight
+ *     finish (so it revokes the token that refresh stored, not the one it
+ *     spent), refuses new refreshes, revokes, then deletes — and deletes only
+ *     the grant it revoked, never one a concurrent connect just stored.
  *
  * Deliberately a plain class (no `cloudflare:workers` import) so the same
  * code runs in workerd, in the local dev server and under vitest via
@@ -57,6 +62,10 @@ interface StoredGrant {
   encryptedRefreshToken: string | null;
   accessTokenExpiresAt: number | null;
   scopes: string[];
+  accounts: CloudflareAccount[];
+  connectedByUserId: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 const GRANT_KEY = "grant";
@@ -85,15 +94,39 @@ export interface ConnectRequest {
 
 export interface DisconnectResult {
   existed: boolean;
+  /** Whether Cloudflare confirmed the revocation. False: the user should revoke it there too. */
   revoked: boolean;
+}
+
+/** What the dashboard may see about a team's grant. Never includes a token. */
+export interface ConnectionStatus {
+  connected: true;
+  accounts: CloudflareAccount[];
+  grantedScopes: string[];
+  connectedByUserId: string;
+  createdAt: number;
+  updatedAt: number;
+  /** The access token has expired and there is no refresh token to renew it: reconnect. */
+  needsReauth: boolean;
 }
 
 /** A refresh lost a race with connect/disconnect; the caller starts over. */
 const RETRY = Symbol("retry");
 type Attempt = TokenResult | typeof RETRY;
 
+const NOT_CONNECTED: TokenResult = {
+  ok: false,
+  error: "not_connected",
+  message: "This team has not connected a Cloudflare account",
+};
+
+function isFresh(grant: StoredGrant, now = Date.now()): boolean {
+  return grant.accessTokenExpiresAt === null || grant.accessTokenExpiresAt - EXPIRY_SKEW_MS > now;
+}
+
 export class CloudflareGrant {
   private refreshing: Promise<Attempt> | null = null;
+  private closing: Promise<DisconnectResult> | null = null;
   /** Decrypted access token for the current generation, to skip PBKDF2 on every call. */
   private cache: { generation: string; accessToken: string } | null = null;
 
@@ -112,6 +145,9 @@ export class CloudflareGrant {
       if (request.method === "POST" && path === "/token") {
         return Response.json(await this.token());
       }
+      if (request.method === "POST" && path === "/status") {
+        return Response.json({ status: await this.status() });
+      }
       if (request.method === "POST" && path === "/disconnect") {
         return Response.json(await this.disconnect());
       }
@@ -127,37 +163,63 @@ export class CloudflareGrant {
     return this.env.ENCRYPTION_KEY;
   }
 
+  private grant(): Promise<StoredGrant | undefined> {
+    return this.state.storage.get<StoredGrant>(GRANT_KEY);
+  }
+
+  private async isCurrent(grant: StoredGrant): Promise<boolean> {
+    return (await this.grant())?.generation === grant.generation;
+  }
+
+  // --- connect ---
+
   /** Store (or replace) the team's grant. A refresh still in flight on the old one is discarded. */
   async connect(req: ConnectRequest): Promise<void> {
+    // A disconnect in progress finishes first; this connect then stands.
+    // Without this, a disconnect still waiting on a refresh would read,
+    // revoke and delete the grant this connect is about to store.
+    if (this.closing) await this.closing;
     const key = this.key();
+    const now = Date.now();
+    const encryptedAccessToken = await encrypt(req.tokens.accessToken, key);
+    const encryptedRefreshToken = req.tokens.refreshToken
+      ? await encrypt(req.tokens.refreshToken, key)
+      : null;
+    const previous = await this.grant();
     const grant: StoredGrant = {
       teamId: req.teamId,
       generation: crypto.randomUUID(),
-      encryptedAccessToken: await encrypt(req.tokens.accessToken, key),
-      encryptedRefreshToken: req.tokens.refreshToken
-        ? await encrypt(req.tokens.refreshToken, key)
-        : null,
+      encryptedAccessToken,
+      encryptedRefreshToken,
       accessTokenExpiresAt: req.tokens.expiresAt,
       scopes: req.tokens.scopes,
+      accounts: req.accounts,
+      connectedByUserId: req.userId,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
     };
     await this.state.storage.put(GRANT_KEY, grant);
     this.cache = { generation: grant.generation, accessToken: req.tokens.accessToken };
-
-    const now = Date.now();
-    await this.env.DB.prepare(
-      `INSERT INTO cloudflare_grant
-         (teamId, connectedByUserId, grantedScopes, accounts, needsReauth, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, 0, ?, ?)
-       ON CONFLICT (teamId) DO UPDATE SET
-         connectedByUserId = excluded.connectedByUserId,
-         grantedScopes = excluded.grantedScopes,
-         accounts = excluded.accounts,
-         needsReauth = 0,
-         updatedAt = excluded.updatedAt`,
-    )
-      .bind(req.teamId, req.userId, grant.scopes.join(" "), JSON.stringify(req.accounts), now, now)
-      .run();
   }
+
+  // --- status ---
+
+  async status(): Promise<ConnectionStatus | null> {
+    const grant = await this.grant();
+    if (!grant) return null;
+    return {
+      connected: true,
+      accounts: grant.accounts,
+      grantedScopes: grant.scopes,
+      connectedByUserId: grant.connectedByUserId,
+      createdAt: grant.createdAt,
+      updatedAt: grant.updatedAt,
+      // Derived from the same record token() reads, so the two cannot disagree.
+      needsReauth: !grant.encryptedRefreshToken && !isFresh(grant),
+    };
+  }
+
+  // --- token ---
 
   /** A usable access token, refreshing it (once, for all concurrent callers) when it is about to expire. */
   async token(): Promise<TokenResult> {
@@ -177,19 +239,13 @@ export class CloudflareGrant {
   private async tokenOnce(): Promise<Attempt> {
     if (this.refreshing) return this.refreshing;
 
-    const grant = await this.state.storage.get<StoredGrant>(GRANT_KEY);
-    if (!grant) {
-      return {
-        ok: false,
-        error: "not_connected",
-        message: "This team has not connected a Cloudflare account",
-      };
-    }
+    const grant = await this.grant();
+    // After the read, so it also catches a disconnect that began during it.
+    // A grant being disconnected hands out no token, fresh or not, and
+    // starts no refresh.
+    if (!grant || this.closing) return NOT_CONNECTED;
 
-    const fresh =
-      grant.accessTokenExpiresAt === null ||
-      grant.accessTokenExpiresAt - EXPIRY_SKEW_MS > Date.now();
-    if (fresh) {
+    if (isFresh(grant)) {
       if (this.cache?.generation === grant.generation) {
         return { ok: true, accessToken: this.cache.accessToken };
       }
@@ -206,8 +262,8 @@ export class CloudflareGrant {
       };
     }
 
-    // Another request may have started a refresh while we read storage.
-    // Everything from this check to the assignment is synchronous.
+    // Another refresh may have started while we read storage. Everything
+    // from the `closing` check above to this assignment is synchronous.
     if (this.refreshing) return this.refreshing;
     this.refreshing = this.refresh(grant).finally(() => {
       this.refreshing = null;
@@ -239,9 +295,12 @@ export class CloudflareGrant {
       if (err instanceof OAuthGrantError && err.code === "invalid_grant") {
         // RFC 6749 §5.2: expired, revoked or spent. Anything else (a 429,
         // invalid_client from our own misconfiguration, a timeout) keeps the
-        // token for the next attempt.
-        await this.state.storage.put(GRANT_KEY, { ...grant, encryptedRefreshToken: null });
-        await this.writeMeta(grant.teamId, { needsReauth: true });
+        // token for the next attempt. status() now derives needsReauth.
+        await this.state.storage.put(GRANT_KEY, {
+          ...grant,
+          encryptedRefreshToken: null,
+          updatedAt: Date.now(),
+        });
         return { ok: false, error: "reauth_required", message: err.message };
       }
       console.error("[cloudflare-grant] refresh failed:", err);
@@ -251,65 +310,63 @@ export class CloudflareGrant {
     // Encrypt before the generation check so check-then-put has no await
     // between them that another request could slip into.
     const next: StoredGrant = {
-      teamId: grant.teamId,
+      ...grant,
       generation: crypto.randomUUID(),
       encryptedAccessToken: await encrypt(tokens.accessToken, key),
       encryptedRefreshToken: tokens.refreshToken ? await encrypt(tokens.refreshToken, key) : null,
       accessTokenExpiresAt: tokens.expiresAt,
       scopes: tokens.scopes,
+      updatedAt: Date.now(),
     };
-    // Reconnected or disconnected meanwhile: these tokens belong to a grant
-    // that no longer exists here.
+    // Reconnected meanwhile: these tokens belong to a grant that no longer
+    // exists here. (A disconnect waits for this refresh, then revokes what
+    // it stored.)
     if (!(await this.isCurrent(grant))) return RETRY;
     await this.state.storage.put(GRANT_KEY, next);
     this.cache = { generation: next.generation, accessToken: tokens.accessToken };
-    await this.writeMeta(grant.teamId, { needsReauth: false, scopes: tokens.scopes });
     return { ok: true, accessToken: tokens.accessToken };
   }
 
-  private async isCurrent(grant: StoredGrant): Promise<boolean> {
-    const current = await this.state.storage.get<StoredGrant>(GRANT_KEY);
-    return current?.generation === grant.generation;
-  }
+  // --- disconnect ---
 
-  /** Status metadata for the dashboard. Best-effort: the object's storage is the source of truth. */
-  private async writeMeta(
-    teamId: string,
-    meta: { needsReauth: boolean; scopes?: string[] },
-  ): Promise<void> {
-    try {
-      await this.env.DB.prepare(
-        `UPDATE cloudflare_grant SET needsReauth = ?, grantedScopes = COALESCE(?, grantedScopes),
-           updatedAt = ? WHERE teamId = ?`,
-      )
-        .bind(meta.needsReauth ? 1 : 0, meta.scopes?.join(" ") ?? null, Date.now(), teamId)
-        .run();
-    } catch (err) {
-      console.error("[cloudflare-grant] status update failed:", err);
+  /** Revoke the grant at Cloudflare (best-effort), then forget it. Concurrent calls share one run. */
+  disconnect(): Promise<DisconnectResult> {
+    if (!this.closing) {
+      this.closing = this.close().finally(() => {
+        this.closing = null;
+      });
     }
+    return this.closing;
   }
 
-  /** Forget the grant and revoke it at Cloudflare (best-effort). */
-  async disconnect(): Promise<DisconnectResult> {
-    const grant = await this.state.storage.get<StoredGrant>(GRANT_KEY);
-    await this.state.storage.delete(GRANT_KEY);
-    this.cache = null;
+  private async close(): Promise<DisconnectResult> {
+    // Let a refresh in flight store its result first: otherwise we would
+    // revoke the token it spent and then delete the one it was issued,
+    // leaving that one live at Cloudflare. No new refresh starts meanwhile
+    // (tokenOnce sees `closing`).
+    if (this.refreshing) await this.refreshing.catch(() => undefined);
+
+    const grant = await this.grant();
     if (!grant) return { existed: false, revoked: false };
 
-    await this.env.DB.prepare("DELETE FROM cloudflare_grant WHERE teamId = ?")
-      .bind(grant.teamId)
-      .run();
-
-    // Revoking the refresh token ends the whole grant at Cloudflare.
-    const config = oauthConfig(this.env);
+    // Revoke before deleting: if this object dies in between, the grant is
+    // still here and a retried disconnect revokes and deletes it.
     let revoked = false;
-    if (config && this.env.ENCRYPTION_KEY) {
+    const config = oauthConfig(this.env);
+    if (config) {
       try {
         const token = grant.encryptedRefreshToken ?? grant.encryptedAccessToken;
-        revoked = await revokeToken(config, await decrypt(token, this.env.ENCRYPTION_KEY));
+        revoked = await revokeToken(config, await decrypt(token, this.key()));
       } catch (err) {
         console.error("[cloudflare-grant] revoke failed:", err);
       }
+    }
+
+    // Delete only the grant we revoked. A connect that was already past its
+    // own `closing` check may have stored a new one meanwhile; that one stands.
+    if (await this.isCurrent(grant)) {
+      await this.state.storage.delete(GRANT_KEY);
+      this.cache = null;
     }
     return { existed: true, revoked };
   }
@@ -334,6 +391,7 @@ export function grantClient(env: Env, teamId: string) {
   return {
     connect: (req: ConnectRequest) => call<{ ok: true }>("/connect", req),
     token: () => call<TokenResult>("/token"),
+    status: async () => (await call<{ status: ConnectionStatus | null }>("/status")).status,
     disconnect: () => call<DisconnectResult>("/disconnect"),
   };
 }
@@ -388,7 +446,7 @@ export function createInMemoryGrantNamespace(env: Env) {
         fetch: (input: string, init?: RequestInit) => instance.fetch(new Request(input, init)),
       };
     },
-    /** Test hook: the raw stored grant for a team. */
+    /** Test hook: the raw stored grant for a team (the live record, mutable). */
     _stored: (name: string) => storages.get(name)?.get(GRANT_KEY) as StoredGrant | undefined,
   };
   return ns as unknown as DurableObjectNamespace & { _stored: typeof ns._stored };

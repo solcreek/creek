@@ -472,25 +472,8 @@ export const cloudflareOauthState = sqliteTable("cloudflare_oauth_state", {
   expiresAt: integer("expiresAt").notNull(),
 });
 
-// A team's grant status. Tokens live in the team's CloudflareGrant Durable
-// Object, the only writer of this table. See 0016_cloudflare_grant.sql.
-export const cloudflareGrant = sqliteTable("cloudflare_grant", {
-  teamId: text("teamId")
-    .primaryKey()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  connectedByUserId: text("connectedByUserId").references(() => user.id, {
-    onDelete: "set null",
-  }),
-  // Space-separated scope ids the user actually granted.
-  grantedScopes: text("grantedScopes").notNull(),
-  // JSON [{ id, name }] — the Cloudflare accounts the grant covers.
-  accounts: text("accounts").notNull().default("[]"),
-  needsReauth: integer("needsReauth", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("createdAt").notNull(),
-  updatedAt: integer("updatedAt").notNull(),
-});
-
-// Superseded by cloudflare_grant + the CloudflareGrant Durable Object (0016).
+// Superseded: a team's grant (tokens and status) now lives in its
+// CloudflareGrant Durable Object (modules/cloudflare-connection/grant-object.ts).
 // Unread; dropped by a later migration.
 export const cloudflareConnection = sqliteTable("cloudflare_connection", {
   teamId: text("teamId")

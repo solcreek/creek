@@ -129,11 +129,9 @@ async function callback(query: Record<string, string>) {
   return new URL(res.headers.get("location")!);
 }
 
-/** The team's status row in D1 (never a token). */
-function grantRow() {
-  return t.db.db.prepare("SELECT * FROM cloudflare_grant WHERE teamId = ?").get(TEAM) as
-    | Record<string, any>
-    | undefined;
+/** The grant as stored in the team's object, or undefined. */
+function storedGrant() {
+  return grants._stored(TEAM);
 }
 
 beforeEach(() => {
@@ -240,16 +238,22 @@ describe("GET /oauth/cloudflare/callback", () => {
     expect(tokenBody.get("code")).toBe("auth-code");
     expect(tokenBody.get("code_verifier")).toBe(verifier);
 
-    const row = grantRow()!;
-    expect(row.connectedByUserId).toBe(OWNER);
-    expect(row.grantedScopes).toBe("offline_access access.write");
-    expect(JSON.parse(row.accounts)).toEqual([{ id: "acc-1", name: "Customer Inc" }]);
-    expect(row.needsReauth).toBe(0);
-    // The tokens live in the team's grant object, encrypted, and nowhere in D1.
-    const stored = grants._stored(TEAM)!;
+    const stored = storedGrant()!;
+    expect(stored).toMatchObject({
+      connectedByUserId: OWNER,
+      scopes: ["offline_access", "access.write"],
+      accounts: [{ id: "acc-1", name: "Customer Inc" }],
+    });
+    // Encrypted in the object, and nothing about the grant in D1.
     expect(stored.encryptedAccessToken).not.toContain("cf-access");
     expect(stored.encryptedRefreshToken).not.toContain("cf-refresh");
-    expect(JSON.stringify(row)).not.toMatch(/cf-access|cf-refresh/);
+    const d1Tables = t.db.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'cloudflare_%'")
+      .all() as { name: string }[];
+    for (const { name } of d1Tables) {
+      if (name === "cloudflare_oauth_state") continue; // consumed above
+      expect(t.db.db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get()).toEqual({ n: 0 });
+    }
 
     const audit = t.db.db.prepare("SELECT action FROM audit_log").all() as any[];
     expect(audit.map((a) => a.action)).toContain("integration.cloudflare.connect");
@@ -278,7 +282,7 @@ describe("GET /oauth/cloudflare/callback", () => {
     const location = await callback({ state, code: "c" });
     expect(location.searchParams.get("cloudflare_error")).toBe("session_mismatch");
     expect(fetch).not.toHaveBeenCalled();
-    expect(grantRow()).toBeUndefined();
+    expect(storedGrant()).toBeUndefined();
   });
 
   it("refuses a signed-out browser", async () => {
@@ -304,7 +308,7 @@ describe("GET /oauth/cloudflare/callback", () => {
     const state = await startAuthorize();
     const location = await callback({ state, error: "access_denied" });
     expect(location.searchParams.get("cloudflare_error")).toBe("denied");
-    expect(grantRow()).toBeUndefined();
+    expect(storedGrant()).toBeUndefined();
   });
 
   it("refuses an expired request", async () => {
@@ -362,7 +366,7 @@ describe("GET/DELETE /integrations/cloudflare", () => {
       env,
     );
     expect(await res.json()).toEqual({ ok: true, revoked: true });
-    expect(grantRow()).toBeUndefined();
+    expect(storedGrant()).toBeUndefined();
     const [url, init] = fetch.mock.calls[0];
     expect(String(url)).toBe("https://dash.cloudflare.com/oauth2/revoke");
     expect(new URLSearchParams(String(init?.body)).get("token")).toBe("cf-refresh");
@@ -385,7 +389,7 @@ describe("GET/DELETE /integrations/cloudflare", () => {
       env,
     );
     expect(res.status).toBe(403);
-    expect(grantRow()).toBeDefined();
+    expect(storedGrant()).toBeDefined();
   });
 });
 
@@ -434,7 +438,17 @@ describe("POST /integrations/cloudflare/verify", () => {
     const res = await verify();
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "reauth_required" });
-    expect(grantRow()!.needsReauth).toBe(1);
+    // The status the dashboard shows agrees with what verify just said.
+    const status = await manageApp(MEMBER, "member").request("/integrations/cloudflare", {}, env);
+    expect(await status.json()).toMatchObject({ connected: true, needsReauth: true });
+  });
+
+  it("agrees with the status page for a grant that never had a refresh token", async () => {
+    await connect({ expires_in: 0, refresh_token: undefined });
+    const res = await verify();
+    expect(res.status).toBe(409);
+    const status = await manageApp(MEMBER, "member").request("/integrations/cloudflare", {}, env);
+    expect(await status.json()).toMatchObject({ connected: true, needsReauth: true });
   });
 });
 
