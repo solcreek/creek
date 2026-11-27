@@ -34,7 +34,9 @@ import {
   saveConnection,
 } from "./store.js";
 
-const DEFAULT_RETURN_TO = "/settings/integrations";
+// The dashboard's existing settings page (apps/dashboard has no integrations
+// route yet). A flow started with a returnTo goes back there instead.
+const DEFAULT_RETURN_TO = "/settings";
 
 /** Guard: dashboard sessions only — attaching an external account takes a person at a browser. */
 const dashboardOnly = markGuard(

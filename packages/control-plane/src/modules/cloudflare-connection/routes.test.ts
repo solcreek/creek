@@ -247,6 +247,14 @@ describe("GET /oauth/cloudflare/callback", () => {
     expect(audit.map((a) => a.action)).toContain("integration.cloudflare.connect");
   });
 
+  it("sends a flow without returnTo to the dashboard's /settings page", async () => {
+    mockCloudflare();
+    const location = await callback({ state: await startAuthorize(), code: "c" });
+    expect(location.origin + location.pathname).toBe("https://app.creek.dev/settings");
+    const unknown = await callback({ state: "no-such-state", code: "c" });
+    expect(unknown.pathname).toBe("/settings");
+  });
+
   it("is single-use: replaying the state is refused", async () => {
     mockCloudflare();
     const state = await startAuthorize();
