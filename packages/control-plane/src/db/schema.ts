@@ -486,7 +486,8 @@ export const cloudflareConnection = sqliteTable("cloudflare_connection", {
   grantedScopes: text("grantedScopes").notNull(),
   // JSON [{ id, name }] — the Cloudflare accounts the grant covers.
   accounts: text("accounts").notNull().default("[]"),
-  tokenVersion: integer("tokenVersion").notNull().default(1),
+  // Fresh random value on every write; fences refresh updates (see 0015).
+  generation: text("generation").notNull(),
   refreshLeaseUntil: integer("refreshLeaseUntil"),
   createdAt: integer("createdAt").notNull(),
   updatedAt: integer("updatedAt").notNull(),

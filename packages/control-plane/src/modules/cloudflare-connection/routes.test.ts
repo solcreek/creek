@@ -410,14 +410,14 @@ describe("getCloudflareAccessToken", () => {
   it("refreshes an expiring token and persists the rotated refresh token", async () => {
     await saveWith({ expiresAt: Date.now() + 10_000 });
     const fetch = mockCloudflare({ access_token: "at2", refresh_token: "rt2" });
-    const before = connectionRow()!.tokenVersion;
+    const before = connectionRow()!.generation;
 
     expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("at2");
     expect(new URLSearchParams(String(fetch.mock.calls[0][1]?.body)).get("refresh_token")).toBe(
       "rt1",
     );
     const row = connectionRow()!;
-    expect(row.tokenVersion).toBe(before + 1);
+    expect(row.generation).not.toBe(before);
     expect(row.refreshLeaseUntil).toBeNull();
 
     // The next refresh spends rt2, not rt1.
@@ -493,6 +493,36 @@ describe("getCloudflareAccessToken", () => {
     );
     expect(connectionRow()!.refreshLeaseUntil).toBeNull();
     expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
+  });
+
+  describe("a refresh that straddles a disconnect and reconnect", () => {
+    /** Mid-refresh, the team disconnects and connects again (a brand-new grant). */
+    function refreshThatReconnects(response: () => Response) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          await store.deleteConnection(env, TEAM);
+          await saveWith({ accessToken: "new-at", refreshToken: "new-rt" });
+          return response();
+        }),
+      );
+    }
+
+    it("does not overwrite the new grant with the old grant's tokens", async () => {
+      await saveWith({ expiresAt: 1 });
+      refreshThatReconnects(() =>
+        Response.json({ access_token: "stale-at", refresh_token: "stale-rt", expires_in: 3600 }),
+      );
+      await store.getCloudflareAccessToken(env, config(), TEAM);
+      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("new-at");
+    });
+
+    it("does not drop the new grant's refresh token when the old one was rejected", async () => {
+      await saveWith({ expiresAt: 1 });
+      refreshThatReconnects(() => Response.json({ error: "invalid_grant" }, { status: 400 }));
+      await store.getCloudflareAccessToken(env, config(), TEAM).catch(() => {});
+      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
+    });
   });
 
   it("throws CloudflareNotConnectedError for a team without a grant", async () => {

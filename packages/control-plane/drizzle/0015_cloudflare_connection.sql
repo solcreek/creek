@@ -10,9 +10,12 @@
 -- single-use and expire after ten minutes.
 --
 -- cloudflare_connection is one grant per team. Tokens are AES-GCM encrypted
--- with ENCRYPTION_KEY. tokenVersion and refreshLeaseUntil serialise refreshes:
+-- with ENCRYPTION_KEY. generation and refreshLeaseUntil serialise refreshes:
 -- Cloudflare rotates refresh tokens, so two concurrent refreshes would spend
--- the same token and lose the grant.
+-- the same token and lose the grant. generation is a fresh random value on
+-- every write (connect, reconnect, refresh) — never a counter, which would
+-- restart at 1 after a disconnect and let a refresh begun against the old
+-- grant match the new one.
 CREATE TABLE `cloudflare_oauth_state` (
   `state` text PRIMARY KEY NOT NULL,
   `teamId` text NOT NULL,
@@ -32,7 +35,7 @@ CREATE TABLE `cloudflare_connection` (
   `accessTokenExpiresAt` integer,
   `grantedScopes` text NOT NULL,
   `accounts` text NOT NULL DEFAULT '[]',
-  `tokenVersion` integer NOT NULL DEFAULT 1,
+  `generation` text NOT NULL,
   `refreshLeaseUntil` integer,
   `createdAt` integer NOT NULL,
   `updatedAt` integer NOT NULL,

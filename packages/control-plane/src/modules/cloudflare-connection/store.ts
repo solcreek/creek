@@ -125,7 +125,7 @@ interface ConnectionRow {
   accessTokenExpiresAt: number | null;
   grantedScopes: string;
   accounts: string;
-  tokenVersion: number;
+  generation: string;
   refreshLeaseUntil: number | null;
   createdAt: number;
   updatedAt: number;
@@ -136,7 +136,10 @@ function requireKey(env: Env): string {
   return env.ENCRYPTION_KEY;
 }
 
-/** Store (or replace) a team's grant. Replacing bumps tokenVersion, voiding any refresh in flight. */
+/**
+ * Store (or replace) a team's grant under a new generation, voiding any
+ * refresh still in flight against the previous grant.
+ */
 export async function saveConnection(
   env: Env,
   teamId: string,
@@ -152,9 +155,9 @@ export async function saveConnection(
   await env.DB.prepare(
     `INSERT INTO cloudflare_connection
        (teamId, connectedByUserId, encryptedAccessToken, encryptedRefreshToken,
-        accessTokenExpiresAt, grantedScopes, accounts, tokenVersion, refreshLeaseUntil,
+        accessTokenExpiresAt, grantedScopes, accounts, generation, refreshLeaseUntil,
         createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
      ON CONFLICT (teamId) DO UPDATE SET
        connectedByUserId = excluded.connectedByUserId,
        encryptedAccessToken = excluded.encryptedAccessToken,
@@ -162,7 +165,7 @@ export async function saveConnection(
        accessTokenExpiresAt = excluded.accessTokenExpiresAt,
        grantedScopes = excluded.grantedScopes,
        accounts = excluded.accounts,
-       tokenVersion = cloudflare_connection.tokenVersion + 1,
+       generation = excluded.generation,
        refreshLeaseUntil = NULL,
        updatedAt = excluded.updatedAt`,
   )
@@ -174,6 +177,7 @@ export async function saveConnection(
       tokens.expiresAt,
       tokens.scopes.join(" "),
       JSON.stringify(accounts),
+      crypto.randomUUID(),
       now,
       now,
     )
@@ -298,10 +302,10 @@ export async function getCloudflareAccessToken(
 
     const lease = await env.DB.prepare(
       `UPDATE cloudflare_connection SET refreshLeaseUntil = ?
-       WHERE teamId = ? AND tokenVersion = ?
+       WHERE teamId = ? AND generation = ?
          AND (refreshLeaseUntil IS NULL OR refreshLeaseUntil < ?)`,
     )
-      .bind(now + REFRESH_LEASE_MS, teamId, row.tokenVersion, now)
+      .bind(now + REFRESH_LEASE_MS, teamId, row.generation, now)
       .run();
 
     if (lease.meta.changes !== 1) {
@@ -323,19 +327,21 @@ export async function getCloudflareAccessToken(
         // it so status shows needsReauth, unless the grant was replaced
         // meanwhile. Any other error (a 429, invalid_client from our own
         // misconfiguration) leaves the token for the next attempt.
-        await env.DB.prepare(
+        const dropped = await env.DB.prepare(
           `UPDATE cloudflare_connection SET encryptedRefreshToken = NULL, refreshLeaseUntil = NULL
-           WHERE teamId = ? AND tokenVersion = ?`,
+           WHERE teamId = ? AND generation = ?`,
         )
-          .bind(teamId, row.tokenVersion)
+          .bind(teamId, row.generation)
           .run();
+        // The team reconnected meanwhile: the rejected token was the old grant's.
+        if (dropped.meta.changes !== 1) continue;
         throw new CloudflareReauthRequiredError(err.code);
       }
       await env.DB.prepare(
         `UPDATE cloudflare_connection SET refreshLeaseUntil = NULL
-         WHERE teamId = ? AND tokenVersion = ?`,
+         WHERE teamId = ? AND generation = ?`,
       )
-        .bind(teamId, row.tokenVersion)
+        .bind(teamId, row.generation)
         .run();
       throw err;
     }
@@ -343,18 +349,18 @@ export async function getCloudflareAccessToken(
     const write = await env.DB.prepare(
       `UPDATE cloudflare_connection SET
          encryptedAccessToken = ?, encryptedRefreshToken = ?, accessTokenExpiresAt = ?,
-         grantedScopes = ?, tokenVersion = tokenVersion + 1, refreshLeaseUntil = NULL,
-         updatedAt = ?
-       WHERE teamId = ? AND tokenVersion = ?`,
+         grantedScopes = ?, generation = ?, refreshLeaseUntil = NULL, updatedAt = ?
+       WHERE teamId = ? AND generation = ?`,
     )
       .bind(
         await encrypt(tokens.accessToken, key),
         tokens.refreshToken ? await encrypt(tokens.refreshToken, key) : null,
         tokens.expiresAt,
         tokens.scopes.join(" "),
+        crypto.randomUUID(),
         Date.now(),
         teamId,
-        row.tokenVersion,
+        row.generation,
       )
       .run();
     if (write.meta.changes !== 1) {
