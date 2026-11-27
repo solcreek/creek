@@ -239,6 +239,9 @@ app.route("/oauth/cloudflare", cloudflareOAuthCallback);
 // Export Hono app for testing
 export { app };
 
+// Durable Object classes must be exported from the Worker's entry module.
+export { CloudflareGrant } from "./modules/cloudflare-connection/grant-object.js";
+
 // --- Scheduled jobs (cron trigger) ---
 
 // A deploy job beats updatedAt every ~60s while it's actively progressing

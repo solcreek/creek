@@ -53,6 +53,17 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 2
 
+# One CloudflareGrant per team: holds the team's Cloudflare OAuth tokens and
+# is the only code that refreshes them (refresh tokens rotate, so refreshes
+# must be serialised). See src/modules/cloudflare-connection/grant-object.ts.
+[[durable_objects.bindings]]
+name = "CLOUDFLARE_GRANTS"
+class_name = "CloudflareGrant"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CloudflareGrant"]
+
 [vars]
 CREEK_DOMAIN = "bycreek.com"
 SANDBOX_API_URL = "https://sandbox-api.creek.dev"

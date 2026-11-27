@@ -3,10 +3,14 @@
  *
  *   GET    /integrations/cloudflare            the team's connection, if any
  *   POST   /integrations/cloudflare/authorize  start: returns the consent URL
+ *   POST   /integrations/cloudflare/verify     get a token (refreshing it if due) and call Cloudflare
  *   DELETE /integrations/cloudflare            disconnect (and revoke at Cloudflare)
  *   GET    /oauth/cloudflare/callback          Cloudflare redirects the browser here
  *
- * The first three run behind tenantMiddleware and are dashboard-only: an API
+ * Tokens live in the team's CloudflareGrant Durable Object (grant-object.ts);
+ * these routes only talk to it.
+ *
+ * The first four run behind tenantMiddleware and are dashboard-only: an API
  * key cannot attach or detach an external account. The callback has no team
  * header (it is a top-level redirect from dash.cloudflare.com), so it is a
  * separate mount; it authenticates by the single-use state AND the session
@@ -22,16 +26,15 @@ import { recordAudit } from "../audit/service.js";
 import { createAuth } from "../tenant/auth.js";
 import { requirePermission, roleGrants } from "../tenant/permissions.js";
 import { isApiKeyRequest, markGuard, publicRoute } from "../tenant/scope-guard.js";
-import { exchangeCode, listAccounts, revokeToken, type CloudflareAccount } from "./oauth.js";
+import { grantClient, type TokenResult } from "./grant-object.js";
+import { exchangeCode, listAccounts, type CloudflareAccount } from "./oauth.js";
 import {
   consumeState,
   createAuthorizationRequest,
   dashboardUrl,
-  deleteConnection,
   getConnectionStatus,
   oauthConfig,
   safeReturnTo,
-  saveConnection,
 } from "./store.js";
 
 // The dashboard's existing settings page (apps/dashboard has no integrations
@@ -99,22 +102,44 @@ cloudflareConnection.post(
   },
 );
 
+const TOKEN_ERROR_STATUS = {
+  not_connected: 404,
+  reauth_required: 409,
+  not_configured: 503,
+  upstream_error: 502,
+} as const;
+
+/**
+ * Prove the grant works end to end: get a token (refreshing it when due)
+ * and list the accounts it reaches. The dashboard's "test connection".
+ */
+cloudflareConnection.post(
+  "/verify",
+  dashboardOnly,
+  requirePermission("project:read"),
+  async (c) => {
+    const result: TokenResult = await grantClient(c.env, c.get("teamId")).token();
+    if (!result.ok) {
+      return c.json(
+        { error: result.error, message: result.message },
+        TOKEN_ERROR_STATUS[result.error],
+      );
+    }
+    try {
+      const accounts = await listAccounts(result.accessToken);
+      return c.json({ ok: true, accounts });
+    } catch (err) {
+      return c.json({ error: "upstream_error", message: String(err) }, 502);
+    }
+  },
+);
+
 cloudflareConnection.delete("/", dashboardOnly, requirePermission("domain:manage"), async (c) => {
   const teamId = c.get("teamId");
-  const deleted = await deleteConnection(c.env, teamId);
-  if (!deleted) return c.json({ error: "not_found", message: "No Cloudflare connection" }, 404);
-  const tokens = deleted.tokens;
-
   // Revoking the refresh token ends the whole grant at Cloudflare; the user
-  // can also see and revoke it under their Cloudflare profile. Best-effort:
-  // the local row is already gone either way.
-  const config = oauthConfig(c.env);
-  let revoked = false;
-  if (config && tokens) {
-    revoked = tokens.refreshToken
-      ? await revokeToken(config, tokens.refreshToken)
-      : await revokeToken(config, tokens.accessToken);
-  }
+  // can also see and revoke it under their Cloudflare profile.
+  const { existed, revoked } = await grantClient(c.env, teamId).disconnect();
+  if (!existed) return c.json({ error: "not_found", message: "No Cloudflare connection" }, 404);
 
   await recordAudit(
     c.env.DB,
@@ -208,7 +233,12 @@ cloudflareOAuthCallback.get("/callback", publicRoute, async (c) => {
     console.error("[cloudflare-oauth] listing accounts failed:", err);
   }
 
-  await saveConnection(c.env, pending.teamId, pending.userId, tokens, accounts);
+  await grantClient(c.env, pending.teamId).connect({
+    teamId: pending.teamId,
+    userId: pending.userId,
+    tokens,
+    accounts,
+  });
 
   const user: AuthUser = {
     id: session.user.id,

@@ -10,8 +10,8 @@ vi.mock("../tenant/auth.js", () => ({
 }));
 
 const { cloudflareConnection, cloudflareOAuthCallback } = await import("./routes.js");
-const store = await import("./store.js");
 const { pkceChallenge } = await import("./oauth.js");
+const { createInMemoryGrantNamespace } = await import("./grant-object.js");
 
 const TEAM = "team-1";
 const OWNER = "user-owner";
@@ -21,6 +21,7 @@ const auditCtx = { ip: "1.2.3.4", ipHash: "h", country: null, userAgent: null, c
 
 let t: LocalTestEnv;
 let env: Env;
+let grants: ReturnType<typeof createInMemoryGrantNamespace>;
 
 function seed() {
   const now = Date.now();
@@ -128,8 +129,9 @@ async function callback(query: Record<string, string>) {
   return new URL(res.headers.get("location")!);
 }
 
-function connectionRow() {
-  return t.db.db.prepare("SELECT * FROM cloudflare_connection WHERE teamId = ?").get(TEAM) as
+/** The team's status row in D1 (never a token). */
+function grantRow() {
+  return t.db.db.prepare("SELECT * FROM cloudflare_grant WHERE teamId = ?").get(TEAM) as
     | Record<string, any>
     | undefined;
 }
@@ -144,6 +146,8 @@ beforeEach(() => {
     CLOUDFLARE_OAUTH_CLIENT_ID: "creek-client",
     CLOUDFLARE_OAUTH_CLIENT_SECRET: "s3cret",
   };
+  grants = createInMemoryGrantNamespace(env);
+  env.CLOUDFLARE_GRANTS = grants;
   seed();
   signIn(OWNER);
 });
@@ -236,12 +240,16 @@ describe("GET /oauth/cloudflare/callback", () => {
     expect(tokenBody.get("code")).toBe("auth-code");
     expect(tokenBody.get("code_verifier")).toBe(verifier);
 
-    const row = connectionRow()!;
+    const row = grantRow()!;
     expect(row.connectedByUserId).toBe(OWNER);
     expect(row.grantedScopes).toBe("offline_access access.write");
     expect(JSON.parse(row.accounts)).toEqual([{ id: "acc-1", name: "Customer Inc" }]);
-    expect(row.encryptedAccessToken).not.toContain("cf-access");
-    expect(row.encryptedRefreshToken).not.toContain("cf-refresh");
+    expect(row.needsReauth).toBe(0);
+    // The tokens live in the team's grant object, encrypted, and nowhere in D1.
+    const stored = grants._stored(TEAM)!;
+    expect(stored.encryptedAccessToken).not.toContain("cf-access");
+    expect(stored.encryptedRefreshToken).not.toContain("cf-refresh");
+    expect(JSON.stringify(row)).not.toMatch(/cf-access|cf-refresh/);
 
     const audit = t.db.db.prepare("SELECT action FROM audit_log").all() as any[];
     expect(audit.map((a) => a.action)).toContain("integration.cloudflare.connect");
@@ -270,7 +278,7 @@ describe("GET /oauth/cloudflare/callback", () => {
     const location = await callback({ state, code: "c" });
     expect(location.searchParams.get("cloudflare_error")).toBe("session_mismatch");
     expect(fetch).not.toHaveBeenCalled();
-    expect(connectionRow()).toBeUndefined();
+    expect(grantRow()).toBeUndefined();
   });
 
   it("refuses a signed-out browser", async () => {
@@ -296,7 +304,7 @@ describe("GET /oauth/cloudflare/callback", () => {
     const state = await startAuthorize();
     const location = await callback({ state, error: "access_denied" });
     expect(location.searchParams.get("cloudflare_error")).toBe("denied");
-    expect(connectionRow()).toBeUndefined();
+    expect(grantRow()).toBeUndefined();
   });
 
   it("refuses an expired request", async () => {
@@ -354,7 +362,7 @@ describe("GET/DELETE /integrations/cloudflare", () => {
       env,
     );
     expect(await res.json()).toEqual({ ok: true, revoked: true });
-    expect(connectionRow()).toBeUndefined();
+    expect(grantRow()).toBeUndefined();
     const [url, init] = fetch.mock.calls[0];
     expect(String(url)).toBe("https://dash.cloudflare.com/oauth2/revoke");
     expect(new URLSearchParams(String(init?.body)).get("token")).toBe("cf-refresh");
@@ -377,205 +385,70 @@ describe("GET/DELETE /integrations/cloudflare", () => {
       env,
     );
     expect(res.status).toBe(403);
-    expect(connectionRow()).toBeDefined();
+    expect(grantRow()).toBeDefined();
   });
 });
 
-describe("getCloudflareAccessToken", () => {
-  const config = () => store.oauthConfig(env)!;
-
-  async function saveWith(tokens: Partial<Parameters<typeof store.saveConnection>[3]>) {
-    await store.saveConnection(
-      env,
-      TEAM,
-      OWNER,
-      {
-        accessToken: "at1",
-        refreshToken: "rt1",
-        expiresAt: Date.now() + 3600_000,
-        scopes: ["access.write"],
-        ...tokens,
-      },
-      [],
-    );
+describe("POST /integrations/cloudflare/verify", () => {
+  async function connect(token: Record<string, unknown> = {}) {
+    mockCloudflare(token);
+    await callback({ state: await startAuthorize(), code: "c" });
   }
+  const verify = () =>
+    manageApp(MEMBER, "member").request("/integrations/cloudflare/verify", { method: "POST" }, env);
 
-  it("returns a fresh token without calling Cloudflare", async () => {
+  it("reaches Cloudflare with the team's token", async () => {
+    await connect();
     const fetch = mockCloudflare();
-    await saveWith({});
-    expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("at1");
-    expect(fetch).not.toHaveBeenCalled();
+    const res = await verify();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      accounts: [{ id: "acc-1", name: "Customer Inc" }],
+    });
+    expect(new Headers(fetch.mock.calls[0][1]?.headers).get("authorization")).toBe(
+      "Bearer cf-access",
+    );
   });
 
-  it("refreshes an expiring token and persists the rotated refresh token", async () => {
-    await saveWith({ expiresAt: Date.now() + 10_000 });
-    const fetch = mockCloudflare({ access_token: "at2", refresh_token: "rt2" });
-    const before = connectionRow()!.generation;
-
-    expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("at2");
-    expect(new URLSearchParams(String(fetch.mock.calls[0][1]?.body)).get("refresh_token")).toBe(
-      "rt1",
+  it("refreshes an expired token first", async () => {
+    await connect({ expires_in: 0 });
+    const fetch = mockCloudflare({ access_token: "cf-access-2", refresh_token: "cf-refresh-2" });
+    expect((await verify()).status).toBe(200);
+    expect(String(fetch.mock.calls[0][0])).toBe("https://dash.cloudflare.com/oauth2/token");
+    expect(new Headers(fetch.mock.calls[1][1]?.headers).get("authorization")).toBe(
+      "Bearer cf-access-2",
     );
-    const row = connectionRow()!;
-    expect(row.generation).not.toBe(before);
-    expect(row.refreshLeaseUntil).toBeNull();
-
-    // The next refresh spends rt2, not rt1.
-    t.db.db.exec(`UPDATE cloudflare_connection SET accessTokenExpiresAt = 1`);
-    mockCloudflare({ access_token: "at3", refresh_token: "rt3" });
-    const f2 = vi.mocked(globalThis.fetch);
-    expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("at3");
-    expect(new URLSearchParams(String(f2.mock.calls[0][1]?.body)).get("refresh_token")).toBe("rt2");
   });
 
-  it("refreshes once when many requests need a token at the same time", async () => {
-    await saveWith({ expiresAt: 1 });
-    let calls = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        calls++;
-        await new Promise((r) => setTimeout(r, 20));
-        return Response.json({ access_token: "at2", refresh_token: "rt2", expires_in: 3600 });
-      }),
-    );
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.min(ms, 5)));
-    const tokens = await Promise.all(
-      Array.from({ length: 5 }, () =>
-        // PBKDF2 key derivation makes the winner take ~100ms+: allow waiters ~2s.
-        store.getCloudflareAccessToken(env, config(), TEAM, { sleep, maxWaits: 400 }),
-      ),
-    );
-    expect(tokens).toEqual(["at2", "at2", "at2", "at2", "at2"]);
-    expect(calls).toBe(1);
+  it("answers 404 before connecting", async () => {
+    expect((await verify()).status).toBe(404);
   });
 
-  it("drops a refresh token Cloudflare rejects and reports needsReauth", async () => {
-    await saveWith({ expiresAt: 1 });
+  it("answers 409 and marks needsReauth when Cloudflare refuses the refresh token", async () => {
+    await connect({ expires_in: 0 });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({ error: "invalid_grant" }, { status: 400 })),
     );
-    await expect(store.getCloudflareAccessToken(env, config(), TEAM)).rejects.toBeInstanceOf(
-      store.CloudflareReauthRequiredError,
-    );
-    expect(connectionRow()!.encryptedRefreshToken).toBeNull();
-    expect((await store.getConnectionStatus(env.DB, TEAM))!.needsReauth).toBe(true);
+    const res = await verify();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "reauth_required" });
+    expect(grantRow()!.needsReauth).toBe(1);
   });
+});
 
-  it.each([
-    [429, "rate_limited"],
-    [401, "invalid_client"],
-  ])(
-    "keeps the refresh token on a %i %s (only invalid_grant means it is spent)",
-    async (status, error) => {
-      await saveWith({ expiresAt: 1 });
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => Response.json({ error }, { status })),
-      );
-      const err = await store.getCloudflareAccessToken(env, config(), TEAM).catch((e) => e);
-      expect(err).not.toBeInstanceOf(store.CloudflareReauthRequiredError);
-      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
-      expect(connectionRow()!.refreshLeaseUntil).toBeNull();
-      expect((await store.getConnectionStatus(env.DB, TEAM))!.needsReauth).toBe(false);
-    },
-  );
-
-  it("releases the lease when Cloudflare is unreachable, so the next call retries", async () => {
-    await saveWith({ expiresAt: 1 });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Promise.reject(new Error("network down"))),
+describe("disconnect", () => {
+  it("forgets the tokens, so a later token request finds no grant", async () => {
+    mockCloudflare();
+    await callback({ state: await startAuthorize(), code: "c" });
+    await manageApp(OWNER, "owner").request("/integrations/cloudflare", { method: "DELETE" }, env);
+    expect(grants._stored(TEAM)).toBeUndefined();
+    const res = await manageApp(OWNER, "owner").request(
+      "/integrations/cloudflare/verify",
+      { method: "POST" },
+      env,
     );
-    await expect(store.getCloudflareAccessToken(env, config(), TEAM)).rejects.toThrow(
-      "network down",
-    );
-    expect(connectionRow()!.refreshLeaseUntil).toBeNull();
-    expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
-  });
-
-  describe("a refresh that straddles a disconnect and reconnect", () => {
-    /** Mid-refresh, the team disconnects and connects again (a brand-new grant). */
-    function refreshThatReconnects(response: () => Response) {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          await store.deleteConnection(env, TEAM);
-          await saveWith({ accessToken: "new-at", refreshToken: "new-rt" });
-          return response();
-        }),
-      );
-    }
-
-    it("does not overwrite the new grant with the old grant's tokens", async () => {
-      await saveWith({ expiresAt: 1 });
-      refreshThatReconnects(() =>
-        Response.json({ access_token: "stale-at", refresh_token: "stale-rt", expires_in: 3600 }),
-      );
-      await store.getCloudflareAccessToken(env, config(), TEAM);
-      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("new-at");
-    });
-
-    it("does not drop the new grant's refresh token when the old one was rejected", async () => {
-      await saveWith({ expiresAt: 1 });
-      refreshThatReconnects(() => Response.json({ error: "invalid_grant" }, { status: 400 }));
-      await store.getCloudflareAccessToken(env, config(), TEAM).catch(() => {});
-      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
-    });
-  });
-
-  describe("a refresh that outlives its lease", () => {
-    const SUCCESSOR_LEASE = 9_999_999_999_999;
-
-    /** Mid-refresh, our lease expires and another caller takes it over. */
-    function refreshWhoseLeaseIsTaken(response: () => Response | Promise<Response>) {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          t.db.db.exec(
-            `UPDATE cloudflare_connection SET refreshLeaseUntil = ${SUCCESSOR_LEASE},
-               refreshLeaseOwner = 'successor'`,
-          );
-          return response();
-        }),
-      );
-    }
-
-    it("does not release the successor's lease when it fails", async () => {
-      await saveWith({ expiresAt: 1 });
-      refreshWhoseLeaseIsTaken(() => Promise.reject(new Error("network down")));
-      await store.getCloudflareAccessToken(env, config(), TEAM).catch(() => {});
-      expect(connectionRow()!.refreshLeaseUntil).toBe(SUCCESSOR_LEASE);
-    });
-
-    it("still stores tokens it was served: with rotation they are the only valid ones", async () => {
-      await saveWith({ expiresAt: 1 });
-      const generationBefore = connectionRow()!.generation;
-      refreshWhoseLeaseIsTaken(() =>
-        Response.json({ access_token: "late-at", refresh_token: "late-rt", expires_in: 3600 }),
-      );
-      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("late-at");
-      // A new generation: the successor's invalid_grant drop (fenced by the
-      // old generation) now matches nothing, and it re-reads these tokens.
-      expect(connectionRow()!.generation).not.toBe(generationBefore);
-      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
-      expect(await store.getCloudflareAccessToken(env, config(), TEAM)).toBe("late-at");
-    });
-
-    it("gives up on the token endpoint with time left in the lease to store the result", async () => {
-      expect(store.REFRESH_LEASE_MS - store.REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
-      expect(store.REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
-      await saveWith({ expiresAt: 1 });
-      const fetch = mockCloudflare({ access_token: "at2" });
-      await store.getCloudflareAccessToken(env, config(), TEAM);
-      expect(fetch.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
-    });
-  });
-
-  it("throws CloudflareNotConnectedError for a team without a grant", async () => {
-    await expect(store.getCloudflareAccessToken(env, config(), TEAM)).rejects.toBeInstanceOf(
-      store.CloudflareNotConnectedError,
-    );
+    expect(res.status).toBe(404);
   });
 });

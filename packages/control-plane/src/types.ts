@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { D1Database, DurableObjectNamespace, R2Bucket } from "@cloudflare/workers-types";
 
 export interface Env {
   // Cloudflare bindings
@@ -62,6 +62,13 @@ export interface Env {
   CLOUDFLARE_OAUTH_CLIENT_SECRET?: string;
   /** Space-separated scope ids; overrides DEFAULT_SCOPES in cloudflare-connection/oauth.ts. */
   CLOUDFLARE_OAUTH_SCOPES?: string;
+  /**
+   * One CloudflareGrant Durable Object per team: holds and refreshes its
+   * Cloudflare tokens. Optional at the type level only — the local dev server
+   * and tests pass createInMemoryGrantNamespace(); without it the feature
+   * throws rather than falling back silently.
+   */
+  CLOUDFLARE_GRANTS?: DurableObjectNamespace;
   /** Where the OAuth callback sends the browser back to. Default https://app.creek.dev. */
   DASHBOARD_URL?: string;
 

@@ -21,6 +21,7 @@ import { join, dirname, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { Env } from "../types.js";
+import { createInMemoryGrantNamespace } from "../modules/cloudflare-connection/grant-object.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "../../drizzle");
@@ -347,6 +348,9 @@ export function createLocalTestEnv(options?: {
     GITHUB_APP_PRIVATE_KEY: "test-private-key",
     GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
   };
+  // Tests that change env fields the grant object reads (ENCRYPTION_KEY, the
+  // OAuth client) build their own with createInMemoryGrantNamespace(theirEnv).
+  env.CLOUDFLARE_GRANTS = createInMemoryGrantNamespace(env);
 
   return {
     env,
