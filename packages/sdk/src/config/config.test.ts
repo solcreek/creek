@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { parseConfig } from "./index.js";
+import { CreekConfigSchema, parseConfig } from "./index.js";
 
 describe("parseConfig", () => {
   test('accepts framework = "vinext" (written by creek init)', () => {
@@ -106,5 +106,25 @@ name = "bare"
 `);
     expect(config.build.command).toBe("npm run build");
     expect(config.build.output).toBe("dist");
+  });
+});
+
+// GHSA-mrhx-c7xc-m3w5: zod records one issue per failing array element and only
+// stops early when the array carries a length constraint. Without `.max()`, a
+// creek.toml with a huge array of bad values allocates millions of issues.
+describe("CreekConfigSchema array bounds", () => {
+  const huge = Array.from({ length: 1_000_000 }, () => 1);
+  // A union nests each branch's issues under one `invalid_union`; count them all.
+  type Issue = { errors?: Issue[][] };
+  const countIssues = (issues: Issue[]): number =>
+    issues.reduce((n, i) => n + 1 + (i.errors ?? []).reduce((m, b) => m + countIssues(b), 0), 0);
+
+  test.each([
+    ["triggers.cron", { triggers: { cron: huge } }],
+    ["build.run_worker_first", { build: { run_worker_first: huge } }],
+  ])("rejects an oversized %s with a bounded issue count", (_field, extra) => {
+    const result = CreekConfigSchema.safeParse({ project: { name: "app" }, ...extra });
+    expect(result.success).toBe(false);
+    expect(countIssues(result.error!.issues as Issue[])).toBeLessThanOrEqual(4);
   });
 });
