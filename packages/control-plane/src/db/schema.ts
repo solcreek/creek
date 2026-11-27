@@ -452,3 +452,44 @@ export const usageDaily = sqliteTable(
     index("idx_usage_daily_date").on(table.date),
   ],
 );
+
+// ============================================================================
+// Cloudflare connection — a team's OAuth grant to its own Cloudflare account,
+// used to manage Access applications and DNS there. See
+// drizzle/0015_cloudflare_connection.sql and modules/cloudflare-connection/.
+// ============================================================================
+
+export const cloudflareOauthState = sqliteTable("cloudflare_oauth_state", {
+  state: text("state").primaryKey(),
+  teamId: text("teamId")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  codeVerifier: text("codeVerifier").notNull(),
+  returnTo: text("returnTo"),
+  expiresAt: integer("expiresAt").notNull(),
+});
+
+export const cloudflareConnection = sqliteTable("cloudflare_connection", {
+  teamId: text("teamId")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  connectedByUserId: text("connectedByUserId").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  encryptedAccessToken: text("encryptedAccessToken").notNull(),
+  encryptedRefreshToken: text("encryptedRefreshToken"),
+  accessTokenExpiresAt: integer("accessTokenExpiresAt"),
+  // Space-separated scope ids the user actually granted.
+  grantedScopes: text("grantedScopes").notNull(),
+  // JSON [{ id, name }] — the Cloudflare accounts the grant covers.
+  accounts: text("accounts").notNull().default("[]"),
+  // Fresh random value on every write; fences refresh updates (see 0015).
+  generation: text("generation").notNull(),
+  refreshLeaseUntil: integer("refreshLeaseUntil"),
+  refreshLeaseOwner: text("refreshLeaseOwner"),
+  createdAt: integer("createdAt").notNull(),
+  updatedAt: integer("updatedAt").notNull(),
+});

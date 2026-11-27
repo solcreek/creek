@@ -80,6 +80,10 @@ const MANIFEST: Record<string, string> = {
   "POST /api-keys": "session-only",
   "GET /api-keys": "session-only",
   "DELETE /api-keys/:id": "session-only",
+  "GET /integrations/cloudflare": "session-only",
+  "POST /integrations/cloudflare/authorize": "session-only",
+  "DELETE /integrations/cloudflare": "session-only",
+  "GET /oauth/cloudflare/callback": "public",
 };
 
 /** app.use() middleware paths. An ALL route anywhere else would be an unguarded endpoint. */
@@ -90,6 +94,9 @@ const MIDDLEWARE_PATHS = new Set([
   "/github/*",
   "/resources/*",
   "/api-keys/*",
+  "/integrations/cloudflare",
+  "/integrations/cloudflare/*",
+  "/oauth/cloudflare/*",
 ]);
 
 function describeGuard(info: GuardInfo): string {

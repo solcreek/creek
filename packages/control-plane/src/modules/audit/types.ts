@@ -17,7 +17,9 @@ export type AuditAction =
   | "trigger.cron.update"
   | "trigger.queue.update"
   | "api_key.create"
-  | "api_key.revoke";
+  | "api_key.revoke"
+  | "integration.cloudflare.connect"
+  | "integration.cloudflare.disconnect";
 
 export type AuditResourceType =
   | "project"
@@ -26,7 +28,8 @@ export type AuditResourceType =
   | "envvar"
   | "instant_deploy"
   | "trigger"
-  | "api_key";
+  | "api_key"
+  | "integration";
 
 export interface AuditEntry {
   action: AuditAction;
