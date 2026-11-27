@@ -47,6 +47,23 @@ const DEFAULT_TIMING: Timing = {
 const DEFAULT_WAIT_SECONDS = 45;
 const MAX_WAIT_SECONDS = 300;
 
+/**
+ * zod records one issue per failing record entry and has no `.max()` for records
+ * (GHSA-mrhx-c7xc-m3w5). `deploy` needs no account, so count the entries first
+ * and refuse an oversized map before any per-entry check runs.
+ */
+const MAX_DEPLOY_FILES = 10_000;
+const boundedFiles = z.preprocess(
+  (value, ctx) => {
+    if (value && typeof value === "object" && Object.keys(value).length > MAX_DEPLOY_FILES) {
+      ctx.addIssue({ code: "custom", message: `At most ${MAX_DEPLOY_FILES} files per deploy` });
+      return z.NEVER;
+    }
+    return value;
+  },
+  z.record(z.string(), z.string()),
+);
+
 const TERMINAL_DEPLOY_STATUSES: ReadonlySet<string> = new Set(["active", "failed", "cancelled"]);
 
 export interface DeploymentView {
@@ -298,7 +315,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     {
       description: "Deploy files to a sandbox preview (60 min, no account needed)",
       inputSchema: {
-        files: z.record(z.string()).describe("File path → file content (UTF-8 string, not base64)"),
+        files: boundedFiles.describe("File path → file content (UTF-8 string, not base64)"),
       },
       annotations: ANNOTATIONS["deploy"],
     },
@@ -1135,7 +1152,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       inputSchema: {
         resourceId: z.string().describe("Resource ID of a database (from list_resources)"),
         sql: z.string().describe("SQL query to execute"),
-        params: z.array(z.unknown()).optional().describe("Bind parameters for the query"),
+        // D1 allows at most 100 bound parameters per query.
+        params: z.array(z.unknown()).max(100).optional().describe("Bind parameters for the query"),
       },
       annotations: ANNOTATIONS["query_database"],
     },

@@ -1118,6 +1118,32 @@ describe("MCP sandbox deploy keeps the sandboxId on every outcome", () => {
   });
 });
 
+describe("MCP deploy input bounds", () => {
+  // GHSA-mrhx-c7xc-m3w5: zod records an issue per failing entry. `deploy` needs no
+  // account, so an oversized `files` map must be refused before per-entry checks.
+  it("refuses an oversized files map through the real SDK, without calling the sandbox", async () => {
+    const mcp = new McpServer({ name: "creek", version: "test" });
+    registerTools(mcp, {
+      env: { SANDBOX_API_URL: SANDBOX, CONTROL_PLANE_URL: "https://cp.test" } as unknown as Env,
+      clientIp: "203.0.113.7",
+      requestHeaders: new Headers(),
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0" });
+    await Promise.all([mcp.connect(serverSide), client.connect(clientSide)]);
+
+    const files = Object.fromEntries(Array.from({ length: 200_000 }, (_, i) => [`f${i}`, 1]));
+    const result = await client.callTool({ name: "deploy", arguments: { files } });
+    await client.close();
+
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("At most 10000 files");
+    // One issue, not one per entry: the message stays small.
+    expect(text.length).toBeLessThan(2_000);
+  });
+});
+
 describe("MCP tool annotations", () => {
   /** List tools the way an MCP client sees them, through the real SDK. */
   async function listTools() {
