@@ -455,6 +455,25 @@ describe("getCloudflareAccessToken", () => {
     expect((await store.getConnectionStatus(env.DB, TEAM))!.needsReauth).toBe(true);
   });
 
+  it.each([
+    [429, "rate_limited"],
+    [401, "invalid_client"],
+  ])(
+    "keeps the refresh token on a %i %s (only invalid_grant means it is spent)",
+    async (status, error) => {
+      await saveWith({ expiresAt: 1 });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ error }, { status })),
+      );
+      const err = await store.getCloudflareAccessToken(env, config(), TEAM).catch((e) => e);
+      expect(err).not.toBeInstanceOf(store.CloudflareReauthRequiredError);
+      expect(connectionRow()!.encryptedRefreshToken).not.toBeNull();
+      expect(connectionRow()!.refreshLeaseUntil).toBeNull();
+      expect((await store.getConnectionStatus(env.DB, TEAM))!.needsReauth).toBe(false);
+    },
+  );
+
   it("releases the lease when Cloudflare is unreachable, so the next call retries", async () => {
     await saveWith({ expiresAt: 1 });
     vi.stubGlobal(

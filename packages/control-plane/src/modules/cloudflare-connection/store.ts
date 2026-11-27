@@ -318,9 +318,11 @@ export async function getCloudflareAccessToken(
         row.grantedScopes.split(" ").filter(Boolean),
       );
     } catch (err) {
-      if (err instanceof OAuthGrantError && err.status >= 400 && err.status < 500) {
-        // The refresh token is spent or revoked. Drop it so status shows
-        // needsReauth, unless the grant was replaced meanwhile.
+      if (err instanceof OAuthGrantError && err.code === "invalid_grant") {
+        // RFC 6749 §5.2: the refresh token is expired, revoked or spent. Drop
+        // it so status shows needsReauth, unless the grant was replaced
+        // meanwhile. Any other error (a 429, invalid_client from our own
+        // misconfiguration) leaves the token for the next attempt.
         await env.DB.prepare(
           `UPDATE cloudflare_connection SET encryptedRefreshToken = NULL, refreshLeaseUntil = NULL
            WHERE teamId = ? AND tokenVersion = ?`,
