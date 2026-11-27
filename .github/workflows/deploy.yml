@@ -23,6 +23,7 @@ on:
           - remote-builder
           - og-api
           - tail-worker
+          - dashboard
 
 # Run deploys serially for safety — no concurrent prod pushes.
 concurrency:
@@ -38,6 +39,7 @@ jobs:
       # The matrix context is not available in job-level `if:`
       # (actions/runner#1985), so per-target gating happens here.
       matrix: ${{ steps.matrix.outputs.matrix }}
+      dashboard: ${{ steps.matrix.outputs.dashboard }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -79,6 +81,9 @@ jobs:
             # gap also hid our own outages. Don't drop this entry.
             tail-worker:
               - 'packages/tail-worker/**'
+            dashboard:
+              - 'apps/dashboard/**'
+              - 'packages/ui/**'
 
       - name: Compute deploy matrix
         id: matrix
@@ -119,8 +124,17 @@ jobs:
             IDS='[]'
           fi
           MATRIX=$(jq -c --argjson ids "$IDS" '[.[] | select(.id as $i | $ids | index($i))]' <<<"$ALL")
+          if [ "$EVENT_NAME" = "push" ]; then
+            DASHBOARD=$(jq -r 'if index("dashboard") then "true" else "false" end' <<<"$CHANGED")
+          elif [ "$TARGET" = "all" ] || [ "$TARGET" = "dashboard" ]; then
+            DASHBOARD="true"
+          else
+            DASHBOARD="false"
+          fi
           echo "targets: $IDS"
+          echo "dashboard: $DASHBOARD"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "dashboard=$DASHBOARD" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: changes
@@ -150,3 +164,52 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-dashboard:
+    needs: [changes, deploy]
+    # Run after worker deploys succeed (or are skipped) so any coupled
+    # control-plane API changes land before the dashboard ships.
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.dashboard == 'true' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    name: deploy (dashboard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build CLI
+        run: pnpm turbo build --filter=creek
+      - name: Build dashboard
+        # Run pnpm directly (not via turbo) so Turbo v2 strict env mode
+        # doesn't strip VITE_API_URL before Vite reads it.
+        run: pnpm --filter dashboard build
+        env:
+          VITE_API_URL: https://api.creek.dev
+      - name: Verify production API URL in bundle
+        run: |
+          if grep -rq "localhost:8787" apps/dashboard/dist/assets; then
+            echo "::error::Production dashboard bundle references localhost:8787 — VITE_API_URL was not injected."
+            exit 1
+          fi
+          if ! grep -rq "https://api.creek.dev" apps/dashboard/dist/assets; then
+            echo "::error::Production dashboard bundle is missing https://api.creek.dev."
+            exit 1
+          fi
+      - name: Deploy dashboard
+        working-directory: apps/dashboard
+        env:
+          CREEK_TOKEN: ${{ secrets.CREEK_TOKEN }}
+          CREEK_API_URL: https://api.creek.dev
+        run: |
+          if [ -z "$CREEK_TOKEN" ]; then
+            echo "::error::CREEK_TOKEN secret is not configured. Create a ci-deploy scoped API key and save it as the CREEK_TOKEN secret."
+            exit 1
+          fi
+          node ../../packages/creek/bin.js deploy --prod --yes --skip-build --json --wait 5m
