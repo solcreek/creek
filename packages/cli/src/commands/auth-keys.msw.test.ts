@@ -5,6 +5,9 @@ import consola from "consola";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CreekApiError } from "@solcreek/sdk";
+import { diagnoseTokenFormat } from "../utils/api-key.js";
+import { apiErrorFields, apiErrorHints, isEdgeBlockedError } from "../utils/api-error.js";
 import { whoamiCommand } from "./whoami.js";
 import { loginCommand } from "./login.js";
 import { logoutCommand } from "./logout.js";
@@ -822,4 +825,88 @@ describe("no output shows more of a key than its prefix and 4 characters", () =>
       http.delete(`${API}/api-keys/self`, () => new HttpResponse("404 Not Found", { status: 404 })),
     );
   }
+});
+
+describe("token format diagnosis and non-JSON 403 edge-block diagnostics", () => {
+  it("diagnoseTokenFormat flags common paste/quoting mistakes and accepts clean keys", () => {
+    expect(diagnoseTokenFormat(`"${SCOPED_KEY}"`)?.code).toBe("wrapped_in_quotes");
+    expect(diagnoseTokenFormat(`'${SCOPED_KEY}'`)?.code).toBe("wrapped_in_quotes");
+    expect(diagnoseTokenFormat(` ${SCOPED_KEY} `)?.code).toBe("surrounding_whitespace");
+    expect(diagnoseTokenFormat(`${SCOPED_KEY}\n`)?.code).toBe("contains_newline");
+    expect(diagnoseTokenFormat(`{"token":"x"}`)?.code).toBe("looks_like_json");
+    expect(diagnoseTokenFormat(`crk_sk_live_a b`)?.code).toBe("contains_whitespace");
+    expect(diagnoseTokenFormat(SCOPED_KEY)).toBeNull();
+    expect(diagnoseTokenFormat("test-token")).toBeNull();
+    expect(diagnoseTokenFormat("tok")).toBeNull();
+  });
+
+  it("whoami flags quoted CREEK_TOKEN without leaking the secret", async () => {
+    process.env.CREEK_TOKEN = `"${SCOPED_KEY}"`;
+    api({ [SCOPED_KEY]: SCOPED });
+    expect(await run(whoamiCommand, {})).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: false,
+      error: "session_expired",
+      tokenSource: "env:CREEK_TOKEN",
+      tokenFormatIssue: "wrapped_in_quotes",
+    });
+    expect(out.message).toContain("wrapped in quotes");
+    expect(stdout).not.toContain("ScOp9xQ7");
+  });
+
+  it("whoami and login handle newlines in keys without crashing on invalid headers", async () => {
+    process.env.CREEK_TOKEN = `${SCOPED_KEY}\n`;
+    expect(await run(whoamiCommand, {})).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "session_expired",
+      tokenSource: "env:CREEK_TOKEN",
+      tokenFormatIssue: "contains_newline",
+    });
+
+    stdout = "";
+    expect(await run(loginCommand, { token: `${SCOPED_KEY}\n`, json: true })).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token",
+      tokenFormatIssue: "contains_newline",
+    });
+  });
+
+  it("non-JSON HTML 403 surfaces as edge_blocked instead of invalid token", async () => {
+    process.env.CREEK_TOKEN = SCOPED_KEY;
+    server.use(
+      http.get(
+        `${API}/api/auth/get-session`,
+        () =>
+          new HttpResponse("<html>Attention Required! | Cloudflare</html>", {
+            status: 403,
+            statusText: "Forbidden",
+            headers: {
+              "content-type": "text/html",
+              "cf-ray": "test-ray-DFW",
+              "cf-mitigated": "challenge",
+            },
+          }),
+      ),
+      http.get(`${API}/api-keys/self`, () =>
+        HttpResponse.json({ error: "unauthorized" }, { status: 401 }),
+      ),
+    );
+    const err = await whoamiCommand.run({ args: { json: true } } as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CreekApiError);
+    expect(isEdgeBlockedError(err)).toBe(true);
+    expect(apiErrorFields(err)).toEqual({
+      status: 403,
+      apiError: "edge_blocked",
+      details: {
+        nonJson: true,
+        contentType: "text/html",
+        cfRay: "test-ray-DFW",
+        cfMitigated: "challenge",
+      },
+    });
+    expect(apiErrorHints(err).join(" ")).toContain("test-ray-DFW");
+  });
 });

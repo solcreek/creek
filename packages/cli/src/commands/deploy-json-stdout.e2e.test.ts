@@ -65,7 +65,45 @@ beforeAll(async () => {
       });
     }
     if (p === "/api/auth/get-session") {
+      const key = req.headers["x-api-key"];
+      if (key === '"crk_sk_live_quotedSecretValue"') {
+        return json({ message: "Invalid API key.", code: "INVALID_API_KEY" }, 403);
+      }
+      if (key === "tok_unusable") {
+        return json({ error: "team_mismatch", message: "Owner left team" }, 403);
+      }
+      if (key === "tok_edge_blocked") {
+        res.writeHead(403, {
+          "content-type": "text/html",
+          "cf-ray": "ray123-DFW",
+          "cf-mitigated": "challenge",
+        });
+        return res.end("<html>Attention Required!</html>");
+      }
       return json({ user: { id: "u1", email: "t@example.com", name: "T" }, session: {} });
+    }
+    if (p === "/api-keys/self") {
+      if (req.headers["x-api-key"] === "tok_unusable") {
+        return json({
+          id: "k1",
+          name: "ci",
+          start: "crk_sk_live_unUs",
+          prefix: null,
+          legacy: false,
+          team: { id: "o1", slug: "acme" },
+          scopes: ["deploy:production"],
+          role: null,
+          effectiveScopes: [],
+          access: "none",
+          enabled: true,
+          expiresAt: null,
+          expired: false,
+          createdAt: "2026-01-01T00:00:00Z",
+          lastUsedAt: null,
+          warning: "The key's owner is no longer a member of the team.",
+        });
+      }
+      return json({ error: "unauthorized", message: "Invalid API key" }, 401);
     }
     if (req.method === "GET" && /^\/projects\/[^/]+$/.test(p)) {
       return json({ id: "p1", slug: "app", organizationId: "o1", productionBranch: "main" });
@@ -74,6 +112,16 @@ beforeAll(async () => {
       return json({ deployment: { id: "d1", version: 1, status: "pending" } }, 201);
     }
     if (req.method === "GET" && p.endsWith("/deployments/d1")) {
+      if (req.headers["x-api-key"] === "tok_custom_domain") {
+        return json({
+          deployment: { id: "d1", status: "active", version: 5 },
+          url: `${base}/`,
+          defaultUrl: "https://app-acme.bycreek.com",
+          primaryDomain: "app.example.com",
+          customDomains: ["app.example.com"],
+          previewUrl: "https://app-d1-acme.bycreek.com",
+        });
+      }
       return json({ deployment: { id: "d1", status: "active", version: 1 }, url: `${base}/` });
     }
     return json({ ok: true });
@@ -266,6 +314,68 @@ describe.skipIf(!existsSync(CLI))(
     test("JSON mode switched on by a pipe, without --json", async () => {
       const r = await deploy(["--sandbox"]);
       expect(parseOnlyJson(r.stdout)).toMatchObject({ ok: true });
+    });
+
+    test("production deploy blames quoted CREEK_TOKEN without leaking the secret", async () => {
+      const r = await deploy(["--prod", "--skip-build", "--json"], {
+        CREEK_TOKEN: '"crk_sk_live_quotedSecretValue"',
+      });
+      const out = parseOnlyJson(r.stdout);
+      expect(r.code).toBe(1);
+      expect(out).toMatchObject({
+        ok: false,
+        error: "unauthorized",
+        tokenSource: "env:CREEK_TOKEN",
+        tokenFormatIssue: "wrapped_in_quotes",
+      });
+      expect(String(out.message)).toContain("CREEK_TOKEN");
+      expect(String(out.message)).toContain("quotes");
+      expect(r.stdout).not.toContain("quotedSecretValue");
+    });
+
+    test("production deploy reports key_unusable when key exists but cannot act", async () => {
+      const r = await deploy(["--prod", "--skip-build", "--json"], { CREEK_TOKEN: "tok_unusable" });
+      const out = parseOnlyJson(r.stdout);
+      expect(r.code).toBe(1);
+      expect(out).toMatchObject({
+        ok: false,
+        error: "key_unusable",
+        tokenSource: "env:CREEK_TOKEN",
+        key: { access: "none" },
+      });
+    });
+
+    test("production deploy reports edge_blocked on non-JSON 403 HTML block", async () => {
+      const r = await deploy(["--prod", "--skip-build", "--json"], {
+        CREEK_TOKEN: "tok_edge_blocked",
+      });
+      const out = parseOnlyJson(r.stdout);
+      expect(r.code).toBe(1);
+      expect(out).toMatchObject({
+        ok: false,
+        error: "edge_blocked",
+        status: 403,
+        details: { nonJson: true, contentType: "text/html", cfRay: "ray123-DFW" },
+      });
+    });
+
+    test("production deploy includes primaryDomain/customDomains and uses domains ls breadcrumb", async () => {
+      const r = await deploy(["--prod", "--skip-build", "--json"], {
+        CREEK_TOKEN: "tok_custom_domain",
+      });
+      const out = parseOnlyJson(r.stdout);
+      expect(r.code).toBe(0);
+      expect(out).toMatchObject({
+        ok: true,
+        url: `${base}/`,
+        defaultUrl: "https://app-acme.bycreek.com",
+        primaryDomain: "app.example.com",
+        customDomains: ["app.example.com"],
+        proof: { ok: true, url: `${base}/` },
+      });
+      const commands = (out.breadcrumbs as Array<{ command: string }>).map((b) => b.command);
+      expect(commands).toContain("creek domains ls --project app --json");
+      expect(commands.join("\n")).not.toContain("creek domains add");
     });
   },
 );

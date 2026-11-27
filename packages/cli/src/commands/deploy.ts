@@ -34,7 +34,19 @@ import {
   type VinextBuild,
 } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
-import { getToken, getApiUrl, isSignedIn } from "../utils/config.js";
+import {
+  getToken,
+  getTokenSource,
+  getApiUrl,
+  isSignedIn,
+  type TokenSource,
+} from "../utils/config.js";
+import {
+  diagnoseTokenFormat,
+  keyLines,
+  lookupKey,
+  type TokenFormatIssue,
+} from "../utils/api-key.js";
 import { MIGRATION_DIRS, collectMigrations } from "./migrate.js";
 import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
@@ -104,7 +116,12 @@ import {
   type DeployDestination,
 } from "../utils/deploy-destination.js";
 import { shellQuote } from "../utils/shell-quote.js";
-import { apiErrorFields, apiErrorHints } from "../utils/api-error.js";
+import {
+  apiErrorFields,
+  apiErrorHints,
+  edgeBlockedMessage,
+  isEdgeBlockedError,
+} from "../utils/api-error.js";
 import {
   uploadServerFiles,
   type ServerFileUploader,
@@ -391,6 +408,77 @@ export async function finishProductionSuccess(opts: {
   }
   opts.human();
   if (!proofFields.ok) process.exit(1);
+}
+
+function customDomainFields(source: {
+  defaultUrl?: string | null;
+  primaryDomain?: string | null;
+  customDomains?: string[];
+}): Record<string, unknown> {
+  return {
+    ...(source.defaultUrl ? { defaultUrl: source.defaultUrl } : {}),
+    ...(source.primaryDomain ? { primaryDomain: source.primaryDomain } : {}),
+    ...(source.customDomains?.length ? { customDomains: source.customDomains } : {}),
+  };
+}
+
+function customDomainBreadcrumbs(
+  slug: string,
+  source: { primaryDomain?: string | null; customDomains?: string[] },
+): Breadcrumb[] {
+  const hasCustomDomain = Boolean(
+    source.primaryDomain || (source.customDomains && source.customDomains.length > 0),
+  );
+  return hasCustomDomain
+    ? [{ command: `creek domains ls --project ${slug} --json`, description: "List custom domains" }]
+    : [
+        {
+          command: `creek domains add <HOSTNAME> --project ${slug}`,
+          description: "Add custom domain",
+        },
+      ];
+}
+
+function exitUnauthorizedToken(
+  jsonMode: boolean,
+  info: { source: TokenSource | null; shadowsConfigToken: boolean },
+  formatIssue: TokenFormatIssue | null,
+  err?: CreekAuthError,
+): never {
+  const fromEnv = info.source === "env:CREEK_TOKEN";
+  const base = fromEnv
+    ? err
+      ? "The API key in CREEK_TOKEN was rejected. Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
+      : "The API key in CREEK_TOKEN was refused (revoked, expired or invalid). Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
+    : err
+      ? "Authentication failed. Run `creek login` to re-authenticate."
+      : "Token is invalid or expired. Run `creek login` to re-authenticate.";
+  const message = formatIssue ? `${base} ${formatIssue.message}` : base;
+  const breadcrumbs: Breadcrumb[] = fromEnv
+    ? [
+        ...(info.shadowsConfigToken
+          ? [{ command: "unset CREEK_TOKEN", description: "Use the key saved by `creek login`" }]
+          : []),
+        { command: "creek whoami --json", description: "Inspect the active key and token source" },
+        ...AUTH_BREADCRUMBS,
+      ]
+    : AUTH_BREADCRUMBS;
+  if (jsonMode) {
+    jsonOutput(
+      {
+        ok: false,
+        error: "unauthorized",
+        message,
+        ...(info.source ? { tokenSource: info.source } : {}),
+        ...(formatIssue ? { tokenFormatIssue: formatIssue.code } : {}),
+        ...(err ? apiErrorFields(err) : {}),
+      },
+      1,
+      breadcrumbs,
+    );
+  }
+  consola.error(message);
+  process.exit(1);
 }
 
 function assetSummary(fileList: string[]): string {
@@ -1483,6 +1571,9 @@ export interface CliDeployment {
   errorMessage: string | null;
   createdAt: number;
   url: string | null;
+  defaultUrl?: string | null;
+  primaryDomain?: string | null;
+  customDomains?: string[];
 }
 
 export const CLI_TERMINAL_STATUSES = new Set(["active", "failed", "cancelled"]);
@@ -1776,12 +1867,16 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
         buildTimeS: parseFloat(elapsedS),
         mode: "production",
         source: "github",
+        ...customDomainFields(targetDeployment),
         ...matchFields(),
         rollbackCommand: `creek rollback --project ${projectSlug}`,
       },
       human: () => {
         consola.success(`  Deployed v${targetDeployment.version}`);
         if (targetDeployment.url) consola.log(`  ${targetDeployment.url}`);
+        if (targetDeployment.defaultUrl && targetDeployment.defaultUrl !== targetDeployment.url) {
+          consola.info(`  Default: ${targetDeployment.defaultUrl}`);
+        }
       },
     });
     return;
@@ -2494,27 +2589,44 @@ async function deployAuthenticated(
     process.exit(1);
   }
   try {
+    const tokenInfo = getTokenSource();
+    const formatIssue = diagnoseTokenFormat(token);
+    if (formatIssue?.code === "contains_newline") {
+      exitUnauthorizedToken(jsonMode, tokenInfo, formatIssue);
+    }
+
     const client = new CreekClient(getApiUrl(), token);
 
     progress.section("Auth");
     const session = await client.getSession();
     if (!session?.user) {
-      // getSession() is null only when the API refuses the key (other
-      // failures throw), so this is the rejected-key exit: JSON mode still
-      // owes stdout a result.
-      if (jsonMode) {
-        jsonOutput(
-          {
-            ok: false,
-            error: "unauthorized",
-            message: "Token is invalid or expired. Run `creek login` to re-authenticate.",
-          },
-          1,
-          AUTH_BREADCRUMBS,
-        );
+      const lookup = await lookupKey(client);
+      if (lookup.ok) {
+        const message =
+          lookup.key.warning ??
+          "The API recognises this key but refuses to act with it (access: none). Revoke it and use another key.";
+        const breadcrumbs: Breadcrumb[] = [
+          { command: "creek keys revoke --self --json", description: "Revoke this unusable key" },
+          ...AUTH_BREADCRUMBS,
+        ];
+        if (jsonMode) {
+          jsonOutput(
+            {
+              ok: false,
+              error: "key_unusable",
+              message,
+              ...(tokenInfo.source ? { tokenSource: tokenInfo.source } : {}),
+              key: lookup.key,
+            },
+            1,
+            breadcrumbs,
+          );
+        }
+        consola.error(message);
+        for (const line of keyLines(lookup.key)) consola.log(line);
+        process.exit(1);
       }
-      consola.error("Token is invalid or expired. Run `creek login` to re-authenticate.");
-      process.exit(1);
+      exitUnauthorizedToken(jsonMode, tokenInfo, formatIssue);
     }
     progress.info(`  Deploying as ${session.user.email}`);
     progress.info(`  Project: ${resolved.projectName}`);
@@ -2860,6 +2972,7 @@ async function deployAuthenticated(
             assetCount: fileList.length,
             buildTimeS: parseFloat(elapsedS),
             mode: "production",
+            ...customDomainFields(res),
             sameOriginApi: prodApiHint !== null,
             ...(prodApiHint ? { sameOriginApiHint: prodApiHint } : {}),
             rollbackCommand: `creek rollback --project ${project.slug}`,
@@ -2879,14 +2992,12 @@ async function deployAuthenticated(
                 }
               : {}),
           },
-          extraBreadcrumbs: [
-            {
-              command: `creek domains add <HOSTNAME> --project ${project.slug}`,
-              description: "Add custom domain",
-            },
-          ],
+          extraBreadcrumbs: customDomainBreadcrumbs(project.slug, res),
           human: () => {
             consola.success(`  ⬡ Deployed! ${prodUrl}`);
+            if (res.defaultUrl && res.defaultUrl !== prodUrl) {
+              consola.info(`  Default: ${res.defaultUrl}`);
+            }
             if (res.url && res.previewUrl) {
               consola.info(`  Preview: ${res.previewUrl}`);
             }
@@ -3009,23 +3120,25 @@ async function deployAuthenticated(
       extra: { project: project.slug, status: lastStatus || null },
     });
   } catch (err) {
-    if (err instanceof CreekAuthError) {
-      // JSON mode must still print a result: the stdout contract holds on
-      // every exit, a rejected key included.
+    if (err instanceof CreekApiError && isEdgeBlockedError(err)) {
+      const message = edgeBlockedMessage(err);
       if (jsonMode) {
         jsonOutput(
           {
             ok: false,
-            error: "unauthorized",
-            message: "Authentication failed. Run `creek login` to re-authenticate.",
+            error: "edge_blocked",
+            message,
             ...apiErrorFields(err),
           },
           1,
-          AUTH_BREADCRUMBS,
         );
       }
-      consola.error("Authentication failed. Run `creek login` to re-authenticate.");
+      consola.error(message);
+      for (const hint of apiErrorHints(err)) consola.info(hint);
       process.exit(1);
+    }
+    if (err instanceof CreekAuthError) {
+      exitUnauthorizedToken(jsonMode, getTokenSource(), diagnoseTokenFormat(token), err);
     }
     throw err;
   }
@@ -3307,11 +3420,15 @@ export async function tryTurboDeploy(
               deploymentId: res.deployment.id,
               project: project.slug,
               mode: "production",
+              ...customDomainFields(status),
               turbo: true,
               elapsed: `${elapsed}s`,
             },
             human: () => {
               consola.success(`  ⬡ Deployed! ${prodUrl}`);
+              if (status.defaultUrl && status.defaultUrl !== prodUrl) {
+                consola.info(`  Default: ${status.defaultUrl}`);
+              }
               consola.log(`\n  \x1b[33m⚡ Turbo deploy\x1b[0m  ${elapsed}s\n`);
             },
           });

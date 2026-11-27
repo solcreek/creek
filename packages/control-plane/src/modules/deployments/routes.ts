@@ -19,12 +19,43 @@ import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { recordAudit } from "../audit/service.js";
 import { classifyDeployFailure } from "../build-logs/classify.js";
+import { isMissingPrimaryColumn } from "../domains/primary.js";
 import {
   assertScope,
   deployScopeFor,
   requireAnyScope,
   requireScopes,
 } from "../tenant/scope-guard.js";
+
+async function getActiveCustomDomains(
+  db: Env["DB"],
+  projectId: string,
+): Promise<{ primaryDomain: string | null; customDomains: string[] }> {
+  try {
+    const res = await db
+      .prepare(
+        `SELECT hostname, isPrimary FROM custom_domain
+         WHERE projectId = ? AND status = 'active'
+         ORDER BY isPrimary DESC, createdAt ASC, id ASC`,
+      )
+      .bind(projectId)
+      .all<{ hostname: string; isPrimary: number }>();
+    const rows = res.results ?? [];
+    const primaryDomain = rows.find((r) => Boolean(r.isPrimary))?.hostname ?? null;
+    return { primaryDomain, customDomains: rows.map((r) => r.hostname) };
+  } catch (err) {
+    if (!isMissingPrimaryColumn(err)) throw err;
+    const res = await db
+      .prepare(
+        `SELECT hostname FROM custom_domain
+         WHERE projectId = ? AND status = 'active'
+         ORDER BY createdAt ASC, id ASC`,
+      )
+      .bind(projectId)
+      .all<{ hostname: string }>();
+    return { primaryDomain: null, customDomains: (res.results ?? []).map((r) => r.hostname) };
+  }
+}
 
 type DeployEnv = {
   Bindings: Env;
@@ -674,6 +705,11 @@ deployments.get(
     const domain = c.env.CREEK_DOMAIN;
     const shortId = shortDeployId(deploymentId);
     const isProduction = project.productionDeploymentId === deploymentId;
+    const defaultUrl = isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null;
+    const { primaryDomain, customDomains } = isProduction
+      ? await getActiveCustomDomains(c.env.DB, project.id)
+      : { primaryDomain: null, customDomains: [] as string[] };
+    const url = isProduction ? (primaryDomain ? `https://${primaryDomain}` : defaultUrl) : null;
 
     // On failure, attach a stable machine-readable reason code + actionable hint
     // so a polling client (and an AI agent) can decide retry-vs-give-up without
@@ -693,7 +729,9 @@ deployments.get(
 
     return c.json({
       deployment,
-      url: isProduction ? `https://${project.slug}-${teamSlug}.${domain}` : null,
+      url,
+      ...(primaryDomain && defaultUrl ? { defaultUrl, primaryDomain } : {}),
+      ...(customDomains.length > 0 ? { customDomains } : {}),
       previewUrl: `https://${project.slug}-${shortId}-${teamSlug}.${domain}`,
       ...(reason ? { errorCode: reason.code, errorHint: reason.hint } : {}),
     });
@@ -719,17 +757,35 @@ deployments.get("/:projectId/deployments", requireScopes("project:read"), async 
     .all<{ id: string; status: string }>();
 
   // Attach the live URL to each active deployment. Production deployments use
-  // the bare `{slug}-{team}.{domain}` host (matches dispatch-worker routing);
-  // non-production active deployments use a `{slug}-{shortId}-{team}` host so
-  // each historical deployment stays reachable as an immutable preview.
+  // the primary custom domain when active (falling back to `{slug}-{team}.{domain}`
+  // when none is active, keeping defaultUrl alongside the custom domain);
+  // non-production active deployments use `{slug}-{shortId}-{team}` so each
+  // historical deployment stays reachable as an immutable preview.
   const domain = c.env.CREEK_DOMAIN;
-  const enriched = (rows.results ?? []).map((row) => {
+  const list = rows.results ?? [];
+  const hasActiveProd = list.some(
+    (row) => row.status === "active" && row.id === project.productionDeploymentId,
+  );
+  const { primaryDomain, customDomains } = hasActiveProd
+    ? await getActiveCustomDomains(c.env.DB, project.id)
+    : { primaryDomain: null, customDomains: [] as string[] };
+  const enriched = list.map((row) => {
     if (row.status !== "active") return { ...row, url: null };
     const isProduction = row.id === project.productionDeploymentId;
-    const url = isProduction
-      ? `https://${project.slug}-${teamSlug}.${domain}`
-      : `https://${project.slug}-${row.id.slice(0, 8)}-${teamSlug}.${domain}`;
-    return { ...row, url };
+    if (!isProduction) {
+      return {
+        ...row,
+        url: `https://${project.slug}-${row.id.slice(0, 8)}-${teamSlug}.${domain}`,
+      };
+    }
+    const defaultUrl = `https://${project.slug}-${teamSlug}.${domain}`;
+    const url = primaryDomain ? `https://${primaryDomain}` : defaultUrl;
+    return {
+      ...row,
+      url,
+      ...(primaryDomain ? { defaultUrl, primaryDomain } : {}),
+      ...(customDomains.length > 0 ? { customDomains } : {}),
+    };
   });
 
   return c.json(enriched);

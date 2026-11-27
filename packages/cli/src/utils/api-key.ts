@@ -212,3 +212,62 @@ export function describeTokenSource(info: TokenInfo): string {
     ? "CREEK_TOKEN environment variable"
     : "~/.creek/config.json (creek login)";
 }
+
+export type TokenFormatIssueCode =
+  | "contains_newline"
+  | "wrapped_in_quotes"
+  | "surrounding_whitespace"
+  | "looks_like_json"
+  | "contains_whitespace";
+
+export interface TokenFormatIssue {
+  code: TokenFormatIssueCode;
+  message: string;
+}
+
+/**
+ * Inspect an API key for common copy/paste or secret-quoting mistakes without
+ * ever echoing or logging the raw token value. Returns null when no formatting
+ * issue is apparent.
+ */
+export function diagnoseTokenFormat(token: string): TokenFormatIssue | null {
+  if (/[\r\n]/.test(token)) {
+    return {
+      code: "contains_newline",
+      message:
+        "The API key contains a newline or carriage return; write the raw key without a trailing newline (for example with `printf '%s'`).",
+    };
+  }
+  if (
+    token.length >= 2 &&
+    ((token.startsWith('"') && token.endsWith('"')) ||
+      (token.startsWith("'") && token.endsWith("'")))
+  ) {
+    return {
+      code: "wrapped_in_quotes",
+      message:
+        "The API key appears to be wrapped in quotes; remove surrounding single or double quotes so only the raw key is sent.",
+    };
+  }
+  if (token !== token.trim()) {
+    return {
+      code: "surrounding_whitespace",
+      message:
+        "The API key has leading or trailing whitespace; remove extra spaces around the key.",
+    };
+  }
+  if (token.trimStart().startsWith("{")) {
+    return {
+      code: "looks_like_json",
+      message:
+        "The API key looks like a JSON object; pass only the raw key string (for example `crk_sk_live_...`).",
+    };
+  }
+  if (/\s/.test(token)) {
+    return {
+      code: "contains_whitespace",
+      message: "The API key contains whitespace; remove spaces inside the value.",
+    };
+  }
+  return null;
+}

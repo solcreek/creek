@@ -139,6 +139,19 @@ export function getTokenInfo(): TokenInfo {
 }
 
 /**
+ * Where the active token comes from, without returning any token string.
+ * Commands that already obtained the token via {@link getToken} can use this
+ * for error diagnostics without bypassing getToken()'s API-binding guard.
+ */
+export function getTokenSource(): {
+  source: TokenSource | null;
+  shadowsConfigToken: boolean;
+} {
+  const { source, shadowsConfigToken } = getTokenInfo();
+  return { source, shadowsConfigToken };
+}
+
+/**
  * The key every command sends — the one place a command gets it.
  * CREEK_TOKEN, when set (even empty), wins. A key saved by `creek login`
  * is bound to the API it was verified against (tokenApiUrl): when the CLI

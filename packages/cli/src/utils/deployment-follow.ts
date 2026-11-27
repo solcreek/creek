@@ -74,6 +74,9 @@ export function printDeployment(view: DeploymentView): void {
     );
   }
   if (view.url) consola.log(`  URL:      ${view.url}`);
+  if (view.defaultUrl && view.defaultUrl !== view.url) {
+    consola.log(`  Default:  ${view.defaultUrl}`);
+  }
   if (view.status === "failed") {
     const code = view.errorCode ? ` [${view.errorCode}]` : "";
     consola.log(

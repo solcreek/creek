@@ -72,17 +72,19 @@ export class CreekClient {
   // --- Auth ---
 
   /**
-   * The key's session, or null when the API refuses the key (401, or 403
-   * for a key it will not use: unreadable scopes, a team its owner left).
-   * Any other failure — network, timeout, 5xx — throws: it says nothing
-   * about the key, and a caller must not tell the user to log in again.
+   * The key's session, or null when the API refuses the key (401, or JSON 403
+   * for a key it will not use: INVALID_API_KEY, unreadable scopes, a team its
+   * owner left). Non-JSON 403 responses (e.g. Cloudflare WAF/proxy block), 5xx,
+   * and network errors throw: they say nothing about the key itself.
    */
   async getSession(): Promise<{ user: { id: string; name: string; email: string } } | null> {
     try {
       return await this.request("GET", "/api/auth/get-session");
     } catch (err) {
       if (err instanceof CreekAuthError) return null;
-      if (err instanceof CreekApiError && err.status === 403) return null;
+      if (err instanceof CreekApiError && err.status === 403 && err.details.nonJson !== true) {
+        return null;
+      }
       throw err;
     }
   }
@@ -796,12 +798,26 @@ function isAbort(err: unknown): boolean {
 }
 
 async function apiErrorFrom(res: Response, fallbackCode: string): Promise<Error> {
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-  const { error, message, ...details } = body ?? {};
-  const code = typeof error === "string" ? error : fallbackCode;
-  const text = typeof message === "string" ? message : res.statusText;
-  if (res.status === 401) return new CreekAuthError(text);
-  return new CreekApiError(res.status, code, text, details);
+  const body = (await res.json().catch(() => null)) as unknown;
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const { error, code: bodyCode, message, ...details } = body as Record<string, unknown>;
+    const code =
+      typeof error === "string" ? error : typeof bodyCode === "string" ? bodyCode : fallbackCode;
+    const text = typeof message === "string" ? message : res.statusText;
+    if (res.status === 401) return new CreekAuthError(text);
+    return new CreekApiError(res.status, code, text, details);
+  }
+  const contentType = res.headers.get("content-type");
+  const cfRay = res.headers.get("cf-ray");
+  const cfMitigated = res.headers.get("cf-mitigated");
+  const details: Record<string, unknown> = {
+    nonJson: true,
+    ...(contentType ? { contentType } : {}),
+    ...(cfRay ? { cfRay } : {}),
+    ...(cfMitigated ? { cfMitigated } : {}),
+  };
+  if (res.status === 401) return new CreekAuthError(res.statusText);
+  return new CreekApiError(res.status, fallbackCode, res.statusText, details);
 }
 
 export class CreekApiError extends Error {

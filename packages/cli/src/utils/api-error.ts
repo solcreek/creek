@@ -2,6 +2,31 @@ import { CreekApiError, CreekAuthError } from "@solcreek/sdk";
 import { fetchFailureReason, isNetworkFailure, mutationsMaybeApplied } from "./request-ledger.js";
 
 /**
+ * Whether an error is an HTTP 403 whose response body was not JSON (such as a
+ * Cloudflare WAF / Browser Integrity Check / proxy HTML block page) before the
+ * request ever reached Creek API authentication.
+ */
+export function isEdgeBlockedError(err: unknown): err is CreekApiError {
+  return err instanceof CreekApiError && err.status === 403 && err.details.nonJson === true;
+}
+
+/** Diagnostic message for a non-JSON HTTP 403 edge/proxy block response. */
+export function edgeBlockedMessage(err: CreekApiError): string {
+  const parts: string[] = [];
+  if (typeof err.details.contentType === "string" && err.details.contentType) {
+    parts.push(`content-type: ${err.details.contentType}`);
+  }
+  if (typeof err.details.cfMitigated === "string" && err.details.cfMitigated) {
+    parts.push(`cf-mitigated: ${err.details.cfMitigated}`);
+  }
+  if (typeof err.details.cfRay === "string" && err.details.cfRay) {
+    parts.push(`cf-ray: ${err.details.cfRay}`);
+  }
+  const meta = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+  return `Request was blocked with HTTP 403 before reaching the Creek API${meta}. This usually means a firewall, Cloudflare rule, or proxy rejected the request rather than an invalid API key.`;
+}
+
+/**
  * Network failures that can pass on their own: a refused or reset
  * connection, a timeout, a network or route that is down, a temporary DNS
  * failure. Whether re-running the command is safe is a separate question,
@@ -120,6 +145,13 @@ export function apiErrorFields(err: unknown): {
   const unreachable = unreachableFields(err);
   if (unreachable) return unreachable;
   if (err instanceof CreekAuthError) return { status: 401, apiError: "unauthorized" };
+  if (isEdgeBlockedError(err)) {
+    return {
+      status: 403,
+      apiError: "edge_blocked",
+      details: err.details,
+    };
+  }
   if (!(err instanceof CreekApiError)) return {};
   return {
     status: err.status,
@@ -137,6 +169,12 @@ export function apiErrorHints(err: unknown): string[] {
   if (unreachable) return [unreachable.message];
   if (err instanceof CreekAuthError) {
     return ["The API key was not accepted. Run `creek login` with a valid key."];
+  }
+  if (isEdgeBlockedError(err)) {
+    return [
+      edgeBlockedMessage(err),
+      "This request did not reach Creek API authentication — check firewall/WAF or proxy rules rather than rotating the API key.",
+    ];
   }
   if (!(err instanceof CreekApiError)) return [];
   const list = (value: unknown) =>
