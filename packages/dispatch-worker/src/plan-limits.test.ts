@@ -26,12 +26,14 @@ function makeEnv(opts: {
           return exec;
         },
         async first<T>(): Promise<T | null> {
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             return { productionDeploymentId: "dep_1" } as T;
           }
           if (sql.includes("FROM custom_domain")) {
             return (
-              sql.includes("t.plan") ? { plan: opts.plan } : { slug: "shop", team_slug: "acme" }
+              sql.includes("t.plan")
+                ? { plan: opts.plan }
+                : { slug: "shop", team_slug: "acme", productionDeploymentId: "dep_1" }
             ) as T;
           }
           return null;
@@ -78,7 +80,7 @@ describe("dispatch applies the team's plan limits", () => {
       const { env, calls, request } = makeEnv({ plan });
       const res = await worker.fetch(request, env);
       expect(res.status).toBe(200);
-      expect(calls).toEqual([{ name: "shop-acme", limits: PLAN_LIMITS[plan] }]);
+      expect(calls).toEqual([{ name: "shop-dep_1-acme", limits: PLAN_LIMITS[plan] }]);
     },
   );
 

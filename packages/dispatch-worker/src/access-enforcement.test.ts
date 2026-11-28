@@ -61,7 +61,7 @@ function createMockD1(opts: MockOptions): D1Database {
             throw new Error("D1_ERROR: no such column: p.accessTeamDomain: SQLITE_ERROR");
           }
           const cols = wantsAccess ? access : {};
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             d1Calls.push("production");
             const [project, team] = bound as [string, string];
             if (project !== "site" || team !== "acme") return null;
@@ -84,7 +84,12 @@ function createMockD1(opts: MockOptions): D1Database {
             }
             d1Calls.push("customScript");
             if (hostname !== "app.customer.com" && hostname !== "other.customer.com") return null;
-            return { slug: "site", team_slug: "acme", ...cols } as T;
+            return {
+              slug: "site",
+              team_slug: "acme",
+              productionDeploymentId: "dep_1",
+              ...cols,
+            } as T;
           }
           return null;
         },
@@ -187,7 +192,7 @@ describe("protected project", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("tenant content");
-    expect(dispatched).toEqual([{ name: "site-acme", token }]);
+    expect(dispatched).toEqual([{ name: "site-dep_1-acme", token }]);
   });
 
   test("a token is checked the same way on every hostname (it is the only proof)", async () => {
@@ -372,10 +377,10 @@ describe("unprotected project", () => {
       expect(res.status).toBe(200);
     }
     expect(dispatched.map((d) => d.name)).toEqual([
-      "site-acme",
+      "site-dep_1-acme",
       "site-git-feature-acme",
       "site-a1b2c3d4-acme",
-      "site-acme",
+      "site-dep_1-acme",
     ]);
   });
 });

@@ -47,7 +47,7 @@ function createMockD1(opts: MockOptions): D1Database {
           return exec;
         },
         async first<T>(): Promise<T | null> {
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             const withCanonical = sql.includes("isPrimary");
             d1Calls.push(withCanonical ? "production" : "productionLegacy");
             if (opts.productionError) throw new Error(opts.productionError);
@@ -69,7 +69,8 @@ function createMockD1(opts: MockOptions): D1Database {
           if (sql.includes("FROM custom_domain")) {
             d1Calls.push(sql.includes("t.plan") ? "customPlan" : "customScript");
             const [hostname] = bound as [string];
-            return (opts.customDomains?.[hostname] ?? null) as T | null;
+            const row = opts.customDomains?.[hostname];
+            return (row ? { productionDeploymentId: "dep_1", ...row } : null) as T | null;
           }
           return null;
         },
@@ -240,7 +241,7 @@ describe("default hostname of a project with an active primary domain", () => {
     const res = await worker.fetch(new Request("https://site-acme.bycreek.com/"), env);
 
     expect(res.status).toBe(200);
-    expect(dispatched).toEqual(["site-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme"]);
   });
 
   test("never redirects a host to itself", async () => {
@@ -258,7 +259,7 @@ describe("default hostname of a project with an active primary domain", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(dispatched).toEqual(["site-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme"]);
   });
 
   test("does not redirect a project with no production deployment", async () => {
@@ -289,7 +290,7 @@ describe("redirect turned off", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
     expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
-    expect(dispatched).toEqual(["site-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme"]);
   });
 
   test("marks error responses too", async () => {
@@ -426,7 +427,7 @@ describe("the custom domain itself", () => {
 
     expect(res).toBe(original);
     expect(res.headers.has("X-Robots-Tag")).toBe(false);
-    expect(dispatched).toEqual(["site-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme"]);
   });
 });
 

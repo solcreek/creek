@@ -92,10 +92,14 @@ async function getTeams(db: D1Database): Promise<TeamInfo[]> {
 // ~0.47% of invocations fail (see the Error 1101 report of 2026-07-30).
 //
 // What is safe to cache, and why:
-//   - production / branch script names are deterministic
-//     (`{project}-{team}`), and a redeploy updates the WfP script IN
-//     PLACE rather than renaming it — so a cached entry stays correct
-//     across deploys. The D1 query only answers "does this exist".
+//   - branch script names are deterministic (`{project}-git-{branch}-{team}`)
+//     and a redeploy updates the WfP script IN PLACE, so a cached entry
+//     stays correct across deploys.
+//   - production names the immutable script of the deployment that
+//     `productionDeploymentId` points at. A deploy, promote or rollback
+//     moves the pointer, and a cached entry keeps serving the previous
+//     deployment until it expires: production follows the pointer within
+//     ROUTE_CACHE_TTL.
 //   - deployment previews resolve with no query at all.
 //
 // The sharp edge is custom domains: if one is detached from tenant A and
@@ -307,6 +311,21 @@ async function previewAccess(
   return configOf(name) ?? configOf(owner);
 }
 
+/**
+ * The Workers for Platforms script that serves a project's production: the
+ * immutable `{project}-{shortId}-{team}` script every deploy uploads
+ * (control-plane `deployWithAssets`, whose `shortDeployId` this mirrors).
+ *
+ * Production used to be served from the mutable `{project}-{team}` script,
+ * which only a deploy writes: promote and rollback moved the pointer and
+ * changed nothing a visitor saw, and a deploy that failed after uploading it
+ * stayed live. Routing by the pointer makes the URL serve whatever Creek says
+ * production is (formal/production-serving).
+ */
+function productionScriptName(project: string, team: string, deploymentId: string): string {
+  return `${project}-${deploymentId.slice(0, 8)}-${team}`;
+}
+
 async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<ResolvedRoute | null> {
   switch (parsed.type) {
     case "production": {
@@ -320,7 +339,7 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
       const primary = row.primaryDomain || null;
       const redirects = Boolean(primary && row.redirectToPrimaryDomain);
       return {
-        scriptName: `${parsed.project}-${parsed.team}`,
+        scriptName: productionScriptName(parsed.project!, parsed.team!, row.productionDeploymentId),
         redirectHost: redirects ? primary : null,
         noindex: Boolean(primary) && !redirects,
         access: parseAccessConfig(row),
@@ -364,17 +383,24 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
       const row = await withAccessColumns((access) =>
         db
           .prepare(
-            `SELECT p.slug, t.slug as team_slug, ${access} FROM custom_domain cd
+            `SELECT p.slug, t.slug as team_slug, p.productionDeploymentId, ${access}
+             FROM custom_domain cd
              JOIN project p ON cd.projectId = p.id
              JOIN organization t ON p.organizationId = t.id
              WHERE cd.hostname = ? AND cd.status = 'active'`,
           )
           .bind(parsed.customHostname)
-          .first<{ slug: string; team_slug: string } & AccessColumns>(),
+          .first<
+            {
+              slug: string;
+              team_slug: string;
+              productionDeploymentId: string | null;
+            } & AccessColumns
+          >(),
       );
-      if (!row) return null;
+      if (!row?.productionDeploymentId) return null;
       return {
-        scriptName: `${row.slug}-${row.team_slug}`,
+        scriptName: productionScriptName(row.slug, row.team_slug, row.productionDeploymentId),
         redirectHost: null,
         noindex: false,
         access: parseAccessConfig(row),
