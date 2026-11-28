@@ -229,7 +229,7 @@ export function readProjectDeps(cwd: string): Record<string, string | undefined>
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
-    return { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    return { ...pkg.dependencies, ...pkg.devDependencies };
   } catch {
     return {};
   }

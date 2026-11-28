@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { applyAssetsIgnore, ASSETS_IGNORE_FILE } from "@solcreek/sdk";
 

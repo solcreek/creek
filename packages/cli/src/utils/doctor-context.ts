@@ -26,8 +26,8 @@ export function buildDoctorContext(cwd: string): DoctorContext {
     : null;
   const resolved: ResolvedConfig | null = resolveConfigSafely(cwd);
   const allDeps = {
-    ...(packageJson?.dependencies ?? {}),
-    ...(packageJson?.devDependencies ?? {}),
+    ...packageJson?.dependencies,
+    ...packageJson?.devDependencies,
   };
   return { cwd, resolved, packageJson, creekTomlRaw, fileExists, readFile, allDeps };
 }

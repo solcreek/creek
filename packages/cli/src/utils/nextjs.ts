@@ -686,8 +686,6 @@ export default nextConfig;
 
   // Need to patch — wrap the existing config
   const root = monorepoRoot ?? cwd;
-  const isTS = configPath.endsWith(".ts");
-  const ext = configPath.endsWith(".mjs") ? "mjs" : isTS ? "ts" : "js";
 
   // Backup original
   const backupPath = configPath + ".creek-backup";

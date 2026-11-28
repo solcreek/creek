@@ -9,7 +9,7 @@
 
 import { describe, test, expect } from "vitest";
 import { matchesClientSide, describeFilters } from "./logs-filter.js";
-import type { LogEntry, LogQueryFilters } from "@solcreek/sdk";
+import type { LogEntry } from "@solcreek/sdk";
 
 function entry(overrides: Partial<LogEntry> = {}): LogEntry {
   return {

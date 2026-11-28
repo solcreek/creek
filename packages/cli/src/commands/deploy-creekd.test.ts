@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { resolve } from "node:path";
 import type { ResolvedConfig } from "@solcreek/sdk";
 import { CreekdClient, CreekdApiError } from "../utils/creekd-client.js";

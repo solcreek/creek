@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { CreekdClient, CreekdApiError } from "./creekd-client.js";
 
 const BASE = "http://127.0.0.1:9080";

@@ -372,7 +372,7 @@ async function doRollbackWithIfMatch(
     try {
       const envelope = await client.getApp(appId);
       ifMatch = envelope.metadata.resourceVersion;
-    } catch (e) {
+    } catch {
       // App might not exist on this host yet; let the rollback
       // itself surface 404 release_artifact_pruned with full
       // detail rather than guessing.

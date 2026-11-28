@@ -114,7 +114,7 @@ export function validateRepoUrl(parsed: ParsedRepoUrl): void {
   }
 
   // Branch: strict character set (if present)
-  if (parsed.branch !== null && !/^[a-zA-Z0-9._\/-]+$/.test(parsed.branch)) {
+  if (parsed.branch !== null && !/^[a-zA-Z0-9._/-]+$/.test(parsed.branch)) {
     throw new RepoUrlError(`Invalid branch name: ${JSON.stringify(parsed.branch)}`);
   }
 
@@ -153,7 +153,7 @@ export function validateSubpath(path: string): void {
   }
 
   // Only safe characters
-  if (!/^[a-zA-Z0-9._\/-]+$/.test(path)) {
+  if (!/^[a-zA-Z0-9._/-]+$/.test(path)) {
     throw new RepoUrlError("Subpath contains invalid characters");
   }
 }

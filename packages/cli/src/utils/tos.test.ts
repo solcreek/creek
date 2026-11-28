@@ -1,7 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdirSync, rmSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, test, expect } from "vitest";
 import {
   readTosAcceptance,
   writeTosAcceptance,
