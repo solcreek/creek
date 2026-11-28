@@ -86,6 +86,7 @@ export type KeyLookup =
       error: "server_unsupported" | "unauthorized" | "lookup_failed";
       message: string;
       status?: number;
+      cause?: unknown;
     };
 
 export const SERVER_UNSUPPORTED_MESSAGE =
@@ -100,7 +101,7 @@ export async function lookupKey(client: CreekClient): Promise<KeyLookup> {
       return { ok: false, error: "server_unsupported", message: SERVER_UNSUPPORTED_MESSAGE };
     }
     if (err instanceof CreekAuthError) {
-      return { ok: false, error: "unauthorized", message: err.message, status: 401 };
+      return { ok: false, error: "unauthorized", message: err.message, status: 401, cause: err };
     }
     const status = (err as { status?: unknown }).status;
     return {
@@ -108,6 +109,7 @@ export async function lookupKey(client: CreekClient): Promise<KeyLookup> {
       error: "lookup_failed",
       message: err instanceof Error ? err.message : String(err),
       ...(typeof status === "number" ? { status } : {}),
+      cause: err,
     };
   }
 }
@@ -207,7 +209,7 @@ export function keyLines(key: KeySummary): string[] {
   return lines;
 }
 
-export function describeTokenSource(info: TokenInfo): string {
+export function describeTokenSource(info: Pick<TokenInfo, "source">): string {
   return info.source === "env:CREEK_TOKEN"
     ? "CREEK_TOKEN environment variable"
     : "~/.creek/config.json (creek login)";
@@ -215,6 +217,8 @@ export function describeTokenSource(info: TokenInfo): string {
 
 export type TokenFormatIssueCode =
   | "contains_newline"
+  | "contains_nul"
+  | "invalid_header_chars"
   | "wrapped_in_quotes"
   | "surrounding_whitespace"
   | "looks_like_json"
@@ -223,6 +227,27 @@ export type TokenFormatIssueCode =
 export interface TokenFormatIssue {
   code: TokenFormatIssueCode;
   message: string;
+}
+
+function hasInvalidHeaderChar(token: string): boolean {
+  for (let i = 0; i < token.length; i++) {
+    const code = token.charCodeAt(i);
+    // Reject ASCII control chars (except HTAB) and non-ByteString chars (> 0xff)
+    // because undici/fetch throws with the header value in the error message.
+    if ((code <= 0x1f && code !== 0x09) || code === 0x7f || code > 0xff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True when sending the token in an HTTP header would crash fetch (possibly echoing it). */
+export function isUnsendableTokenFormat(issue: TokenFormatIssue | null): boolean {
+  return (
+    issue?.code === "contains_newline" ||
+    issue?.code === "contains_nul" ||
+    issue?.code === "invalid_header_chars"
+  );
 }
 
 /**
@@ -236,6 +261,20 @@ export function diagnoseTokenFormat(token: string): TokenFormatIssue | null {
       code: "contains_newline",
       message:
         "The API key contains a newline or carriage return; write the raw key without a trailing newline (for example with `printf '%s'`).",
+    };
+  }
+  if (token.includes("\0")) {
+    return {
+      code: "contains_nul",
+      message:
+        "The API key contains a NUL character; re-save or re-export the raw key without binary/NUL bytes.",
+    };
+  }
+  if (hasInvalidHeaderChar(token)) {
+    return {
+      code: "invalid_header_chars",
+      message:
+        "The API key contains control or non-ASCII characters that cannot be sent in an HTTP header; re-copy the raw key.",
     };
   }
   if (

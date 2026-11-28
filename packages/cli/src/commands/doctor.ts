@@ -1,8 +1,10 @@
 import { defineCommand } from "citty";
 import consola from "consola";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { runDoctor, type DoctorReport, type Finding } from "@solcreek/sdk";
 import { buildDoctorContext } from "../utils/doctor-context.js";
+import { runAuthDoctor } from "../utils/doctor-auth.js";
 import { CreekClient } from "@solcreek/sdk";
 import { getToken, getApiUrl } from "../utils/config.js";
 import { globalArgs, resolveJsonMode, jsonOutput, AUTH_BREADCRUMBS } from "../utils/output.js";
@@ -39,16 +41,71 @@ export const doctorCommand = defineCommand({
         "Diagnose the most recent FAILED deployment instead of running pre-deploy checks. Fetches the build log and matches errorCode against the CK-* fix table.",
       default: false,
     },
+    auth: {
+      type: "boolean",
+      description:
+        "Verify API authentication, key scopes, connectivity, and optional project access without deploying.",
+      default: false,
+    },
+    prod: {
+      type: "boolean",
+      description:
+        "With --auth, require production deploy scopes (project:read, deploy:production, and project:write if the project does not exist yet).",
+      default: false,
+    },
     project: {
       type: "string",
       description:
-        "Project slug for --last (default: the project the directory names — creek.toml, wrangler config or package.json name; never the directory name)",
+        "Project slug for --last or --auth (default: the project the directory names — creek.toml, wrangler config or package.json name; never the directory name)",
       required: false,
     },
     ...globalArgs,
   },
   async run({ args }) {
     const jsonMode = resolveJsonMode(args);
+
+    if (args.auth && args.last) {
+      const message = "--auth and --last cannot be used together. Run one check at a time.";
+      if (jsonMode) jsonOutput({ ok: false, error: "conflicting_flags", message }, 1);
+      consola.error(message);
+      process.exit(1);
+    }
+
+    if (args.prod && !args.auth) {
+      const message = "--prod can only be used with --auth.";
+      if (jsonMode)
+        jsonOutput({ ok: false, error: "invalid_args", message }, 1, [
+          {
+            command: "creek doctor --auth --prod --json",
+            description: "Check auth and production deploy scopes",
+          },
+        ]);
+      consola.error(message);
+      process.exit(1);
+    }
+
+    if (args.auth) {
+      const rawPath = args.path as string | undefined;
+      const cwd = resolve(rawPath ?? process.cwd());
+      if (
+        typeof rawPath === "string" &&
+        rawPath.length > 0 &&
+        (!existsSync(cwd) || !statSync(cwd).isDirectory())
+      ) {
+        const message = `Directory not found: ${rawPath}`;
+        if (jsonMode) jsonOutput({ ok: false, error: "not_found", message }, 1);
+        consola.error(message);
+        process.exit(1);
+      }
+      await runAuthDoctor({
+        cwd,
+        rawPath: typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined,
+        project: args.project,
+        prod: args.prod === true,
+        jsonMode,
+      });
+      return;
+    }
 
     if (args.last) {
       await runLastFailureDiagnosis({
