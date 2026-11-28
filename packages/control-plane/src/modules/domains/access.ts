@@ -5,6 +5,15 @@ import { recordAudit } from "../audit/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { requireScopes } from "../tenant/scope-guard.js";
+import {
+  ProvisionError,
+  deleteCreated,
+  parseManagedInput,
+  provisionManagedAccess,
+  readManaged,
+  removeManagedApps,
+  type ManagedAccess,
+} from "./access-managed.js";
 
 /**
  * Cloudflare Access protection for a project.
@@ -15,6 +24,13 @@ import { requireScopes } from "../tenant/scope-guard.js";
  * serves the project, on every hostname, only to requests carrying a token
  * from that team for that application. The validation here mirrors the
  * worker's, which re-checks every value and refuses anything malformed.
+ *
+ * Two ways to set it up:
+ *   PUT /:projectId/access          the customer made the application and
+ *                                   hands Creek its team domain and AUD;
+ *   PUT /:projectId/access/managed  Creek makes and keeps the applications in
+ *                                   the team's connected Cloudflare account
+ *                                   (access-managed.ts).
  */
 
 type AccessEnv = {
@@ -59,7 +75,10 @@ type Parsed =
 
 export function parseAccessBody(body: unknown): Parsed {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, message: "Expected a JSON object with teamDomain and aud" };
+    return {
+      ok: false,
+      message: "Expected a JSON object with teamDomain and aud",
+    };
   }
   const { teamDomain, aud, bypassPaths } = body as Record<string, unknown>;
   if (typeof teamDomain !== "string" || !TEAM_DOMAIN.test(normalizeTeamDomain(teamDomain))) {
@@ -75,29 +94,27 @@ export function parseAccessBody(body: unknown): Parsed {
         "aud must be the Access application's Application Audience (AUD) tag: 64 hex characters",
     };
   }
-  let paths: string[] = [];
-  if (bypassPaths !== undefined && bypassPaths !== null) {
-    if (!Array.isArray(bypassPaths) || bypassPaths.length > MAX_BYPASS_PATHS) {
-      return {
-        ok: false,
-        message: `bypassPaths must be a list of at most ${MAX_BYPASS_PATHS} paths`,
-      };
-    }
-    const bad = bypassPaths.find((p) => !isBypassPath(p));
-    if (bad !== undefined) {
-      return {
-        ok: false,
-        message: `Invalid bypass path ${JSON.stringify(bad)}: use an absolute path prefix such as /health or /api/webhooks/*; / alone would bypass the whole site`,
-      };
-    }
-    paths = [...new Set(bypassPaths as string[])];
-  }
+  const paths = parseBypassPaths(bypassPaths);
+  if (typeof paths === "string") return { ok: false, message: paths };
   return {
     ok: true,
     teamDomain: normalizeTeamDomain(teamDomain),
     aud: aud.trim().toLowerCase(),
     bypassPaths: paths,
   };
+}
+
+/** The bypass path list, de-duplicated, or the reason it is refused. */
+export function parseBypassPaths(value: unknown): string[] | string {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_BYPASS_PATHS) {
+    return `bypassPaths must be a list of at most ${MAX_BYPASS_PATHS} paths`;
+  }
+  const bad = value.find((p) => !isBypassPath(p));
+  if (bad !== undefined) {
+    return `Invalid bypass path ${JSON.stringify(bad)}: use an absolute path prefix such as /health or /api/webhooks/*; / alone would bypass the whole site`;
+  }
+  return [...new Set(value as string[])];
 }
 
 /**
@@ -137,12 +154,33 @@ interface AccessRow {
   accessTeamDomain: string | null;
   accessAud: string | null;
   accessBypassPaths: string | null;
+  accessManaged: string | null;
+}
+
+function readRow(db: Env["DB"], projectId: string) {
+  return db
+    .prepare(
+      "SELECT accessTeamDomain, accessAud, accessBypassPaths, accessManaged FROM project WHERE id = ?",
+    )
+    .bind(projectId)
+    .first<AccessRow>();
+}
+
+/** What GET shows about a managed setup: the account, and who gets in. */
+function managedView(m: ManagedAccess) {
+  return {
+    accountId: m.accountId,
+    emails: m.emails,
+    emailDomains: m.emailDomains,
+    teamMembers: m.teamMembers,
+  };
 }
 
 function toStatus(row: AccessRow | null) {
   if (!row?.accessTeamDomain && !row?.accessAud) {
     return { protected: false as const };
   }
+  const managed = readManaged(row.accessManaged);
   let bypassPaths: string[] = [];
   try {
     const parsed: unknown = JSON.parse(row.accessBypassPaths ?? "[]");
@@ -155,6 +193,7 @@ function toStatus(row: AccessRow | null) {
     teamDomain: row.accessTeamDomain,
     aud: row.accessAud,
     bypassPaths,
+    managed: managed ? managedView(managed) : null,
   };
 }
 
@@ -166,12 +205,7 @@ projectAccess.get(
     const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
     if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
     try {
-      const row = await c.env.DB.prepare(
-        "SELECT accessTeamDomain, accessAud, accessBypassPaths FROM project WHERE id = ?",
-      )
-        .bind(project.id)
-        .first<AccessRow>();
-      return c.json(toStatus(row));
+      return c.json(toStatus(await readRow(c.env.DB, project.id)));
     } catch (err) {
       if (isMissingAccessColumn(err)) return migrationPending(c);
       throw err;
@@ -191,6 +225,25 @@ projectAccess.put(
     const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
     if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
 
+    let current: AccessRow | null;
+    try {
+      current = await readRow(c.env.DB, project.id);
+    } catch (err) {
+      if (isMissingAccessColumn(err)) return migrationPending(c);
+      throw err;
+    }
+    // Overwriting would leave Creek's applications behind, unreachable.
+    if (readManaged(current?.accessManaged)) {
+      return c.json(
+        {
+          error: "managed_by_creek",
+          message:
+            "Creek manages this project's Access applications: change them with PUT /projects/:id/access/managed, or remove protection first",
+        },
+        409,
+      );
+    }
+
     if (!(await teamHasKeys(parsed.teamDomain))) {
       return c.json(
         {
@@ -203,7 +256,8 @@ projectAccess.put(
 
     try {
       await c.env.DB.prepare(
-        `UPDATE project SET accessTeamDomain = ?, accessAud = ?, accessBypassPaths = ?, updatedAt = ?
+        `UPDATE project SET accessTeamDomain = ?, accessAud = ?, accessBypassPaths = ?,
+           accessManaged = NULL, updatedAt = ?
          WHERE id = ?`,
       )
         .bind(
@@ -246,6 +300,125 @@ projectAccess.put(
   },
 );
 
+/**
+ * Creek makes (or updates) the Access applications in the team's connected
+ * Cloudflare account, then protects the project with them.
+ *
+ * Body: { accountId?, emails?, emailDomains?, teamMembers?, bypassPaths? }.
+ * accountId may be left out when the grant covers one account, or once set.
+ * teamMembers adds the Creek team's members' emails as of this call.
+ */
+projectAccess.put(
+  "/:projectId/access/managed",
+  requireScopes("domain:write"),
+  requirePermission("domain:manage"),
+  async (c) => {
+    const body = await c.req.json<unknown>().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return c.json({ error: "validation", message: "Expected a JSON object" }, 400);
+    }
+    const parsed = parseManagedInput(body as Record<string, unknown>);
+    if (!parsed.ok) return c.json({ error: "validation", message: parsed.message }, 400);
+    const bypassPaths = parseBypassPaths((body as Record<string, unknown>).bypassPaths);
+    if (typeof bypassPaths === "string") {
+      return c.json({ error: "validation", message: bypassPaths }, 400);
+    }
+
+    const teamId = c.get("teamId");
+    const project = await resolveProject(c.env.DB, c.req.param("projectId")!, teamId);
+    if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
+
+    let current: AccessRow | null;
+    try {
+      current = await readRow(c.env.DB, project.id);
+    } catch (err) {
+      if (isMissingAccessColumn(err)) return migrationPending(c);
+      throw err;
+    }
+
+    let result;
+    try {
+      result = await provisionManagedAccess(c.env, {
+        teamId,
+        teamSlug: c.get("teamSlug"),
+        project,
+        previous: readManaged(current?.accessManaged),
+        input: parsed.input,
+        bypassPaths,
+      });
+    } catch (err) {
+      if (err instanceof ProvisionError) {
+        return c.json({ error: err.code, message: err.message, ...err.extra }, err.status);
+      }
+      throw err;
+    }
+
+    if (!TEAM_DOMAIN.test(result.teamDomain)) {
+      await deleteCreated(result.token, result.managed.accountId, result.created);
+      return c.json(
+        {
+          error: "cloudflare_unexpected",
+          message: `Cloudflare reported the team domain ${JSON.stringify(result.teamDomain)}, which Creek cannot verify tokens from`,
+        },
+        502,
+      );
+    }
+
+    try {
+      await c.env.DB.prepare(
+        `UPDATE project SET accessTeamDomain = ?, accessAud = ?, accessBypassPaths = ?,
+           accessManaged = ?, updatedAt = ?
+         WHERE id = ?`,
+      )
+        .bind(
+          result.teamDomain,
+          result.aud,
+          JSON.stringify(bypassPaths),
+          JSON.stringify(result.managed),
+          Date.now(),
+          project.id,
+        )
+        .run();
+    } catch (err) {
+      await deleteCreated(result.token, result.managed.accountId, result.created);
+      throw err;
+    }
+
+    await recordAudit(
+      c.env.DB,
+      c.get("user"),
+      teamId,
+      {
+        action: "domain.access_update",
+        resourceType: "project",
+        resourceId: project.id,
+        metadata: {
+          managed: true,
+          accountId: result.managed.accountId,
+          teamDomain: result.teamDomain,
+          aud: result.aud,
+          hostnames: result.hostnames,
+          emails: result.managed.emails,
+          emailDomains: result.managed.emailDomains,
+          teamMembers: result.managed.teamMembers,
+          bypassPaths,
+        },
+      },
+      c.get("auditCtx"),
+    );
+
+    return c.json({
+      ok: true,
+      protected: true,
+      teamDomain: result.teamDomain,
+      aud: result.aud,
+      bypassPaths,
+      hostnames: result.hostnames,
+      managed: managedView(result.managed),
+    });
+  },
+);
+
 projectAccess.delete(
   "/:projectId/access",
   requireScopes("domain:write"),
@@ -253,26 +426,61 @@ projectAccess.delete(
   async (c) => {
     const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
     if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
+
+    let current: AccessRow | null;
     try {
-      await c.env.DB.prepare(
-        `UPDATE project SET accessTeamDomain = NULL, accessAud = NULL, accessBypassPaths = NULL,
-           updatedAt = ? WHERE id = ?`,
-      )
-        .bind(Date.now(), project.id)
-        .run();
+      current = await readRow(c.env.DB, project.id);
     } catch (err) {
       if (isMissingAccessColumn(err)) return migrationPending(c);
       throw err;
     }
 
+    // Delete Creek's applications first. If that fails, protection still
+    // comes off: the applications left behind keep the custom domain behind
+    // Access (the safe side), and the answer names them for manual removal.
+    const managed = readManaged(current?.accessManaged);
+    const cleanup = managed ? await removeManagedApps(c.env, c.get("teamId"), managed) : null;
+
+    await c.env.DB.prepare(
+      `UPDATE project SET accessTeamDomain = NULL, accessAud = NULL, accessBypassPaths = NULL,
+         accessManaged = NULL, updatedAt = ? WHERE id = ?`,
+    )
+      .bind(Date.now(), project.id)
+      .run();
+
     await recordAudit(
       c.env.DB,
       c.get("user"),
       c.get("teamId"),
-      { action: "domain.access_remove", resourceType: "project", resourceId: project.id },
+      {
+        action: "domain.access_remove",
+        resourceType: "project",
+        resourceId: project.id,
+        ...(managed
+          ? {
+              metadata: {
+                managed: true,
+                accountId: managed.accountId,
+                cloudflareCleanup: cleanup?.ok ? "deleted" : "failed",
+              },
+            }
+          : {}),
+      },
       c.get("auditCtx"),
     );
 
+    if (cleanup && !cleanup.ok) {
+      return c.json({
+        ok: true,
+        protected: false,
+        cloudflareCleanup: {
+          ok: false,
+          message: `Protection is off, but Creek could not delete its Access applications (${cleanup.message}). Delete them in Cloudflare Zero Trust → Access → Applications.`,
+          accountId: managed!.accountId,
+          appIds: cleanup.appIds,
+        },
+      });
+    }
     return c.json({ ok: true, protected: false });
   },
 );
