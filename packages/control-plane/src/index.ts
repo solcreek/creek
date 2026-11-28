@@ -51,6 +51,7 @@ import {
 import { refuseUnusableKeySession } from "./modules/tenant/key-session.js";
 import { refuseClientKeyMetadata } from "./modules/tenant/api-key-metadata.js";
 import { enforceKeyCapOnAuthCreate } from "./modules/api-keys/cap.js";
+import { verifyAuthTurnstile } from "./modules/turnstile/verify.js";
 
 type AppEnv = {
   Bindings: Env;
@@ -68,7 +69,7 @@ app.use(
       if (!origin) return origin;
       return isAllowedOrigin(origin) ? origin : null;
     },
-    allowHeaders: ["Content-Type", "Authorization", "x-creek-team"],
+    allowHeaders: ["Content-Type", "Authorization", "x-creek-team", "cf-turnstile-response"],
     // Every method a route here uses: a browser refuses to send one the
     // preflight doesn't name (cors.test.ts checks this list against the routes).
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -100,6 +101,9 @@ app.on(["POST", "GET"], "/api/auth/*", apiKeyAuthRouteGuard, async (c) => {
   // API key metadata is server-only (POST /api-keys tags keys with it).
   const metadata = await refuseClientKeyMetadata(c);
   if (metadata) return metadata;
+  // Turnstile bot verification on email sign-in / sign-up.
+  const turnstileDenied = await verifyAuthTurnstile(c);
+  if (turnstileDenied) return turnstileDenied;
   try {
     const auth = createAuth(c.env);
     // Better Auth's own key create obeys the per-user key cap too.

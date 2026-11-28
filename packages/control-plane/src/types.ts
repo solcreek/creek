@@ -45,6 +45,12 @@ export interface Env {
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
 
+  // Cloudflare Turnstile (Dashboard + Marketing Web Deploy)
+  TURNSTILE_DASHBOARD_SECRET?: string;
+  TURNSTILE_DASHBOARD_HOSTNAMES?: string;
+  TURNSTILE_WWW_SECRET?: string;
+  TURNSTILE_WWW_HOSTNAMES?: string;
+
   // OAuth providers
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;

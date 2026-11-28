@@ -1,7 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { authClient } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/turnstile-widget";
+
+const TURNSTILE_SITEKEY = import.meta.env.VITE_TURNSTILE_SITEKEY?.trim() || "";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -19,36 +22,62 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
+
+  const turnstileAction = mode === "signin" ? "login" : "signup";
+  const turnstileRequired = Boolean(TURNSTILE_SITEKEY);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (turnstileRequired && !turnstileToken) {
+      setError("Please complete the security verification.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
-    if (mode === "signup") {
-      const result = await authClient.signUp.email({
-        name: name || email.split("@")[0],
-        email,
-        password,
-      });
-      if (result.error) {
-        setError(result.error.message ?? "Sign up failed");
-        setLoading(false);
-        return;
-      }
-    } else {
-      const result = await authClient.signIn.email({ email, password });
-      if (result.error) {
-        setError(result.error.message ?? "Sign in failed");
-        setLoading(false);
-        return;
-      }
-    }
+    const fetchOptions = turnstileToken
+      ? { headers: { "cf-turnstile-response": turnstileToken } }
+      : undefined;
 
-    if (redirectTo) {
-      window.location.href = redirectTo;
-    } else {
-      navigate({ to: "/projects" });
+    try {
+      if (mode === "signup") {
+        const result = await authClient.signUp.email({
+          name: name || email.split("@")[0],
+          email,
+          password,
+          fetchOptions,
+        });
+        if (result.error) {
+          setError(result.error.message ?? "Sign up failed");
+          return;
+        }
+      } else {
+        const result = await authClient.signIn.email({
+          email,
+          password,
+          fetchOptions,
+        });
+        if (result.error) {
+          setError(result.error.message ?? "Sign in failed");
+          return;
+        }
+      }
+
+      if (redirectTo) {
+        window.location.href = redirectTo;
+      } else {
+        navigate({ to: "/projects" });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setLoading(false);
+      // Turnstile tokens are single-use; always reset after an attempt.
+      turnstileRef.current?.reset();
+      setTurnstileToken("");
     }
   };
 
@@ -120,8 +149,24 @@ function LoginPage() {
             minLength={8}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
           />
+          {turnstileRequired && (
+            <TurnstileWidget
+              ref={turnstileRef}
+              sitekey={TURNSTILE_SITEKEY}
+              action={turnstileAction}
+              onToken={setTurnstileToken}
+              onError={() =>
+                setError("Security verification failed to load. Please refresh and try again.")
+              }
+              className="flex justify-center pt-1"
+            />
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading || (turnstileRequired && !turnstileToken)}
+          >
             {loading
               ? mode === "signin"
                 ? "Signing in..."
@@ -137,9 +182,11 @@ function LoginPage() {
             <>
               Don't have an account?{" "}
               <button
+                type="button"
                 onClick={() => {
                   setMode("signup");
                   setError("");
+                  setTurnstileToken("");
                 }}
                 className="text-foreground underline underline-offset-4"
               >
@@ -150,9 +197,11 @@ function LoginPage() {
             <>
               Already have an account?{" "}
               <button
+                type="button"
                 onClick={() => {
                   setMode("signin");
                   setError("");
+                  setTurnstileToken("");
                 }}
                 className="text-foreground underline underline-offset-4"
               >

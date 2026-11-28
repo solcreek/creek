@@ -55,6 +55,21 @@ describe("CORS preflight", () => {
     expect(allowedMethods(res)).toContain(method);
   });
 
+  it("allows the cf-turnstile-response header in preflight responses", async () => {
+    const res = await app.request("/api/auth/sign-in/email", {
+      method: "OPTIONS",
+      headers: {
+        Origin: DASHBOARD,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type, cf-turnstile-response",
+      },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(DASHBOARD);
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("cf-turnstile-response");
+  });
+
   it.each(["https://evil.example", "http://app.creek.dev", "https://app.creek.dev.evil.example"])(
     "names no allowed origin for %s",
     async (origin) => {

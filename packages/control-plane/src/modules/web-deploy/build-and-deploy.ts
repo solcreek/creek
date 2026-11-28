@@ -14,11 +14,15 @@ export interface DeployRequest {
   repo?: string;
   branch?: string;
   path?: string;
+  "cf-turnstile-response"?: string;
 }
 
 export interface WebDeployEnv {
   BUILD_STATUS: KVNamespace;
   WEB_BUILDS: Queue;
+  TURNSTILE_WWW_SECRET?: string;
+  TURNSTILE_WWW_HOSTNAMES?: string;
+  BETTER_AUTH_URL?: string;
 }
 
 export async function buildAndDeploy(
