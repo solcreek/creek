@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Creek</title>
+  <rect width="512" height="512" rx="112" fill="#0b1220"/>
+  <g fill="none" stroke-linecap="round" stroke-width="40">
+    <path d="M112 172c48-40 96-40 144 0s96 40 144 0" stroke="#ffffff"/>
+    <path d="M112 256c48-40 96-40 144 0s96 40 144 0" stroke="#7dd3fc"/>
+    <path d="M112 340c48-40 96-40 144 0s96 40 144 0" stroke="#38bdf8"/>
+  </g>
+</svg>
