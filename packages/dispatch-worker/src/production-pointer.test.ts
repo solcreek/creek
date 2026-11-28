@@ -158,6 +158,14 @@ describe("a project whose slug looks like a preview", () => {
     expect(dispatched).toEqual([`${slug}-2222bbbb-acme`, `${slug}-1111aaaa-acme`]);
   });
 
+  test("such a project with no production deployment is 404, not its mutable script", async () => {
+    const env = makeEnv({ pointers: { "site-a1b2c3d4": null }, customDomains: {} });
+    const res = await worker.fetch(new Request("https://site-a1b2c3d4-acme.bycreek.com/"), env);
+
+    expect(res.status).toBe(404);
+    expect(dispatched).toEqual([]);
+  });
+
   test("with no such project, the hostname is still the deployment preview", async () => {
     const env = makeEnv({ pointers: { site: DEPLOY_2 }, customDomains: {} });
     await worker.fetch(new Request("https://site-a1b2c3d4-acme.bycreek.com/"), env);
