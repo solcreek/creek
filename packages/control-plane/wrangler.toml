@@ -71,6 +71,9 @@ CREEK_REALTIME_URL = "https://rt.creek.dev"
 CLOUDFLARE_ZONE_ID = "3945d25240c43cad64fd4da0a1386873"
 DISPATCH_NAMESPACE = "creek-user-workers"
 CLOUDFLARE_ACCOUNT_ID = "2438d030ca5eae4078ce05235c766516"
+# Turnstile expected frontend hostnames (production ONLY — never include localhost/127.0.0.1)
+TURNSTILE_DASHBOARD_HOSTNAMES = "app.creek.dev"
+TURNSTILE_WWW_HOSTNAMES = "creek.dev"
 
 # Custom domain for API
 [[routes]]
@@ -90,3 +93,5 @@ crons = ["*/5 * * * *"]
 # GOOGLE_CLIENT_ID
 # GOOGLE_CLIENT_SECRET
 # ENCRYPTION_KEY
+# TURNSTILE_DASHBOARD_SECRET
+# TURNSTILE_WWW_SECRET

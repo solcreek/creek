@@ -23,6 +23,7 @@ import {
   type DeployRequest,
 } from "./build-and-deploy.js";
 import { publicRoute } from "../tenant/scope-guard.js";
+import { TURNSTILE_HEADER, extractClientIp, verifyTurnstileToken } from "../turnstile/verify.js";
 
 type AppEnv = { Bindings: Env };
 
@@ -60,6 +61,22 @@ webDeploy.post("/", publicRoute, async (c) => {
     }
   } else {
     return c.json({ error: "type must be 'template' or 'repo'" }, 400);
+  }
+
+  // Turnstile bot verification before GitHub API / KV rate-limit writes
+  const turnstileResult = await verifyTurnstileToken({
+    secret: c.env.TURNSTILE_WWW_SECRET,
+    hostnames: c.env.TURNSTILE_WWW_HOSTNAMES,
+    token: c.req.header(TURNSTILE_HEADER) ?? body["cf-turnstile-response"],
+    expectedAction: "web-deploy",
+    remoteIp: extractClientIp(c.req.raw.headers),
+    failClosedWhenUnconfigured: Boolean(c.env.BETTER_AUTH_URL?.startsWith("https://")),
+  });
+  if (!turnstileResult.ok) {
+    return c.json(
+      { error: "turnstile_failed", message: "Verification failed. Please try again." },
+      403,
+    );
   }
 
   const ip = c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "unknown";

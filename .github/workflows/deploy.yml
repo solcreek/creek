@@ -192,6 +192,7 @@ jobs:
         run: pnpm --filter dashboard build
         env:
           VITE_API_URL: https://api.creek.dev
+          VITE_TURNSTILE_SITEKEY: 0x4AAAAAAGWXA6dRncvuYPaW
       - name: Verify production API URL in bundle
         run: |
           if grep -rq "localhost:8787" apps/dashboard/dist/assets; then

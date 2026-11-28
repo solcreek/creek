@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
 import { useWebDeploy, type DeployStatus, type BuildLogLine } from "../../lib/deploy";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "../../components/turnstile-widget";
+
+const TURNSTILE_SITEKEY = process.env.NEXT_PUBLIC_TURNSTILE_SITEKEY?.trim() || "";
 
 interface ParsedRepo {
   owner: string;
@@ -137,6 +140,9 @@ export default function DeployForm() {
   );
   const [copied, setCopied] = useState(false);
   const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileError, setTurnstileError] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const deployState = useWebDeploy();
 
   // Preflight: check if the repo@commit is already cached so we can
@@ -211,24 +217,44 @@ export default function DeployForm() {
   };
 
   const handleDeploy = () => {
+    if (TURNSTILE_SITEKEY && !turnstileToken) {
+      setTurnstileError("Please complete the security verification.");
+      return;
+    }
+
+    const tokenToSend = turnstileToken || undefined;
+    // Turnstile tokens are single-use; clear immediately before deploying.
+    setTurnstileToken("");
+    setTurnstileError("");
+    turnstileRef.current?.reset();
+
     if (repoInfo) {
       deployState.deploy({
         type: "repo",
         repo: repoInfo.full,
         branch: repoInfo.branch ?? undefined,
         path: repoInfo.path ?? undefined,
+        turnstileToken: tokenToSend,
       });
     } else if (templateInfo) {
       deployState.deploy({
         type: "template",
         template: templateInfo.template,
         data: Object.keys(templateInfo.data).length > 0 ? templateInfo.data : undefined,
+        turnstileToken: tokenToSend,
       });
     }
   };
 
+  const handleReset = () => {
+    setTurnstileToken("");
+    setTurnstileError("");
+    deployState.reset();
+  };
+
   const isDeploying = deployState.status !== "idle";
-  const canDeploy = (repoInfo || templateInfo) && !isDeploying;
+  const canDeploy =
+    (repoInfo || templateInfo) && !isDeploying && (!TURNSTILE_SITEKEY || Boolean(turnstileToken));
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#e5e5e5] flex flex-col">
@@ -268,7 +294,7 @@ export default function DeployForm() {
               cacheHit={deployState.cacheHit}
               hint={deployState.hint}
               buildLog={deployState.buildLog}
-              onReset={deployState.reset}
+              onReset={handleReset}
             />
           ) : repoInfo ? (
             <>
@@ -299,6 +325,18 @@ export default function DeployForm() {
                 onCopy={handleCopy}
                 onDeploy={handleDeploy}
                 canDeploy={!!canDeploy}
+                turnstileSiteKey={TURNSTILE_SITEKEY}
+                turnstileRef={turnstileRef}
+                onTurnstileToken={(token) => {
+                  setTurnstileToken(token);
+                  if (token) setTurnstileError("");
+                }}
+                turnstileError={turnstileError}
+                onTurnstileError={() =>
+                  setTurnstileError(
+                    "Security verification failed to load. Please refresh and try again.",
+                  )
+                }
               />
             </>
           ) : templateInfo ? (
@@ -328,6 +366,18 @@ export default function DeployForm() {
                 onCopy={handleCopy}
                 onDeploy={handleDeploy}
                 canDeploy={!!canDeploy}
+                turnstileSiteKey={TURNSTILE_SITEKEY}
+                turnstileRef={turnstileRef}
+                onTurnstileToken={(token) => {
+                  setTurnstileToken(token);
+                  if (token) setTurnstileError("");
+                }}
+                turnstileError={turnstileError}
+                onTurnstileError={() =>
+                  setTurnstileError(
+                    "Security verification failed to load. Please refresh and try again.",
+                  )
+                }
               />
             </>
           ) : (
@@ -392,15 +442,39 @@ function DeployActions({
   onCopy,
   onDeploy,
   canDeploy,
+  turnstileSiteKey,
+  turnstileRef,
+  onTurnstileToken,
+  turnstileError,
+  onTurnstileError,
 }: {
   command: string;
   copied: boolean;
   onCopy: () => void;
   onDeploy: () => void;
   canDeploy: boolean;
+  turnstileSiteKey: string;
+  turnstileRef: React.RefObject<TurnstileWidgetHandle | null>;
+  onTurnstileToken: (token: string) => void;
+  turnstileError: string;
+  onTurnstileError: () => void;
 }) {
   return (
     <div className="space-y-4">
+      {turnstileSiteKey && (
+        <div className="space-y-2">
+          <TurnstileWidget
+            ref={turnstileRef}
+            sitekey={turnstileSiteKey}
+            action="web-deploy"
+            onToken={onTurnstileToken}
+            onError={onTurnstileError}
+            className="flex justify-center"
+          />
+          {turnstileError && <p className="text-xs text-red-400">{turnstileError}</p>}
+        </div>
+      )}
+
       {/* Deploy button */}
       <button
         onClick={onDeploy}

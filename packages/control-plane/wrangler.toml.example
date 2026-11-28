@@ -28,6 +28,9 @@ CREEK_REALTIME_URL = ""        # e.g. "https://rt.yourdomain.dev"
 CLOUDFLARE_ZONE_ID = ""        # wrangler zones list
 DISPATCH_NAMESPACE = "creek-user-workers"
 CLOUDFLARE_ACCOUNT_ID = ""     # wrangler whoami
+# Turnstile expected frontend hostnames (production ONLY — never include localhost/127.0.0.1)
+TURNSTILE_DASHBOARD_HOSTNAMES = ""  # e.g. "app.yourdomain.dev"
+TURNSTILE_WWW_HOSTNAMES = ""        # e.g. "yourdomain.dev"
 
 # Custom domain for API
 [[routes]]
@@ -49,3 +52,5 @@ crons = ["*/5 * * * *"]
 # ENCRYPTION_KEY
 # IP_HASH_SALT
 # INTERNAL_SECRET
+# TURNSTILE_DASHBOARD_SECRET
+# TURNSTILE_WWW_SECRET

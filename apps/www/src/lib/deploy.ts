@@ -65,6 +65,7 @@ export function useWebDeploy() {
       repo?: string;
       branch?: string;
       path?: string;
+      turnstileToken?: string;
     }) => {
       // Clear previous state
       if (pollRef.current) clearInterval(pollRef.current);
@@ -72,11 +73,16 @@ export function useWebDeploy() {
 
       try {
         const API_BASE = "https://api.creek.dev";
+        const { turnstileToken, ...payload } = request;
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (turnstileToken) {
+          headers["cf-turnstile-response"] = turnstileToken;
+        }
 
         const res = await fetch(`${API_BASE}/web-deploy`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
+          headers,
+          body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
