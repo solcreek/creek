@@ -298,6 +298,8 @@ function LogsTab() {
 
       {historical.isLoading && !historical.data ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : historical.error && merged.length === 0 ? (
+        <ConnectionError error={historical.error} onRetry={() => historical.refetch()} />
       ) : merged.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="text-sm text-muted-foreground">

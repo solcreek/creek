@@ -78,7 +78,7 @@ export async function listApps(): Promise<AppView[]> {
     }>
   >("/projects");
   return projects.map((p) => ({
-    id: p.id,
+    id: p.slug, // hosted routes and API paths key on the slug
     command: "",
     port: 0,
     status: (p.productionDeploymentId ? "running" : "stopped") as AppView["status"],
@@ -113,7 +113,7 @@ export async function getApp(id: string): Promise<AppDetail> {
     productionDeploymentId: string | null;
   }>(`/projects/${id}`);
   return {
-    id: p.id,
+    id: p.slug, // hosted routes and API paths key on the slug
     command: "",
     port: 0,
     status: (p.productionDeploymentId ? "running" : "stopped") as AppView["status"],

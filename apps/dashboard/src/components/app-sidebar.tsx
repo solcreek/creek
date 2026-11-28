@@ -35,7 +35,7 @@ import {
   Plus,
   Check,
 } from "lucide-react";
-import { authClient, useSession, useActiveOrganization } from "@/lib/auth";
+import { authClient, useSession, useActiveOrganization, useCurrentTeam } from "@/lib/auth";
 import { useFeatures, useApiMode } from "@/lib/api-context";
 
 const PLATFORM_ITEMS = [{ to: "/projects" as const, label: "Projects", icon: Folder }];
@@ -226,7 +226,7 @@ function TeamSwitcher() {
   const { data: activeOrg } = useActiveOrganization();
   const { data: orgs } = authClient.useListOrganizations();
   const orgList = (orgs as any[]) ?? [];
-  const displayOrg = activeOrg ?? orgList[0];
+  const { team: displayOrg } = useCurrentTeam();
 
   return (
     <DropdownMenu>

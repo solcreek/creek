@@ -123,7 +123,7 @@ function ConfigurePage() {
     },
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
+      navigate({ to: "/projects/$projectId", params: { projectId: project.slug } });
     },
     onError: (err: any) => {
       setError(err.message || "Failed to create project");

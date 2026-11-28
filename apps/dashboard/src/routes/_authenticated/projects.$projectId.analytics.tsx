@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { ConnectionError } from "@/components/connection-error";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId/analytics")({
   component: AnalyticsTab,
@@ -104,6 +105,10 @@ function AnalyticsTab() {
 
       {traffic.isLoading && performance.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : traffic.error ? (
+        // Every number below comes from traffic: show why it is missing
+        // rather than a row of zeros that reads as "no traffic".
+        <ConnectionError error={traffic.error} onRetry={() => traffic.refetch()} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -335,7 +340,7 @@ interface CronInvocation {
 }
 
 function CronLogsPanel({ projectId }: { projectId: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["cron-logs", projectId],
     queryFn: () => api<{ invocations: CronInvocation[] }>(`/projects/${projectId}/cron-logs`),
     refetchInterval: 60_000,
@@ -344,6 +349,8 @@ function CronLogsPanel({ projectId }: { projectId: string }) {
   if (isLoading) {
     return <p className="text-xs text-muted-foreground">Loading invocations...</p>;
   }
+
+  if (error) return <ConnectionError error={error} onRetry={() => refetch()} />;
 
   if (!data?.invocations?.length) {
     return (

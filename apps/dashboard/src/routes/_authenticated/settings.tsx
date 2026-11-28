@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { authClient, useActiveOrganization } from "@/lib/auth";
+import { authClient, useCurrentTeam } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
 import { useFeatures } from "@/lib/api-context";
@@ -76,9 +76,9 @@ function CloudflareSettings() {
 }
 
 function TeamSettings() {
-  const { data: activeOrg } = useActiveOrganization();
+  const { team } = useCurrentTeam();
   // Keyed on the organisation so the form starts from its values and resets on switch.
-  return <TeamForm key={activeOrg?.id ?? "none"} activeOrg={activeOrg ?? null} />;
+  return <TeamForm key={team?.id ?? "none"} activeOrg={team} />;
 }
 
 function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: string } | null }) {
@@ -125,19 +125,19 @@ function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: 
 }
 
 function MembersList() {
-  const { data: activeOrg } = useActiveOrganization();
+  const { team } = useCurrentTeam();
 
   // Better Auth listMembers returns { members: [...] }
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[] | null>(null);
 
   useEffect(() => {
-    if (!activeOrg?.id) return;
+    if (!team?.id) return;
     authClient.organization
-      .listMembers({ query: { organizationId: activeOrg.id } })
+      .listMembers({ query: { organizationId: team.id } })
       .then((res: any) => {
         setMembers(res.data?.members ?? []);
       });
-  }, [activeOrg?.id]);
+  }, [team?.id]);
 
   return (
     <section>
@@ -145,7 +145,9 @@ function MembersList() {
         Members
       </h2>
       <div className="rounded-lg border border-border">
-        {members.length === 0 ? (
+        {members === null ? (
+          <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+        ) : members.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No members found.</p>
         ) : (
           <div className="divide-y divide-border">
