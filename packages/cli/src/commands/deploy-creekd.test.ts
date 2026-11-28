@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { resolve } from "node:path";
+import type { ResolvedConfig } from "@solcreek/sdk";
 import { CreekdClient, CreekdApiError } from "../utils/creekd-client.js";
+import { deployHandlers } from "./deploy.js";
 
 const BASE = "http://127.0.0.1:9080";
 
@@ -195,6 +198,126 @@ describe("CreekdClient deploy flow", () => {
       expect(e).toBeInstanceOf(CreekdApiError);
       expect(e.status).toBe(502);
       expect(e.code).toBe("deploy_unhealthy");
+    }
+  });
+
+  it("deployCreekd resolves relative entry against subproject cwd on spawn and emits timing", async () => {
+    const subCwd = "/repo/apps/self-hosted";
+    const capturedBodies: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (input: string, init?: RequestInit) => {
+      const parsedBody = init?.body
+        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+        : undefined;
+      capturedBodies.push({ url: String(input), body: parsedBody });
+      if (String(input).endsWith("/v1/apps") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "self-hosted",
+          command: "bun",
+          port: 3000,
+          status: "running",
+          pid: 123,
+          uptime_ms: 0,
+          restart_count: 0,
+          health_failures: 0,
+        }),
+        { status: 201 },
+      );
+    });
+
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    try {
+      await deployHandlers.deployCreekd(
+        subCwd,
+        {
+          projectName: "self-hosted",
+          framework: null,
+          buildCommand: "",
+          buildOutput: "dist",
+        } as ResolvedConfig,
+        true,
+        true,
+      );
+
+      const spawnCall = capturedBodies.find((c) => c.url.endsWith("/v1/apps") && c.body);
+      expect(spawnCall?.body).toMatchObject({
+        id: "self-hosted",
+        entry: resolve(subCwd, "dist/index.js"),
+      });
+
+      const out = stdout.mock.calls.map((c) => String(c[0])).join("");
+      const payload = JSON.parse(out.slice(out.indexOf("{")));
+      expect(payload).toMatchObject({
+        ok: true,
+        target: "creekd",
+        buildSkipped: true,
+        buildTimeS: null,
+      });
+      expect(typeof payload.deployTimeS).toBe("number");
+    } finally {
+      stdout.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("deployCreekd resolves workerEntry against subproject cwd on already_running redeploy", async () => {
+    const subCwd = "/repo/apps/api";
+    const capturedBodies: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    globalThis.fetch = vi.fn().mockImplementation(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      const parsedBody = init?.body
+        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+        : undefined;
+      capturedBodies.push({ url, body: parsedBody });
+      if (url.endsWith("/v1/apps") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+      }
+      if (url.endsWith("/v1/apps") && init?.method === "POST") {
+        return new Response(JSON.stringify({ code: "already_running", error: "already running" }), {
+          status: 409,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "api",
+          command: "bun",
+          port: 3000,
+          status: "running",
+          pid: 456,
+          uptime_ms: 0,
+          restart_count: 0,
+          health_failures: 0,
+        }),
+        { status: 200 },
+      );
+    });
+
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    try {
+      await deployHandlers.deployCreekd(
+        subCwd,
+        {
+          projectName: "api",
+          framework: null,
+          buildCommand: "",
+          buildOutput: "dist",
+          workerEntry: "server.js",
+        } as ResolvedConfig,
+        true,
+        true,
+      );
+
+      const deployCall = capturedBodies.find((c) => c.url.endsWith("/v1/apps/api/deploy"));
+      expect(deployCall?.body).toMatchObject({
+        entry: resolve(subCwd, "server.js"),
+      });
+    } finally {
+      stdout.mockRestore();
+      exitSpy.mockRestore();
     }
   });
 });

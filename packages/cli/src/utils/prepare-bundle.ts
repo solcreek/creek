@@ -122,6 +122,8 @@ export interface PreparedDeployBundle {
    * no build script to run.
    */
   buildRan: string | null;
+  /** Duration of the local build command in milliseconds, or null when skipped/absent. */
+  buildDurationMs: number | null;
 }
 
 /**
@@ -164,8 +166,8 @@ export async function prepareDeployBundle(
       if (!jsonMode) consola.success(m);
     },
   };
-  const fail = (error: string, message: string): never => {
-    if (jsonMode) jsonOutput({ ok: false, error, message }, 1);
+  const fail = (error: string, message: string, extra?: Record<string, unknown>): never => {
+    if (jsonMode) jsonOutput({ ok: false, error, message, ...extra }, 1);
     consola.error(message);
     process.exit(1);
   };
@@ -187,10 +189,13 @@ export async function prepareDeployBundle(
   // `[build] command`, so an empty one must not skip it: that would deploy
   // whatever .creek/adapter-output a previous build left.
   let buildRan: string | null = null;
+  let buildDurationMs: number | null = null;
   if (!skipBuild && (nextjsMode === "opennext" || resolved.buildCommand)) {
     if (nextjsMode === "opennext") {
       try {
+        const buildStart = Date.now();
         buildRan = buildNextjs(cwd, monorepo.isMonorepo);
+        buildDurationMs = Date.now() - buildStart;
       } catch {
         if (jsonMode)
           jsonOutput({ ok: false, error: "build_failed", message: "Next.js build failed" }, 1);
@@ -228,7 +233,9 @@ export async function prepareDeployBundle(
       } else {
         say.start(`  ${buildCmd}`);
         try {
+          const buildStart = Date.now();
           execSync(buildCmd, { cwd, stdio: childStdio() });
+          buildDurationMs = Date.now() - buildStart;
           buildRan = buildCmd;
         } catch {
           if (jsonMode)
@@ -278,10 +285,10 @@ export async function prepareDeployBundle(
     vinext,
   });
   if (!planResult.ok) {
-    if (jsonMode)
-      jsonOutput({ ok: false, error: "nothing_to_deploy", message: planResult.reason }, 1);
-    consola.error(planResult.reason);
-    process.exit(1);
+    const message = skipBuild
+      ? `${planResult.reason} Build was skipped via --skip-build; build the output directory first or omit --skip-build${resolved.buildCommand ? ` (${resolved.buildCommand})` : ""}.`
+      : planResult.reason;
+    return fail("nothing_to_deploy", message, skipBuild ? { buildSkipped: true } : undefined);
   }
   const plan = planResult.plan;
 
@@ -492,6 +499,19 @@ export async function prepareDeployBundle(
     );
   }
 
+  // Catch an empty build output directory before creating a remote project or
+  // uploading a 0-file bundle (worker-only deploys still pass via serverFiles).
+  if (fileList.length === 0 && (!serverFiles || Object.keys(serverFiles).length === 0)) {
+    const displayOut = (relative(cwd, outputDir) || resolved.buildOutput || "dist").replace(
+      /\\/g,
+      "/",
+    );
+    const message = skipBuild
+      ? `No files found in ${displayOut}/ to deploy (build was skipped via --skip-build). Build the output directory first or omit --skip-build${resolved.buildCommand ? ` (${resolved.buildCommand})` : ""}.`
+      : `No files found in ${displayOut}/ to deploy. Verify the build writes assets to ${displayOut}/ (or update [build].output in creek.toml).`;
+    fail("nothing_to_deploy", message, skipBuild ? { buildSkipped: true } : undefined);
+  }
+
   // 9. Resolve effective render mode + entrypoint. Astro CF post-build
   // detection upgrades a pre-build "spa" classification to true SSR.
   const effectiveRenderMode: "spa" | "ssr" | "worker" = astroAdapter ? "ssr" : plan.renderMode;
@@ -528,6 +548,7 @@ export async function prepareDeployBundle(
     assets: clientAssets,
     serverFiles,
     buildRan,
+    buildDurationMs,
   };
 }
 

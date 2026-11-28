@@ -476,6 +476,8 @@ describe("prepareDeployBundle", () => {
       skipBuild: false,
     });
     expect(next.buildRan).toBe("next build --webpack");
+    expect(typeof next.buildDurationMs).toBe("number");
+    expect(next.buildDurationMs!).toBeGreaterThanOrEqual(0);
 
     const skipped = await prepareDeployBundle({
       cwd,
@@ -487,6 +489,7 @@ describe("prepareDeployBundle", () => {
       skipBuild: true,
     });
     expect(skipped.buildRan).toBeNull();
+    expect(skipped.buildDurationMs).toBeNull();
   });
 
   test("buildRan is the configured command when it runs, and null without a build script", async () => {
@@ -500,6 +503,15 @@ describe("prepareDeployBundle", () => {
       skipBuild: false,
     });
     expect(ran.buildRan).toBe("true");
+    expect(typeof ran.buildDurationMs).toBe("number");
+    expect(ran.buildDurationMs!).toBeGreaterThanOrEqual(0);
+
+    const skipped = await prepareDeployBundle({
+      cwd,
+      resolved: baseConfig({ framework: "vite-react", buildCommand: "true" }),
+      skipBuild: true,
+    });
+    expect(skipped.buildDurationMs).toBeNull();
 
     const missing = await prepareDeployBundle({
       cwd,
@@ -507,6 +519,83 @@ describe("prepareDeployBundle", () => {
       skipBuild: false,
     });
     expect(missing.buildRan).toBeNull();
+    expect(missing.buildDurationMs).toBeNull();
+  });
+
+  test("jsonMode: --skip-build with missing dist includes buildSkipped and actionable message", async () => {
+    writeFixture({ "package.json": JSON.stringify({ name: "empty" }) });
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ buildCommand: "pnpm build" }),
+        skipBuild: true,
+        jsonMode: true,
+      }),
+    ).rejects.toThrow("process.exit called");
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const payload = JSON.parse(stdout.mock.calls[0]![0] as string);
+    expect(payload).toMatchObject({
+      ok: false,
+      error: "nothing_to_deploy",
+      buildSkipped: true,
+    });
+    expect(String(payload.message)).toContain("--skip-build");
+    expect(String(payload.message)).toContain("pnpm build");
+
+    stdout.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  test("jsonMode: empty build output fails with nothing_to_deploy (with and without --skip-build)", async () => {
+    writeFixture({ "package.json": JSON.stringify({ name: "empty-dist" }) });
+    mkdirSync(join(cwd, "dist"), { recursive: true });
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ buildCommand: "pnpm build" }),
+        skipBuild: true,
+        jsonMode: true,
+      }),
+    ).rejects.toThrow("process.exit called");
+
+    const skippedPayload = JSON.parse(stdout.mock.calls[0]![0] as string);
+    expect(skippedPayload).toMatchObject({
+      ok: false,
+      error: "nothing_to_deploy",
+      buildSkipped: true,
+    });
+    expect(String(skippedPayload.message)).toContain("--skip-build");
+    expect(String(skippedPayload.message)).toContain("dist/");
+
+    stdout.mockClear();
+    await expect(
+      prepareDeployBundle({
+        cwd,
+        resolved: baseConfig({ buildCommand: "true" }),
+        skipBuild: false,
+        jsonMode: true,
+      }),
+    ).rejects.toThrow("process.exit called");
+
+    const builtPayload = JSON.parse(stdout.mock.calls[0]![0] as string);
+    expect(builtPayload).toMatchObject({ ok: false, error: "nothing_to_deploy" });
+    expect("buildSkipped" in builtPayload).toBe(false);
+
+    stdout.mockRestore();
+    exitSpy.mockRestore();
   });
 
   test("--skip-build says when the Next.js adapter output it deploys was built", async () => {

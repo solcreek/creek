@@ -164,4 +164,54 @@ describe("tryTurboDeploy --wait budget", () => {
     await run;
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
+
+  it("emits buildSkipped, buildTimeS: null, and deployTimeS on a Turbo cache hit", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response("<!doctype html><title>Turbo OK</title>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const getDeploymentStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        deployment: { status: "deploying", errorMessage: null },
+        url: null,
+        previewUrl: null,
+      })
+      .mockResolvedValueOnce({
+        deployment: { status: "active", errorMessage: null },
+        url: "https://app.example.com",
+        previewUrl: "https://app-d1.bycreek.com",
+      });
+
+    const client = {
+      createDeployment: vi.fn(async () => ({ cacheHit: true, deployment: { id: "dep-ok" } })),
+      getDeploymentStatus,
+    } as unknown as Parameters<typeof tryTurboDeploy>[1];
+
+    try {
+      const run = tryTurboDeploy(dir, client, { id: "p1", slug: "app" }, false, true);
+      await vi.advanceTimersByTimeAsync(1000);
+      const hit = await run;
+      expect(hit).toBe(true);
+
+      const out = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+      const payload = JSON.parse(out.slice(out.indexOf("{")));
+      expect(payload).toMatchObject({
+        ok: true,
+        mode: "production",
+        project: "app",
+        turbo: true,
+        buildSkipped: false,
+        buildTimeS: null,
+        deployTimeS: 1,
+        elapsed: "1.0s",
+      });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });

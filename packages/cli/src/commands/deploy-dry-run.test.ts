@@ -105,6 +105,33 @@ describe("dryRunNextStep", () => {
       AGENT_PROD_DEPLOY,
     );
   });
+
+  it("preserves --path in nextStep for monorepo targets", () => {
+    expect(
+      dryRunNextStep({
+        blockingCount: 0,
+        wouldDeploy: true,
+        targetType: "sandbox",
+        subpath: "apps/web",
+      }),
+    ).toBe("creek deploy --path apps/web --sandbox --json");
+    expect(
+      dryRunNextStep({
+        blockingCount: 0,
+        wouldDeploy: true,
+        targetType: "production",
+        subpath: "apps/web",
+      }),
+    ).toBe("creek deploy --path apps/web --prod --json");
+    expect(
+      dryRunNextStep({
+        blockingCount: 0,
+        wouldDeploy: true,
+        targetType: "creekd",
+        subpath: "apps/web",
+      }),
+    ).toBe("creek deploy --path apps/web --yes --json");
+  });
 });
 
 describe("productionSuccessBreadcrumbs", () => {
@@ -163,6 +190,20 @@ describe("creek deploy --dry-run (agent path)", () => {
     expect(plan.wouldDeploy).toBe(true);
     expect(plan.nextStep).toBe(AGENT_SANDBOX_DEPLOY);
     expect(plan.target).toMatchObject({ type: "sandbox" });
+  });
+
+  it("resolves monorepo subdir config and preserves --path in --dry-run", async () => {
+    const sub = join(dir, "apps/web");
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, "creek.toml"), '[project]\nname = "web-app"\n');
+    writeFileSync(join(sub, "package.json"), JSON.stringify({ name: "web-app" }));
+
+    const plan = await dryRunJson({ path: "apps/web" });
+    expect(plan.path).toBe("apps/web");
+    expect(String(plan.cwd).endsWith("apps/web")).toBe(true);
+    expect(plan.config).toMatchObject({ projectName: "web-app" });
+    expect(plan.wouldDeploy).toBe(true);
+    expect(plan.nextStep).toBe("creek deploy --path apps/web --sandbox --json");
   });
 
   it("explicit directory with only style.css is wouldDeploy: true (matches deployDirectory)", async () => {

@@ -196,10 +196,11 @@ function userEnv(): NodeJS.ProcessEnv {
 function deploy(
   args: string[],
   env: Record<string, string> = {},
+  cwd: string = app,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, [CLI, "deploy", ...args], {
-      cwd: app,
+      cwd,
       env: {
         ...userEnv(),
         HOME: home,
@@ -376,6 +377,134 @@ describe.skipIf(!existsSync(CLI))(
       const commands = (out.breadcrumbs as Array<{ command: string }>).map((b) => b.command);
       expect(commands).toContain("creek domains ls --project app --json");
       expect(commands.join("\n")).not.toContain("creek domains add");
+    });
+
+    test("monorepo --path --prod --skip-build separates buildTimeS from deployTimeS", async () => {
+      const repo = mkdtempSync(join(tmpdir(), "creek-monorepo-e2e-"));
+      try {
+        mkdirSync(join(repo, "apps/web/dist"), { recursive: true });
+        writeFileSync(
+          join(repo, "apps/web/dist/index.html"),
+          "<!doctype html><title>monorepo</title>",
+        );
+        writeFileSync(
+          join(repo, "apps/web/package.json"),
+          JSON.stringify({ name: "web", private: true }),
+        );
+        writeFileSync(
+          join(repo, "apps/web/creek.toml"),
+          '[project]\nname = "app"\n\n[build]\ncommand = "npm run build"\noutput = "dist"\n',
+        );
+
+        const r = await deploy(
+          ["--path", "apps/web", "--prod", "--skip-build", "--json"],
+          { CREEK_TOKEN: "test-token" },
+          repo,
+        );
+        expect(r.code, r.stderr).toBe(0);
+        const out = parseOnlyJson(r.stdout);
+        expect(out).toMatchObject({
+          ok: true,
+          mode: "production",
+          project: "app",
+          buildSkipped: true,
+          buildTimeS: null,
+        });
+        expect(typeof out.deployTimeS).toBe("number");
+        expect(buildLogs.join("\n")).toContain("build skipped (--skip-build)");
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    test("non-skipped deploys report buildSkipped: false with numeric buildTimeS and deployTimeS", async () => {
+      const prod = await deploy(["--prod", "--json"], { CREEK_TOKEN: "test-token" });
+      expect(prod.code, prod.stderr).toBe(0);
+      const prodOut = parseOnlyJson(prod.stdout);
+      expect(prodOut.buildSkipped).toBe(false);
+      expect(typeof prodOut.buildTimeS).toBe("number");
+      expect(typeof prodOut.deployTimeS).toBe("number");
+
+      const sandbox = await deploy(["--sandbox", "--json"]);
+      expect(sandbox.code, sandbox.stderr).toBe(0);
+      const sandboxOut = parseOnlyJson(sandbox.stdout);
+      expect(sandboxOut.buildSkipped).toBe(false);
+      expect(typeof sandboxOut.buildTimeS).toBe("number");
+      expect(typeof sandboxOut.deployTimeS).toBe("number");
+    });
+
+    test("--skip-build with empty dist fails with nothing_to_deploy", async () => {
+      const emptyApp = mkdtempSync(join(tmpdir(), "creek-empty-dist-e2e-"));
+      try {
+        mkdirSync(join(emptyApp, "dist"), { recursive: true });
+        writeFileSync(
+          join(emptyApp, "package.json"),
+          JSON.stringify({ name: "app", private: true }),
+        );
+        writeFileSync(
+          join(emptyApp, "creek.toml"),
+          '[project]\nname = "app"\n\n[build]\ncommand = "pnpm build"\noutput = "dist"\n',
+        );
+
+        const r = await deploy(
+          ["--prod", "--skip-build", "--json"],
+          { CREEK_TOKEN: "test-token" },
+          emptyApp,
+        );
+        expect(r.code).toBe(1);
+        const out = parseOnlyJson(r.stdout);
+        expect(out).toMatchObject({
+          ok: false,
+          error: "nothing_to_deploy",
+          buildSkipped: true,
+        });
+        expect(String(out.message)).toContain("--skip-build");
+      } finally {
+        rmSync(emptyApp, { recursive: true, force: true });
+      }
+    });
+
+    test("static-site monorepo sandbox deploys emit buildSkipped, buildTimeS: null, and deployTimeS", async () => {
+      const repo = mkdtempSync(join(tmpdir(), "creek-static-monorepo-e2e-"));
+      try {
+        // Pure index.html path (resolved.source === "index.html")
+        mkdirSync(join(repo, "apps/site"), { recursive: true });
+        writeFileSync(join(repo, "apps/site/index.html"), "<!doctype html><title>static</title>");
+
+        const pure = await deploy(
+          ["--path", "apps/site", "--sandbox", "--skip-build", "--json"],
+          {},
+          repo,
+        );
+        expect(pure.code, pure.stderr).toBe(0);
+        const pureOut = parseOnlyJson(pure.stdout);
+        expect(pureOut).toMatchObject({
+          ok: true,
+          mode: "sandbox",
+          buildSkipped: true,
+          buildTimeS: null,
+        });
+        expect(typeof pureOut.deployTimeS).toBe("number");
+
+        // No-package.json static fallback (creek.toml + index.html, no package.json)
+        writeFileSync(
+          join(repo, "apps/site/creek.toml"),
+          '[project]\nname = "site"\n\n[build]\ncommand = "npm run build"\noutput = "."\n',
+        );
+
+        const fallback = await deploy(["--path", "apps/site", "--sandbox", "--json"], {}, repo);
+        expect(fallback.code, fallback.stderr).toBe(0);
+        const fallbackOut = parseOnlyJson(fallback.stdout);
+        expect(fallbackOut).toMatchObject({
+          ok: true,
+          mode: "sandbox",
+          buildSkipped: false,
+          buildTimeS: null,
+        });
+        expect(typeof fallbackOut.deployTimeS).toBe("number");
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
     });
   },
 );

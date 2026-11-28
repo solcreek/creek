@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import consola from "consola";
@@ -37,6 +37,8 @@ import { deployCommand, deployHandlers } from "./deploy.js";
 type Scenario =
   | "project-cf"
   | "project-creekd"
+  | "monorepo-path-cf"
+  | "monorepo-path-creekd"
   | "creekd-server"
   | "directory"
   | "directory-creekd"
@@ -63,6 +65,14 @@ const MATRIX: Record<Scenario, { out: Record<Flag, Outcome>; in: Record<Flag, Ou
     in: { prod: "production", sandbox: "sandbox", yes: "production", none: "production" },
   },
   "project-creekd": {
+    out: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
+    in: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
+  },
+  "monorepo-path-cf": {
+    out: { prod: "not_authenticated", sandbox: "sandbox", yes: "sandbox", none: "sandbox" },
+    in: { prod: "production", sandbox: "sandbox", yes: "production", none: "production" },
+  },
+  "monorepo-path-creekd": {
     out: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
     in: { prod: "creekd", sandbox: "sandbox_unsupported", yes: "creekd", none: "creekd" },
   },
@@ -163,6 +173,15 @@ function setUp(dir: string, scenario: Scenario): Record<string, unknown> {
       writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
       writeFileSync(join(dir, "creek.toml"), CREEKD_TOML);
       return {};
+    case "monorepo-path-cf":
+      mkdirSync(join(dir, "apps/web"), { recursive: true });
+      writeFileSync(join(dir, "apps/web/index.html"), "<h1>hi</h1>");
+      return { path: "apps/web" };
+    case "monorepo-path-creekd":
+      mkdirSync(join(dir, "apps/self-hosted"), { recursive: true });
+      writeFileSync(join(dir, "apps/self-hosted/index.html"), "<h1>hi</h1>");
+      writeFileSync(join(dir, "apps/self-hosted/creek.toml"), CREEKD_TOML);
+      return { path: "apps/self-hosted" };
     case "creekd-server":
       writeFileSync(
         join(dir, "creek.toml"),
@@ -269,8 +288,15 @@ describe("creek deploy destination matrix", () => {
     if (!match) return;
     const args: Record<string, unknown> = { ...base, "dry-run": true };
     delete args.dir;
-    for (const tok of match[0].split(" ").slice(2)) {
+    delete args.path;
+    const tokens = match[0].split(" ").slice(2);
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i]!;
       if (tok === "--json") continue;
+      if (tok === "--path") {
+        if (i + 1 < tokens.length) args.path = tokens[++i]!;
+        continue;
+      }
       if (tok.startsWith("--")) args[tok.slice(2)] = true;
       else args.dir = tok;
     }
@@ -310,10 +336,15 @@ describe("creek deploy destination matrix", () => {
         expect(real).toMatchObject({ ok: false, error: "confirmation_required" });
         expect(called).toEqual([]);
       } else {
-        expect(called).toEqual([expectedHandler(scenario, outcome)]);
+        const handler = expectedHandler(scenario, outcome);
+        expect(called).toEqual([handler]);
         if (scenario === "repo-url") {
           const opts = handlerSpies.deployRepoUrl.mock.calls[0][1] as { destination: string };
           expect(opts.destination).toBe(outcome);
+        }
+        if (scenario === "monorepo-path-cf" || scenario === "monorepo-path-creekd") {
+          const sub = scenario === "monorepo-path-cf" ? "apps/web" : "apps/self-hosted";
+          expect(handlerSpies[handler].mock.calls[0]?.[0]).toBe(realpathSync(join(dir, sub)));
         }
       }
       void stderrSpy;
@@ -361,7 +392,8 @@ describe("creek deploy destination matrix", () => {
       // The production confirm fires exactly when a local project is about to
       // reach production without --prod (repo-url confirms after its clone,
       // inside the spied handler; --from-github has no confirm).
-      const confirms = scenario === "project-cf" && outcome === "production";
+      const isLocalCf = scenario === "project-cf" || scenario === "monorepo-path-cf";
+      const confirms = isLocalCf && outcome === "production";
       expect(prompt).toHaveBeenCalledTimes(confirms ? 1 : 0);
       // A sandbox-only handler must mean a sandbox destination, and nothing
       // reached the production deploy.
@@ -369,7 +401,7 @@ describe("creek deploy destination matrix", () => {
         expect(outcome).toBe("sandbox");
         expect(handlerSpies.deployAuthenticated).not.toHaveBeenCalled();
       }
-      if (outcome === "production" && scenario === "project-cf") {
+      if (outcome === "production" && isLocalCf) {
         expect(handlerSpies.deploySandbox).not.toHaveBeenCalled();
       }
     },
@@ -479,7 +511,83 @@ describe("creek deploy destination matrix", () => {
     setUp(dir, "directory");
     const out = await runDeploy({ dir: "site", prod: true });
     const cmds = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek deploy --path site --prod --json");
     expect(cmds).toContain("creek deploy site --sandbox --json");
     expect(cmds).toContain("creek init --json");
+
+    // Unsafe traversal paths must never generate a --path breadcrumb.
+    const unsafe = await runDeploy({ dir: "../outside", prod: true });
+    const unsafeCmds = (unsafe.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(unsafeCmds.join("\n")).not.toContain("--path");
+  });
+
+  it("refuses unsafe or empty --path with invalid_path in dry-run and real run", async () => {
+    auth.token = "test-token";
+    for (const bad of ["../outside", "/abs/path", ""]) {
+      for (const dryRun of [true, false]) {
+        const out = await runDeploy({
+          path: bad,
+          prod: true,
+          ...(dryRun ? { "dry-run": true } : {}),
+        });
+        expect(out).toMatchObject({ ok: false, error: "invalid_path" });
+      }
+    }
+    for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("refuses missing or non-directory --path with not_found", async () => {
+    auth.token = "test-token";
+    writeFileSync(join(dir, "file.txt"), "not a directory");
+    for (const target of ["apps/missing", "file.txt"]) {
+      for (const dryRun of [true, false]) {
+        const out = await runDeploy({
+          path: target,
+          prod: true,
+          ...(dryRun ? { "dry-run": true } : {}),
+        });
+        expect(out).toMatchObject({ ok: false, error: "not_found" });
+      }
+    }
+    for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("refuses conflicting --path combinations with conflicting_flags", async () => {
+    auth.token = "test-token";
+    setUp(dir, "monorepo-path-cf");
+    for (const extra of [{ dir: "apps/web" }, { template: "landing" }]) {
+      for (const dryRun of [true, false]) {
+        const out = await runDeploy({
+          ...extra,
+          path: "apps/web",
+          sandbox: true,
+          ...(dryRun ? { "dry-run": true } : {}),
+        });
+        expect(out).toMatchObject({ ok: false, error: "conflicting_flags" });
+      }
+    }
+    for (const spy of Object.values(handlerSpies)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("signed-out repo-url with --path --prod suggests local sandbox without remote --path", async () => {
+    auth.token = null;
+    const out = await runDeploy({
+      dir: "https://github.com/solcreek/example",
+      path: "apps/web",
+      prod: true,
+    });
+    expect(out).toMatchObject({ ok: false, error: "not_authenticated" });
+    const cmds = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek deploy --sandbox --json");
+    expect(cmds.join("\n")).not.toContain("--path apps/web");
+  });
+
+  it("--sandbox on a creekd monorepo --path preserves --path in sandbox_unsupported breadcrumbs", async () => {
+    setUp(dir, "monorepo-path-creekd");
+    const out = await runDeploy({ path: "apps/self-hosted", sandbox: true });
+    expect(out).toMatchObject({ ok: false, error: "sandbox_unsupported" });
+    const cmds = (out.breadcrumbs as { command: string }[]).map((b) => b.command);
+    expect(cmds).toContain("creek deploy --path apps/self-hosted --yes --json");
+    expect(handlerSpies.deployCreekd).not.toHaveBeenCalled();
   });
 });

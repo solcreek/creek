@@ -132,6 +132,14 @@ function section(name: string) {
   consola.log(`\n  \x1b[2m[${name}]\x1b[0m`);
 }
 
+function formatSeconds(ms: number): number {
+  return parseFloat((Math.max(0, ms) / 1000).toFixed(1));
+}
+
+function buildTimeSeconds(skipBuild: boolean, buildDurationMs: number | null): number | null {
+  return skipBuild || buildDurationMs === null ? null : formatSeconds(buildDurationMs);
+}
+
 /**
  * Human-readable progress emitter for the deploy flow.
  *
@@ -266,11 +274,20 @@ export function dryRunVinextOutput(cwd: string): {
 function deployCommandFor(
   targetType: "production" | "sandbox" | "creekd",
   dir: string | undefined,
+  subpath: string | undefined,
 ): string {
-  if (targetType === "creekd") return "creek deploy --yes --json";
+  if (targetType === "creekd") {
+    return subpath
+      ? `creek deploy --path ${shellQuote(subpath)} --yes --json`
+      : "creek deploy --yes --json";
+  }
   if (dir) {
     const flag = targetType === "production" ? "--prod" : "--sandbox";
     return `creek deploy ${shellQuote(dir)} ${flag} --json`;
+  }
+  if (subpath) {
+    const flag = targetType === "production" ? "--prod" : "--sandbox";
+    return `creek deploy --path ${shellQuote(subpath)} ${flag} --json`;
   }
   return targetType === "production" ? AGENT_PROD_DEPLOY : AGENT_SANDBOX_DEPLOY;
 }
@@ -287,12 +304,14 @@ export function dryRunNextStep(opts: {
   targetType: "production" | "sandbox" | "creekd";
   /** `creek deploy <dir>`: the next command must name the same directory. */
   dir?: string;
+  /** `creek deploy --path <subdir>`: the next command must preserve `--path`. */
+  subpath?: string;
 }): string {
   if (opts.blockingCount > 0) {
     const n = opts.blockingCount;
     return `Fix ${n} blocking issue${n === 1 ? "" : "s"} first (see findings), then re-run. For details: creek doctor --json`;
   }
-  const command = deployCommandFor(opts.targetType, opts.dir);
+  const command = deployCommandFor(opts.targetType, opts.dir, opts.subpath);
   if (!opts.wouldDeploy) {
     const add =
       opts.targetType === "creekd"
@@ -508,6 +527,7 @@ async function dryRunPlan(
   args: Record<string, unknown>,
   jsonMode: boolean,
   destination: Exclude<DeployDestination, { kind: "refused" }>,
+  localSubpath?: string,
 ): Promise<void> {
   const target = {
     type: destination.kind,
@@ -633,6 +653,7 @@ async function dryRunPlan(
     mode: "dry-run" as const,
     supported: true,
     cwd,
+    ...(localSubpath ? { path: localSubpath } : {}),
     authenticated,
     target,
     config: resolved
@@ -662,6 +683,7 @@ async function dryRunPlan(
       wouldDeploy,
       targetType,
       dir: explicitDir ? (args.dir as string) : undefined,
+      subpath: localSubpath,
     }),
   };
 
@@ -675,6 +697,9 @@ async function dryRunPlan(
     "\n  \x1b[2m[dry-run]\x1b[0m No deploy will execute. No network calls. No uploads.\n",
   );
   consola.log(`  cwd:              ${cwd}`);
+  if (localSubpath) {
+    consola.log(`  Monorepo path:    ${localSubpath}`);
+  }
   consola.log(`  Auth status:      ${authenticated ? "✓ signed in" : "✗ not signed in"}`);
   consola.log(`  Deploy target:    ${targetType} — ${plan.target.description}`);
   consola.log(`  Why:              ${plan.target.reason}`);
@@ -1053,7 +1078,7 @@ export const deployCommand = defineCommand({
     path: {
       type: "string",
       description:
-        "Subdirectory within the repo to deploy, for monorepos. Example: --path apps/web",
+        "Subdirectory within the monorepo (local or remote repo URL) to deploy. Example: --path apps/web",
       required: false,
     },
     "no-cache": {
@@ -1127,16 +1152,19 @@ export const deployCommand = defineCommand({
     });
     if (destination.kind === "refused") return refuseDestination(destination, jsonMode);
 
+    const localSubpath = inspected.path !== "repo-url" ? inspected.subpath : undefined;
+    const targetCwd = localSubpath
+      ? resolve(process.cwd(), localSubpath)
+      : args.dir && typeof args.dir === "string" && !isRepoUrl(args.dir)
+        ? resolve(args.dir)
+        : process.cwd();
+
     // --- Dry-run short-circuit ---
     // No ToS prompt, no network, no file uploads, no builds. Pure config
     // resolution + plan output. Safe to call from an AI agent that wants
     // to understand what `creek deploy` would do before running it.
     if (args["dry-run"]) {
-      const dryCwd =
-        args.dir && typeof args.dir === "string" && !isRepoUrl(args.dir)
-          ? resolve(args.dir)
-          : process.cwd();
-      return await dryRunPlan(dryCwd, args, jsonMode, destination);
+      return await dryRunPlan(targetCwd, args, jsonMode, destination, localSubpath);
     }
 
     // A production deploy sends the saved key: check it now, before ToS,
@@ -1156,17 +1184,26 @@ export const deployCommand = defineCommand({
     // than publishing on its own. Documented CI already passes --yes, so
     // this doesn't regress automated deploys.
     if (!isTTY && !args.yes && !args.prod && !args.sandbox) {
+      const dryCmd = localSubpath
+        ? `creek deploy --path ${shellQuote(localSubpath)} --dry-run`
+        : "creek deploy --dry-run";
+      const prodCmd = localSubpath
+        ? `creek deploy --path ${shellQuote(localSubpath)} --prod`
+        : "creek deploy --prod";
+      const sandboxCmd = localSubpath
+        ? `creek deploy --path ${shellQuote(localSubpath)} --sandbox`
+        : "creek deploy --sandbox";
       const breadcrumbs: Breadcrumb[] = [
         {
-          command: "creek deploy --dry-run",
+          command: dryCmd,
           description: "Preview the plan without executing (no network, no uploads)",
         },
         {
-          command: "creek deploy --prod",
+          command: prodCmd,
           description: "Publish to your team's production slot (no prompt; requires sign-in)",
         },
         {
-          command: "creek deploy --sandbox",
+          command: sandboxCmd,
           description: "Deploy to an ephemeral 60-minute sandbox preview",
         },
       ];
@@ -1201,7 +1238,7 @@ export const deployCommand = defineCommand({
     if (args["from-github"]) {
       return await deployHandlers.deployFromGithub({
         project: args.project,
-        cwd: args.dir ? resolve(args.dir) : process.cwd(),
+        cwd: targetCwd,
         jsonMode,
       });
     }
@@ -1209,7 +1246,7 @@ export const deployCommand = defineCommand({
     // --- Repo URL deploy (creek deploy https://github.com/user/repo) ---
     if (args.dir && isRepoUrl(args.dir)) {
       return await deployHandlers.deployRepoUrl(args.dir, {
-        path: args.path ?? null,
+        path: inspected.subpath ?? args.path ?? null,
         skipBuild: args["skip-build"],
         json: jsonMode,
         destination: destination.kind === "production" ? "production" : "sandbox",
@@ -1221,7 +1258,7 @@ export const deployCommand = defineCommand({
     }
 
     // --- Resolve target directory ---
-    const cwd = args.dir ? resolve(args.dir) : process.cwd();
+    const cwd = targetCwd;
 
     // --- Explicit directory (creek deploy ./dist) ---
     if (args.dir) {
@@ -1235,7 +1272,7 @@ export const deployCommand = defineCommand({
         consola.error(`Directory not found: ${args.dir}`);
         process.exit(1);
       }
-      return await deployHandlers.deployDirectory(cwd, jsonMode, tos);
+      return await deployHandlers.deployDirectory(cwd, jsonMode, tos, args["skip-build"]);
     }
 
     // --- Try auto-detection (creek.toml → wrangler.* → package.json → index.html) ---
@@ -1314,18 +1351,28 @@ export const deployCommand = defineCommand({
       const fullPath = resolve(cwd, dir);
       if (existsSync(fullPath)) {
         if (!jsonMode) consola.info(`Found build output: ${dir}/`);
-        return await deployHandlers.deployDirectory(fullPath, jsonMode, tos);
+        return await deployHandlers.deployDirectory(fullPath, jsonMode, tos, args["skip-build"]);
       }
     }
 
     // --- Nothing found → guide the user ---
     if (jsonMode)
       jsonOutput(
-        { ok: false, error: "no_project", message: "No project found in this directory" },
+        {
+          ok: false,
+          error: "no_project",
+          message: localSubpath
+            ? `No project found in ${localSubpath}`
+            : "No project found in this directory",
+        },
         1,
         NO_PROJECT_BREADCRUMBS,
       );
-    consola.info("No project found in this directory.\n");
+    consola.info(
+      localSubpath
+        ? `No project found in ${localSubpath}.\n`
+        : "No project found in this directory.\n",
+    );
     consola.info("  creek deploy ./dist              Deploy a build output directory");
     consola.info("  npx create-creek-app             Create a new project from a template");
     consola.info("");
@@ -1374,13 +1421,16 @@ async function deployCreekd(
   }
 
   // 2. Build (unless skipped)
+  let buildDurationMs: number | null = null;
   if (!skipBuild && resolved.buildCommand) {
     if (!jsonMode) {
       section("Build");
       consola.start(`  ${resolved.buildCommand}`);
     }
     try {
+      const buildStart = Date.now();
       execSync(resolved.buildCommand, { cwd, stdio: childStdio() });
+      buildDurationMs = Date.now() - buildStart;
       if (!jsonMode) consola.success("  Build complete");
     } catch (e: any) {
       const msg = `Build failed: ${resolved.buildCommand}`;
@@ -1391,7 +1441,7 @@ async function deployCreekd(
   }
 
   // 3. Detect entry point + runtime
-  const entryPoint = resolved.workerEntry ?? resolved.buildOutput + "/index.js";
+  const entryPoint = resolve(cwd, resolved.workerEntry ?? `${resolved.buildOutput}/index.js`);
   const runtime = "bun"; // default; could read from creek.toml [app].runtime
   const port = 3000; // TODO: auto-assign or read from config
 
@@ -1442,7 +1492,7 @@ async function deployCreekd(
       }
     }
 
-    const elapsedS = ((Date.now() - startTime) / 1000).toFixed(1);
+    const deployTimeS = formatSeconds(Date.now() - startTime);
 
     // --watch — poll status.conditions[] until Ready or
     // deploy_stuck. Runs AFTER `creekctl ensure` returns success
@@ -1475,7 +1525,9 @@ async function deployCreekd(
           port,
           runtime,
           target: "creekd",
-          buildTimeS: parseFloat(elapsedS),
+          buildSkipped: skipBuild,
+          buildTimeS: buildTimeSeconds(skipBuild, buildDurationMs),
+          deployTimeS,
           mode: "creekd-local",
           ...(watchSummary ? { watch: watchSummaryWire(watchSummary) } : {}),
         },
@@ -1503,7 +1555,7 @@ async function deployCreekd(
         }
         process.exit(1);
       }
-      consola.success(`  Deployed to creekd (${elapsedS}s)`);
+      consola.success(`  Deployed to creekd (${deployTimeS.toFixed(1)}s)`);
       consola.info(`  http://localhost:${port}`);
       console.log("");
       consola.info("  Next steps:");
@@ -2070,7 +2122,12 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
 // Directory deploy — deploy pre-built static files directly
 // ============================================================================
 
-async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptance) {
+async function deployDirectory(
+  dir: string,
+  jsonMode: boolean,
+  tos?: TosAcceptance,
+  skipBuild = false,
+) {
   if (!jsonMode) section("Upload");
   const { assets, fileList } = collectAssets(dir);
 
@@ -2094,10 +2151,12 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     consola.start("  Deploying to edge...");
   }
 
+  const deployStartedAt = Date.now();
   let result: Awaited<ReturnType<typeof sandboxDeploy>> | undefined;
   try {
     result = await sandboxDeploy({ assets, source: "cli" }, { tos });
     const status = await pollSandboxStatus(result.statusUrl);
+    const deployMs = status.deployDurationMs ?? Date.now() - deployStartedAt;
 
     const proof = await attachProof(status.previewUrl);
     if (jsonMode) {
@@ -2110,6 +2169,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
+          buildSkipped: skipBuild,
+          buildTimeS: null,
+          deployTimeS: formatSeconds(deployMs),
           expiresAt: result.expiresAt,
           expiresInMinutes: expiresInMinutes(result.expiresAt),
           assetCount: fileList.length,
@@ -2200,7 +2262,7 @@ async function deploySandbox(
   //     echo '<h1>Hi</h1>' > index.html
   //     npx creek deploy
   if (resolved?.source === "index.html") {
-    return deployDirectory(staticSiteUploadDir(cwd, resolved), jsonMode, tos);
+    return deployDirectory(staticSiteUploadDir(cwd, resolved), jsonMode, tos, skipBuild);
   }
 
   // Framework path: package.json should exist because resolveConfig picked a
@@ -2228,7 +2290,7 @@ async function deploySandbox(
       if (!jsonMode) {
         consola.info("  No package.json found — deploying as static site (no build step).");
       }
-      return deployDirectory(staticDir, jsonMode, tos);
+      return deployDirectory(staticDir, jsonMode, tos, skipBuild);
     }
     const message = `Expected package.json in ${cwd} but none found.`;
     if (jsonMode) {
@@ -2297,6 +2359,7 @@ async function deploySandbox(
 
   // Deploy to sandbox
   progress.section("Deploy");
+  const deployStartedAt = Date.now();
   progress.start("  Deploying to edge...");
   // An adapter build records the exact compat it was built against in its
   // manifest; deploy with that so the worker validates at upload (e.g.
@@ -2343,6 +2406,7 @@ async function deploySandbox(
     );
 
     const status = await pollSandboxStatus(result.statusUrl);
+    const deployMs = status.deployDurationMs ?? Date.now() - deployStartedAt;
 
     const proof = await attachProof(status.previewUrl);
     if (jsonMode) {
@@ -2355,9 +2419,9 @@ async function deploySandbox(
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
-          buildTimeS: status.deployDurationMs
-            ? parseFloat((status.deployDurationMs / 1000).toFixed(1))
-            : null,
+          buildSkipped: skipBuild,
+          buildTimeS: buildTimeSeconds(skipBuild, prepared.buildDurationMs),
+          deployTimeS: formatSeconds(deployMs),
           expiresAt: result.expiresAt,
           expiresInMinutes: expiresInMinutes(result.expiresAt),
           framework: framework ?? null,
@@ -2762,6 +2826,7 @@ async function deployAuthenticated(
     if (prodApiHint) progress.info(`  ℹ ${prodApiHint}`);
 
     progress.section("Deploy");
+    const deployStartedAt = Date.now();
     progress.start("  Creating deployment...");
     const { deployment } = await client.createDeployment(project.id);
 
@@ -2956,7 +3021,6 @@ async function deployAuthenticated(
         // Make sure the build log lands before we exit below.
         await flushBuildLog(logUpload);
 
-        const elapsedS = ((Date.now() - start) / 1000).toFixed(1);
         const prodUrl = res.url ?? res.previewUrl;
         await finishProductionSuccess({
           jsonMode,
@@ -2970,7 +3034,9 @@ async function deployAuthenticated(
             framework: framework ?? null,
             renderMode: effectiveRenderMode,
             assetCount: fileList.length,
-            buildTimeS: parseFloat(elapsedS),
+            buildSkipped: skipBuild,
+            buildTimeS: buildTimeSeconds(skipBuild, prepared.buildDurationMs),
+            deployTimeS: formatSeconds(Date.now() - deployStartedAt),
             mode: "production",
             ...customDomainFields(res),
             sameOriginApi: prodApiHint !== null,
@@ -3409,7 +3475,8 @@ export async function tryTurboDeploy(
 
       if (TERMINAL.has(s)) {
         if (s === "active") {
-          const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+          const deployMs = Date.now() - start;
+          const elapsed = (deployMs / 1000).toFixed(1);
           const prodUrl = status.url ?? status.previewUrl;
           await finishProductionSuccess({
             jsonMode,
@@ -3421,6 +3488,9 @@ export async function tryTurboDeploy(
               project: project.slug,
               mode: "production",
               ...customDomainFields(status),
+              buildSkipped: false,
+              buildTimeS: null,
+              deployTimeS: formatSeconds(deployMs),
               turbo: true,
               elapsed: `${elapsed}s`,
             },
