@@ -284,6 +284,65 @@ describe("createKeyLookup", () => {
     await expect(lookup(TEAM, KID)).rejects.toThrow(/HTTP 404/);
   });
 
+  test.each([
+    ["no keys", { keys: [] }],
+    ["only non-RSA keys", { keys: [{ kty: "EC", kid: KID, crv: "P-256", x: "x", y: "y" }] }],
+    ["no keys field", {}],
+  ])("a 200 with %s is a failed fetch: cold, it throws (503)", async (_name, body) => {
+    const f = certsFetcher();
+    f.setBody(body);
+    const lookup = createKeyLookup(f.fetcher);
+    await expect(lookup(TEAM, KID)).rejects.toThrow(/no usable RSA keys/);
+  });
+
+  test("an empty key set on refresh keeps the keys that still work", async () => {
+    let now = 0;
+    const f = certsFetcher();
+    const lookup = createKeyLookup(f.fetcher, () => now);
+    await lookup(TEAM, KID);
+    now = 60 * 60 * 1000;
+    f.setBody({ keys: [] });
+    expect(await lookup(TEAM, KID)).not.toBeNull();
+    expect(f.calls).toHaveLength(2);
+  });
+
+  test("after a failed refresh, old keys serve without refetching until the cooldown ends", async () => {
+    let now = 0;
+    const f = certsFetcher();
+    const lookup = createKeyLookup(f.fetcher, () => now);
+    await lookup(TEAM, KID);
+    now = 60 * 60 * 1000;
+    f.setStatus(500);
+    await lookup(TEAM, KID);
+    expect(f.calls).toHaveLength(2);
+    for (let i = 0; i < 5; i++) {
+      now += 1000;
+      expect(await lookup(TEAM, KID)).not.toBeNull();
+      expect(await lookup(TEAM, `made-up-${i}`)).toBeNull();
+    }
+    expect(f.calls).toHaveLength(2);
+    now += 30 * 1000;
+    f.setStatus(200);
+    await lookup(TEAM, KID);
+    expect(f.calls).toHaveLength(3);
+  });
+
+  test("with no keys, a failed fetch is not retried by every request during the cooldown", async () => {
+    let now = 0;
+    const f = certsFetcher();
+    f.setStatus(503);
+    const lookup = createKeyLookup(f.fetcher, () => now);
+    await expect(lookup(TEAM, KID)).rejects.toThrow(/HTTP 503/);
+    now = 10_000;
+    await expect(lookup(TEAM, KID)).rejects.toThrow(/recent fetch failed/);
+    await expect(lookup(TEAM, KID)).rejects.toThrow(/recent fetch failed/);
+    expect(f.calls).toHaveLength(1);
+    now = 31_000;
+    f.setStatus(200);
+    expect(await lookup(TEAM, KID)).not.toBeNull();
+    expect(f.calls).toHaveLength(2);
+  });
+
   test("keys are per team", async () => {
     const f = certsFetcher();
     const lookup = createKeyLookup(f.fetcher);

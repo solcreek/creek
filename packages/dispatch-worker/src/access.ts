@@ -219,6 +219,12 @@ const KEYS_TTL_MS = 60 * 60 * 1000;
  * made-up kids would turn into a stream of fetches.
  */
 const UNKNOWN_KID_REFETCH_MS = 60 * 1000;
+/**
+ * After a failed fetch, no other fetch for that team for this long: requests
+ * meanwhile use the keys already held, or get 503 when there are none, without
+ * each waiting on another failing fetch.
+ */
+const FAILED_FETCH_COOLDOWN_MS = 30 * 1000;
 const KEYS_FETCH_TIMEOUT_MS = 5 * 1000;
 /** Bounds isolate memory; team domains come from project rows, not requests. */
 const KEY_CACHE_MAX = 500;
@@ -233,6 +239,8 @@ export function createKeyLookup(
 ): KeyLookup {
   const cache = new Map<string, KeySet>();
   const inflight = new Map<string, Promise<KeySet>>();
+  /** When a team's last fetch failed; cleared by a success. */
+  const failedAt = new Map<string, number>();
 
   async function load(teamDomain: string): Promise<KeySet> {
     const res = await fetcher(`https://${teamDomain}/cdn-cgi/access/certs`, {
@@ -259,6 +267,9 @@ export function createKeyLookup(
         // Skip a key we can't import; the others may still verify.
       }
     }
+    // A key set that verifies nothing is a failed fetch: it must not replace
+    // keys that still work, nor turn a retryable 503 into a 403.
+    if (keys.size === 0) throw new Error(`Access certs for ${teamDomain}: no usable RSA keys`);
     const set = { keys, fetchedAt: now() };
     if (cache.size >= KEY_CACHE_MAX && !cache.has(teamDomain)) {
       const oldest = cache.keys().next().value;
@@ -268,28 +279,49 @@ export function createKeyLookup(
     return set;
   }
 
+  /** Single-flight fetch, recording failures for the cooldown. */
   function refresh(teamDomain: string): Promise<KeySet> {
     let pending = inflight.get(teamDomain);
     if (!pending) {
-      pending = load(teamDomain).finally(() => inflight.delete(teamDomain));
+      pending = load(teamDomain)
+        .then(
+          (set) => {
+            failedAt.delete(teamDomain);
+            return set;
+          },
+          (err: unknown) => {
+            failedAt.set(teamDomain, now());
+            throw err;
+          },
+        )
+        .finally(() => inflight.delete(teamDomain));
       inflight.set(teamDomain, pending);
     }
     return pending;
   }
 
+  function coolingDown(teamDomain: string): boolean {
+    const at = failedAt.get(teamDomain);
+    return at !== undefined && now() - at < FAILED_FETCH_COOLDOWN_MS;
+  }
+
   return async (teamDomain, kid) => {
     let set = cache.get(teamDomain);
     if (!set || now() - set.fetchedAt >= KEYS_TTL_MS) {
-      try {
-        set = await refresh(teamDomain);
-      } catch (err) {
+      if (coolingDown(teamDomain)) {
+        if (!set) throw new Error(`Access certs for ${teamDomain}: recent fetch failed`);
         // Keys that are merely old still verify the tokens they signed.
-        if (!set) throw err;
+      } else {
+        try {
+          set = await refresh(teamDomain);
+        } catch (err) {
+          if (!set) throw err;
+        }
       }
     }
     const key = set.keys.get(kid);
     if (key) return key;
-    if (now() - set.fetchedAt < UNKNOWN_KID_REFETCH_MS) return null;
+    if (now() - set.fetchedAt < UNKNOWN_KID_REFETCH_MS || coolingDown(teamDomain)) return null;
     set = await refresh(teamDomain);
     return set.keys.get(kid) ?? null;
   };
