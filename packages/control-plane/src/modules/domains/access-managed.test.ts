@@ -590,6 +590,19 @@ describe("DELETE /projects/:id (the project itself)", () => {
     expect(cf.apps.size).toBe(0);
   });
 
+  test("waits for an Access change in flight: 409 busy while the lease is held", async () => {
+    await connect();
+    await put({ emails: ["a@example.com"] });
+    testEnv.db.db
+      .prepare("UPDATE project SET accessLockedUntil = ? WHERE id = ?")
+      .run(Date.now() + 60_000, PROJECT_ID);
+    const res = await req("DELETE", `/projects/${PROJECT_ID}`);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toBe("busy");
+    expect(cf.apps.size).toBe(1);
+    expect(stored().accessManaged).not.toBeNull();
+  });
+
   test("keeps the project when the applications cannot be deleted", async () => {
     await connect();
     await put({ emails: ["a@example.com"] });

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
@@ -7,7 +7,12 @@ import { projectCleanupStatement } from "../resources/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { requireScopes } from "../tenant/scope-guard.js";
-import { managedAccessOf, removeManagedApps } from "../domains/access-managed.js";
+import {
+  acquireAccessLease,
+  managedAccessOf,
+  releaseAccessLease,
+  removeManagedApps,
+} from "../domains/access-managed.js";
 
 type ProjectEnv = {
   Bindings: Env;
@@ -180,72 +185,101 @@ projects.delete(
     // only this row knows their ids: delete them first. If that fails, keep
     // the project; DELETE /projects/:id/access always takes protection off
     // and names whatever it could not delete.
-    const managedAccess = await managedAccessOf(c.env.DB, project.id);
-    if (managedAccess) {
-      const cleanup = await removeManagedApps(c.env, teamId, managedAccess);
-      if (!cleanup.ok) {
-        return c.json(
-          {
-            error: "access_cleanup_failed",
-            message: `Creek could not delete this project's Cloudflare Access applications (${cleanup.message}). Remove Access protection first, then delete the project.`,
-            accountId: managedAccess.accountId,
-            appIds: cleanup.appIds,
-          },
-          409,
-        );
-      }
-    }
-
-    // Delete the project's child rows before the project itself. D1 enforces the
-    // foreign keys (deployment/env/domain/github/binding -> project, build_log ->
-    // deployment) and none is ON DELETE CASCADE, so deleting the project directly
-    // fails with "FOREIGN KEY constraint failed" for any project that was ever
-    // deployed. Order matters (grandchild build_log first); a batch runs them in
-    // one transaction so a mid-way failure can't orphan rows. Team-owned resources
-    // (D1/R2/KV) are intentionally NOT deleted — only the binding rows.
+    // Under the project's Access lease, so a change in flight cannot add an
+    // application after the read below. (Before migration 0017 there is no
+    // lease and nothing managed.)
+    let lease: number | null | undefined;
     try {
-      await c.env.DB.batch([
-        // Queue the custom hostnames for Cloudflare cleanup in the same
-        // transaction, so a failed delete queues nothing. It reads
-        // custom_domain, so it runs before those rows are removed.
-        projectCleanupStatement(c.env, project.id),
-        c.env.DB.prepare(
-          "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
-        ).bind(project.id),
-        c.env.DB.prepare("DELETE FROM deployment WHERE projectId = ?").bind(project.id),
-        c.env.DB.prepare("DELETE FROM environment_variable WHERE projectId = ?").bind(project.id),
-        c.env.DB.prepare("DELETE FROM custom_domain WHERE projectId = ?").bind(project.id),
-        c.env.DB.prepare("DELETE FROM github_connection WHERE projectId = ?").bind(project.id),
-        c.env.DB.prepare("DELETE FROM project_resource_binding WHERE projectId = ?").bind(
-          project.id,
-        ),
-        c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id),
-      ]);
+      lease = await acquireAccessLease(c.env.DB, project.id);
     } catch (err) {
-      console.error(`[projects] delete failed for ${project.id}:`, err);
+      if (!/no such column/i.test(String(err))) throw err;
+    }
+    if (lease === null) {
       return c.json(
         {
-          error: "delete_failed",
-          message: err instanceof Error ? err.message : "Failed to delete project",
+          error: "busy",
+          message:
+            "A change to this project's Access settings is in progress: try again in a moment",
         },
-        500,
+        409,
       );
     }
-
-    await recordAudit(
-      c.env.DB,
-      c.get("user"),
-      c.get("teamId"),
-      {
-        action: "project.delete",
-        resourceType: "project",
-        resourceId: project.id,
-      },
-      c.get("auditCtx"),
-    );
-
-    return c.json({ ok: true });
+    try {
+      return await deleteProject(c, project, teamId);
+    } finally {
+      if (lease) await releaseAccessLease(c.env.DB, project.id, lease);
+    }
   },
 );
+
+async function deleteProject(
+  c: Context<ProjectEnv>,
+  project: { id: string },
+  teamId: string,
+): Promise<Response> {
+  const managedAccess = await managedAccessOf(c.env.DB, project.id);
+  if (managedAccess) {
+    const cleanup = await removeManagedApps(c.env, teamId, managedAccess);
+    if (!cleanup.ok) {
+      return c.json(
+        {
+          error: "access_cleanup_failed",
+          message: `Creek could not delete this project's Cloudflare Access applications (${cleanup.message}). Remove Access protection first, then delete the project.`,
+          accountId: managedAccess.accountId,
+          appIds: cleanup.appIds,
+        },
+        409,
+      );
+    }
+  }
+
+  // Delete the project's child rows before the project itself. D1 enforces the
+  // foreign keys (deployment/env/domain/github/binding -> project, build_log ->
+  // deployment) and none is ON DELETE CASCADE, so deleting the project directly
+  // fails with "FOREIGN KEY constraint failed" for any project that was ever
+  // deployed. Order matters (grandchild build_log first); a batch runs them in
+  // one transaction so a mid-way failure can't orphan rows. Team-owned resources
+  // (D1/R2/KV) are intentionally NOT deleted — only the binding rows.
+  try {
+    await c.env.DB.batch([
+      // Queue the custom hostnames for Cloudflare cleanup in the same
+      // transaction, so a failed delete queues nothing. It reads
+      // custom_domain, so it runs before those rows are removed.
+      projectCleanupStatement(c.env, project.id),
+      c.env.DB.prepare(
+        "DELETE FROM build_log WHERE deploymentId IN (SELECT id FROM deployment WHERE projectId = ?)",
+      ).bind(project.id),
+      c.env.DB.prepare("DELETE FROM deployment WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM environment_variable WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM custom_domain WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM github_connection WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM project_resource_binding WHERE projectId = ?").bind(project.id),
+      c.env.DB.prepare("DELETE FROM project WHERE id = ?").bind(project.id),
+    ]);
+  } catch (err) {
+    console.error(`[projects] delete failed for ${project.id}:`, err);
+    return c.json(
+      {
+        error: "delete_failed",
+        message: err instanceof Error ? err.message : "Failed to delete project",
+      },
+      500,
+    );
+  }
+
+  await recordAudit(
+    c.env.DB,
+    c.get("user"),
+    c.get("teamId"),
+    {
+      action: "project.delete",
+      resourceType: "project",
+      resourceId: project.id,
+    },
+    c.get("auditCtx"),
+  );
+
+  return c.json({ ok: true });
+}
 
 export { projects };
