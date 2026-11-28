@@ -12,14 +12,14 @@ import {
   SidebarRail,
 } from "@solcreek/ui/components/sidebar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@solcreek/ui/components/dropdown-menu";
+  Menu,
+  MenuPopup,
+  MenuGroup,
+  MenuItem,
+  MenuGroupLabel,
+  MenuSeparator,
+  MenuTrigger,
+} from "@solcreek/ui/components/menu";
 import {
   Folder,
   Database,
@@ -137,8 +137,8 @@ function UserFooter() {
     <SidebarFooter>
       <SidebarMenu>
         <SidebarMenuItem>
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          <Menu>
+            <MenuTrigger
               render={
                 <SidebarMenuButton size="lg">
                   <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
@@ -152,9 +152,9 @@ function UserFooter() {
                 </SidebarMenuButton>
               }
             />
-            <DropdownMenuContent className="min-w-56" side="top" align="start">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>
+            <MenuPopup className="min-w-56" side="top" align="start">
+              <MenuGroup>
+                <MenuGroupLabel>
                   <div className="flex items-center gap-2 py-1">
                     <div className="flex size-8 items-center justify-center rounded-lg bg-secondary text-xs font-semibold">
                       {initials}
@@ -164,26 +164,26 @@ function UserFooter() {
                       <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
                     </div>
                   </div>
-                </DropdownMenuLabel>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuItem render={<Link to="/settings" />}>
+                </MenuGroupLabel>
+              </MenuGroup>
+              <MenuSeparator />
+              <MenuGroup>
+                <MenuItem render={<Link to="/settings" />}>
                   <Settings className="mr-2 size-4" />
                   Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem render={<Link to="/api-keys" />}>
+                </MenuItem>
+                <MenuItem render={<Link to="/api-keys" />}>
                   <Key className="mr-2 size-4" />
                   API Keys
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => authClient.signOut()}>
+                </MenuItem>
+              </MenuGroup>
+              <MenuSeparator />
+              <MenuItem onClick={() => authClient.signOut()}>
                 <LogOut className="mr-2 size-4" />
                 Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarFooter>
@@ -229,8 +229,8 @@ function TeamSwitcher() {
   const { team: displayOrg } = useCurrentTeam();
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Menu>
+      <MenuTrigger
         render={
           <SidebarMenuButton size="lg">
             <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
@@ -246,26 +246,26 @@ function TeamSwitcher() {
           </SidebarMenuButton>
         }
       />
-      <DropdownMenuContent className="min-w-56" align="start">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Teams</DropdownMenuLabel>
+      <MenuPopup className="min-w-56" align="start">
+        <MenuGroup>
+          <MenuGroupLabel>Teams</MenuGroupLabel>
           {orgList.map((org: any) => (
-            <DropdownMenuItem
+            <MenuItem
               key={org.id}
               onClick={() => authClient.organization.setActive({ organizationId: org.id })}
             >
               <Rocket className="mr-2 size-4" />
               <span>{org.name}</span>
               {org.id === activeOrg?.id && <Check className="ml-auto size-4" />}
-            </DropdownMenuItem>
+            </MenuItem>
           ))}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        </MenuGroup>
+        <MenuSeparator />
+        <MenuItem>
           <Plus className="mr-2 size-4" />
           Create team
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }

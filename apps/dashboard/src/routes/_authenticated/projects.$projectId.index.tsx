@@ -16,11 +16,11 @@ import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@solcreek/ui/components/dropdown-menu";
+  Menu,
+  MenuPopup,
+  MenuItem,
+  MenuTrigger,
+} from "@solcreek/ui/components/menu";
 import { Button } from "@solcreek/ui/components/button";
 import {
   MoreHorizontal,
@@ -292,24 +292,24 @@ function DeploymentsTab() {
                   <ScrollText className="size-4" />
                 </Button>
                 {canPromote && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
+                  <Menu>
+                    <MenuTrigger
                       render={
                         <Button variant="ghost" size="icon-xs">
                           <MoreHorizontal className="size-4" />
                         </Button>
                       }
                     />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
+                    <MenuPopup align="end">
+                      <MenuItem
                         onClick={() => promote.mutate(d.id)}
                         disabled={promote.isPending}
                       >
                         <ArrowUpCircle className="mr-2 size-4" />
                         {promote.isPending ? "Promoting..." : "Promote to Production"}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
                 )}
               </div>
             </div>

@@ -3,12 +3,12 @@ import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@solcreek/ui/components/dropdown-menu";
+  Menu,
+  MenuPopup,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@solcreek/ui/components/menu";
 import { Input } from "@solcreek/ui/components/input";
 import { ChevronsUpDown, Folder, Plus, Search } from "lucide-react";
 
@@ -67,8 +67,8 @@ export function ProjectSwitcher() {
   const activeProject = projects?.find((p) => p.slug === projectId || p.id === projectId);
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger
+    <Menu open={open} onOpenChange={setOpen}>
+      <MenuTrigger
         render={
           <button className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-secondary transition-colors">
             {activeProject ? (
@@ -86,7 +86,7 @@ export function ProjectSwitcher() {
           </button>
         }
       />
-      <DropdownMenuContent className="w-72" align="start">
+      <MenuPopup className="w-72" align="start">
         {/* Search */}
         <div className="flex items-center gap-2 px-2 py-1.5">
           <Search className="size-4 text-muted-foreground" />
@@ -97,7 +97,7 @@ export function ProjectSwitcher() {
             className="h-7 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
           />
         </div>
-        <DropdownMenuSeparator />
+        <MenuSeparator />
 
         {/* Project list */}
         <div className="max-h-64 overflow-y-auto">
@@ -107,7 +107,7 @@ export function ProjectSwitcher() {
             </div>
           ) : (
             filtered.map((project) => (
-              <DropdownMenuItem
+              <MenuItem
                 key={project.id}
                 onClick={() => {
                   navigate({
@@ -121,14 +121,14 @@ export function ProjectSwitcher() {
               >
                 <FrameworkIcon framework={project.framework} slug={project.slug} />
                 <span className="truncate">{project.slug}</span>
-              </DropdownMenuItem>
+              </MenuItem>
             ))
           )}
         </div>
 
         {/* Create project */}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
+        <MenuSeparator />
+        <MenuItem
           render={<Link to="/projects" />}
           onClick={() => {
             setOpen(false);
@@ -137,8 +137,8 @@ export function ProjectSwitcher() {
         >
           <Plus className="size-4" />
           <span>Create Project</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }

@@ -23,6 +23,12 @@ if (typeof window !== "undefined") {
   window.scrollTo = () => {};
 }
 
+// jsdom has no Web Animations API; Base UI's ScrollArea (used by the coss
+// Dialog and Sidebar) calls getAnimations() when it settles.
+if (typeof Element !== "undefined" && typeof Element.prototype.getAnimations !== "function") {
+  Element.prototype.getAnimations = () => [];
+}
+
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}
