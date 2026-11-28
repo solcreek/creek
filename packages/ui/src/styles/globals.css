@@ -50,9 +50,13 @@
   --sidebar-primary: var(--color-neutral-800);
   --sidebar-primary-foreground: var(--color-neutral-50);
   --sidebar-ring: var(--color-neutral-400);
+  /* Creek's brand cyan. coss/shadcn `accent` is a subtle hover background,
+     not a brand color, so the brand needs its own token. */
+  --brand: oklch(0.6 0.13 200);
 }
 
 @theme inline {
+  --color-brand: var(--brand);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-accent: var(--accent);
@@ -246,4 +250,5 @@
   --sidebar-primary: var(--color-neutral-100);
   --sidebar-primary-foreground: var(--color-neutral-800);
   --sidebar-ring: var(--color-neutral-400);
+  --brand: oklch(0.75 0.15 200);
 }

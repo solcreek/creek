@@ -329,12 +329,12 @@ function Pill({ enabled, label }: { enabled: boolean; label: string }) {
     <span
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
         enabled
-          ? "border-green-500/30 bg-green-500/10 text-green-400"
+          ? "border-success/30 bg-success/10 text-success-foreground"
           : "border-border text-muted-foreground"
       }`}
     >
       <span
-        className={`size-1.5 rounded-full ${enabled ? "bg-green-500" : "bg-muted-foreground"}`}
+        className={`size-1.5 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground"}`}
       />
       {label}
     </span>
@@ -409,19 +409,19 @@ function TriggersSection({ projectId }: { projectId: string }) {
 
       {/* Persistent warning when queue change requires redeploy */}
       {requiresRedeploy && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
-          <span className="text-yellow-400">⚠</span>
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+          <span className="text-warning-foreground">⚠</span>
           <div className="flex-1">
-            <p className="font-medium text-yellow-200">Redeploy required</p>
-            <p className="mt-1 text-xs text-yellow-200/80">
+            <p className="font-medium text-warning-foreground">Redeploy required</p>
+            <p className="mt-1 text-xs text-warning-foreground/80">
               Queue binding changes only take effect after the next deployment. Run{" "}
-              <code className="rounded bg-yellow-500/20 px-1">creek deploy</code> from your project
+              <code className="rounded bg-warning/20 px-1">creek deploy</code> from your project
               directory.
             </p>
           </div>
           <button
             onClick={() => setRequiresRedeploy(false)}
-            className="text-xs text-yellow-200/60 hover:text-yellow-200"
+            className="text-xs text-warning-foreground/60 hover:text-warning-foreground"
           >
             ×
           </button>
@@ -503,7 +503,7 @@ function TriggersSection({ projectId }: { projectId: string }) {
             <button
               onClick={() => setDraftQueue(!draftQueue)}
               className={`relative h-5 w-9 rounded-full transition-colors ${
-                draftQueue ? "bg-green-500" : "bg-muted-foreground/30"
+                draftQueue ? "bg-success" : "bg-muted-foreground/30"
               }`}
               type="button"
             >
@@ -517,7 +517,7 @@ function TriggersSection({ projectId }: { projectId: string }) {
             <span className="flex items-center gap-2 text-sm">
               <span
                 className={`size-2 rounded-full ${
-                  triggers.queue ? "bg-green-500" : "bg-muted-foreground/30"
+                  triggers.queue ? "bg-success" : "bg-muted-foreground/30"
                 }`}
               />
               {triggers.queue ? "Enabled" : "Disabled"}
@@ -528,12 +528,12 @@ function TriggersSection({ projectId }: { projectId: string }) {
         {editing && (
           <>
             {error && (
-              <div className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-400">{error}</div>
+              <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive-foreground">{error}</div>
             )}
 
             {/* Show redeploy warning inline when queue value changes */}
             {draftQueue !== triggers.queue && (
-              <div className="flex items-start gap-2 rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-200/90">
+              <div className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground/90">
                 <span>⚠</span>
                 <span>Queue toggle requires redeploy. Cron changes apply immediately.</span>
               </div>

@@ -117,7 +117,7 @@ function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: 
           <Button size="sm" onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
             {updateOrg.isPending ? "Saving..." : "Save"}
           </Button>
-          {saved && <span className="text-sm text-green-400">Saved</span>}
+          {saved && <span className="text-sm text-success-foreground">Saved</span>}
         </div>
       </div>
     </section>

@@ -98,12 +98,12 @@ function EmptyState({ mode }: { mode: string }) {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  running: "bg-green-500",
-  starting: "bg-yellow-500",
-  crash_loop: "bg-red-500",
-  stopping: "bg-yellow-500",
+  running: "bg-success",
+  starting: "bg-warning",
+  crash_loop: "bg-destructive",
+  stopping: "bg-warning",
   stopped: "bg-gray-500",
-  active: "bg-green-500",
+  active: "bg-success",
   inactive: "bg-gray-500",
 };
 
@@ -153,7 +153,7 @@ function AppRow({
               <span className="ml-2">{fmtUptime(app.uptime_ms)}</span>
             )}
             {mode === "creekd" && app.restart_count > 0 && (
-              <span className="ml-2 text-amber-400">{app.restart_count} restarts</span>
+              <span className="ml-2 text-warning-foreground">{app.restart_count} restarts</span>
             )}
           </p>
         </div>

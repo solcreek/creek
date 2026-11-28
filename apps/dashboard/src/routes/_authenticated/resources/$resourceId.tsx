@@ -89,8 +89,8 @@ function ResourceDetailPage() {
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] ${
             data.status === "active"
-              ? "bg-green-500/10 text-green-400 border border-green-500/30"
-              : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
+              ? "bg-success/10 text-success-foreground border border-success/30"
+              : "bg-warning/10 text-warning-foreground border border-warning/30"
           }`}
         >
           {data.status}
@@ -322,7 +322,7 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
           </div>
           {attachError && <p className="text-xs text-destructive">{attachError}</p>}
           {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-amber-400">Uppercase, start with letter, &le;63 chars.</p>
+            <p className="text-xs text-warning-foreground">Uppercase, start with letter, &le;63 chars.</p>
           )}
         </div>
       )}
@@ -404,7 +404,7 @@ function RenameSection({ resource }: { resource: ResourceDetail }) {
               autoFocus
             />
             {newName && !NAME_RE.test(newName) && (
-              <p className="text-xs text-amber-400">
+              <p className="text-xs text-warning-foreground">
                 Lowercase, start with letter, &le;63 chars. Hyphen/underscore OK.
               </p>
             )}

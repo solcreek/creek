@@ -202,7 +202,7 @@ function StatCard({
           <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
         )}
       </p>
-      <p className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-red-400" : ""}`}>
+      <p className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}>
         {value}
       </p>
     </div>
@@ -236,12 +236,12 @@ function HttpRequestsChart({
             title={`${label}: ${formatNumber(s.reqs)} total (${formatNumber(s.cachedReqs)} cached)`}
           >
             <div
-              className="w-full rounded-t bg-blue-500"
+              className="w-full rounded-t bg-info"
               style={{ height: `${originH}%`, minHeight: 1 }}
             />
             {cachedH > 0 && (
               <div
-                className="w-full bg-blue-500/30"
+                className="w-full bg-info/30"
                 style={{ height: `${cachedH}%`, minHeight: 1 }}
               />
             )}
@@ -275,12 +275,12 @@ function RequestsChart({ series }: { series: { t: number; reqs: number; errs: nu
           >
             {errorHeight > 0 && (
               <div
-                className="w-full rounded-t bg-red-500/80"
+                className="w-full rounded-t bg-destructive/80"
                 style={{ height: `${errorHeight}%`, minHeight: 2 }}
               />
             )}
             <div
-              className="w-full rounded-t bg-blue-500"
+              className="w-full rounded-t bg-info"
               style={{ height: `${height - errorHeight}%`, minHeight: 1 }}
             />
           </div>
@@ -315,12 +315,12 @@ function BreakdownList({
                   <span className="text-muted-foreground">
                     {formatNumber(r.reqs)}
                     {r.errs > 0 && (
-                      <span className="ml-2 text-red-400">{formatNumber(r.errs)} err</span>
+                      <span className="ml-2 text-destructive-foreground">{formatNumber(r.errs)} err</span>
                     )}
                   </span>
                 </div>
                 <div className="h-1 overflow-hidden rounded bg-code-bg">
-                  <div className="h-full bg-blue-500" style={{ width: `${pct}%` }} />
+                  <div className="h-full bg-info" style={{ width: `${pct}%` }} />
                 </div>
               </div>
             );
@@ -370,9 +370,9 @@ function CronLogsPanel({ projectId }: { projectId: string }) {
           <span className="text-muted-foreground">{new Date(inv.datetime).toLocaleString()}</span>
           <span className="flex items-center gap-3">
             {inv.errors > 0 ? (
-              <span className="text-red-400">{inv.errors} errors</span>
+              <span className="text-destructive-foreground">{inv.errors} errors</span>
             ) : (
-              <span className="text-green-400">ok</span>
+              <span className="text-success-foreground">ok</span>
             )}
             <span className="text-muted-foreground">{inv.durationMs.toFixed(0)}ms</span>
           </span>

@@ -245,7 +245,7 @@ export function BuildLogPanel({
             : `${data.entries.length} lines`}{" "}
           · {formatBytes(meta.bytes)} compressed
         </span>
-        {meta.truncated && <span className="text-amber-400">truncated</span>}
+        {meta.truncated && <span className="text-warning-foreground">truncated</span>}
         {meta.errorCode && <span className="font-mono text-destructive">{meta.errorCode}</span>}
         <button
           type="button"
@@ -289,11 +289,11 @@ function StepRow({
 
   const statusIcon =
     status === "success" ? (
-      <span className="text-green-400">✓</span>
+      <span className="text-success-foreground">✓</span>
     ) : status === "failed" ? (
       <span className="text-destructive">✗</span>
     ) : status === "running" ? (
-      <span className="text-blue-400">·</span>
+      <span className="text-info-foreground">·</span>
     ) : (
       <span className="text-muted-foreground">·</span>
     );
@@ -335,7 +335,7 @@ function StepRow({
                   l.level === "error" || l.level === "fatal"
                     ? "text-destructive"
                     : l.level === "warn"
-                      ? "text-amber-400"
+                      ? "text-warning-foreground"
                       : "text-foreground/80"
                 }`}
               >

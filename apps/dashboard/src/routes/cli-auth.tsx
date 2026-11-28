@@ -89,7 +89,7 @@ function CliAuthPage() {
 
         {status === "done" && (
           <div className="space-y-2">
-            <p className="text-green-400">Authenticated!</p>
+            <p className="text-success-foreground">Authenticated!</p>
             <p className="text-sm text-muted-foreground">
               You can close this window and return to the terminal.
             </p>

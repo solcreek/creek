@@ -144,7 +144,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
           </div>
           {attachError && <p className="text-xs text-destructive">{attachError}</p>}
           {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning-foreground">
               Binding name must be uppercase, start with a letter, ≤63 chars.
             </p>
           )}

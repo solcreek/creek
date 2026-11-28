@@ -193,7 +193,7 @@ function UserFooter() {
 function CreekdBranding() {
   return (
     <SidebarMenuButton size="lg">
-      <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
+      <div className="flex size-8 items-center justify-center rounded-lg bg-brand/20 text-brand">
         <Server className="size-4" />
       </div>
       <div className="grid flex-1 text-left text-sm leading-tight">
@@ -233,7 +233,7 @@ function TeamSwitcher() {
       <MenuTrigger
         render={
           <SidebarMenuButton size="lg">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-brand/20 text-brand">
               <Rocket className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">

@@ -135,7 +135,7 @@ function CreekdLogsTab() {
             <div
               key={i}
               className={`flex gap-2 px-3 py-0.5 hover:bg-accent/10 ${
-                rec.stream === "stderr" ? "bg-red-500/5" : ""
+                rec.stream === "stderr" ? "bg-destructive/5" : ""
               }`}
             >
               <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -143,7 +143,7 @@ function CreekdLogsTab() {
               </span>
               <span
                 className={`shrink-0 w-10 ${
-                  rec.stream === "stderr" ? "text-red-400" : "text-cyan-400"
+                  rec.stream === "stderr" ? "text-destructive-foreground" : "text-cyan-400"
                 }`}
               >
                 {rec.stream === "stderr" ? "err" : "out"}
@@ -427,10 +427,10 @@ function LiveTail({
       <span
         className={`inline-block h-2 w-2 rounded-full ${
           status === "connected"
-            ? "bg-green-500 animate-pulse"
+            ? "bg-success animate-pulse"
             : status === "connecting"
-              ? "bg-yellow-500"
-              : "bg-red-500"
+              ? "bg-warning"
+              : "bg-destructive"
         }`}
       />
       Live tail: {status}
@@ -449,10 +449,10 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
     status === undefined
       ? ""
       : status >= 500
-        ? "bg-red-500/10 text-red-400 border-red-500/30"
+        ? "bg-destructive/10 text-destructive-foreground border-destructive/30"
         : status >= 400
-          ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+          ? "bg-warning/10 text-warning-foreground border-warning/30"
+          : "bg-success/10 text-success-foreground border-success/30";
 
   const outcomeLabel =
     entry.outcome === "ok" ? null : entry.outcome === "exception" ? "exception" : entry.outcome;
@@ -497,7 +497,7 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
           </span>
         )}
         {outcomeLabel && (
-          <span className="shrink-0 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-red-400">
+          <span className="shrink-0 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-destructive-foreground">
             {outcomeLabel}
           </span>
         )}
@@ -517,9 +517,9 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
               <span
                 className={`shrink-0 uppercase ${
                   l.level === "error"
-                    ? "text-red-400"
+                    ? "text-destructive-foreground"
                     : l.level === "warn"
-                      ? "text-amber-400"
+                      ? "text-warning-foreground"
                       : "text-cyan-400"
                 }`}
               >
@@ -531,7 +531,7 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
             </div>
           ))}
           {entry.exceptions.map((e, i) => (
-            <div key={`e${i}`} className="flex gap-2 text-red-400">
+            <div key={`e${i}`} className="flex gap-2 text-destructive-foreground">
               <span className="shrink-0 uppercase">exc</span>
               <span className="whitespace-pre-wrap break-words">
                 {e.name}: {e.message}
