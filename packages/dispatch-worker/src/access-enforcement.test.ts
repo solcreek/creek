@@ -261,6 +261,21 @@ describe("protected project", () => {
     expect(certFetches).toEqual([]);
   });
 
+  test.each([
+    ["only a bypass list", { accessBypassPaths: '["/health"]' }],
+    [
+      "a bad team domain",
+      { accessTeamDomain: "evil.example.com", accessAud: AUD, accessBypassPaths: '["/health"]' },
+    ],
+  ])("misconfigured (%s): even a bypass path is refused", async (_name, access) => {
+    const res = await worker.fetch(
+      get("https://site-acme.bycreek.com/health"),
+      makeEnv({ access }),
+    );
+    expect(res.status).toBe(403);
+    expect(dispatched).toEqual([]);
+  });
+
   test("the settings are cached with the route: a second request costs no D1 work", async () => {
     const env = makeEnv({ access: PROTECTED });
     const token = await signer.sign(validClaims());

@@ -192,6 +192,26 @@ describe("parseAccessConfig", () => {
     expect(await verifyAccessJwt(token, half!, keys)).toEqual({ ok: false, reason: "config" });
   });
 
+  test.each([
+    ["only a bypass list", { accessBypassPaths: '["/health"]' }],
+    ["empty strings", { accessTeamDomain: "", accessAud: "", accessBypassPaths: null }],
+    ["an empty team domain", { accessTeamDomain: "", accessAud: AUD }],
+    [
+      "a team domain off cloudflareaccess.com, with bypass paths",
+      { accessTeamDomain: "evil.example.com", accessAud: AUD, accessBypassPaths: '["/health"]' },
+    ],
+    [
+      "a bad AUD, with bypass paths",
+      { accessTeamDomain: TEAM, accessAud: "nope", accessBypassPaths: '["/health"]' },
+    ],
+  ])("%s: protected, unsatisfiable, and nothing bypasses", async (_name, row) => {
+    const config = parseAccessConfig(row);
+    expect(config).not.toBeNull();
+    expect(config!.bypassPaths).toEqual([]);
+    const token = await signer.sign(validClaims());
+    expect(await verifyAccessJwt(token, config!, keys)).toEqual({ ok: false, reason: "config" });
+  });
+
   test("an unreadable bypass list means no bypass", () => {
     expect(
       parseAccessConfig({ accessTeamDomain: TEAM, accessAud: AUD, accessBypassPaths: "{not json" })

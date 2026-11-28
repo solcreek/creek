@@ -43,10 +43,11 @@ export function isAud(value: string): boolean {
 }
 
 /**
- * Build the config from the project row's three columns. Anything incomplete
- * or malformed — including a row written by hand — yields a config that can
- * never be satisfied rather than none at all: a project whose protection is
- * misconfigured must not quietly become public.
+ * Build the config from the project row's three columns. Only a row with all
+ * three NULL is unprotected. Anything else that is incomplete or malformed —
+ * an empty string, a bypass list with no team, a row written by hand — yields
+ * a config no token can satisfy and no path bypasses: a project whose
+ * protection is misconfigured must not quietly become public.
  */
 export function parseAccessConfig(row: {
   accessTeamDomain?: string | null;
@@ -54,7 +55,10 @@ export function parseAccessConfig(row: {
   accessBypassPaths?: string | null;
 }): AccessConfig | null {
   const { accessTeamDomain: teamDomain, accessAud: aud, accessBypassPaths } = row;
-  if (!teamDomain && !aud) return null;
+  if (teamDomain == null && aud == null && accessBypassPaths == null) return null;
+  if (!isTeamDomain(teamDomain ?? "") || !isAud(aud ?? "")) {
+    return { teamDomain: teamDomain ?? "", aud: aud ?? "", bypassPaths: [] };
+  }
   let bypassPaths: string[] = [];
   if (accessBypassPaths) {
     try {
@@ -64,7 +68,7 @@ export function parseAccessConfig(row: {
       // Unreadable list: no bypass at all. Fail closed.
     }
   }
-  return { teamDomain: teamDomain ?? "", aud: aud ?? "", bypassPaths };
+  return { teamDomain, aud, bypassPaths } as AccessConfig;
 }
 
 // --- Bypass paths ---
