@@ -72,7 +72,7 @@ describe("GET /projects/:id/access", () => {
   test("a new project is not protected", async () => {
     const res = await req("GET", `/projects/${PROJECT_ID}/access`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ protected: false });
+    expect(await res.json()).toEqual({ protected: false, hostnames: [] });
   });
 
   test("unknown project: 404", async () => {
@@ -110,6 +110,7 @@ describe("PUT /projects/:id/access", () => {
       aud: AUD,
       bypassPaths: ["/health", "/api/webhooks/*"],
       managed: null,
+      hostnames: [],
     });
   });
 

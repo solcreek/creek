@@ -6,6 +6,9 @@ import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
 import { ExternalLink } from "lucide-react";
 import { BindingsPanel } from "./-components/BindingsPanel";
+import { ProtectionPanel } from "./-components/ProtectionPanel";
+import { useFeatures } from "@/lib/api-context";
+import { useCurrentTeam } from "@/lib/auth";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -21,6 +24,8 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId/settin
 
 function ProjectSettingsTab() {
   const { projectId } = Route.useParams();
+  const features = useFeatures();
+  const { team } = useCurrentTeam();
 
   return (
     <div className="space-y-10">
@@ -28,6 +33,11 @@ function ProjectSettingsTab() {
         <GeneralSettings projectId={projectId} />
         <GitHubConnectionSection projectId={projectId} />
         <TriggersSection projectId={projectId} />
+        {/* Cloudflare Access goes through the team's Cloudflare connection: hosted Creek only.
+            Keyed by team and project, so switching either starts from clean state. */}
+        {features.teams && team && (
+          <ProtectionPanel key={`${team.id}:${projectId}`} team={team} projectId={projectId} />
+        )}
       </div>
       <div className="max-w-3xl">
         <BindingsPanel projectId={projectId} />

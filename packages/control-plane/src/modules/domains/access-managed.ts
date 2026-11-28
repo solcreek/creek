@@ -39,6 +39,13 @@ export interface ManagedAccess {
   emails: string[];
   emailDomains: string[];
   teamMembers: boolean;
+  /**
+   * What the applications were last synced with: the project's custom domains
+   * and (with teamMembers) the team's member emails. Null on rows saved before
+   * Creek recorded them.
+   */
+  appliedHostnames: string[] | null;
+  appliedMemberEmails: string[] | null;
 }
 
 export const MAX_EMAILS = 100;
@@ -186,10 +193,16 @@ export function readManaged(value: string | null | undefined): ManagedAccess | n
       emails: Array.isArray(m.emails) ? m.emails : [],
       emailDomains: Array.isArray(m.emailDomains) ? m.emailDomains : [],
       teamMembers: m.teamMembers === true,
+      appliedHostnames: stringsOrNull(m.appliedHostnames),
+      appliedMemberEmails: stringsOrNull(m.appliedMemberEmails),
     };
   } catch {
     return null;
   }
+}
+
+function stringsOrNull(value: unknown): string[] | null {
+  return Array.isArray(value) && value.every((v) => typeof v === "string") ? value : null;
 }
 
 /** The team's Cloudflare token, with the grant's failures as refusals. */
@@ -357,7 +370,8 @@ async function ensureZeroTrust(
   return teamDomain;
 }
 
-async function memberEmails(env: Env, teamId: string): Promise<string[]> {
+/** The team's members' emails, lowercased and sorted. */
+export async function memberEmails(env: Env, teamId: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
     `SELECT u.email AS email FROM member m JOIN user u ON u.id = m.userId
      WHERE m.organizationId = ? ORDER BY u.email`,
@@ -367,7 +381,8 @@ async function memberEmails(env: Env, teamId: string): Promise<string[]> {
   return results.map((r) => r.email.trim().toLowerCase()).filter((e) => EMAIL.test(e));
 }
 
-async function projectHostnames(env: Env, projectId: string): Promise<string[]> {
+/** The project's custom domains, primary first. */
+export async function projectHostnames(env: Env, projectId: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
     `SELECT hostname FROM custom_domain WHERE projectId = ?
      ORDER BY isPrimary DESC, createdAt, hostname`,
@@ -421,8 +436,9 @@ export async function provisionManagedAccess(
   );
 
   const include: AccessRule[] = [];
+  const members = ctx.input.teamMembers ? await memberEmails(env, ctx.teamId) : [];
   const emails = new Set(ctx.input.emails);
-  if (ctx.input.teamMembers) for (const e of await memberEmails(env, ctx.teamId)) emails.add(e);
+  for (const e of members) emails.add(e);
   for (const email of emails) include.push({ email: { email } });
   for (const domain of ctx.input.emailDomains) include.push({ email_domain: { domain } });
   if (!include.length) {
@@ -484,6 +500,8 @@ export async function provisionManagedAccess(
         emails: ctx.input.emails,
         emailDomains: ctx.input.emailDomains,
         teamMembers: ctx.input.teamMembers,
+        appliedHostnames: hostnames,
+        appliedMemberEmails: ctx.input.teamMembers ? members : null,
       },
     };
   } catch (err) {

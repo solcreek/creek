@@ -139,6 +139,19 @@ function fakeAccount(method: string, path: string, body: any): Response {
   });
 }
 
+/** DNS-over-HTTPS answers by domain; anything not listed has a mail server. */
+let dns: Map<string, "none" | "null-mx" | "nxdomain" | "fail">;
+
+function fakeDns(name: string): Response {
+  const kind = dns.get(name);
+  const question = [{ name, type: 15 }];
+  if (kind === "fail") return new Response("upstream error", { status: 502 });
+  if (kind === "nxdomain") return Response.json({ Status: 3, Question: question });
+  if (kind === "none") return Response.json({ Status: 0, Question: question });
+  const data = kind === "null-mx" ? "0 ." : `10 mx.${name}.`;
+  return Response.json({ Status: 0, Question: question, Answer: [{ name, type: 15, data }] });
+}
+
 async function connect(scopes = ALL_SCOPES, accounts = [{ id: ACCOUNT, name: "Acme" }]) {
   await grantClient(testEnv.env, TEST_TEAM.id).connect({
     teamId: TEST_TEAM.id,
@@ -172,6 +185,7 @@ beforeEach(async () => {
   );
   addDomain("app.acme.com", true);
   cf = { org: TEAM_DOMAIN, idps: 1, apps: new Map(), calls: [], fail: null };
+  dns = new Map();
   nextId = 0;
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
@@ -185,6 +199,9 @@ beforeEach(async () => {
       }
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       return fakeCloudflare(init?.method ?? "GET", url.pathname, body);
+    }
+    if (url.hostname === "cloudflare-dns.com") {
+      return fakeDns(url.searchParams.get("name")!);
     }
     return originalFetch(input as any, init);
   }) as any;
@@ -667,6 +684,105 @@ describe("PUT /projects/:id/access on a managed project", () => {
     expect(res.status).toBe(409);
     expect(((await res.json()) as any).error).toBe("managed_by_creek");
     expect(stored()).toEqual(before);
+  });
+});
+
+describe("GET /projects/:id/access on a managed project", () => {
+  const get = async () =>
+    (await (await req("GET", `/projects/${PROJECT_ID}/access`)).json()) as any;
+
+  function addMember(email: string) {
+    const now = Date.now();
+    const id = `u-${email}`;
+    testEnv.db.db.exec(
+      `INSERT INTO user (id, name, email, createdAt, updatedAt) VALUES ('${id}', 'x', '${email}', ${now}, ${now});
+       INSERT INTO member (id, userId, organizationId, role, createdAt)
+         VALUES ('m-${email}', '${id}', '${TEST_TEAM.id}', 'member', ${now})`,
+    );
+  }
+
+  test("lists the custom domains and who the team-member rule covers, in sync", async () => {
+    await connect();
+    await put({ teamMembers: true, emails: ["guest@partner.io"] });
+
+    const body = await get();
+    expect(body.hostnames).toEqual(["app.acme.com"]);
+    expect(body.managed).toEqual({
+      accountId: ACCOUNT,
+      emails: ["guest@partner.io"],
+      emailDomains: [],
+      teamMembers: true,
+      memberEmails: [TEST_USER.email],
+      appliedMemberEmails: [TEST_USER.email],
+      outOfSync: { hostnames: false, members: false },
+    });
+    expect(body.noMailDomains).toEqual([]);
+    expect(body.noMxDomains).toEqual([]);
+  });
+
+  test("a custom domain or member added since the last sync shows as out of sync", async () => {
+    await connect();
+    await put({ teamMembers: true });
+    addDomain("www.acme.com");
+    addMember("new@acme.com");
+
+    const body = await get();
+    expect(body.hostnames).toEqual(["app.acme.com", "www.acme.com"]);
+    expect(body.managed.memberEmails).toEqual(["new@acme.com", TEST_USER.email]);
+    // Cloudflare still has the members of the last sync.
+    expect(body.managed.appliedMemberEmails).toEqual([TEST_USER.email]);
+    expect(body.managed.outOfSync).toEqual({ hostnames: true, members: true });
+
+    // Saving again syncs both.
+    await put({ teamMembers: true });
+    expect((await get()).managed.outOfSync).toEqual({ hostnames: false, members: false });
+  });
+
+  test("without the team-member rule, new members are not a change", async () => {
+    await connect();
+    await put({ emails: ["a@example.com"] });
+    addMember("new@acme.com");
+
+    const body = await get();
+    expect(body.managed.memberEmails).toEqual([]);
+    expect(body.managed.appliedMemberEmails).toBeNull();
+    expect(body.managed.outOfSync.members).toBe(false);
+  });
+
+  test("a setup saved before Creek recorded the sync is not reported out of sync", async () => {
+    await connect();
+    await put({ teamMembers: true });
+    const m = JSON.parse(stored().accessManaged!);
+    delete m.appliedHostnames;
+    delete m.appliedMemberEmails;
+    testEnv.db.db
+      .prepare("UPDATE project SET accessManaged = ? WHERE id = ?")
+      .run(JSON.stringify(m), PROJECT_ID);
+    addDomain("www.acme.com");
+
+    expect((await get()).managed.outOfSync).toEqual({ hostnames: false, members: false });
+  });
+
+  test("names the listed email domains that cannot receive the one-time PIN", async () => {
+    dns.set("nomx.dev", "none");
+    dns.set("nullmx.dev", "null-mx");
+    dns.set("gone.dev", "nxdomain");
+    dns.set("flaky.dev", "fail");
+    await connect();
+    await put({
+      emails: ["a@nomx.dev", "b@nullmx.dev", "c@flaky.dev", "d@example.com"],
+      emailDomains: ["gone.dev"],
+    });
+
+    // No MX is only likely trouble (SMTP may fall back to A/AAAA), so it is
+    // reported apart from the certain cases. A failed lookup is not evidence.
+    const body = await get();
+    expect(body.noMailDomains).toEqual(["gone.dev", "nullmx.dev"]);
+    expect(body.noMxDomains).toEqual(["nomx.dev"]);
+  });
+
+  test("unprotected and customer-made setups carry the custom domains only", async () => {
+    expect(await get()).toEqual({ protected: false, hostnames: ["app.acme.com"] });
   });
 });
 

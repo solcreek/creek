@@ -70,4 +70,14 @@ export const handlers = [
   http.get(`${API_URL}/projects/:projectId/env`, () => {
     return HttpResponse.json([]);
   }),
+
+  // Access protection: off, no custom domains
+  http.get(`${API_URL}/projects/:projectId/access`, () => {
+    return HttpResponse.json({ protected: false, hostnames: [] });
+  }),
+
+  // Cloudflare connection: not connected
+  http.get(`${API_URL}/integrations/cloudflare`, () => {
+    return HttpResponse.json({ configured: true, connected: false });
+  }),
 ];

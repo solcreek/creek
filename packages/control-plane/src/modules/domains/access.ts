@@ -9,6 +9,8 @@ import {
   ProvisionError,
   acquireAccessLease,
   deleteCreated,
+  memberEmails,
+  projectHostnames,
   releaseAccessLease,
   parseManagedInput,
   provisionManagedAccess,
@@ -16,6 +18,7 @@ import {
   removeManagedApps,
   type ManagedAccess,
 } from "./access-managed.js";
+import { checkMailDomains } from "./mail-domains.js";
 
 /**
  * Cloudflare Access protection for a project.
@@ -242,6 +245,19 @@ function toStatus(row: AccessRow | null) {
   };
 }
 
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+const domainOf = (email: string) => email.slice(email.lastIndexOf("@") + 1);
+
+/**
+ * The status, plus what a person deciding about it needs: the project's
+ * custom domains now; for a Creek-managed setup, who the team-member rule
+ * covers now, whether Cloudflare still has the domains and members it was
+ * last synced with, and which listed email domains cannot receive the
+ * one-time PIN.
+ */
 projectAccess.get(
   "/:projectId/access",
   requireScopes("domain:read"),
@@ -249,12 +265,44 @@ projectAccess.get(
   async (c) => {
     const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
     if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
+    let row: AccessRow | null;
     try {
-      return c.json(toStatus(await readRow(c.env.DB, project.id)));
+      row = await readRow(c.env.DB, project.id);
     } catch (err) {
       if (isMissingAccessColumn(err)) return migrationPending(c);
       throw err;
     }
+    const status = toStatus(row);
+    const hostnames = await projectHostnames(c.env, project.id);
+    const managed = status.protected ? readManaged(row?.accessManaged) : null;
+    if (!status.protected || !managed) return c.json({ ...status, hostnames });
+
+    const members = managed.teamMembers ? await memberEmails(c.env, c.get("teamId")) : [];
+    const outOfSync = {
+      hostnames:
+        managed.appliedHostnames !== null && !sameList(managed.appliedHostnames, hostnames),
+      members:
+        managed.teamMembers &&
+        managed.appliedMemberEmails !== null &&
+        !sameList(managed.appliedMemberEmails, members),
+    };
+    const mail = await checkMailDomains([
+      ...[...managed.emails, ...members].map(domainOf),
+      ...managed.emailDomains,
+    ]);
+    return c.json({
+      ...status,
+      hostnames,
+      managed: {
+        ...managedView(managed),
+        memberEmails: members,
+        // Who Cloudflare lets in by the team-member rule until the next sync.
+        appliedMemberEmails: managed.teamMembers ? managed.appliedMemberEmails : null,
+        outOfSync,
+      },
+      noMailDomains: mail.noMail,
+      noMxDomains: mail.noMx,
+    });
   },
 );
 
