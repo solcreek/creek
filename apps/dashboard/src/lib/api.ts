@@ -21,7 +21,7 @@ export async function api<T>(path: string, options?: RequestInit & { team?: stri
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "unknown", message: res.statusText }));
-    throw new ApiError(res.status, (body as any).error, (body as any).message);
+    throw new ApiError(res.status, (body as any).error, (body as any).message, body);
   }
 
   return res.json() as Promise<T>;
@@ -32,6 +32,8 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The whole error body: some errors carry more than a message (a setup URL, a list). */
+    public body: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "ApiError";
