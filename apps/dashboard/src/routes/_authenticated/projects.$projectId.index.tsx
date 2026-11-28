@@ -216,10 +216,12 @@ function DeploymentsTab() {
               d.status === "failed" ? "border-destructive/30 bg-destructive/5" : "border-border"
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            {/* Stacks on narrow screens: the URL and actions go on a second
+                line, indented to line up with the text after the status dot. */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
                 <span
-                  className={`size-2.5 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
+                  className={`size-2.5 shrink-0 rounded-full ${STATUS_COLORS[d.status] ?? "bg-gray-400"}`}
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">
@@ -248,7 +250,7 @@ function DeploymentsTab() {
                   </p>
                   {d.commitMessage && (
                     <p
-                      className="mt-0.5 max-w-md truncate text-xs text-foreground/80"
+                      className="mt-0.5 truncate text-xs text-foreground/80 sm:max-w-md"
                       title={d.commitMessage}
                     >
                       {d.commitMessage.split("\n")[0]}
@@ -261,23 +263,25 @@ function DeploymentsTab() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2 pl-5.5 sm:pl-0">
                 {d.url && (
                   <a
                     href={d.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="inline-flex min-w-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                     title={d.url}
                   >
                     {/* show the hostname compactly, trimmed */}
-                    <span className="max-w-[240px] truncate font-mono">
+                    <span className="min-w-0 truncate font-mono sm:max-w-[240px]">
                       {d.url.replace(/^https?:\/\//, "")}
                     </span>
                     <ExternalLink className="size-3" />
                   </a>
                 )}
-                <span className="text-xs text-muted-foreground">{d.id.slice(0, 8)}</span>
+                <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                  {d.id.slice(0, 8)}
+                </span>
                 <Button
                   variant="ghost"
                   size="icon-xs"

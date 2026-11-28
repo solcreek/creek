@@ -44,7 +44,7 @@ function ProjectsListPage() {
   const title = mode === "creekd" ? "Apps" : "Projects";
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">{title}</h1>
         {features.deployments && <NewProjectDialog />}

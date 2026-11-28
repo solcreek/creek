@@ -45,7 +45,7 @@ function GitHubSetupPage() {
 
   if (!installation_id) {
     return (
-      <div className="mx-auto max-w-2xl p-6 text-center">
+      <div className="mx-auto max-w-2xl p-4 text-center md:p-6">
         <h1 className="text-xl font-semibold">GitHub Setup</h1>
         <p className="mt-2 text-muted-foreground">
           Missing installation ID. Please install the Creek GitHub App first.
@@ -64,7 +64,7 @@ function GitHubSetupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="mx-auto max-w-3xl p-4 md:p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Import Repository</h1>
         <p className="mt-1 text-muted-foreground">

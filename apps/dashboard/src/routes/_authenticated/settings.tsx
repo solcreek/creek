@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
 
 function SettingsPage() {
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <h1 className="mb-6 text-xl font-semibold">Settings</h1>
 
       <div className="max-w-lg space-y-8">

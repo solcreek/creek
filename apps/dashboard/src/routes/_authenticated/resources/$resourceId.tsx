@@ -48,7 +48,7 @@ function ResourceDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     );
@@ -56,7 +56,7 @@ function ResourceDetailPage() {
 
   if (error || !data) {
     return (
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <p className="text-sm text-destructive">Resource not found.</p>
         <Link
           to="/resources/database"
@@ -71,7 +71,7 @@ function ResourceDetailPage() {
   const kindPath = data.kind as "database" | "storage" | "cache" | "ai";
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <div className="mb-1">
         <Link
           to={`/resources/${kindPath}`}

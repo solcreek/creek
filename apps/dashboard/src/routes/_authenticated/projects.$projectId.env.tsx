@@ -76,20 +76,24 @@ export function EnvVarsPanel({ projectId }: { projectId: string }) {
   return (
     <>
       {/* Add new */}
-      <form onSubmit={handleSubmit} className="mb-6 flex gap-2">
+      {/* Narrow screens: key and value each get a row; scope and Add share one. */}
+      <form
+        onSubmit={handleSubmit}
+        className="mb-6 grid grid-cols-[1fr_auto] gap-2 sm:flex sm:items-center"
+      >
         <input
           type="text"
           placeholder="KEY"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value.toUpperCase())}
-          className="w-40 rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-mono outline-none focus:border-ring"
+          className="col-span-2 rounded-lg border border-input bg-background px-3 py-1.5 font-mono text-sm outline-none focus:border-ring sm:w-40"
         />
         <input
           type="text"
           placeholder="value"
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:border-ring"
+          className="col-span-2 min-w-0 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:border-ring sm:flex-1"
         />
         <select
           aria-label="Deploys that get this value"

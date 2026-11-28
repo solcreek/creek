@@ -21,11 +21,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function Header() {
-  const { open } = useSidebar();
+  // `open` is the desktop sidebar's state; on mobile the sidebar is a sheet
+  // that starts closed, so the trigger must show whatever `open` says.
+  const { open, isMobile } = useSidebar();
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-      {!open && (
+      {(isMobile || !open) && (
         <>
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />

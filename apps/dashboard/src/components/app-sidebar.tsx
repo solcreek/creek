@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   Sidebar,
@@ -10,6 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@solcreek/ui/components/sidebar";
 import {
   Menu,
@@ -56,6 +58,13 @@ export function AppSidebar() {
   const mode = useApiMode();
   const features = useFeatures();
   const location = useLocation();
+  const { setOpenMobile } = useSidebar();
+
+  // On mobile the sidebar is a sheet over the page: close it once a link
+  // has navigated, or it keeps covering the page the user just picked.
+  useEffect(() => {
+    setOpenMobile(false);
+  }, [location.pathname, setOpenMobile]);
 
   return (
     <Sidebar>
