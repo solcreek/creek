@@ -566,8 +566,8 @@ function ProtectionForm({
           rows={2}
         />
         <p className="text-xs text-muted-foreground">
-          Anyone can open these without signing in. One per line; end with /* for everything under a
-          path.
+          Anyone can open these without signing in, and everything under them: /health also opens
+          /health/live. One per line.
         </p>
       </div>
 
