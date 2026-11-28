@@ -18,7 +18,7 @@ import {
   removeManagedApps,
   type ManagedAccess,
 } from "./access-managed.js";
-import { domainsWithoutMail } from "./mail-domains.js";
+import { checkMailDomains } from "./mail-domains.js";
 
 /**
  * Cloudflare Access protection for a project.
@@ -286,7 +286,7 @@ projectAccess.get(
         managed.appliedMemberEmails !== null &&
         !sameList(managed.appliedMemberEmails, members),
     };
-    const noMailDomains = await domainsWithoutMail([
+    const mail = await checkMailDomains([
       ...[...managed.emails, ...members].map(domainOf),
       ...managed.emailDomains,
     ]);
@@ -294,7 +294,8 @@ projectAccess.get(
       ...status,
       hostnames,
       managed: { ...managedView(managed), memberEmails: members, outOfSync },
-      noMailDomains,
+      noMailDomains: mail.noMail,
+      noMxDomains: mail.noMx,
     });
   },
 );

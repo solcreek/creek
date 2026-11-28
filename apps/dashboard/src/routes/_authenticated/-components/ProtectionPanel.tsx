@@ -37,8 +37,10 @@ export type AccessStatus =
       bypassPaths: string[];
       hostnames: string[];
       managed: ManagedAccessView;
-      /** Listed email domains that cannot receive the one-time PIN. */
+      /** Listed email domains mail cannot reach: no such domain, or a null MX. */
       noMailDomains: string[];
+      /** Listed email domains with no MX record: mail most likely fails. */
+      noMxDomains: string[];
     };
 
 interface ManagedBody {
@@ -353,6 +355,13 @@ function ManagedSummary({
         <Notice tone="warn">
           These domains cannot receive email, so nobody on them can get a sign-in code:{" "}
           <span className="font-mono text-xs">{status.noMailDomains.join(", ")}</span>
+        </Notice>
+      )}
+      {status.noMxDomains.length > 0 && (
+        <Notice tone="warn">
+          These domains have no mail server (MX) record, so a sign-in code sent to them most likely
+          never arrives:{" "}
+          <span className="font-mono text-xs">{status.noMxDomains.join(", ")}</span>
         </Notice>
       )}
 

@@ -39,6 +39,7 @@ const MANAGED: AccessStatus = {
     outOfSync: { hostnames: false, members: false },
   },
   noMailDomains: [],
+  noMxDomains: [],
 };
 
 function mock(access: AccessStatus, cloudflare: object = CONNECTED) {
@@ -161,10 +162,19 @@ describe("ProtectionPanel", () => {
   });
 
   test("domains that cannot receive mail are named", async () => {
-    mock({ ...MANAGED, noMailDomains: ["creek.dev"] } as AccessStatus);
+    mock({ ...MANAGED, noMailDomains: ["gone.dev"] } as AccessStatus);
     const panel = await openPanel();
     expect(await panel.findByText(/cannot receive email/)).toBeInTheDocument();
+    expect(panel.getByText("gone.dev")).toBeInTheDocument();
+    expect(panel.queryByText(/no mail server \(MX\) record/)).toBeNull();
+  });
+
+  test("domains without an MX record get the softer warning", async () => {
+    mock({ ...MANAGED, noMxDomains: ["creek.dev"] } as AccessStatus);
+    const panel = await openPanel();
+    expect(await panel.findByText(/no mail server \(MX\) record/)).toBeInTheDocument();
     expect(panel.getByText("creek.dev")).toBeInTheDocument();
+    expect(panel.queryByText(/cannot receive email/)).toBeNull();
   });
 
   test("out of sync: one click sends the current settings again", async () => {

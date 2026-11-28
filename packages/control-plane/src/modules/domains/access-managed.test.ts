@@ -716,6 +716,7 @@ describe("GET /projects/:id/access on a managed project", () => {
       outOfSync: { hostnames: false, members: false },
     });
     expect(body.noMailDomains).toEqual([]);
+    expect(body.noMxDomains).toEqual([]);
   });
 
   test("a custom domain or member added since the last sync shows as out of sync", async () => {
@@ -769,8 +770,11 @@ describe("GET /projects/:id/access on a managed project", () => {
       emailDomains: ["gone.dev"],
     });
 
-    // A failed lookup is not evidence: flaky.dev is left out.
-    expect((await get()).noMailDomains).toEqual(["gone.dev", "nomx.dev", "nullmx.dev"]);
+    // No MX is only likely trouble (SMTP may fall back to A/AAAA), so it is
+    // reported apart from the certain cases. A failed lookup is not evidence.
+    const body = await get();
+    expect(body.noMailDomains).toEqual(["gone.dev", "nullmx.dev"]);
+    expect(body.noMxDomains).toEqual(["nomx.dev"]);
   });
 
   test("unprotected and customer-made setups carry the custom domains only", async () => {
