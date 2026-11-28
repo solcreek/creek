@@ -150,6 +150,16 @@ function migrationPending(c: { json: (b: unknown, s: 503) => Response }) {
   );
 }
 
+function concurrentChange(c: { json: (b: unknown, s: 409) => Response }) {
+  return c.json(
+    {
+      error: "conflict",
+      message: "The project's Access settings changed while saving: reload and try again",
+    },
+    409,
+  );
+}
+
 interface AccessRow {
   accessTeamDomain: string | null;
   accessAud: string | null;
@@ -254,11 +264,13 @@ projectAccess.put(
       );
     }
 
+    // Only if no managed setup was saved since the check above.
+    let saved;
     try {
-      await c.env.DB.prepare(
+      saved = await c.env.DB.prepare(
         `UPDATE project SET accessTeamDomain = ?, accessAud = ?, accessBypassPaths = ?,
            accessManaged = NULL, updatedAt = ?
-         WHERE id = ?`,
+         WHERE id = ? AND accessManaged IS ?`,
       )
         .bind(
           parsed.teamDomain,
@@ -266,12 +278,14 @@ projectAccess.put(
           JSON.stringify(parsed.bypassPaths),
           Date.now(),
           project.id,
+          current?.accessManaged ?? null,
         )
         .run();
     } catch (err) {
       if (isMissingAccessColumn(err)) return migrationPending(c);
       throw err;
     }
+    if (!saved.meta.changes) return concurrentChange(c);
 
     await recordAudit(
       c.env.DB,
@@ -364,11 +378,15 @@ projectAccess.put(
       );
     }
 
+    // Save only over the row this request started from. Another request that
+    // saved meanwhile owns the project's applications now; the ones this
+    // request created would be tracked by nothing, so they go.
+    let saved;
     try {
-      await c.env.DB.prepare(
+      saved = await c.env.DB.prepare(
         `UPDATE project SET accessTeamDomain = ?, accessAud = ?, accessBypassPaths = ?,
            accessManaged = ?, updatedAt = ?
-         WHERE id = ?`,
+         WHERE id = ? AND accessManaged IS ?`,
       )
         .bind(
           result.teamDomain,
@@ -377,11 +395,16 @@ projectAccess.put(
           JSON.stringify(result.managed),
           Date.now(),
           project.id,
+          current?.accessManaged ?? null,
         )
         .run();
     } catch (err) {
       await deleteCreated(result.token, result.managed.accountId, result.created);
       throw err;
+    }
+    if (!saved.meta.changes) {
+      await deleteCreated(result.token, result.managed.accountId, result.created);
+      return concurrentChange(c);
     }
 
     await recordAudit(

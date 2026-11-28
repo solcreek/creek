@@ -33,6 +33,8 @@ let cf: {
   idps: number;
   apps: Map<string, FakeApp>;
   calls: string[];
+  /** Runs on every call before it is answered: lets a test act mid-request. */
+  onCall?: (method: string, path: string) => void;
   /** Refuse matching calls; with `skip`, only after letting that many through. */
   fail: {
     method: string;
@@ -50,6 +52,7 @@ function cfJson(status: number, body: unknown) {
 
 function fakeCloudflare(method: string, path: string, body: any): Response {
   cf.calls.push(`${method} ${path}`);
+  cf.onCall?.(method, path);
   if (cf.fail && cf.fail.method === method && cf.fail.path.test(path)) {
     if (cf.fail.skip) {
       cf.fail.skip--;
@@ -375,6 +378,46 @@ describe("PUT /projects/:id/access/managed", () => {
     expect(res.status).toBe(409);
     expect(((await res.json()) as any).error).toBe("login_method_required");
     expect(mutations()).toEqual([]);
+  });
+
+  test("another save landing mid-request wins; this request's applications are deleted", async () => {
+    await connect();
+    const theirs = JSON.stringify({ accountId: ACCOUNT, appId: "app-theirs", bypassAppId: null });
+    cf.onCall = (method, path) => {
+      if (method === "POST" && path.endsWith("/apps")) {
+        testEnv.db.db
+          .prepare("UPDATE project SET accessAud = ?, accessManaged = ? WHERE id = ?")
+          .run("ef".repeat(32), theirs, PROJECT_ID);
+      }
+    };
+    const res = await put({ emails: ["a@example.com"] });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toBe("conflict");
+    expect(cf.apps.size).toBe(0);
+    expect(stored().accessManaged).toBe(theirs);
+    expect(auditActions()).toEqual([]);
+  });
+
+  test("a managed save landing during a customer-app PUT is not overwritten", async () => {
+    await connect();
+    const theirs = JSON.stringify({ accountId: ACCOUNT, appId: "app-theirs", bypassAppId: null });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/cdn-cgi/access/certs")) {
+        // The keys check runs between the managed_by_creek check and the save.
+        testEnv.db.db
+          .prepare("UPDATE project SET accessManaged = ? WHERE id = ?")
+          .run(theirs, PROJECT_ID);
+        return Response.json({ keys: [{ kid: "k1" }] });
+      }
+      return originalFetch(input as any);
+    }) as any;
+    const res = await req("PUT", `/projects/${PROJECT_ID}/access`, {
+      teamDomain: "other.cloudflareaccess.com",
+      aud: "cd".repeat(32),
+    });
+    expect(res.status).toBe(409);
+    expect(stored().accessManaged).toBe(theirs);
+    expect(stored().accessAud).toBeNull();
   });
 
   test("a failure after creating applications deletes them and saves nothing", async () => {
