@@ -1,23 +1,9 @@
 "use client";
 
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
-import type {
-  ComponentProps,
-  FormEvent,
-  KeyboardEvent,
-  RefObject,
-} from "react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  COMPOSER_CLIPBOARD_TYPE,
-  parseComposerClipboard,
-} from "../lib/composer-clipboard";
+import type { ComponentProps, FormEvent, KeyboardEvent, RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { COMPOSER_CLIPBOARD_TYPE, parseComposerClipboard } from "../lib/composer-clipboard";
 import {
   type ActiveQuery,
   type ComposerItemValue,
@@ -163,13 +149,10 @@ export function useComposerEditor({
 
   const syncTokenHosts = useCallback((input: HTMLDivElement): void => {
     const next = Array.from(
-      input.querySelectorAll<HTMLSpanElement>(
-        '[data-slot="composer-token-renderer"]',
-      ),
+      input.querySelectorAll<HTMLSpanElement>('[data-slot="composer-token-renderer"]'),
     );
     setTokenHosts((previous) =>
-      previous.length === next.length &&
-      previous.every((host, index) => host === next[index])
+      previous.length === next.length && previous.every((host, index) => host === next[index])
         ? previous
         : next,
     );
@@ -186,17 +169,14 @@ export function useComposerEditor({
   useEffect(() => {
     if (
       query &&
-      (disabled ||
-        readOnly ||
-        !triggers.some((item) => item.character === query.character))
+      (disabled || readOnly || !triggers.some((item) => item.character === query.character))
     )
       setQuery(null);
   }, [disabled, readOnly, query, triggers]);
 
   useLayoutEffect(() => {
     const input = inputElement;
-    if (!input || input instanceof HTMLTextAreaElement || disabled || readOnly)
-      return;
+    if (!input || input instanceof HTMLTextAreaElement || disabled || readOnly) return;
     const initializeCaret = (): void => {
       if (composing.current || readValue(input).length > 0) return;
       input.ownerDocument.getSelection()?.setBaseAndExtent(input, 0, input, 0);
@@ -216,14 +196,9 @@ export function useComposerEditor({
         event.preventDefault();
         return;
       }
-      if (
-        event.inputType === "historyUndo" ||
-        event.inputType === "historyRedo"
-      ) {
+      if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
         event.preventDefault();
-        historyAction.current(
-          event.inputType === "historyUndo" ? "undo" : "redo",
-        );
+        historyAction.current(event.inputType === "historyUndo" ? "undo" : "redo");
       } else if (!composing.current) {
         pendingInput.current = {
           type: event.inputType,
@@ -244,8 +219,7 @@ export function useComposerEditor({
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
-    return () =>
-      document.removeEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
   }, []);
 
   // Check each commit, including edits the controlled owner rejects without changing value.
@@ -294,13 +268,10 @@ export function useComposerEditor({
       !(input instanceof HTMLTextAreaElement)
         ? currentQuery(input, triggers)
         : null;
-    if (!next || next.key !== dismissedQuery.current)
-      dismissedQuery.current = null;
+    if (!next || next.key !== dismissedQuery.current) dismissedQuery.current = null;
     const active = next?.key === dismissedQuery.current ? null : next;
     setQuery((previous) =>
-      previous?.key === active?.key && previous?.node === active?.node
-        ? previous
-        : active,
+      previous?.key === active?.key && previous?.node === active?.node ? previous : active,
     );
   };
 
@@ -322,9 +293,7 @@ export function useComposerEditor({
         const now = Date.now();
         const group =
           reason === "input" &&
-          /^(insertText|deleteContentBackward|deleteContentForward)$/.test(
-            before.type,
-          ) &&
+          /^(insertText|deleteContentBackward|deleteContentForward)$/.test(before.type) &&
           previous.inputType === before.type &&
           now - previous.timestamp < 1000 &&
           before.selection?.anchor === previous.current.selection?.anchor &&
@@ -420,13 +389,7 @@ export function useComposerEditor({
 
   historyAction.current = (direction) => {
     const input = inputRef.current;
-    if (
-      !input ||
-      input instanceof HTMLTextAreaElement ||
-      disabled ||
-      readOnly ||
-      composing.current
-    )
+    if (!input || input instanceof HTMLTextAreaElement || disabled || readOnly || composing.current)
       return;
     const state = history.current;
     const source = direction === "undo" ? state.past : state.future;
@@ -472,21 +435,17 @@ export function useComposerEditor({
       !(event.currentTarget instanceof HTMLTextAreaElement) &&
       (event.metaKey || event.ctrlKey) &&
       !event.altKey &&
-      (event.key.toLowerCase() === "z" ||
-        (event.ctrlKey && event.key.toLowerCase() === "y"))
+      (event.key.toLowerCase() === "z" || (event.ctrlKey && event.key.toLowerCase() === "y"))
     ) {
       event.preventDefault();
-      historyAction.current(
-        event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo",
-      );
+      historyAction.current(event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo");
       return;
     }
     if (
       event.key === "Enter" &&
       !event.shiftKey &&
       (submitOnEnter === "always" ||
-        (submitOnEnter === "desktop" &&
-          window.matchMedia("(pointer: fine)").matches))
+        (submitOnEnter === "desktop" && window.matchMedia("(pointer: fine)").matches))
     ) {
       event.preventDefault();
       submit();
@@ -520,8 +479,7 @@ export function useComposerEditor({
     },
     formProps: {
       onSubmit: (event: FormEvent<HTMLFormElement>) => {
-        if (event.defaultPrevented || event.target !== event.currentTarget)
-          return;
+        if (event.defaultPrevented || event.target !== event.currentTarget) return;
         event.preventDefault();
         performSubmit();
       },
@@ -542,8 +500,7 @@ export function useComposerEditor({
       onClick: updateQuery,
       onFocus: updateQuery,
       onBlur: (event) => {
-        lastSelection.current =
-          readSelection(event.currentTarget) ?? lastSelection.current;
+        lastSelection.current = readSelection(event.currentTarget) ?? lastSelection.current;
         dismissedQuery.current = null;
         setQuery(null);
       },
@@ -572,11 +529,7 @@ export function useComposerEditor({
         forceReconcile((revision) => revision + 1);
       },
       onCopy: (event) => {
-        if (
-          event.defaultPrevented ||
-          event.currentTarget instanceof HTMLTextAreaElement
-        )
-          return;
+        if (event.defaultPrevented || event.currentTarget instanceof HTMLTextAreaElement) return;
         const selection = window.getSelection();
         if (
           !selection?.rangeCount ||
@@ -589,18 +542,11 @@ export function useComposerEditor({
         fragment.append(selection.getRangeAt(0).cloneContents());
         const copiedValue = readValue(fragment, false);
         event.clipboardData.setData("text/plain", getComposerText(copiedValue));
-        event.clipboardData.setData(
-          COMPOSER_CLIPBOARD_TYPE,
-          JSON.stringify(copiedValue),
-        );
+        event.clipboardData.setData(COMPOSER_CLIPBOARD_TYPE, JSON.stringify(copiedValue));
         event.preventDefault();
       },
       onCut: (event) => {
-        if (
-          event.defaultPrevented ||
-          event.currentTarget instanceof HTMLTextAreaElement
-        )
-          return;
+        if (event.defaultPrevented || event.currentTarget instanceof HTMLTextAreaElement) return;
         const selection = window.getSelection();
         if (
           !selection?.rangeCount ||
@@ -613,10 +559,7 @@ export function useComposerEditor({
         fragment.append(selection.getRangeAt(0).cloneContents());
         const copiedValue = readValue(fragment, false);
         event.clipboardData.setData("text/plain", getComposerText(copiedValue));
-        event.clipboardData.setData(
-          COMPOSER_CLIPBOARD_TYPE,
-          JSON.stringify(copiedValue),
-        );
+        event.clipboardData.setData(COMPOSER_CLIPBOARD_TYPE, JSON.stringify(copiedValue));
         event.preventDefault();
         if (disabled || readOnly || composing.current) return;
         pendingInput.current = {
@@ -627,11 +570,7 @@ export function useComposerEditor({
         publish();
       },
       onPaste: (event) => {
-        if (
-          event.defaultPrevented ||
-          event.currentTarget instanceof HTMLTextAreaElement
-        )
-          return;
+        if (event.defaultPrevented || event.currentTarget instanceof HTMLTextAreaElement) return;
         event.preventDefault();
         if (disabled || readOnly || composing.current) return;
         pendingInput.current = {
@@ -655,10 +594,7 @@ export function useComposerEditor({
           writeValue(fragment, pastedValue);
           const nodes = Array.from(fragment.childNodes).filter(
             (node) =>
-              !(
-                node instanceof HTMLElement &&
-                node.hasAttribute("data-composer-placeholder")
-              ),
+              !(node instanceof HTMLElement && node.hasAttribute("data-composer-placeholder")),
           );
           const last = nodes.at(-1);
           for (const node of nodes.reverse()) range.insertNode(node);
@@ -666,19 +602,11 @@ export function useComposerEditor({
           range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
-        } else
-          insertPlainText(
-            event.currentTarget,
-            event.clipboardData.getData("text/plain"),
-          );
+        } else insertPlainText(event.currentTarget, event.clipboardData.getData("text/plain"));
         publish();
       },
       onDrop: (event) => {
-        if (
-          event.defaultPrevented ||
-          event.currentTarget instanceof HTMLTextAreaElement
-        )
-          return;
+        if (event.defaultPrevented || event.currentTarget instanceof HTMLTextAreaElement) return;
         event.preventDefault();
         if (disabled || readOnly || composing.current) return;
         const text = event.dataTransfer.getData("text/plain");
@@ -690,25 +618,14 @@ export function useComposerEditor({
           ) => { offsetNode: Node; offset: number } | null;
           caretRangeFromPoint?: (x: number, y: number) => Range | null;
         };
-        const position = documentWithCaret.caretPositionFromPoint?.(
-          event.clientX,
-          event.clientY,
-        );
-        const range = documentWithCaret.caretRangeFromPoint?.(
-          event.clientX,
-          event.clientY,
-        );
+        const position = documentWithCaret.caretPositionFromPoint?.(event.clientX, event.clientY);
+        const range = documentWithCaret.caretRangeFromPoint?.(event.clientX, event.clientY);
         const node = position?.offsetNode ?? range?.startContainer;
         const offset = position?.offset ?? range?.startOffset;
-        if (
-          !node ||
-          offset === undefined ||
-          !event.currentTarget.contains(node)
-        )
-          return;
-        const token = (
-          node instanceof Element ? node : node.parentElement
-        )?.closest("[data-composer-token]");
+        if (!node || offset === undefined || !event.currentTarget.contains(node)) return;
+        const token = (node instanceof Element ? node : node.parentElement)?.closest(
+          "[data-composer-token]",
+        );
         if (token) {
           const afterToken = document.createRange();
           afterToken.setStartAfter(token);
@@ -731,12 +648,7 @@ export function useComposerEditor({
     status: trigger?.status ?? "ready",
     suggestions: {
       submitOnEmptySuggestions,
-      enabled:
-        triggers.length > 0 &&
-        !isTextarea &&
-        !isComposing &&
-        !disabled &&
-        !readOnly,
+      enabled: triggers.length > 0 && !isTextarea && !isComposing && !disabled && !readOnly,
       items: options,
       open,
       onOpenChange: (nextOpen) => {

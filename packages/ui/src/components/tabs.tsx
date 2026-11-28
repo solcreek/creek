@@ -13,19 +13,12 @@ import {
 type TabsVariant = "default" | "underline";
 type TabsSize = SegmentedControlSize;
 
-const TabsListContext: React.Context<TabsSize> =
-  React.createContext<TabsSize>("default");
+const TabsListContext: React.Context<TabsSize> = React.createContext<TabsSize>("default");
 
-export function Tabs({
-  className,
-  ...props
-}: TabsPrimitive.Root.Props): React.ReactElement {
+export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
   return (
     <TabsPrimitive.Root
-      className={cn(
-        "flex flex-col gap-2 data-[orientation=vertical]:flex-row",
-        className,
-      )}
+      className={cn("flex flex-col gap-2 data-[orientation=vertical]:flex-row", className)}
       data-slot="tabs"
       {...props}
     />
@@ -56,9 +49,7 @@ export function TabsList({
       data-slot="tabs-list"
       {...props}
     >
-      <TabsListContext.Provider value={size}>
-        {children}
-      </TabsListContext.Provider>
+      <TabsListContext.Provider value={size}>{children}</TabsListContext.Provider>
       <TabsPrimitive.Indicator
         className={cn(
           "absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out motion-reduce:transition-none",
@@ -97,10 +88,7 @@ export function TabsTab({
   );
 }
 
-export function TabsPanel({
-  className,
-  ...props
-}: TabsPrimitive.Panel.Props): React.ReactElement {
+export function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
   return (
     <TabsPrimitive.Panel
       className={cn("flex-1 outline-none", className)}

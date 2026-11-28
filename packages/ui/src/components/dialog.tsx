@@ -9,23 +9,17 @@ import { cn } from "../lib/utils";
 import { Button } from "./button";
 import { ScrollArea } from "./scroll-area";
 
-export const DialogCreateHandle: typeof DialogPrimitive.createHandle =
-  DialogPrimitive.createHandle;
+export const DialogCreateHandle: typeof DialogPrimitive.createHandle = DialogPrimitive.createHandle;
 
 export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root;
 
-export const DialogPortal: typeof DialogPrimitive.Portal =
-  DialogPrimitive.Portal;
+export const DialogPortal: typeof DialogPrimitive.Portal = DialogPrimitive.Portal;
 
-export function DialogTrigger(
-  props: DialogPrimitive.Trigger.Props,
-): React.ReactElement {
+export function DialogTrigger(props: DialogPrimitive.Trigger.Props): React.ReactElement {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
-export function DialogClose(
-  props: DialogPrimitive.Close.Props,
-): React.ReactElement {
+export function DialogClose(props: DialogPrimitive.Close.Props): React.ReactElement {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
@@ -79,10 +73,7 @@ export function DialogPopup({
     <DialogPortal {...portalProps}>
       <DialogBackdrop />
       <DialogViewport
-        className={cn(
-          bottomStickOnMobile &&
-            "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
-        )}
+        className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}
       >
         <DialogPrimitive.Popup
           className={cn(
@@ -210,8 +201,4 @@ export function DialogPanel({
   );
 }
 
-export {
-  DialogPrimitive,
-  DialogBackdrop as DialogOverlay,
-  DialogPopup as DialogContent,
-};
+export { DialogPrimitive, DialogBackdrop as DialogOverlay, DialogPopup as DialogContent };

@@ -27,6 +27,6 @@ export interface Team {
 export function useCurrentTeam(): { team: Team | null; isPending: boolean } {
   const active = useActiveOrganization();
   const list = useListOrganizations();
-  const team = (active.data as Team | null) ?? ((list.data as Team[] | null)?.[0] ?? null);
+  const team = (active.data as Team | null) ?? (list.data as Team[] | null)?.[0] ?? null;
   return { team, isPending: !team && (active.isPending || list.isPending) };
 }

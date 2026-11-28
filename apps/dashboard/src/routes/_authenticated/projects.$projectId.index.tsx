@@ -15,12 +15,7 @@ import {
 import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
-import {
-  Menu,
-  MenuPopup,
-  MenuItem,
-  MenuTrigger,
-} from "@solcreek/ui/components/menu";
+import { Menu, MenuPopup, MenuItem, MenuTrigger } from "@solcreek/ui/components/menu";
 import { Button } from "@solcreek/ui/components/button";
 import {
   MoreHorizontal,
@@ -301,10 +296,7 @@ function DeploymentsTab() {
                       }
                     />
                     <MenuPopup align="end">
-                      <MenuItem
-                        onClick={() => promote.mutate(d.id)}
-                        disabled={promote.isPending}
-                      >
+                      <MenuItem onClick={() => promote.mutate(d.id)} disabled={promote.isPending}>
                         <ArrowUpCircle className="mr-2 size-4" />
                         {promote.isPending ? "Promoting..." : "Promote to Production"}
                       </MenuItem>

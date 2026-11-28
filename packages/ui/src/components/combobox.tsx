@@ -18,11 +18,7 @@ export const ComboboxContext: React.Context<{
   multiple: false,
 });
 
-export function Combobox<
-  Value,
-  Multiple extends boolean | undefined = false,
-  Item = Value,
->(
+export function Combobox<Value, Multiple extends boolean | undefined = false, Item = Value>(
   props: ComboboxPrimitive.Root.Props<Value, Multiple, Item>,
 ): React.ReactElement {
   const chipsRef = React.useRef<Element | null>(null);
@@ -102,13 +98,7 @@ export function ComboboxInput({
           className,
         )}
         data-slot="combobox-input"
-        render={
-          <Input
-            className="has-disabled:opacity-100"
-            nativeInput
-            size={sizeValue}
-          />
-        }
+        render={<Input className="has-disabled:opacity-100" nativeInput size={sizeValue} />}
         {...props}
       />
       {showTrigger && (
@@ -145,11 +135,7 @@ export function ComboboxTrigger({
   ...props
 }: ComboboxPrimitive.Trigger.Props): React.ReactElement {
   return (
-    <ComboboxPrimitive.Trigger
-      className={className}
-      data-slot="combobox-trigger"
-      {...props}
-    >
+    <ComboboxPrimitive.Trigger className={className} data-slot="combobox-trigger" {...props}>
       {children}
     </ComboboxPrimitive.Trigger>
   );
@@ -273,10 +259,7 @@ export function ComboboxGroupLabel({
 }: ComboboxPrimitive.GroupLabel.Props): React.ReactElement {
   return (
     <ComboboxPrimitive.GroupLabel
-      className={cn(
-        "px-2 py-1.5 font-medium text-muted-foreground text-xs",
-        className,
-      )}
+      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-xs", className)}
       data-slot="combobox-group-label"
       {...props}
     />
@@ -303,17 +286,10 @@ export function ComboboxRow({
   className,
   ...props
 }: ComboboxPrimitive.Row.Props): React.ReactElement {
-  return (
-    <ComboboxPrimitive.Row
-      className={className}
-      data-slot="combobox-row"
-      {...props}
-    />
-  );
+  return <ComboboxPrimitive.Row className={className} data-slot="combobox-row" {...props} />;
 }
 
-export const ComboboxValue: typeof ComboboxPrimitive.Value =
-  ComboboxPrimitive.Value;
+export const ComboboxValue: typeof ComboboxPrimitive.Value = ComboboxPrimitive.Value;
 
 export function ComboboxList({
   className,
@@ -337,13 +313,7 @@ export function ComboboxClear({
   className,
   ...props
 }: ComboboxPrimitive.Clear.Props): React.ReactElement {
-  return (
-    <ComboboxPrimitive.Clear
-      className={className}
-      data-slot="combobox-clear"
-      {...props}
-    />
-  );
+  return <ComboboxPrimitive.Clear className={className} data-slot="combobox-clear" {...props} />;
 }
 
 export function ComboboxStatus({
@@ -362,8 +332,7 @@ export function ComboboxStatus({
   );
 }
 
-export const ComboboxCollection: typeof ComboboxPrimitive.Collection =
-  ComboboxPrimitive.Collection;
+export const ComboboxCollection: typeof ComboboxPrimitive.Collection = ComboboxPrimitive.Collection;
 
 export function ComboboxChips({
   className,
@@ -418,9 +387,7 @@ export function ComboboxChip({
   );
 }
 
-export function ComboboxChipRemove(
-  props: ComboboxPrimitive.ChipRemove.Props,
-): React.ReactElement {
+export function ComboboxChipRemove(props: ComboboxPrimitive.ChipRemove.Props): React.ReactElement {
   return (
     <ComboboxPrimitive.ChipRemove
       className="h-full shrink-0 cursor-pointer px-1.5 opacity-80 hover:opacity-100 [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5"
@@ -435,7 +402,6 @@ export function ComboboxChipRemove(
 export const createComboboxItems: typeof ComboboxPrimitive.createItems =
   ComboboxPrimitive.createItems;
 
-export const useComboboxFilter: typeof ComboboxPrimitive.useFilter =
-  ComboboxPrimitive.useFilter;
+export const useComboboxFilter: typeof ComboboxPrimitive.useFilter = ComboboxPrimitive.useFilter;
 
 export { ComboboxPrimitive };

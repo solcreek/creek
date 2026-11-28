@@ -7,10 +7,7 @@ import { cn } from "../lib/utils";
 
 export type SegmentedControlSize = "default" | "lg" | "sm";
 
-export const segmentedControlItemSizeClassNames: Record<
-  SegmentedControlSize,
-  string
-> = {
+export const segmentedControlItemSizeClassNames: Record<SegmentedControlSize, string> = {
   default: "h-8.5 px-[calc(--spacing(2.5)-1px)] sm:h-7.5",
   lg: "h-9.5 px-[calc(--spacing(3)-1px)] sm:h-8.5",
   sm: "h-7.5 px-[calc(--spacing(2)-1px)] sm:h-6.5",
@@ -56,9 +53,7 @@ export function SegmentedControl({
   });
 
   return (
-    <SegmentedControlContext.Provider value={size}>
-      {element}
-    </SegmentedControlContext.Provider>
+    <SegmentedControlContext.Provider value={size}>{element}</SegmentedControlContext.Provider>
   );
 }
 
@@ -99,11 +94,7 @@ export function SegmentedControlItem({
 const activeItemSelector =
   ':scope > [data-checked], :scope > [aria-current="page"], :scope > [data-pressed]';
 
-const observedAttributes: string[] = [
-  "data-checked",
-  "aria-current",
-  "data-pressed",
-];
+const observedAttributes: string[] = ["data-checked", "aria-current", "data-pressed"];
 
 const MAX_LAYOUT_ROUNDING_ERROR = 2;
 
@@ -114,15 +105,9 @@ interface ActiveItemRect {
   width: number;
 }
 
-function isSameRect(
-  a: ActiveItemRect | null,
-  b: ActiveItemRect | null,
-): boolean {
+function isSameRect(a: ActiveItemRect | null, b: ActiveItemRect | null): boolean {
   return (
-    a?.left === b?.left &&
-    a?.top === b?.top &&
-    a?.width === b?.width &&
-    a?.height === b?.height
+    a?.left === b?.left && a?.top === b?.top && a?.width === b?.width && a?.height === b?.height
   );
 }
 
@@ -130,10 +115,7 @@ function getCssSize(element: HTMLElement): { height: number; width: number } {
   const style = getComputedStyle(element);
   const width = Number.parseFloat(style.width) || 0;
   const height = Number.parseFloat(style.height) || 0;
-  if (
-    Math.round(width) !== element.offsetWidth ||
-    Math.round(height) !== element.offsetHeight
-  ) {
+  if (Math.round(width) !== element.offsetWidth || Math.round(height) !== element.offsetHeight) {
     return { height: element.offsetHeight, width: element.offsetWidth };
   }
   return { height, width };
@@ -147,12 +129,8 @@ function measureItem(item: HTMLElement, root: HTMLElement): ActiveItemRect {
   const scaleX = rootSize.width > 0 ? rootRect.width / rootSize.width : 1;
   const scaleY = rootSize.height > 0 ? rootRect.height / rootSize.height : 1;
 
-  const rectLeft =
-    (itemRect.left - rootRect.left) / scaleX -
-    root.clientLeft +
-    root.scrollLeft;
-  const rectTop =
-    (itemRect.top - rootRect.top) / scaleY - root.clientTop + root.scrollTop;
+  const rectLeft = (itemRect.left - rootRect.left) / scaleX - root.clientLeft + root.scrollLeft;
+  const rectTop = (itemRect.top - rootRect.top) / scaleY - root.clientTop + root.scrollTop;
 
   const isUndistorted =
     Math.abs(rectLeft - item.offsetLeft) <= MAX_LAYOUT_ROUNDING_ERROR &&

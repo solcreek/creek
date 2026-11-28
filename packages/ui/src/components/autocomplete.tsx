@@ -7,8 +7,7 @@ import { cn } from "../lib/utils";
 import { Input } from "./input";
 import { ScrollArea } from "./scroll-area";
 
-export const Autocomplete: typeof AutocompletePrimitive.Root =
-  AutocompletePrimitive.Root;
+export const Autocomplete: typeof AutocompletePrimitive.Root = AutocompletePrimitive.Root;
 
 export function AutocompleteInput({
   className,
@@ -184,10 +183,7 @@ export function AutocompleteGroupLabel({
 }: AutocompletePrimitive.GroupLabel.Props): React.ReactElement {
   return (
     <AutocompletePrimitive.GroupLabel
-      className={cn(
-        "px-2 py-1.5 font-medium text-muted-foreground text-xs",
-        className,
-      )}
+      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-xs", className)}
       data-slot="autocomplete-group-label"
       {...props}
     />
@@ -215,16 +211,11 @@ export function AutocompleteRow({
   ...props
 }: AutocompletePrimitive.Row.Props): React.ReactElement {
   return (
-    <AutocompletePrimitive.Row
-      className={className}
-      data-slot="autocomplete-row"
-      {...props}
-    />
+    <AutocompletePrimitive.Row className={className} data-slot="autocomplete-row" {...props} />
   );
 }
 
-export const AutocompleteValue: typeof AutocompletePrimitive.Value =
-  AutocompletePrimitive.Value;
+export const AutocompleteValue: typeof AutocompletePrimitive.Value = AutocompletePrimitive.Value;
 
 export function AutocompleteList({
   className,
@@ -233,10 +224,7 @@ export function AutocompleteList({
   return (
     <ScrollArea overscrollContain scrollbarGutter scrollFade>
       <AutocompletePrimitive.List
-        className={cn(
-          "not-empty:scroll-py-1 not-empty:p-1 in-data-has-overflow-y:pe-3",
-          className,
-        )}
+        className={cn("not-empty:scroll-py-1 not-empty:p-1 in-data-has-overflow-y:pe-3", className)}
         data-slot="autocomplete-list"
         {...props}
       />

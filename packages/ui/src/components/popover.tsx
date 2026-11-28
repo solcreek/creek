@@ -15,11 +15,7 @@ export function PopoverTrigger({
   ...props
 }: PopoverPrimitive.Trigger.Props): React.ReactElement {
   return (
-    <PopoverPrimitive.Trigger
-      className={className}
-      data-slot="popover-trigger"
-      {...props}
-    >
+    <PopoverPrimitive.Trigger className={className} data-slot="popover-trigger" {...props}>
       {children}
     </PopoverPrimitive.Trigger>
   );
@@ -83,9 +79,7 @@ export function PopoverPopup({
   );
 }
 
-export function PopoverClose({
-  ...props
-}: PopoverPrimitive.Close.Props): React.ReactElement {
+export function PopoverClose({ ...props }: PopoverPrimitive.Close.Props): React.ReactElement {
   return <PopoverPrimitive.Close data-slot="popover-close" {...props} />;
 }
 

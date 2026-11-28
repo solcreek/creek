@@ -4,12 +4,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { useRender } from "@base-ui/react/use-render";
-import type {
-  ComponentProps,
-  MouseEvent,
-  ReactElement,
-  ReactNode,
-} from "react";
+import type { ComponentProps, MouseEvent, ReactElement, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   type ComposerEditorOptions,
@@ -32,9 +27,7 @@ type ComposerPopupProps = ComponentProps<typeof PopoverPrimitive.Popup> & {
   side?: ComponentProps<typeof PopoverPrimitive.Positioner>["side"];
   align?: ComponentProps<typeof PopoverPrimitive.Positioner>["align"];
   sideOffset?: ComponentProps<typeof PopoverPrimitive.Positioner>["sideOffset"];
-  alignOffset?: ComponentProps<
-    typeof PopoverPrimitive.Positioner
-  >["alignOffset"];
+  alignOffset?: ComponentProps<typeof PopoverPrimitive.Positioner>["alignOffset"];
   positionerClassName?: string;
   portalProps?: ComponentProps<typeof PopoverPrimitive.Portal>;
 };
@@ -95,10 +88,7 @@ function ComposerFrame({
   });
 }
 
-export type ComposerProps = Omit<
-  ComposerFormProps,
-  "defaultValue" | "onSubmit" | "name"
-> &
+export type ComposerProps = Omit<ComposerFormProps, "defaultValue" | "onSubmit" | "name"> &
   ComposerEditorOptions & { layout?: ComposerLayout };
 
 export function Composer({
@@ -169,8 +159,7 @@ export function ComposerInput({
           suppressContentEditableWarning: true,
         }
       : {}),
-    "data-empty":
-      !textarea && editor?.isEmpty && !editor.isComposing ? "" : undefined,
+    "data-empty": !textarea && editor?.isEmpty && !editor.isComposing ? "" : undefined,
     ...(textarea ? { placeholder } : {}),
     "data-placeholder": placeholder,
     "aria-placeholder": editor ? placeholder : undefined,
@@ -190,12 +179,7 @@ export function ComposerInput({
     defaultTagName: "div",
     render,
     ref: [editorRef ?? null, layoutInputRef, ref ?? null],
-    props: mergeProps<"div">(
-      defaultProps,
-      editorProps,
-      inputBehaviorProps,
-      props,
-    ),
+    props: mergeProps<"div">(defaultProps, editorProps, inputBehaviorProps, props),
   });
   return (
     <>
@@ -217,12 +201,8 @@ export function ComposerInput({
           label: node.dataset.label ?? "",
           trigger: node.dataset.trigger ?? "@",
           ...(node.dataset.kind ? { kind: node.dataset.kind } : {}),
-          ...(node.dataset.data !== undefined
-            ? { data: node.dataset.data }
-            : {}),
-          ...(node.dataset.text !== undefined
-            ? { text: node.dataset.text }
-            : {}),
+          ...(node.dataset.data !== undefined ? { data: node.dataset.data } : {}),
+          ...(node.dataset.text !== undefined ? { text: node.dataset.text } : {}),
         };
         return createPortal(
           renderToken?.(token) ?? <ComposerToken token={token} />,
@@ -321,9 +301,7 @@ export function ComposerList({
   ref,
   ...props
 }: Omit<useRender.ComponentProps<"div">, "children"> & {
-  children?:
-    | ReactNode
-    | ((item: ComposerItemValue, index: number) => ReactNode);
+  children?: ReactNode | ((item: ComposerItemValue, index: number) => ReactNode);
 }): ReactElement {
   const suggestions = useComposerSuggestionsContext();
   const defaultProps = {
@@ -333,14 +311,9 @@ export function ComposerList({
     "aria-label": suggestions ? "Suggestions" : undefined,
     children:
       typeof children === "function"
-        ? (suggestions?.items as readonly ComposerItemValue[] | undefined)?.map(
-            children,
-          )
+        ? (suggestions?.items as readonly ComposerItemValue[] | undefined)?.map(children)
         : children,
-    className: cn(
-      "not-empty:scroll-py-1 not-empty:p-1 in-data-has-overflow-y:pe-3",
-      className,
-    ),
+    className: cn("not-empty:scroll-py-1 not-empty:p-1 in-data-has-overflow-y:pe-3", className),
   };
   const list = useRender({
     defaultTagName: "div",
@@ -368,10 +341,7 @@ export function ComposerItem({
   ref,
   ...props
 }: Omit<
-  useRender.ComponentProps<
-    "button",
-    { highlighted: boolean; disabled: boolean }
-  >,
+  useRender.ComponentProps<"button", { highlighted: boolean; disabled: boolean }>,
   "value"
 > & {
   value?: ComposerItemValue;
@@ -420,10 +390,7 @@ export function ComposerStatus({
   });
 }
 
-export function ComposerActions({
-  className,
-  ...props
-}: ComponentProps<"div">): ReactElement {
+export function ComposerActions({ className, ...props }: ComponentProps<"div">): ReactElement {
   return (
     <div
       className={cn(
@@ -467,13 +434,8 @@ export function ComposerSubmit({
 }: Omit<ComponentProps<typeof ButtonPrimitive>, "type">): ReactElement {
   const editor = useComposerEditorContext();
   const preserveInputFocus = (event: MouseEvent<HTMLButtonElement>): void => {
-    const input = editor?.rootRef.current?.querySelector(
-      '[data-slot="composer-input"]',
-    );
-    if (
-      event.button === 0 &&
-      input === event.currentTarget.ownerDocument.activeElement
-    ) {
+    const input = editor?.rootRef.current?.querySelector('[data-slot="composer-input"]');
+    if (event.button === 0 && input === event.currentTarget.ownerDocument.activeElement) {
       event.preventDefault();
     }
   };

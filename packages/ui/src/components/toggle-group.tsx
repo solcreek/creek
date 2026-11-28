@@ -6,17 +6,13 @@ import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { cn } from "../lib/utils";
 import { Separator } from "./separator";
-import {
-  Toggle as ToggleComponent,
-  type toggleVariants,
-} from "./toggle";
+import { Toggle as ToggleComponent, type toggleVariants } from "./toggle";
 
-export const ToggleGroupContext: React.Context<
-  VariantProps<typeof toggleVariants>
-> = React.createContext<VariantProps<typeof toggleVariants>>({
-  size: "default",
-  variant: "default",
-});
+export const ToggleGroupContext: React.Context<VariantProps<typeof toggleVariants>> =
+  React.createContext<VariantProps<typeof toggleVariants>>({
+    size: "default",
+    variant: "default",
+  });
 
 export function ToggleGroup({
   className,
@@ -25,8 +21,7 @@ export function ToggleGroup({
   orientation = "horizontal",
   children,
   ...props
-}: ToggleGroupPrimitive.Props &
-  VariantProps<typeof toggleVariants>): React.ReactElement {
+}: ToggleGroupPrimitive.Props & VariantProps<typeof toggleVariants>): React.ReactElement {
   return (
     <ToggleGroupPrimitive
       className={cn(
@@ -60,8 +55,7 @@ export function ToggleGroupItem({
   variant,
   size,
   ...props
-}: TogglePrimitive.Props &
-  VariantProps<typeof toggleVariants>): React.ReactElement {
+}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>): React.ReactElement {
   const context = React.useContext(ToggleGroupContext);
 
   const resolvedVariant = context.variant || variant;

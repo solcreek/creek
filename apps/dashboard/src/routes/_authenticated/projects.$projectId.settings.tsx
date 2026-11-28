@@ -333,9 +333,7 @@ function Pill({ enabled, label }: { enabled: boolean; label: string }) {
           : "border-border text-muted-foreground"
       }`}
     >
-      <span
-        className={`size-1.5 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground"}`}
-      />
+      <span className={`size-1.5 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground"}`} />
       {label}
     </span>
   );
@@ -528,7 +526,9 @@ function TriggersSection({ projectId }: { projectId: string }) {
         {editing && (
           <>
             {error && (
-              <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive-foreground">{error}</div>
+              <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive-foreground">
+                {error}
+              </div>
             )}
 
             {/* Show redeploy warning inline when queue value changes */}

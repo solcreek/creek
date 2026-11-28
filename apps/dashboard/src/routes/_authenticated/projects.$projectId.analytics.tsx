@@ -202,7 +202,9 @@ function StatCard({
           <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
         )}
       </p>
-      <p className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}>
+      <p
+        className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}
+      >
         {value}
       </p>
     </div>
@@ -240,10 +242,7 @@ function HttpRequestsChart({
               style={{ height: `${originH}%`, minHeight: 1 }}
             />
             {cachedH > 0 && (
-              <div
-                className="w-full bg-info/30"
-                style={{ height: `${cachedH}%`, minHeight: 1 }}
-              />
+              <div className="w-full bg-info/30" style={{ height: `${cachedH}%`, minHeight: 1 }} />
             )}
           </div>
         );
@@ -315,7 +314,9 @@ function BreakdownList({
                   <span className="text-muted-foreground">
                     {formatNumber(r.reqs)}
                     {r.errs > 0 && (
-                      <span className="ml-2 text-destructive-foreground">{formatNumber(r.errs)} err</span>
+                      <span className="ml-2 text-destructive-foreground">
+                        {formatNumber(r.errs)} err
+                      </span>
                     )}
                   </span>
                 </div>

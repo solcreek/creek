@@ -13,15 +13,11 @@ export const Sheet: typeof SheetPrimitive.Root = SheetPrimitive.Root;
 
 export const SheetPortal: typeof SheetPrimitive.Portal = SheetPrimitive.Portal;
 
-export function SheetTrigger(
-  props: SheetPrimitive.Trigger.Props,
-): React.ReactElement {
+export function SheetTrigger(props: SheetPrimitive.Trigger.Props): React.ReactElement {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
-export function SheetClose(
-  props: SheetPrimitive.Close.Props,
-): React.ReactElement {
+export function SheetClose(props: SheetPrimitive.Close.Props): React.ReactElement {
   return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
@@ -221,8 +217,4 @@ export function SheetPanel({
   );
 }
 
-export {
-  SheetPrimitive,
-  SheetBackdrop as SheetOverlay,
-  SheetPopup as SheetContent,
-};
+export { SheetPrimitive, SheetBackdrop as SheetOverlay, SheetPopup as SheetContent };

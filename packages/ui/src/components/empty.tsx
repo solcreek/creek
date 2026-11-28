@@ -17,10 +17,7 @@ const emptyMediaVariants = cva(
   },
 );
 
-export function Empty({
-  className,
-  ...props
-}: React.ComponentProps<"div">): React.ReactElement {
+export function Empty({ className, ...props }: React.ComponentProps<"div">): React.ReactElement {
   return (
     <div
       className={cn(
@@ -39,10 +36,7 @@ export function EmptyHeader({
 }: React.ComponentProps<"div">): React.ReactElement {
   return (
     <div
-      className={cn(
-        "flex max-w-sm flex-col items-center text-center",
-        className,
-      )}
+      className={cn("flex max-w-sm flex-col items-center text-center", className)}
       data-slot="empty-header"
       {...props}
     />
@@ -53,8 +47,7 @@ export function EmptyMedia({
   className,
   variant = "default",
   ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof emptyMediaVariants>): React.ReactElement {
+}: React.ComponentProps<"div"> & VariantProps<typeof emptyMediaVariants>): React.ReactElement {
   return (
     <div
       className={cn("relative mb-6", className)}
@@ -80,10 +73,7 @@ export function EmptyMedia({
           />
         </>
       )}
-      <div
-        className={cn(emptyMediaVariants({ className, variant }))}
-        {...props}
-      />
+      <div className={cn(emptyMediaVariants({ className, variant }))} {...props} />
     </div>
   );
 }

@@ -132,11 +132,9 @@ function MembersList() {
 
   useEffect(() => {
     if (!team?.id) return;
-    authClient.organization
-      .listMembers({ query: { organizationId: team.id } })
-      .then((res: any) => {
-        setMembers(res.data?.members ?? []);
-      });
+    authClient.organization.listMembers({ query: { organizationId: team.id } }).then((res: any) => {
+      setMembers(res.data?.members ?? []);
+    });
   }, [team?.id]);
 
   return (

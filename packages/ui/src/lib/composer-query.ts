@@ -19,16 +19,14 @@ export function getComposerQuery(
       character = trigger;
     }
   }
-  if (start < 0 || (start > 0 && !/\s/u.test(text.charAt(start - 1))))
-    return null;
+  if (start < 0 || (start > 0 && !/\s/u.test(text.charAt(start - 1)))) return null;
 
   const beforeCaret = text.slice(start + character.length, caret);
   if (/^\s/u.test(beforeCaret)) return null;
   if (!/^[\p{L}\p{M}\p{N}\p{Zs}_.’'+-]*$/u.test(beforeCaret)) return null;
 
   // Complete the word at the caret without consuming subsequent prose.
-  const suffix =
-    /^[\p{L}\p{M}\p{N}_.’'+-]*/u.exec(text.slice(caret))?.[0] ?? "";
+  const suffix = /^[\p{L}\p{M}\p{N}_.’'+-]*/u.exec(text.slice(caret))?.[0] ?? "";
   return {
     character,
     text: (beforeCaret + suffix).replace(/\p{Zs}+/gu, " ").trim(),
@@ -40,10 +38,6 @@ export function getComposerQuery(
 
 export function continuesPastQuery(label: string, query: string): boolean {
   const normalize = (text: string) =>
-    text
-      .normalize("NFD")
-      .replace(/\p{M}/gu, "")
-      .replace(/\s+/gu, " ")
-      .toLocaleLowerCase();
+    text.normalize("NFD").replace(/\p{M}/gu, "").replace(/\s+/gu, " ").toLocaleLowerCase();
   return ` ${normalize(label)}`.includes(` ${normalize(query)} `);
 }

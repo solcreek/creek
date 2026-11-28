@@ -322,7 +322,9 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
           </div>
           {attachError && <p className="text-xs text-destructive">{attachError}</p>}
           {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-warning-foreground">Uppercase, start with letter, &le;63 chars.</p>
+            <p className="text-xs text-warning-foreground">
+              Uppercase, start with letter, &le;63 chars.
+            </p>
           )}
         </div>
       )}

@@ -4,11 +4,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
-import {
-  ChevronDownIcon,
-  ChevronsUpDownIcon,
-  ChevronUpIcon,
-} from "lucide-react";
+import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react";
 import type * as React from "react";
 import { cn } from "../lib/utils";
 
@@ -43,8 +39,9 @@ export function SelectButton({
   children,
   ...props
 }: SelectButtonProps): React.ReactElement {
-  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
-    render ? undefined : "button";
+  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] = render
+    ? undefined
+    : "button";
 
   const defaultProps = {
     children: (
@@ -72,8 +69,7 @@ export function SelectTrigger({
   size = "default",
   children,
   ...props
-}: SelectPrimitive.Trigger.Props &
-  VariantProps<typeof selectTriggerVariants>): React.ReactElement {
+}: SelectPrimitive.Trigger.Props & VariantProps<typeof selectTriggerVariants>): React.ReactElement {
   return (
     <SelectPrimitive.Trigger
       className={cn(selectTriggerVariants({ size }), className)}
@@ -94,10 +90,7 @@ export function SelectValue({
 }: SelectPrimitive.Value.Props): React.ReactElement {
   return (
     <SelectPrimitive.Value
-      className={cn(
-        "flex-1 truncate data-placeholder:text-muted-foreground",
-        className,
-      )}
+      className={cn("flex-1 truncate data-placeholder:text-muted-foreground", className)}
       data-slot="select-value"
       {...props}
     />
@@ -149,10 +142,7 @@ export function SelectPopup({
           </SelectPrimitive.ScrollUpArrow>
           <div className="relative h-full min-w-(--anchor-width) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
             <SelectPrimitive.List
-              className={cn(
-                "max-h-(--available-height) overflow-y-auto p-1",
-                className,
-              )}
+              className={cn("max-h-(--available-height) overflow-y-auto p-1", className)}
               data-slot="select-list"
             >
               {children}
@@ -220,9 +210,7 @@ export function SelectSeparator({
   );
 }
 
-export function SelectGroup(
-  props: SelectPrimitive.Group.Props,
-): React.ReactElement {
+export function SelectGroup(props: SelectPrimitive.Group.Props): React.ReactElement {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />;
 }
 
@@ -242,9 +230,7 @@ export function SelectLabel({
   );
 }
 
-export function SelectGroupLabel(
-  props: SelectPrimitive.GroupLabel.Props,
-): React.ReactElement {
+export function SelectGroupLabel(props: SelectPrimitive.GroupLabel.Props): React.ReactElement {
   return (
     <SelectPrimitive.GroupLabel
       className="px-2 py-1.5 font-medium text-muted-foreground text-xs"
