@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@solcreek/ui/components/button";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 
@@ -139,137 +140,147 @@ export function CloudflarePanel({
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Cloudflare
       </h2>
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <p className="text-sm text-muted-foreground">
-          Connect your own Cloudflare account to put deployments behind Cloudflare Access, so only
-          the people you choose can sign in. Access seats are billed to your account.
-        </p>
-
-        {callback?.connected && (
-          <Notice tone="ok" onDismiss={onDismissCallback}>
-            Cloudflare connected.
-          </Notice>
-        )}
-        {callback?.error && (
-          <Notice tone="error" onDismiss={onDismissCallback}>
-            {callbackErrorMessage(callback.error)}
-          </Notice>
-        )}
-
-        {status.isLoading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading…
-          </p>
-        ) : status.error ? (
-          <p className="text-sm text-destructive">
-            Could not load the Cloudflare connection: {errorMessage(status.error)}
-          </p>
-        ) : !data?.configured ? (
+      <Card>
+        <CardPanel className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Cloudflare integration is not available on this Creek instance.
+            Connect your own Cloudflare account to put deployments behind Cloudflare Access, so only
+            the people you choose can sign in. Access seats are billed to your account.
           </p>
-        ) : !data.connected ? (
-          <Button size="sm" onClick={() => authorize.mutate()} disabled={authorize.isPending}>
-            {authorize.isPending ? "Redirecting…" : "Connect Cloudflare"}
-          </Button>
-        ) : (
-          <div className="space-y-4">
-            {data.needsReauth ? (
-              <Notice tone="error">
-                The connection expired and can't be renewed. Reconnect to keep using it.
-              </Notice>
-            ) : (
-              <p className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="size-4 text-success-foreground" /> Connected
-              </p>
-            )}
 
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Accounts</dt>
-                <dd>
-                  {data.accounts.length === 0
-                    ? "None"
-                    : data.accounts.map((a) => (
-                        <span key={a.id} className="block">
-                          {a.name}{" "}
-                          <span className="font-mono text-xs text-muted-foreground">{a.id}</span>
-                        </span>
-                      ))}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Connected on</dt>
-                <dd>{new Date(data.createdAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Permissions</dt>
-                <dd className="font-mono text-xs">{data.grantedScopes.join(", ")}</dd>
-              </div>
-            </dl>
+          {callback?.connected && (
+            <Notice tone="ok" onDismiss={onDismissCallback}>
+              Cloudflare connected.
+            </Notice>
+          )}
+          {callback?.error && (
+            <Notice tone="error" onDismiss={onDismissCallback}>
+              {callbackErrorMessage(callback.error)}
+            </Notice>
+          )}
 
-            <div className="flex flex-wrap items-center gap-2">
+          {status.isLoading ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Loading…
+            </p>
+          ) : status.error ? (
+            <p className="text-sm text-destructive">
+              Could not load the Cloudflare connection: {errorMessage(status.error)}
+            </p>
+          ) : !data?.configured ? (
+            <p className="text-sm text-muted-foreground">
+              Cloudflare integration is not available on this Creek instance.
+            </p>
+          ) : !data.connected ? (
+            <Button size="sm" onClick={() => authorize.mutate()} disabled={authorize.isPending}>
+              {authorize.isPending ? "Redirecting…" : "Connect Cloudflare"}
+            </Button>
+          ) : (
+            <div className="space-y-4">
               {data.needsReauth ? (
-                <Button size="sm" onClick={() => authorize.mutate()} disabled={authorize.isPending}>
-                  {authorize.isPending ? "Redirecting…" : "Reconnect"}
-                </Button>
+                <Notice tone="error">
+                  The connection expired and can't be renewed. Reconnect to keep using it.
+                </Notice>
               ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => verify.mutate()}
-                  disabled={verify.isPending}
-                >
-                  {verify.isPending ? "Testing…" : "Test connection"}
-                </Button>
+                <p className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="size-4 text-success-foreground" /> Connected
+                </p>
               )}
-              {confirmingDisconnect ? (
-                <>
+
+              <dl className="space-y-2 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">Accounts</dt>
+                  <dd>
+                    {data.accounts.length === 0
+                      ? "None"
+                      : data.accounts.map((a) => (
+                          <span key={a.id} className="block">
+                            {a.name}{" "}
+                            <span className="font-mono text-xs text-muted-foreground">{a.id}</span>
+                          </span>
+                        ))}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Connected on</dt>
+                  <dd>{new Date(data.createdAt).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Permissions</dt>
+                  <dd className="font-mono text-xs">{data.grantedScopes.join(", ")}</dd>
+                </div>
+              </dl>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {data.needsReauth ? (
                   <Button
                     size="sm"
-                    variant="destructive"
-                    onClick={() => disconnect.mutate()}
-                    disabled={disconnect.isPending}
+                    onClick={() => authorize.mutate()}
+                    disabled={authorize.isPending}
                   >
-                    {disconnect.isPending ? "Disconnecting…" : "Confirm disconnect"}
+                    {authorize.isPending ? "Redirecting…" : "Reconnect"}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setConfirmingDisconnect(false)}>
-                    Cancel
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => verify.mutate()}
+                    disabled={verify.isPending}
+                  >
+                    {verify.isPending ? "Testing…" : "Test connection"}
                   </Button>
-                </>
-              ) : (
-                <Button size="sm" variant="ghost" onClick={() => setConfirmingDisconnect(true)}>
-                  Disconnect
-                </Button>
+                )}
+                {confirmingDisconnect ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => disconnect.mutate()}
+                      disabled={disconnect.isPending}
+                    >
+                      {disconnect.isPending ? "Disconnecting…" : "Confirm disconnect"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirmingDisconnect(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmingDisconnect(true)}>
+                    Disconnect
+                  </Button>
+                )}
+              </div>
+
+              {verify.isSuccess && (
+                <Notice tone="ok">
+                  Working. It reaches {verify.data.accounts.length}{" "}
+                  {verify.data.accounts.length === 1 ? "account" : "accounts"}.
+                </Notice>
+              )}
+              {verify.isError && (
+                <Notice tone="error">Test failed: {errorMessage(verify.error)}</Notice>
               )}
             </div>
+          )}
 
-            {verify.isSuccess && (
-              <Notice tone="ok">
-                Working. It reaches {verify.data.accounts.length}{" "}
-                {verify.data.accounts.length === 1 ? "account" : "accounts"}.
-              </Notice>
-            )}
-            {verify.isError && (
-              <Notice tone="error">Test failed: {errorMessage(verify.error)}</Notice>
-            )}
-          </div>
-        )}
-
-        {authorize.isError && (
-          <Notice tone="error">Could not start: {errorMessage(authorize.error)}</Notice>
-        )}
-        {disconnect.isError && (
-          <Notice tone="error">Disconnect failed: {errorMessage(disconnect.error)}</Notice>
-        )}
-        {disconnect.isSuccess && (
-          <Notice tone={disconnect.data.revoked ? "ok" : "error"}>
-            {disconnect.data.revoked
-              ? "Cloudflare disconnected."
-              : "Disconnected, but Cloudflare did not confirm the revocation. Revoke Creek under Profile → Connected applications in the Cloudflare dashboard."}
-          </Notice>
-        )}
-      </div>
+          {authorize.isError && (
+            <Notice tone="error">Could not start: {errorMessage(authorize.error)}</Notice>
+          )}
+          {disconnect.isError && (
+            <Notice tone="error">Disconnect failed: {errorMessage(disconnect.error)}</Notice>
+          )}
+          {disconnect.isSuccess && (
+            <Notice tone={disconnect.data.revoked ? "ok" : "error"}>
+              {disconnect.data.revoked
+                ? "Cloudflare disconnected."
+                : "Disconnected, but Cloudflare did not confirm the revocation. Revoke Creek under Profile → Connected applications in the Cloudflare dashboard."}
+            </Notice>
+          )}
+        </CardPanel>
+      </Card>
     </section>
   );
 }

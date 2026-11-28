@@ -3,7 +3,9 @@ import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { authClient, useCurrentTeam } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { useFeatures } from "@/lib/api-context";
 import { CloudflarePanel } from "./-components/CloudflarePanel";
 
@@ -51,9 +53,11 @@ function CloudflareSettings() {
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Cloudflare
         </h2>
-        <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-          {isPending ? "Loading…" : "Select a team in the sidebar to connect Cloudflare."}
-        </p>
+        <Card>
+          <CardPanel className="text-sm text-muted-foreground">
+            {isPending ? "Loading…" : "Select a team in the sidebar to connect Cloudflare."}
+          </CardPanel>
+        </Card>
       </section>
     );
   }
@@ -100,22 +104,24 @@ function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: 
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Team
       </h2>
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Team Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Team" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Team URL</label>
-          <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="my-team" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
-            {updateOrg.isPending ? "Saving..." : "Save"}
-          </Button>
-          {saved && <span className="text-sm text-success-foreground">Saved</span>}
-        </div>
-      </div>
+      <Card>
+        <CardPanel className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Team Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Team" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Team URL</label>
+            <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="my-team" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
+              {updateOrg.isPending ? "Saving..." : "Save"}
+            </Button>
+            {saved && <span className="text-sm text-success-foreground">Saved</span>}
+          </div>
+        </CardPanel>
+      </Card>
     </section>
   );
 }
@@ -138,7 +144,7 @@ function MembersList() {
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Members
       </h2>
-      <div className="rounded-lg border border-border">
+      <Card>
         {members === null ? (
           <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : members.length === 0 ? (
@@ -151,14 +157,14 @@ function MembersList() {
                   <p className="text-sm font-medium">{m.user?.name ?? m.userId}</p>
                   <p className="text-xs text-muted-foreground">{m.user?.email}</p>
                 </div>
-                <span className="rounded bg-secondary px-2 py-0.5 text-xs capitalize">
+                <Badge variant="secondary" className="capitalize">
                   {m.role}
-                </span>
+                </Badge>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </section>
   );
 }

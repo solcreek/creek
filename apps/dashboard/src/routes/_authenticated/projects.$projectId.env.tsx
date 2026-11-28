@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { Plus, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId/env")({
@@ -121,15 +123,19 @@ export function EnvVarsPanel({ projectId }: { projectId: string }) {
       {isLoading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : !envVars?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            No environment variables set. Add one above, or use the CLI:
-          </p>
-          <div className="mx-auto mt-3 max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
-            <span className="text-muted-foreground">$</span> npx creek env set DATABASE_URL
-            "postgres://..."
-          </div>
-        </div>
+        <Empty className="gap-4 rounded-xl border border-dashed py-8 md:py-10">
+          <EmptyHeader>
+            <EmptyDescription>
+              No environment variables set. Add one above, or use the CLI:
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <div className="w-full max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
+              <span className="text-muted-foreground">$</span> npx creek env set DATABASE_URL
+              "postgres://..."
+            </div>
+          </EmptyContent>
+        </Empty>
       ) : (
         <div className="space-y-1">
           {envVars.map((v) => (
@@ -139,9 +145,7 @@ export function EnvVarsPanel({ projectId }: { projectId: string }) {
             >
               <div className="flex items-center gap-3">
                 <span className="font-mono text-sm">{v.key}</span>
-                <span className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {TARGET_LABELS[v.target ?? "all"]}
-                </span>
+                <Badge variant="outline">{TARGET_LABELS[v.target ?? "all"]}</Badge>
                 <span className="text-sm text-muted-foreground">{v.value}</span>
               </div>
               <button

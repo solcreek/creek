@@ -3,7 +3,9 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { ExternalLink } from "lucide-react";
 import { BindingsPanel } from "./-components/BindingsPanel";
 
@@ -72,20 +74,22 @@ function GitHubConnectionSection({ projectId }: { projectId: string }) {
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         GitHub Connection
       </h2>
-      <div className="rounded-lg border border-border p-4">
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : data?.connection ? (
-          <ConnectionDetails
-            connection={data.connection}
-            onDisconnect={() => disconnect.mutate(data.connection!.id)}
-            disconnectPending={disconnect.isPending}
-            disconnectError={(disconnect.error as Error | null)?.message}
-          />
-        ) : (
-          <ConnectPicker projectId={projectId} />
-        )}
-      </div>
+      <Card>
+        <CardPanel>
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : data?.connection ? (
+            <ConnectionDetails
+              connection={data.connection}
+              onDisconnect={() => disconnect.mutate(data.connection!.id)}
+              disconnectPending={disconnect.isPending}
+              disconnectError={(disconnect.error as Error | null)?.message}
+            />
+          ) : (
+            <ConnectPicker projectId={projectId} />
+          )}
+        </CardPanel>
+      </Card>
     </section>
   );
 }
@@ -326,16 +330,13 @@ function ConnectionDetails({
 
 function Pill({ enabled, label }: { enabled: boolean; label: string }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
-        enabled
-          ? "border-success/30 bg-success/10 text-success-foreground"
-          : "border-border text-muted-foreground"
-      }`}
+    <Badge
+      variant={enabled ? "success" : "outline"}
+      className={enabled ? undefined : "text-muted-foreground"}
     >
       <span className={`size-1.5 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground"}`} />
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -426,146 +427,149 @@ function TriggersSection({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      <div className="space-y-3 rounded-lg border border-border p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Cron Schedules</p>
-          {!editing && (
-            <Button variant="ghost" size="sm" onClick={startEdit}>
-              Edit
-            </Button>
-          )}
-        </div>
+      <Card>
+        <CardPanel className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Cron Schedules</p>
+            {!editing && (
+              <Button variant="ghost" size="sm" onClick={startEdit}>
+                Edit
+              </Button>
+            )}
+          </div>
 
-        {editing ? (
-          <div className="space-y-2">
-            {draftCron.map((schedule, i) => (
-              <div key={i} className="flex items-center gap-2">
+          {editing ? (
+            <div className="space-y-2">
+              {draftCron.map((schedule, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    value={schedule}
+                    onChange={(e) => {
+                      const next = [...draftCron];
+                      next[i] = e.target.value;
+                      setDraftCron(next);
+                    }}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDraftCron(draftCron.filter((_, j) => j !== i))}
+                  >
+                    ×
+                  </Button>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
                 <Input
-                  value={schedule}
-                  onChange={(e) => {
-                    const next = [...draftCron];
-                    next[i] = e.target.value;
-                    setDraftCron(next);
-                  }}
+                  value={newSchedule}
+                  onChange={(e) => setNewSchedule(e.target.value)}
+                  placeholder="0 */6 * * *"
                   className="font-mono text-xs"
                 />
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setDraftCron(draftCron.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    if (newSchedule.trim()) {
+                      setDraftCron([...draftCron, newSchedule.trim()]);
+                      setNewSchedule("");
+                    }
+                  }}
                 >
-                  ×
+                  Add
                 </Button>
               </div>
-            ))}
-            <div className="flex items-center gap-2">
-              <Input
-                value={newSchedule}
-                onChange={(e) => setNewSchedule(e.target.value)}
-                placeholder="0 */6 * * *"
-                className="font-mono text-xs"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (newSchedule.trim()) {
-                    setDraftCron([...draftCron, newSchedule.trim()]);
-                    setNewSchedule("");
-                  }
-                }}
-              >
-                Add
-              </Button>
             </div>
-          </div>
-        ) : triggers.cron.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No cron schedules. Add <code className="rounded bg-code-bg px-1">[triggers].cron</code>{" "}
-            to creek.toml or click Edit.
-          </p>
-        ) : (
-          <div className="space-y-1">
-            {triggers.cron.map((schedule, i) => (
-              <div key={i} className="rounded bg-code-bg px-2 py-1 font-mono text-xs">
-                {schedule}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Queue section — toggle when editing */}
-        <div className="flex items-center justify-between border-t border-border pt-3">
-          <p className="text-sm font-medium">Queue</p>
-          {editing ? (
-            <button
-              onClick={() => setDraftQueue(!draftQueue)}
-              className={`relative h-5 w-9 rounded-full transition-colors ${
-                draftQueue ? "bg-success" : "bg-muted-foreground/30"
-              }`}
-              type="button"
-            >
-              <span
-                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
-                  draftQueue ? "translate-x-4" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          ) : (
-            <span className="flex items-center gap-2 text-sm">
-              <span
-                className={`size-2 rounded-full ${
-                  triggers.queue ? "bg-success" : "bg-muted-foreground/30"
-                }`}
-              />
-              {triggers.queue ? "Enabled" : "Disabled"}
-            </span>
-          )}
-        </div>
-
-        {editing && (
-          <>
-            {error && (
-              <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive-foreground">
-                {error}
-              </div>
-            )}
-
-            {/* Show redeploy warning inline when queue value changes */}
-            {draftQueue !== triggers.queue && (
-              <div className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground/90">
-                <span>⚠</span>
-                <span>Queue toggle requires redeploy. Cron changes apply immediately.</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                size="sm"
-                onClick={() => updateMutation.mutate({ cron: draftCron, queue: draftQueue })}
-                disabled={updateMutation.isPending}
-              >
-                {updateMutation.isPending ? "Saving..." : "Save"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditing(false);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-            <p className="pt-1 text-xs text-muted-foreground">
-              Cron changes apply immediately. Next{" "}
-              <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with
-              values from creek.toml.
+          ) : triggers.cron.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No cron schedules. Add{" "}
+              <code className="rounded bg-code-bg px-1">[triggers].cron</code> to creek.toml or
+              click Edit.
             </p>
-          </>
-        )}
-      </div>
+          ) : (
+            <div className="space-y-1">
+              {triggers.cron.map((schedule, i) => (
+                <div key={i} className="rounded bg-code-bg px-2 py-1 font-mono text-xs">
+                  {schedule}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Queue section — toggle when editing */}
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <p className="text-sm font-medium">Queue</p>
+            {editing ? (
+              <button
+                onClick={() => setDraftQueue(!draftQueue)}
+                className={`relative h-5 w-9 rounded-full transition-colors ${
+                  draftQueue ? "bg-success" : "bg-muted-foreground/30"
+                }`}
+                type="button"
+              >
+                <span
+                  className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
+                    draftQueue ? "translate-x-4" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            ) : (
+              <span className="flex items-center gap-2 text-sm">
+                <span
+                  className={`size-2 rounded-full ${
+                    triggers.queue ? "bg-success" : "bg-muted-foreground/30"
+                  }`}
+                />
+                {triggers.queue ? "Enabled" : "Disabled"}
+              </span>
+            )}
+          </div>
+
+          {editing && (
+            <>
+              {error && (
+                <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive-foreground">
+                  {error}
+                </div>
+              )}
+
+              {/* Show redeploy warning inline when queue value changes */}
+              {draftQueue !== triggers.queue && (
+                <div className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground/90">
+                  <span>⚠</span>
+                  <span>Queue toggle requires redeploy. Cron changes apply immediately.</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <Button
+                  size="sm"
+                  onClick={() => updateMutation.mutate({ cron: draftCron, queue: draftQueue })}
+                  disabled={updateMutation.isPending}
+                >
+                  {updateMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditing(false);
+                    setError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Cron changes apply immediately. Next{" "}
+                <code className="rounded bg-code-bg px-1">creek deploy</code> will overwrite with
+                values from creek.toml.
+              </p>
+            </>
+          )}
+        </CardPanel>
+      </Card>
     </section>
   );
 }
@@ -583,16 +587,18 @@ function GeneralSettings({ projectId }: { projectId: string }) {
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         General
       </h2>
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Project Name</label>
-          <Input value={project?.slug ?? projectId} disabled className="opacity-60" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Production Branch</label>
-          <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
-        </div>
-      </div>
+      <Card>
+        <CardPanel className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Project Name</label>
+            <Input value={project?.slug ?? projectId} disabled className="opacity-60" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Production Branch</label>
+            <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+          </div>
+        </CardPanel>
+      </Card>
     </section>
   );
 }
@@ -615,30 +621,32 @@ function DangerZone({ projectId }: { projectId: string }) {
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-destructive">
         Danger Zone
       </h2>
-      <div className="space-y-4 rounded-lg border border-destructive/30 p-4">
-        <div>
-          <p className="text-sm font-medium">Delete Project</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            This will permanently delete the project, all deployments, environment variables, and
-            custom domains. This action cannot be undone.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Input
-            value={confirmSlug}
-            onChange={(e) => setConfirmSlug(e.target.value)}
-            placeholder={projectId}
-          />
-        </div>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={confirmSlug !== projectId || deleteProject.isPending}
-          onClick={() => deleteProject.mutate()}
-        >
-          {deleteProject.isPending ? "Deleting..." : "Delete Project"}
-        </Button>
-      </div>
+      <Card className="border-destructive/30">
+        <CardPanel className="space-y-4">
+          <div>
+            <p className="text-sm font-medium">Delete Project</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This will permanently delete the project, all deployments, environment variables, and
+              custom domains. This action cannot be undone.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Input
+              value={confirmSlug}
+              onChange={(e) => setConfirmSlug(e.target.value)}
+              placeholder={projectId}
+            />
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={confirmSlug !== projectId || deleteProject.isPending}
+            onClick={() => deleteProject.mutate()}
+          >
+            {deleteProject.isPending ? "Deleting..." : "Delete Project"}
+          </Button>
+        </CardPanel>
+      </Card>
     </section>
   );
 }

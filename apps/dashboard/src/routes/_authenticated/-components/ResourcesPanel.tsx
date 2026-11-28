@@ -13,7 +13,11 @@ import { Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
+import { ConfirmAction } from "@/components/confirm-action";
 
 interface Resource {
   id: string;
@@ -102,69 +106,73 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
       </div>
 
       {showCreate && (
-        <div className="rounded-lg border border-border p-3 space-y-3">
-          <div className="flex gap-2">
-            {!kind && (
-              <select
-                value={kind ?? "database"}
-                disabled
-                className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+        <Card>
+          <CardPanel className="space-y-3 p-4">
+            <div className="flex gap-2">
+              {!kind && (
+                <select
+                  value={kind ?? "database"}
+                  disabled
+                  className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+                >
+                  <option value="database">database</option>
+                  <option value="storage">storage</option>
+                  <option value="cache">cache</option>
+                  <option value="ai">ai</option>
+                </select>
+              )}
+              <Input
+                placeholder="name (lowercase, dash/underscore)"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                disabled={!NAME_RE.test(newName) || create.isPending}
+                onClick={() => create.mutate({ kind: kind ?? "database", name: newName })}
               >
-                <option value="database">database</option>
-                <option value="storage">storage</option>
-                <option value="cache">cache</option>
-                <option value="ai">ai</option>
-              </select>
+                {create.isPending ? "Creating..." : "Create"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowCreate(false);
+                  setNewName("");
+                  setCreateError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+            {newName && !NAME_RE.test(newName) && (
+              <p className="text-xs text-warning-foreground">
+                Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
+              </p>
             )}
-            <Input
-              placeholder="name (lowercase, dash/underscore)"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              size="sm"
-              disabled={!NAME_RE.test(newName) || create.isPending}
-              onClick={() => create.mutate({ kind: kind ?? "database", name: newName })}
-            >
-              {create.isPending ? "Creating..." : "Create"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setShowCreate(false);
-                setNewName("");
-                setCreateError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {createError && <p className="text-xs text-destructive">{createError}</p>}
-          {newName && !NAME_RE.test(newName) && (
-            <p className="text-xs text-warning-foreground">
-              Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
-            </p>
-          )}
-        </div>
+          </CardPanel>
+        </Card>
       )}
 
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading...</p>
       ) : !filtered?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet. Create
-            one above or via <code className="font-mono">{cliHint}</code>.
-          </p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-6 md:py-8">
+          <EmptyHeader>
+            <EmptyDescription>
+              No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet. Create
+              one above or via <code className="font-mono">{cliHint}</code>.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <Card render={<ul />} className="divide-y divide-border">
           {filtered.map((r) => (
             <ResourceRow key={r.id} resource={r} showKind={!kind} />
           ))}
-        </ul>
+        </Card>
       )}
     </div>
   );
@@ -204,9 +212,9 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         {showKind && (
-          <span className="rounded border border-border bg-code-bg px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          <Badge variant="outline" size="sm" className="font-mono">
             {resource.kind}
-          </span>
+          </Badge>
         )}
         {renaming ? (
           <Input
@@ -259,19 +267,24 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
             <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
               Rename
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
+            <ConfirmAction
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title={
+                    attachedTo.length > 0 ? "Detach from all projects before deleting" : undefined
+                  }
+                />
+              }
               disabled={attachedTo.length > 0 || del.isPending}
-              title={attachedTo.length > 0 ? "Detach from all projects before deleting" : undefined}
-              onClick={() => {
-                if (confirm(`Delete "${resource.name}"? This cannot be undone.`)) {
-                  del.mutate();
-                }
-              }}
+              title={`Delete "${resource.name}"?`}
+              description="The backing Cloudflare resource will be scheduled for cleanup, and its data cannot be recovered. This cannot be undone."
+              confirmLabel="Delete"
+              onConfirm={() => del.mutate()}
             >
               Delete
-            </Button>
+            </ConfirmAction>
           </>
         )}
       </div>

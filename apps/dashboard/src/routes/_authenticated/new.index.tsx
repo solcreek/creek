@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardHeader, CardPanel, CardTitle } from "@solcreek/ui/components/card";
 import { GitBranch, Link2, ArrowRight, Layout } from "lucide-react";
 
 function GithubIcon({ className }: { className?: string }) {
@@ -96,9 +97,11 @@ function NewProjectPage() {
       {/* Section 2 + 3: Import Git + Templates */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Import Git Repository */}
-        <div className="rounded-lg border p-6">
-          <h2 className="mb-4 text-lg font-semibold">Import Git Repository</h2>
-          <div className="space-y-3">
+        <Card>
+          <CardHeader>
+            <CardTitle render={<h2 />}>Import Git Repository</CardTitle>
+          </CardHeader>
+          <CardPanel className="space-y-3">
             <Button
               variant="outline"
               className="w-full justify-start gap-3"
@@ -117,15 +120,15 @@ function NewProjectPage() {
               Continue with Bitbucket
               <span className="ml-auto text-xs text-muted-foreground">Soon</span>
             </Button>
-          </div>
-        </div>
+          </CardPanel>
+        </Card>
 
         {/* Clone Template */}
-        <div className="rounded-lg border p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Clone Template</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <CardHeader>
+            <CardTitle render={<h2 />}>Clone Template</CardTitle>
+          </CardHeader>
+          <CardPanel className="grid grid-cols-2 gap-3">
             {[
               { name: "Vite + React", desc: "SPA starter" },
               { name: "Hono API", desc: "Workers API" },
@@ -146,8 +149,8 @@ function NewProjectPage() {
                 <span className="text-xs text-muted-foreground">{t.desc}</span>
               </button>
             ))}
-          </div>
-        </div>
+          </CardPanel>
+        </Card>
       </div>
     </div>
   );

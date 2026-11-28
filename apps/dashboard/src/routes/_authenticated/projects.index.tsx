@@ -5,6 +5,14 @@ import { useApiMode, useFeatures } from "@/lib/api-context";
 import { NewProjectDialog } from "@/components/new-project-dialog";
 import { Folder, RotateCw, Square, Loader2 } from "lucide-react";
 import { Button } from "@solcreek/ui/components/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@solcreek/ui/components/empty";
 import { ConnectionError } from "@/components/connection-error";
 
 export const Route = createFileRoute("/_authenticated/projects/")({
@@ -77,23 +85,25 @@ function ProjectsListPage() {
 
 function EmptyState({ mode }: { mode: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-border p-10 text-center">
-      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-secondary">
-        <Folder className="size-6 text-muted-foreground" />
-      </div>
-      <h3 className="font-semibold">{mode === "creekd" ? "No apps running" : "No projects yet"}</h3>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-        {mode === "creekd"
-          ? "Deploy an app to this server using the CLI:"
-          : "Get started by creating a project here, or initialize one from the CLI:"}
-      </p>
-      <div className="mx-auto mt-4 max-w-xs space-y-2">
-        <div className="rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
+    <Empty className="gap-4 rounded-xl border border-dashed">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Folder />
+        </EmptyMedia>
+        <EmptyTitle>{mode === "creekd" ? "No apps running" : "No projects yet"}</EmptyTitle>
+        <EmptyDescription>
+          {mode === "creekd"
+            ? "Deploy an app to this server using the CLI:"
+            : "Get started by creating a project here, or initialize one from the CLI:"}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <div className="w-full max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
           <span className="text-muted-foreground">$</span>{" "}
           {mode === "creekd" ? "creek deploy --server <url>" : "npx creek deploy"}
         </div>
-      </div>
-    </div>
+      </EmptyContent>
+    </Empty>
   );
 }
 

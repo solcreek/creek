@@ -3,6 +3,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConnectionError } from "@/components/connection-error";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId/analytics")({
@@ -150,9 +152,11 @@ function AnalyticsTab() {
               <RequestsChart series={traffic.data.series} />
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">No traffic in this period.</p>
-            </div>
+            <Empty className="rounded-xl border border-dashed py-8 md:py-10">
+              <EmptyHeader>
+                <EmptyDescription>No traffic in this period.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
 
           {traffic.data && traffic.data.totals.reqs > 0 && (
@@ -195,19 +199,21 @@ function StatCard({
   hint?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border p-4">
-      <p className="text-xs text-muted-foreground">
-        {label}
-        {hint && (
-          <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
-        )}
-      </p>
-      <p
-        className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}
-      >
-        {value}
-      </p>
-    </div>
+    <Card>
+      <CardPanel className="p-4">
+        <p className="text-xs text-muted-foreground">
+          {label}
+          {hint && (
+            <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
+          )}
+        </p>
+        <p
+          className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}
+        >
+          {value}
+        </p>
+      </CardPanel>
+    </Card>
   );
 }
 
@@ -355,9 +361,11 @@ function CronLogsPanel({ projectId }: { projectId: string }) {
 
   if (!data?.invocations?.length) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-4 text-center">
-        <p className="text-xs text-muted-foreground">No invocations in the last 24 hours.</p>
-      </div>
+      <Empty className="rounded-xl border border-dashed py-6 md:py-6">
+        <EmptyHeader>
+          <EmptyDescription>No invocations in the last 24 hours.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
