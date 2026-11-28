@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConfirmAction } from "@/components/confirm-action";
 
@@ -140,7 +141,7 @@ function MetadataSection({ resource }: { resource: ResourceDetail }) {
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Details
       </h2>
-      <div className="rounded-lg border border-border divide-y divide-border">
+      <Card className="divide-y divide-border">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
             <span className="text-xs text-muted-foreground">{row.label}</span>
@@ -149,7 +150,7 @@ function MetadataSection({ resource }: { resource: ResourceDetail }) {
             </span>
           </div>
         ))}
-      </div>
+      </Card>
     </section>
   );
 }
@@ -202,10 +203,12 @@ function MetricsSection({ resourceId, kind }: { resourceId: string; kind: string
       </h2>
       <div className="grid grid-cols-3 gap-3">
         {metrics.map((m) => (
-          <div key={m.label} className="rounded-lg border border-border p-3">
-            <p className="text-xs text-muted-foreground">{m.label}</p>
-            <p className="mt-1 text-lg font-semibold font-mono">{m.value}</p>
-          </div>
+          <Card key={m.label}>
+            <CardPanel className="p-3">
+              <p className="text-xs text-muted-foreground">{m.label}</p>
+              <p className="mt-1 text-lg font-semibold font-mono">{m.value}</p>
+            </CardPanel>
+          </Card>
         ))}
       </div>
     </section>
@@ -278,57 +281,61 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
       </div>
 
       {attaching && (
-        <div className="mb-3 rounded-lg border border-border p-3 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-            >
-              <option value="">Choose project...</option>
-              {availableProjects.map((p) => (
-                <option key={p.id} value={p.slug}>
-                  {p.slug}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">as env.</span>
-            <Input
-              value={bindingName}
-              onChange={(e) => setBindingName(e.target.value.toUpperCase())}
-              className="h-8 w-28 text-sm font-mono"
-            />
-            <Button
-              size="sm"
-              disabled={!selectedProject || !BINDING_NAME_RE.test(bindingName) || attach.isPending}
-              onClick={() =>
-                attach.mutate({
-                  projectSlug: selectedProject,
-                  resourceId: resource.id,
-                  bindingName,
-                })
-              }
-            >
-              {attach.isPending ? "Attaching..." : "Attach"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setAttaching(false);
-                setAttachError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {attachError && <p className="text-xs text-destructive">{attachError}</p>}
-          {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-warning-foreground">
-              Uppercase, start with letter, &le;63 chars.
-            </p>
-          )}
-        </div>
+        <Card className="mb-3">
+          <CardPanel className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedProject}
+                onChange={(e) => setSelectedProject(e.target.value)}
+                className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              >
+                <option value="">Choose project...</option>
+                {availableProjects.map((p) => (
+                  <option key={p.id} value={p.slug}>
+                    {p.slug}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">as env.</span>
+              <Input
+                value={bindingName}
+                onChange={(e) => setBindingName(e.target.value.toUpperCase())}
+                className="h-8 w-28 text-sm font-mono"
+              />
+              <Button
+                size="sm"
+                disabled={
+                  !selectedProject || !BINDING_NAME_RE.test(bindingName) || attach.isPending
+                }
+                onClick={() =>
+                  attach.mutate({
+                    projectSlug: selectedProject,
+                    resourceId: resource.id,
+                    bindingName,
+                  })
+                }
+              >
+                {attach.isPending ? "Attaching..." : "Attach"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAttaching(false);
+                  setAttachError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            {attachError && <p className="text-xs text-destructive">{attachError}</p>}
+            {bindingName && !BINDING_NAME_RE.test(bindingName) && (
+              <p className="text-xs text-warning-foreground">
+                Uppercase, start with letter, &le;63 chars.
+              </p>
+            )}
+          </CardPanel>
+        </Card>
       )}
 
       {resource.bindings.length === 0 ? (
@@ -344,7 +351,7 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="rounded-lg border border-border divide-y divide-border">
+        <Card className="divide-y divide-border">
           {resource.bindings.map((b) => (
             <div
               key={`${b.projectId}-${b.bindingName}`}
@@ -380,7 +387,7 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
               </ConfirmAction>
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </section>
   );
@@ -409,52 +416,54 @@ function RenameSection({ resource }: { resource: ResourceDetail }) {
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         Rename
       </h2>
-      <div className="rounded-lg border border-border p-4">
-        {editing ? (
-          <div className="space-y-3">
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="font-mono text-sm"
-              autoFocus
-            />
-            {newName && !NAME_RE.test(newName) && (
-              <p className="text-xs text-warning-foreground">
-                Lowercase, start with letter, &le;63 chars. Hyphen/underscore OK.
+      <Card>
+        <CardPanel>
+          {editing ? (
+            <div className="space-y-3">
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="font-mono text-sm"
+                autoFocus
+              />
+              {newName && !NAME_RE.test(newName) && (
+                <p className="text-xs text-warning-foreground">
+                  Lowercase, start with letter, &le;63 chars. Hyphen/underscore OK.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={!NAME_RE.test(newName) || newName === resource.name || rename.isPending}
+                  onClick={() => rename.mutate(newName)}
+                >
+                  {rename.isPending ? "Renaming..." : "Save"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditing(false);
+                    setNewName(resource.name);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Rename this resource. All existing bindings continue to work — they reference the
+                stable ID, not the name.
               </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={!NAME_RE.test(newName) || newName === resource.name || rename.isPending}
-                onClick={() => rename.mutate(newName)}
-              >
-                {rename.isPending ? "Renaming..." : "Save"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditing(false);
-                  setNewName(resource.name);
-                }}
-              >
-                Cancel
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                Rename
               </Button>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Rename this resource. All existing bindings continue to work — they reference the
-              stable ID, not the name.
-            </p>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              Rename
-            </Button>
-          </div>
-        )}
-      </div>
+          )}
+        </CardPanel>
+      </Card>
     </section>
   );
 }
@@ -477,43 +486,46 @@ function DeleteSection({ resource }: { resource: ResourceDetail }) {
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-destructive">
         Danger Zone
       </h2>
-      <div className="rounded-lg border border-destructive/30 p-4">
-        {hasBindings ? (
-          <p className="text-sm text-muted-foreground">
-            This resource is attached to {resource.bindings.length} project(s). Detach from all
-            projects before deleting.
-          </p>
-        ) : confirming ? (
-          <div className="space-y-3">
+      <Card className="border-destructive/30">
+        <CardPanel>
+          {hasBindings ? (
             <p className="text-sm text-muted-foreground">
-              Delete <span className="font-mono font-medium text-foreground">{resource.name}</span>?
-              The backing Cloudflare resource will be scheduled for cleanup. This cannot be undone.
+              This resource is attached to {resource.bindings.length} project(s). Detach from all
+              projects before deleting.
             </p>
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={del.isPending}
-                onClick={() => del.mutate()}
-              >
-                {del.isPending ? "Deleting..." : "Yes, delete"}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-                Cancel
+          ) : confirming ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Delete{" "}
+                <span className="font-mono font-medium text-foreground">{resource.name}</span>? The
+                backing Cloudflare resource will be scheduled for cleanup. This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={del.isPending}
+                  onClick={() => del.mutate()}
+                >
+                  {del.isPending ? "Deleting..." : "Yes, delete"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Permanently delete this resource and its backing Cloudflare infrastructure.
+              </p>
+              <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
+                Delete
               </Button>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Permanently delete this resource and its backing Cloudflare infrastructure.
-            </p>
-            <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
-              Delete
-            </Button>
-          </div>
-        )}
-      </div>
+          )}
+        </CardPanel>
+      </Card>
     </section>
   );
 }

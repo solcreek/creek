@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConfirmAction } from "@/components/confirm-action";
 
@@ -104,52 +105,54 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
       </div>
 
       {showCreate && (
-        <div className="rounded-lg border border-border p-3 space-y-3">
-          <div className="flex gap-2">
-            {!kind && (
-              <select
-                value={kind ?? "database"}
-                disabled
-                className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+        <Card>
+          <CardPanel className="space-y-3 p-4">
+            <div className="flex gap-2">
+              {!kind && (
+                <select
+                  value={kind ?? "database"}
+                  disabled
+                  className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+                >
+                  <option value="database">database</option>
+                  <option value="storage">storage</option>
+                  <option value="cache">cache</option>
+                  <option value="ai">ai</option>
+                </select>
+              )}
+              <Input
+                placeholder="name (lowercase, dash/underscore)"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                disabled={!NAME_RE.test(newName) || create.isPending}
+                onClick={() => create.mutate({ kind: kind ?? "database", name: newName })}
               >
-                <option value="database">database</option>
-                <option value="storage">storage</option>
-                <option value="cache">cache</option>
-                <option value="ai">ai</option>
-              </select>
+                {create.isPending ? "Creating..." : "Create"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowCreate(false);
+                  setNewName("");
+                  setCreateError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+            {newName && !NAME_RE.test(newName) && (
+              <p className="text-xs text-warning-foreground">
+                Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
+              </p>
             )}
-            <Input
-              placeholder="name (lowercase, dash/underscore)"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              size="sm"
-              disabled={!NAME_RE.test(newName) || create.isPending}
-              onClick={() => create.mutate({ kind: kind ?? "database", name: newName })}
-            >
-              {create.isPending ? "Creating..." : "Create"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setShowCreate(false);
-                setNewName("");
-                setCreateError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {createError && <p className="text-xs text-destructive">{createError}</p>}
-          {newName && !NAME_RE.test(newName) && (
-            <p className="text-xs text-warning-foreground">
-              Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
-            </p>
-          )}
-        </div>
+          </CardPanel>
+        </Card>
       )}
 
       {isLoading ? (
@@ -164,11 +167,11 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
           </EmptyHeader>
         </Empty>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <Card render={<ul />} className="divide-y divide-border">
           {filtered.map((r) => (
             <ResourceRow key={r.id} resource={r} showKind={!kind} />
           ))}
-        </ul>
+        </Card>
       )}
     </div>
   );

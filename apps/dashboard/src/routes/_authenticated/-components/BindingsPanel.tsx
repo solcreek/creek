@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConnectionError } from "@/components/connection-error";
 import { ConfirmAction } from "@/components/confirm-action";
@@ -104,53 +105,55 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
       </div>
 
       {adding && (
-        <div className="rounded-lg border border-border p-3 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedResourceId}
-              onChange={(e) => setSelectedResourceId(e.target.value)}
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-            >
-              <option value="">Choose resource…</option>
-              {availableResources.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.kind}: {r.name}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">as env.</span>
-            <Input
-              value={bindingName}
-              onChange={(e) => setBindingName(e.target.value.toUpperCase())}
-              className="h-8 w-32 text-sm font-mono"
-            />
-            <Button
-              size="sm"
-              disabled={
-                !selectedResourceId || !BINDING_NAME_RE.test(bindingName) || attach.isPending
-              }
-              onClick={() => attach.mutate({ resourceId: selectedResourceId, bindingName })}
-            >
-              {attach.isPending ? "Attaching..." : "Attach"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setAdding(false);
-                setAttachError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {attachError && <p className="text-xs text-destructive">{attachError}</p>}
-          {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-warning-foreground">
-              Binding name must be uppercase, start with a letter, ≤63 chars.
-            </p>
-          )}
-        </div>
+        <Card>
+          <CardPanel className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedResourceId}
+                onChange={(e) => setSelectedResourceId(e.target.value)}
+                className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              >
+                <option value="">Choose resource…</option>
+                {availableResources.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.kind}: {r.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">as env.</span>
+              <Input
+                value={bindingName}
+                onChange={(e) => setBindingName(e.target.value.toUpperCase())}
+                className="h-8 w-32 text-sm font-mono"
+              />
+              <Button
+                size="sm"
+                disabled={
+                  !selectedResourceId || !BINDING_NAME_RE.test(bindingName) || attach.isPending
+                }
+                onClick={() => attach.mutate({ resourceId: selectedResourceId, bindingName })}
+              >
+                {attach.isPending ? "Attaching..." : "Attach"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAdding(false);
+                  setAttachError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            {attachError && <p className="text-xs text-destructive">{attachError}</p>}
+            {bindingName && !BINDING_NAME_RE.test(bindingName) && (
+              <p className="text-xs text-warning-foreground">
+                Binding name must be uppercase, start with a letter, ≤63 chars.
+              </p>
+            )}
+          </CardPanel>
+        </Card>
       )}
 
       {isLoading ? (
@@ -166,7 +169,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
           </EmptyHeader>
         </Empty>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <Card render={<ul />} className="divide-y divide-border">
           {bindings.bindings.map((b) => (
             <li
               key={b.bindingName}
@@ -196,7 +199,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
               </ConfirmAction>
             </li>
           ))}
-        </ul>
+        </Card>
       )}
     </div>
   );

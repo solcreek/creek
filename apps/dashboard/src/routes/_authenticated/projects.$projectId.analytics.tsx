@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConnectionError } from "@/components/connection-error";
 
@@ -198,19 +199,21 @@ function StatCard({
   hint?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border p-4">
-      <p className="text-xs text-muted-foreground">
-        {label}
-        {hint && (
-          <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
-        )}
-      </p>
-      <p
-        className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}
-      >
-        {value}
-      </p>
-    </div>
+    <Card>
+      <CardPanel className="p-4">
+        <p className="text-xs text-muted-foreground">
+          {label}
+          {hint && (
+            <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">{hint}</span>
+          )}
+        </p>
+        <p
+          className={`mt-1 text-2xl font-semibold ${variant === "error" ? "text-destructive-foreground" : ""}`}
+        >
+          {value}
+        </p>
+      </CardPanel>
+    </Card>
   );
 }
 
