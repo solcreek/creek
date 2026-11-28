@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Move this forward only after confirming the model describes the code at the new commit.
-SYNC_COMMIT="b1d9dcf8986764a85f1113a50c0340c4b4e71c5f"
+SYNC_COMMIT="b86db1911a20b6dafa30f203f99decf546f4fa01"
 
 # Every file an action or comment in ProductionServing.tla points to.
 COVERED=(
