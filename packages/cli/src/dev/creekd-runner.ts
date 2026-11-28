@@ -37,7 +37,7 @@ export class CreekdDevServer {
   }
 
   async start(): Promise<void> {
-    const { cwd, port, config, reset } = this.options;
+    const { cwd, port, config } = this.options;
     const startTime = Date.now();
 
     // 1. Check creekd is installed
@@ -202,7 +202,7 @@ export class CreekdDevServer {
     return env;
   }
 
-  private detectDevCommand(cwd: string, config: ResolvedConfig): string[] {
+  private detectDevCommand(cwd: string, _config: ResolvedConfig): string[] {
     // Check package.json for dev script
     const pkgPath = join(cwd, "package.json");
     if (existsSync(pkgPath)) {

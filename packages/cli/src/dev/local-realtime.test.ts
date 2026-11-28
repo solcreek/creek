@@ -342,7 +342,6 @@ describe("LocalRealtimeServer integration", () => {
 
     // Disconnect ws3 → remaining clients get peers: 2
     const ws1CountBefore = ws1.messages.length;
-    const ws2CountBefore = ws2.messages.length;
     ws3.close();
     await waitForMessages(ws1, ws1CountBefore + 1);
     expect(ws1.messages[ws1.messages.length - 1]).toEqual({

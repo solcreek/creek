@@ -5,7 +5,6 @@ import {
   CreekdClient,
   CreekdApiError,
   getCreekdUrl,
-  type AppView,
   type StatsView,
 } from "../utils/creekd-client.js";
 import { fmtBytes, fmtDuration, calcCpuPercent } from "../utils/top-format.js";

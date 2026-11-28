@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
 describe("creek top --json output schema", () => {
   it("snapshot matches expected agent-consumable shape", async () => {

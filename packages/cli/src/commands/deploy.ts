@@ -1,35 +1,23 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 // ajv is lazy-imported only when --template --data is used (avoid top-level crash if deps missing)
-import { join, resolve, basename } from "node:path";
+import { join, resolve } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import {
-  parseConfig,
   CreekClient,
   CreekAuthError,
   CreekApiError,
-  isSSRFramework,
-  getSSRServerEntry,
-  getClientAssetsDir,
-  getDefaultBuildOutput,
-  getDefaultBuildCommand,
   detectFramework,
   resolveConfig,
   formatDetectionSummary,
   resolvedConfigToBindingRequirements,
   ConfigNotFoundError,
-  getSSRServerDir,
-  collectServerFiles,
-  isPreBundledFramework,
-  detectAstroCloudflareBuild,
   detectVinextBuild,
   VINEXT_OUTPUT_DIR,
   detectNextjsMode,
   detectMonorepo,
-  planDeploy,
   runDoctor,
-  type Framework,
   type ResolvedConfig,
   type VinextBuild,
 } from "@solcreek/sdk";
@@ -52,8 +40,6 @@ import { collectAssets } from "../utils/bundle.js";
 import { runDatabasePreflight, makePreflightIO, readProjectDeps } from "../utils/db-preflight.js";
 import { detectMigrationDrift, driftWarning } from "../utils/migration-drift.js";
 import { findUndeclaredBindings, formatBindingDrift } from "../utils/binding-drift.js";
-import { bundleSSRServer } from "../utils/ssr-bundle.js";
-import { bundleWorker } from "../utils/worker-bundle.js";
 import {
   sandboxDeploy,
   pollSandboxStatus,
@@ -85,13 +71,7 @@ import { pasteableBreadcrumbs } from "../utils/command-context.js";
 import { humanCommand } from "../utils/deployment-follow.js";
 import { ensureTosAccepted, type TosAcceptance } from "../utils/tos.js";
 import { verifyUrl, type VerifyResult } from "../utils/verify-url.js";
-import {
-  buildNextjs,
-  buildNextjsForWorkers,
-  patchBundledWorker,
-  hasAdapterOutput,
-  readAdapterCompat,
-} from "../utils/nextjs.js";
+import { hasAdapterOutput, readAdapterCompat } from "../utils/nextjs.js";
 import {
   isRepoUrl,
   parseRepoUrl,
@@ -107,7 +87,7 @@ import {
   cleanupDir as cleanupCloneDir,
   GitCloneError,
 } from "../utils/git-clone.js";
-import { CreekdClient, getCreekdUrl, type AppView } from "../utils/creekd-client.js";
+import { CreekdClient, getCreekdUrl } from "../utils/creekd-client.js";
 import { watchDeploy, type WatchResult } from "../utils/watch.js";
 import {
   deployDestination,
@@ -1432,7 +1412,7 @@ async function deployCreekd(
       execSync(resolved.buildCommand, { cwd, stdio: childStdio() });
       buildDurationMs = Date.now() - buildStart;
       if (!jsonMode) consola.success("  Build complete");
-    } catch (e: any) {
+    } catch {
       const msg = `Build failed: ${resolved.buildCommand}`;
       if (jsonMode) jsonOutput({ ok: false, error: "build_failed", message: msg }, 1, []);
       consola.error(msg);
@@ -1455,12 +1435,11 @@ async function deployCreekd(
   try {
     const spawnReq = { id: resolved.projectName, runtime, entry: entryPoint, port };
 
-    let app: AppView;
     try {
-      app = await client.spawnApp(spawnReq);
+      await client.spawnApp(spawnReq);
     } catch (e: any) {
       if (e.code === "already_running") {
-        app = await client.deployApp(resolved.projectName, { runtime, entry: entryPoint, port });
+        await client.deployApp(resolved.projectName, { runtime, entry: entryPoint, port });
       } else {
         throw e;
       }

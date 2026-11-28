@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rollbackCommand } from "./rollback.js";
 import { writeHosts, HOSTS_SCHEMA_VERSION } from "../utils/hosts.js";
-import { writeLocalCache, recordLastDeploy, LOCAL_SCHEMA_VERSION } from "../utils/local-cache.js";
+import { recordLastDeploy } from "../utils/local-cache.js";
 
 /**
  * Self-host rollback is tested by driving the citty command's
