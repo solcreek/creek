@@ -16,7 +16,7 @@
  * through control-plane's audit_log table.
  */
 
-import { parseScriptName, type TeamInfo } from "./parse.js";
+import { parseScriptName, servedType, type TeamInfo } from "./parse.js";
 import { writeBatchToR2, writePlatformBatchToR2 } from "./r2-writer.js";
 import { writeBatchToAnalytics } from "./analytics.js";
 import { pushBatchToRealtime } from "./realtime.js";
@@ -160,7 +160,7 @@ export default {
         timestamp: event.eventTimestamp,
         team: parsed.team,
         project: parsed.project,
-        scriptType: parsed.type,
+        scriptType: servedType(parsed, event.event?.request?.url),
         ...(parsed.branch ? { branch: parsed.branch } : {}),
         ...(parsed.deployId ? { deployId: parsed.deployId } : {}),
         outcome: event.outcome,

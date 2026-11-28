@@ -152,6 +152,14 @@ describe("creek-tail handler", () => {
       [
         makeTailEvent({
           scriptName: "vite-react-drizzle-13452d26-acme",
+          event: {
+            request: {
+              url: "https://vite-react-drizzle-13452d26-acme.bycreek.com/",
+              method: "GET",
+              headers: {},
+            },
+            response: { status: 200 },
+          },
         }),
       ],
       env,
@@ -162,6 +170,18 @@ describe("creek-tail handler", () => {
       team: "acme",
       project: "vite-react-drizzle",
       scriptType: "deployment",
+      deployId: "13452d26",
+    });
+  });
+
+  // Production is served from the production deployment's own script, so a
+  // trace from that script on the production hostname is production traffic.
+  test("production traffic served by a deployment's script is production, tagged with deployId", async () => {
+    await handler.tail([makeTailEvent({ scriptName: "vite-react-drizzle-13452d26-acme" })], env);
+    const entry = JSON.parse(r2Puts[0].body.trim());
+    expect(entry).toMatchObject({
+      project: "vite-react-drizzle",
+      scriptType: "production",
       deployId: "13452d26",
     });
   });

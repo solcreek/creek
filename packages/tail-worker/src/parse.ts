@@ -2,9 +2,12 @@
  * scriptName → tenant identity.
  *
  * WfP script naming convention (set by deploy-core/src/deploy.ts):
- *   {project}-{team}                   → production
+ *   {project}-{team}                   → production (cron and queue events)
  *   {project}-git-{branch}-{team}      → branch preview
- *   {project}-{shortDeployId}-{team}   → deployment preview (8-hex)
+ *   {project}-{shortDeployId}-{team}   → one deployment (8-hex): its preview
+ *                                        URL, and production HTTP traffic
+ *                                        while it is the production deployment
+ *                                        (see `servedType`)
  *
  * The team slug is part of the script name AND can itself contain
  * hyphens, so we can't tokenize blindly — we walk the team list
@@ -81,4 +84,27 @@ export function parseScriptName(scriptName: string, teams: TeamInfo[]): ParsedSc
   }
 
   return null;
+}
+
+/**
+ * What a trace from a deployment's own script served.
+ *
+ * The dispatch worker serves production (the default hostname and custom
+ * domains) from the immutable `{project}-{shortDeployId}-{team}` script of
+ * the production deployment, the same script that answers that deployment's
+ * preview URL `{project}-{shortDeployId}-{team}.<domain>`. The script name
+ * alone can't tell them apart; the request's hostname can. A request on any
+ * other hostname reached the script as production. An event with no request
+ * (none reaches a deployment script today) stays a deployment trace.
+ */
+export function servedType(parsed: ParsedScriptName, requestUrl: string | undefined): ScriptType {
+  if (parsed.type !== "deployment" || !requestUrl) return parsed.type;
+  let hostname: string;
+  try {
+    hostname = new URL(requestUrl).hostname.toLowerCase();
+  } catch {
+    return parsed.type;
+  }
+  const previewLabel = `${parsed.project}-${parsed.deployId}-${parsed.team}`;
+  return hostname.split(".")[0] === previewLabel ? "deployment" : "production";
 }
