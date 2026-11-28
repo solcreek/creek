@@ -92,11 +92,18 @@ async function getTeams(db: D1Database): Promise<TeamInfo[]> {
 // ~0.47% of invocations fail (see the Error 1101 report of 2026-07-30).
 //
 // What is safe to cache, and why:
-//   - production / branch script names are deterministic
-//     (`{project}-{team}`), and a redeploy updates the WfP script IN
-//     PLACE rather than renaming it — so a cached entry stays correct
-//     across deploys. The D1 query only answers "does this exist".
-//   - deployment previews resolve with no query at all.
+//   - branch script names are deterministic (`{project}-git-{branch}-{team}`)
+//     and a redeploy updates the WfP script IN PLACE, so a cached entry
+//     stays correct across deploys.
+//   - production names the immutable script of the deployment that
+//     `productionDeploymentId` points at. A deploy, promote or rollback
+//     moves the pointer, and a cached entry keeps serving the previous
+//     deployment until it expires: production follows the pointer within
+//     ROUTE_CACHE_TTL.
+//   - previews (branch and deployment) first look up a project whose slug is
+//     the whole preview-shaped name (ownProductionRoute). Where one exists,
+//     the hostname is that project's default hostname and follows its
+//     pointer like production; otherwise it names the preview script.
 //
 // The sharp edge is custom domains: if one is detached from tenant A and
 // attached to tenant B, cached entries keep routing to A for up to the
@@ -307,27 +314,91 @@ async function previewAccess(
   return configOf(name) ?? configOf(owner);
 }
 
+/**
+ * The Workers for Platforms script that serves a project's production: the
+ * immutable `{project}-{shortId}-{team}` script every deploy uploads
+ * (control-plane `deployWithAssets`, whose `shortDeployId` this mirrors).
+ *
+ * Production used to be served from the mutable `{project}-{team}` script,
+ * which only a deploy writes: promote and rollback moved the pointer and
+ * changed nothing a visitor saw, and a deploy that failed after uploading it
+ * stayed live. Routing by the pointer makes the URL serve whatever Creek says
+ * production is (formal/production-serving).
+ */
+function productionScriptName(project: string, team: string, deploymentId: string): string {
+  return `${project}-${deploymentId.slice(0, 8)}-${team}`;
+}
+
+/** The production route of project `project` in `team`, or null when it has none. */
+async function productionRoute(
+  db: D1Database,
+  project: string,
+  team: string,
+): Promise<ResolvedRoute | null> {
+  const row = await queryProduction(db, project, team);
+  return row ? routeFromProductionRow(row, project, team) : null;
+}
+
+function routeFromProductionRow(
+  row: ProductionRow,
+  project: string,
+  team: string,
+): ResolvedRoute | null {
+  if (!row.productionDeploymentId) return null;
+  // A project with an active primary domain has two addresses for the same
+  // content. Its default hostname either redirects there, or — when the
+  // project turned the redirect off — serves but stays out of search
+  // indexes. A project with no custom domain is untouched: the default
+  // hostname is its only address.
+  const primary = row.primaryDomain || null;
+  const redirects = Boolean(primary && row.redirectToPrimaryDomain);
+  return {
+    scriptName: productionScriptName(project, team, row.productionDeploymentId),
+    redirectHost: redirects ? primary : null,
+    noindex: Boolean(primary) && !redirects,
+    access: parseAccessConfig(row),
+  };
+}
+
+/**
+ * A preview-shaped hostname `{name}-{team}` that is a project's own default
+ * hostname: slugs may end in eight hex characters (`site-a1b2c3d4`) or contain
+ * `-git-`. Where a project has that exact slug, the hostname is its default
+ * hostname and follows its own pointer like any other project's: its
+ * production route, or null (404) while it has no production deployment, never
+ * the preview reading, which would dispatch to its mutable `{slug}-{team}`
+ * script. Access stays fail-closed for the collision: when the project itself
+ * is unprotected, the protection of the project the parse named still applies
+ * (see previewAccess).
+ *
+ * Returns undefined when no project has that slug: the hostname is a preview.
+ */
+async function ownProductionRoute(
+  db: D1Database,
+  team: string,
+  owner: string,
+  name: string,
+): Promise<ResolvedRoute | null | undefined> {
+  const row = await queryProduction(db, name, team);
+  if (!row) return undefined;
+  const route = routeFromProductionRow(row, name, team);
+  if (!route) return null;
+  return { ...route, access: route.access ?? (await previewAccess(db, team, owner, name)) };
+}
+
 async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<ResolvedRoute | null> {
   switch (parsed.type) {
-    case "production": {
-      const row = await queryProduction(db, parsed.project!, parsed.team!);
-      if (!row?.productionDeploymentId) return null;
-      // A project with an active primary domain has two addresses for the same
-      // content. Its default hostname either redirects there, or — when the
-      // project turned the redirect off — serves but stays out of search
-      // indexes. A project with no custom domain is untouched: the default
-      // hostname is its only address.
-      const primary = row.primaryDomain || null;
-      const redirects = Boolean(primary && row.redirectToPrimaryDomain);
-      return {
-        scriptName: `${parsed.project}-${parsed.team}`,
-        redirectHost: redirects ? primary : null,
-        noindex: Boolean(primary) && !redirects,
-        access: parseAccessConfig(row),
-      };
-    }
+    case "production":
+      return productionRoute(db, parsed.project!, parsed.team!);
 
     case "branch": {
+      const own = await ownProductionRoute(
+        db,
+        parsed.team!,
+        parsed.project!,
+        `${parsed.project}-git-${parsed.branch}`,
+      );
+      if (own !== undefined) return own;
       const row = await db
         .prepare(
           `SELECT d.id FROM deployment d
@@ -352,6 +423,8 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
 
     case "deployment": {
       const name = `${parsed.project}-${parsed.deployId}`;
+      const own = await ownProductionRoute(db, parsed.team!, parsed.project!, name);
+      if (own !== undefined) return own;
       return {
         scriptName: `${name}-${parsed.team}`,
         redirectHost: null,
@@ -364,17 +437,24 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
       const row = await withAccessColumns((access) =>
         db
           .prepare(
-            `SELECT p.slug, t.slug as team_slug, ${access} FROM custom_domain cd
+            `SELECT p.slug, t.slug as team_slug, p.productionDeploymentId, ${access}
+             FROM custom_domain cd
              JOIN project p ON cd.projectId = p.id
              JOIN organization t ON p.organizationId = t.id
              WHERE cd.hostname = ? AND cd.status = 'active'`,
           )
           .bind(parsed.customHostname)
-          .first<{ slug: string; team_slug: string } & AccessColumns>(),
+          .first<
+            {
+              slug: string;
+              team_slug: string;
+              productionDeploymentId: string | null;
+            } & AccessColumns
+          >(),
       );
-      if (!row) return null;
+      if (!row?.productionDeploymentId) return null;
       return {
-        scriptName: `${row.slug}-${row.team_slug}`,
+        scriptName: productionScriptName(row.slug, row.team_slug, row.productionDeploymentId),
         redirectHost: null,
         noindex: false,
         access: parseAccessConfig(row),

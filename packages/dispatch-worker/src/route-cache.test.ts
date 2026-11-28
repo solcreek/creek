@@ -50,7 +50,7 @@ function createMockD1(opts: MockOptions = {}): D1Database {
           return exec;
         },
         async first<T>(): Promise<T | null> {
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             d1Calls.push("production");
             if (opts.down) throw new Error("Network connection lost.");
             const [project, team] = bound as [string, string];
@@ -60,7 +60,8 @@ function createMockD1(opts: MockOptions = {}): D1Database {
             d1Calls.push(sql.includes("t.plan") ? "customPlan" : "customScript");
             if (opts.down) throw new Error("Network connection lost.");
             const [hostname] = bound as [string];
-            return (customDomains[hostname] ?? null) as T | null;
+            const row = customDomains[hostname];
+            return (row ? { productionDeploymentId: "dep_1", ...row } : null) as T | null;
           }
           return null;
         },
@@ -126,7 +127,7 @@ describe("a repeat request does no D1 work", () => {
 
     expect(res.status).toBe(200);
     expect(d1Calls).toEqual([]); // not even the team-list read
-    expect(dispatched).toEqual(["site-acme", "site-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme", "site-dep_1-acme"]);
   });
 
   test("a different host is resolved on its own", async () => {
@@ -144,7 +145,7 @@ describe("a repeat request does no D1 work", () => {
     await worker.fetch(new Request("https://shop-acme.bycreek.com/"), env);
 
     expect(d1Calls).toContain("production");
-    expect(dispatched).toEqual(["site-acme", "shop-acme"]);
+    expect(dispatched).toEqual(["site-dep_1-acme", "shop-dep_2-acme"]);
   });
 
   test("a custom domain caches both of its round trips", async () => {
@@ -283,7 +284,7 @@ describe("resilience while D1 is unreachable", () => {
     const res = await worker.fetch(new Request("https://shop-acme.bycreek.com/"), makeEnv(orgDown));
 
     expect(res.status).toBe(200);
-    expect(dispatched).toContain("shop-acme");
+    expect(dispatched).toContain("shop-dep_2-acme");
     expect(d1Calls).toContain("orgs"); // it did try, and fell back
   });
 });

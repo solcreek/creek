@@ -49,6 +49,7 @@ interface CustomDomainRow {
   slug: string;
   team_slug: string;
   plan: string;
+  productionDeploymentId?: string | null;
 }
 
 function createMockD1(opts: {
@@ -70,7 +71,7 @@ function createMockD1(opts: {
         },
         async first<T>(): Promise<T | null> {
           // production deployment lookup uses (project_slug, team_slug)
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             const [project, team] = boundArgs as [string, string];
             return (productionDeployments[`${project}|${team}`] ?? null) as T | null;
           }
@@ -144,7 +145,8 @@ async function dispatchProduction(opts: {
 }) {
   const project = "site";
   const team = "acme";
-  const scriptName = `${project}-${team}`;
+  // Production serves the immutable script of the deployment it points at.
+  const scriptName = `${project}-deploy_1-${team}`;
 
   return worker.fetch(
     new Request(`https://${project}-${team}.bycreek.com${opts.pathname}`, {
@@ -268,10 +270,15 @@ async function dispatchCustom(opts: {
     new Request(`https://${opts.hostname}${opts.pathname}`),
     createEnv({
       customDomains: {
-        [opts.hostname]: { slug: "site", team_slug: "acme", plan: "pro" },
+        [opts.hostname]: {
+          slug: "site",
+          team_slug: "acme",
+          plan: "pro",
+          productionDeploymentId: "deploy_123",
+        },
       },
       scriptHandlers: {
-        "site-acme": async () =>
+        "site-deploy_1-acme": async () =>
           new Response("ok", { headers: new Headers(opts.responseHeaders ?? {}) }),
       },
     }),

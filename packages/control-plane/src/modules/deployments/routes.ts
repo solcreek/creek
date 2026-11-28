@@ -791,6 +791,13 @@ deployments.get("/:projectId/deployments", requireScopes("project:read"), async 
   return c.json(enriched);
 });
 
+// Production serves the code of the deployment productionDeploymentId names
+// (the dispatch worker routes to its immutable script). A rollback row is a
+// record of the rollback, with no code of its own: pointing production at one
+// would serve nothing.
+const ROLLBACK_ROW_MESSAGE =
+  "A rollback record has no code of its own. Roll back to the deployment it points at instead.";
+
 // Promote a deployment to production
 deployments.post(
   "/:projectId/deployments/:deploymentId/promote",
@@ -808,13 +815,17 @@ deployments.post(
     }
 
     const deployment = await c.env.DB.prepare(
-      "SELECT id, status FROM deployment WHERE id = ? AND projectId = ?",
+      "SELECT id, status, triggerType FROM deployment WHERE id = ? AND projectId = ?",
     )
       .bind(deploymentId, project.id)
-      .first<{ id: string; status: string }>();
+      .first<{ id: string; status: string; triggerType: string }>();
 
     if (!deployment) {
       return c.json({ error: "not_found", message: "Deployment not found" }, 404);
+    }
+
+    if (deployment.triggerType === "rollback") {
+      return c.json({ error: "invalid_target", message: ROLLBACK_ROW_MESSAGE }, 400);
     }
 
     if (deployment.status !== "active") {
@@ -949,16 +960,20 @@ deployments.post(
 
     // Validate target
     const target = await c.env.DB.prepare(
-      "SELECT id, version FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
+      "SELECT id, version, triggerType FROM deployment WHERE id = ? AND projectId = ? AND status = 'active'",
     )
       .bind(targetId, project.id)
-      .first<{ id: string; version: number }>();
+      .first<{ id: string; version: number; triggerType: string }>();
 
     if (!target) {
       return c.json(
         { error: "invalid_target", message: "Target deployment not found or not active" },
         400,
       );
+    }
+
+    if (target.triggerType === "rollback") {
+      return c.json({ error: "invalid_target", message: ROLLBACK_ROW_MESSAGE }, 400);
     }
 
     if (targetId === project.productionDeploymentId) {
@@ -1094,6 +1109,48 @@ deployments.get("/:projectId/cron-logs", requireScopes("logs:read"), async (c) =
   }
 });
 
+/** How many recent production deployments' scripts analytics reads. */
+const ANALYTICS_DEPLOYMENTS = 20;
+
+/**
+ * The Workers scripts that served the project's production.
+ *
+ * Production HTTP traffic runs on the immutable script of the production
+ * deployment (the dispatch worker routes by productionDeploymentId), so it is
+ * spread over every deployment that was production in the period. That set
+ * isn't recorded; it is approximated by the current one plus the most recent
+ * production-branch deployments. The mutable `{project}-{team}` script is
+ * kept: cron and queue events run there, and so did production traffic
+ * before routing followed the pointer. Those scripts also answer their
+ * preview URLs, so preview requests count here too.
+ */
+async function productionScriptNames(
+  db: D1Database,
+  project: {
+    id: string;
+    slug: string;
+    productionDeploymentId: string | null;
+    productionBranch: string;
+  },
+  teamSlug: string,
+): Promise<string[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id FROM deployment
+       WHERE projectId = ? AND status = 'active' AND triggerType != 'rollback'
+         AND (branch IS NULL OR branch = ?)
+       ORDER BY createdAt DESC LIMIT ?`,
+    )
+    .bind(project.id, project.productionBranch, ANALYTICS_DEPLOYMENTS)
+    .all<{ id: string }>();
+  const ids = new Set(rows.results.map((r) => r.id));
+  if (project.productionDeploymentId) ids.add(project.productionDeploymentId);
+  return [
+    `${project.slug}-${teamSlug}`,
+    ...[...ids].map((id) => `${project.slug}-${shortDeployId(id)}-${teamSlug}`),
+  ];
+}
+
 /**
  * GET /projects/:id/analytics?period=24h|7d|30d
  * Per-tenant analytics: requests, errors, latency time-series.
@@ -1111,6 +1168,7 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
   }
 
   const scriptName = `${project.slug}-${teamSlug}`;
+  let scriptNames = await productionScriptNames(c.env.DB, project, teamSlug);
 
   // Period → hours + grouping
   const periodHours =
@@ -1125,13 +1183,13 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
         ? "datetimeFifteenMinutes"
         : "datetimeHour";
 
-  const query = `
+  const buildQuery = (scriptFilter: string) => `
     query {
       viewer {
         accounts(filter: { accountTag: "${c.env.CLOUDFLARE_ACCOUNT_ID}" }) {
           series: workersInvocationsAdaptive(
             filter: {
-              scriptName: "${scriptName}"
+              ${scriptFilter}
               datetime_gt: "${since}"
             }
             limit: 1000
@@ -1153,7 +1211,7 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
           }
           totals: workersInvocationsAdaptive(
             filter: {
-              scriptName: "${scriptName}"
+              ${scriptFilter}
               datetime_gt: "${since}"
             }
             limit: 1
@@ -1173,23 +1231,39 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
     }
   `;
 
-  try {
+  const run = async (scriptFilter: string) => {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${c.env.CLOUDFLARE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query: buildQuery(scriptFilter) }),
     });
+    return (await res.json()) as any;
+  };
 
-    const data = (await res.json()) as any;
+  try {
+    let data = await run(`scriptName_in: ${JSON.stringify(scriptNames)}`);
+    // Cloudflare documents `_in` for scalar fields but says operator support
+    // varies by dataset. If it refuses the list, fall back to one script: the
+    // current production deployment's, which serves production HTTP traffic
+    // now (the mutable script only runs cron and queue events). A project
+    // with no production deployment falls back to the mutable script.
+    if (Array.isArray(data?.errors) && data.errors.length > 0) {
+      const fallback = project.productionDeploymentId
+        ? `${project.slug}-${shortDeployId(project.productionDeploymentId)}-${teamSlug}`
+        : scriptName;
+      scriptNames = [fallback];
+      data = await run(`scriptName: ${JSON.stringify(fallback)}`);
+    }
     const account = data?.data?.viewer?.accounts?.[0];
     const series = account?.series ?? [];
     const totals = account?.totals?.[0] ?? null;
 
     return c.json({
       scriptName,
+      scriptNames,
       period,
       totals: totals
         ? {
@@ -1212,6 +1286,7 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
   } catch {
     return c.json({
       scriptName,
+      scriptNames,
       period,
       totals: { requests: 0, errors: 0, subrequests: 0, cpuTimeP50: 0, cpuTimeP99: 0 },
       series: [],

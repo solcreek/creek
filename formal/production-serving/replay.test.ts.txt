@@ -1,0 +1,198 @@
+// SCRATCH — replays the ProductionServing counterexamples (formal/production-serving)
+// against the real deploy job and routes. Not for commit: it asserts current bugs.
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
+import {
+  createLocalTestEnv,
+  seedTestData,
+  seedProject,
+  type LocalTestEnv,
+} from "../../local/test-env.js";
+import { runDeployJob } from "./deploy-job.js";
+import { createTestApp, TEST_USER, TEST_TEAM } from "../../test-helpers.js";
+
+const NS =
+  "https://api.cloudflare.com/client/v4/accounts/:acc/workers/dispatch/namespaces/:ns/scripts/:name";
+const PROD_SCRIPT = "myapp-my-team";
+
+// --- which deployment's code each script holds ---
+let edge: Record<string, string> = {}; // script name -> deployment id
+let ownerByManifest: Record<string, string> = {};
+let hooks: {
+  afterProdUpload?: (dep: string) => Promise<void> | void;
+  beforeProdUpload?: (dep: string) => Promise<void> | void;
+} = {};
+
+const server = setupServer(
+  http.post(`${NS}/assets-upload-session`, async ({ params, request }) => {
+    const name = String(params.name);
+    const manifest = JSON.stringify(((await request.json()) as { manifest: unknown }).manifest);
+    let owner: string;
+    if (name === PROD_SCRIPT) {
+      owner = ownerByManifest[manifest];
+    } else {
+      // immutable script `myapp-<shortId>-my-team`: the job's own deployment
+      const short = name.slice("myapp-".length, name.length - "-my-team".length);
+      owner = ["dep-1", "dep-2"].find((d) => d.slice(0, 8) === short)!;
+      ownerByManifest[manifest] = owner;
+    }
+    return HttpResponse.json({ success: true, result: { jwt: `jwt:${owner}`, buckets: [] }, errors: [] });
+  }),
+  http.put(NS, async ({ params, request }) => {
+    const name = String(params.name);
+    const fd = await (request as unknown as { formData(): Promise<FormData> }).formData();
+    const meta = JSON.parse(await (fd.get("metadata") as unknown as File).text());
+    const owner = String(meta.assets.jwt).slice("jwt:".length);
+    if (name === PROD_SCRIPT) await hooks.beforeProdUpload?.(owner);
+    edge[name] = owner;
+    if (name === PROD_SCRIPT) await hooks.afterProdUpload?.(owner);
+    return HttpResponse.json({ success: true, result: { id: "script" }, errors: [] });
+  }),
+  http.patch(`${NS}/settings`, () => HttpResponse.json({ success: true, result: {}, errors: [] })),
+);
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterAll(() => server.close());
+
+let testEnv: LocalTestEnv;
+beforeEach(() => {
+  edge = {};
+  ownerByManifest = {};
+  hooks = {};
+  testEnv = createLocalTestEnv();
+  seedTestData(testEnv);
+  seedProject(testEnv, "myapp", { id: "proj-myapp" });
+  for (const [id, v] of [["dep-1", 1], ["dep-2", 2]] as const) {
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('${id}', 'proj-myapp', ${v}, 'pending', 'api', ${Date.now()}, ${Date.now()})`,
+    );
+  }
+  testEnv.env.CLOUDFLARE_API_TOKEN = "test-token";
+});
+afterEach(() => {
+  server.resetHandlers();
+  testEnv.cleanup();
+});
+
+async function stage(dep: string) {
+  // distinct content per deployment => distinct asset manifest
+  const bundle = {
+    manifest: { assets: ["index.html"], hasWorker: false, entrypoint: null, renderMode: "spa" },
+    assets: { "index.html": btoa(`<html>${dep}</html>`) },
+  };
+  await testEnv.env.ASSETS.put(`bundles/${dep}.json`, JSON.stringify(bundle));
+}
+const job = (dep: string) =>
+  runDeployJob(testEnv.env, {
+    deploymentId: dep,
+    projectId: "proj-myapp",
+    projectSlug: "myapp",
+    teamId: "team-1",
+    teamSlug: "my-team",
+    plan: "free",
+    branch: null,
+    productionBranch: "main",
+    framework: null,
+  });
+const pointer = () =>
+  (testEnv.db.db.prepare("SELECT productionDeploymentId p FROM project WHERE id='proj-myapp'").get() as {
+    p: string | null;
+  }).p;
+const statusOf = (dep: string) =>
+  (testEnv.db.db.prepare("SELECT status s FROM deployment WHERE id=?").get(dep) as { s: string }).s;
+const app = () => createTestApp(TEST_USER, TEST_TEAM.id, TEST_TEAM.slug);
+
+describe("replay ProductionServing counterexamples", () => {
+  it("rollback: pointer moves to dep-1, production script still holds dep-2", async () => {
+    await stage("dep-1");
+    await job("dep-1");
+    await stage("dep-2");
+    await job("dep-2");
+    expect([edge[PROD_SCRIPT], pointer()]).toEqual(["dep-2", "dep-2"]);
+
+    const res = await app().request(
+      "/projects/proj-myapp/rollback",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deploymentId: "dep-1" }) },
+      testEnv.env,
+    );
+    expect(res.status).toBe(200);
+    console.log("rollback:", { pointer: pointer(), productionScript: edge[PROD_SCRIPT] });
+    expect(pointer()).toBe("dep-1");
+    expect(edge[PROD_SCRIPT]).toBe("dep-2");
+  });
+
+  it("promote: pointer moves to dep-1, production script still holds dep-2", async () => {
+    await stage("dep-1");
+    await job("dep-1");
+    await stage("dep-2");
+    await job("dep-2");
+    const res = await app().request("/projects/proj-myapp/deployments/dep-1/promote", { method: "POST" }, testEnv.env);
+    expect(res.status).toBe(200);
+    console.log("promote:", { pointer: pointer(), productionScript: edge[PROD_SCRIPT] });
+    expect(pointer()).toBe("dep-1");
+    expect(edge[PROD_SCRIPT]).toBe("dep-2");
+  });
+
+  it("concurrent: uploads land 1 then 2, activations 2 then 1", async () => {
+    await stage("dep-1");
+    await stage("dep-2");
+    let releaseDep1!: () => void;
+    const dep1Held = new Promise<void>((r) => (releaseDep1 = r));
+    let dep1Uploaded!: () => void;
+    const dep1Up = new Promise<void>((r) => (dep1Uploaded = r));
+    hooks.beforeProdUpload = async (dep) => {
+      if (dep === "dep-2") await dep1Up; // dep-2's production upload lands after dep-1's
+    };
+    hooks.afterProdUpload = async (dep) => {
+      if (dep === "dep-1") {
+        dep1Uploaded();
+        await dep1Held; // dep-1 activates only after dep-2 finished
+      }
+    };
+    const j1 = job("dep-1");
+    const j2 = job("dep-2").then(() => releaseDep1());
+    await Promise.all([j1, j2]);
+    console.log("concurrent:", { pointer: pointer(), productionScript: edge[PROD_SCRIPT] });
+    expect(edge[PROD_SCRIPT]).toBe("dep-2");
+    expect(pointer()).toBe("dep-1");
+  });
+
+  it("failures: activation batch fails after dep-2 uploaded production", async () => {
+    await stage("dep-1");
+    await job("dep-1");
+    await stage("dep-2");
+    const db = testEnv.env.DB as unknown as { batch: (...a: unknown[]) => Promise<unknown> };
+    const realBatch = db.batch.bind(db);
+    let failNext = false;
+    hooks.afterProdUpload = (dep) => {
+      if (dep === "dep-2") failNext = true;
+    };
+    db.batch = async (...a: unknown[]) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error("D1_ERROR: simulated");
+      }
+      return realBatch(...a);
+    };
+    await job("dep-2");
+    console.log("failures:", { pointer: pointer(), productionScript: edge[PROD_SCRIPT], dep2: statusOf("dep-2") });
+    expect(edge[PROD_SCRIPT]).toBe("dep-2");
+    expect(pointer()).toBe("dep-1");
+    expect(statusOf("dep-2")).toBe("failed");
+  });
+
+  it("failures-active: manifest write fails after activation", async () => {
+    await stage("dep-1");
+    const assets = testEnv.env.ASSETS as unknown as { put: (k: string, ...r: unknown[]) => Promise<unknown> };
+    const realPut = assets.put.bind(assets);
+    assets.put = async (k: string, ...r: unknown[]) => {
+      if (k.endsWith("dep-1/_manifest.json")) throw new Error("R2: simulated");
+      return realPut(k, ...r);
+    };
+    await job("dep-1");
+    console.log("failures-active:", { pointer: pointer(), dep1: statusOf("dep-1") });
+    expect(pointer()).toBe("dep-1");
+    expect(statusOf("dep-1")).toBe("failed");
+  });
+});

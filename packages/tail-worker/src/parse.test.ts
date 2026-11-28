@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { parseScriptName, type TeamInfo } from "./parse.js";
+import { parseScriptName, servedType, type TeamInfo } from "./parse.js";
 
 const TEAMS_BY_LENGTH: TeamInfo[] = [
   // sorted longest first — same ORDER BY length(slug) DESC the
@@ -163,5 +163,45 @@ describe("parseScriptName", () => {
         project: "app-deadbeeg",
       });
     });
+  });
+});
+
+describe("servedType", () => {
+  const deployment = {
+    type: "deployment" as const,
+    team: "acme-corp",
+    project: "my-app",
+    deployId: "a1b2c3d4",
+  };
+
+  test.each([
+    ["its own preview URL", "https://my-app-a1b2c3d4-acme-corp.bycreek.com/x", "deployment"],
+    [
+      "its preview URL, upper-cased",
+      "https://MY-APP-A1B2C3D4-ACME-CORP.bycreek.com/",
+      "deployment",
+    ],
+    ["the production hostname", "https://my-app-acme-corp.bycreek.com/", "production"],
+    ["a custom domain", "https://app.example.com/", "production"],
+    [
+      "a custom domain whose first label matches the preview",
+      "https://my-app-a1b2c3d4-acme-corp.example.com/",
+      "production",
+    ],
+  ])("a deployment script serving %s", (_, url, expected) => {
+    expect(servedType(deployment, url, "bycreek.com")).toBe(expected);
+  });
+
+  test("an event with no request stays a deployment trace", () => {
+    expect(servedType(deployment, undefined, "bycreek.com")).toBe("deployment");
+  });
+
+  test("production and branch scripts keep their type", () => {
+    const branch = { type: "branch" as const, team: "acme", project: "app", branch: "x" };
+    expect(servedType(branch, "https://app.example.com/", "bycreek.com")).toBe("branch");
+    const prod = { type: "production" as const, team: "acme", project: "app" };
+    expect(servedType(prod, "https://app-git-x-acme.bycreek.com/", "bycreek.com")).toBe(
+      "production",
+    );
   });
 });

@@ -67,7 +67,7 @@ function createMockD1(opts: MockD1Options = {}): D1Database {
           return exec;
         },
         async first<T>(): Promise<T | null> {
-          if (sql.includes("p.productionDeploymentId")) {
+          if (sql.includes("p.productionDeploymentId") && !sql.includes("cd.hostname = ?")) {
             hit("production");
             const [project, team] = boundArgs as [string, string];
             return (productionDeployments[`${project}|${team}`] ?? null) as T | null;
@@ -77,7 +77,8 @@ function createMockD1(opts: MockD1Options = {}): D1Database {
             // resolveTeamPlan selects `t.plan`. Two distinct round trips.
             hit(sql.includes("t.plan") ? "customPlan" : "customScript");
             const [hostname] = boundArgs as [string];
-            return (customDomains[hostname] ?? null) as T | null;
+            const row = customDomains[hostname];
+            return (row ? { productionDeploymentId: "dep_123", ...row } : null) as T | null;
           }
           return null;
         },
@@ -240,7 +241,7 @@ describe("healthy lookups are unaffected", () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("hello");
-    expect(dispatched).toEqual(["nii-course-system-eli-chen-f443"]);
+    expect(dispatched).toEqual(["nii-course-system-dep_123-eli-chen-f443"]);
   });
 
   test("unknown host stays 404 — a broken lookup and a missing one differ", async () => {
