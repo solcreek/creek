@@ -109,6 +109,7 @@ describe("PUT /projects/:id/access", () => {
       teamDomain: TEAM_DOMAIN,
       aud: AUD,
       bypassPaths: ["/health", "/api/webhooks/*"],
+      managed: null,
     });
   });
 
@@ -192,7 +193,11 @@ describe("DELETE /projects/:id/access", () => {
     const res = await req("DELETE", `/projects/${PROJECT_ID}/access`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, protected: false });
-    expect(stored()).toEqual({ accessTeamDomain: null, accessAud: null, accessBypassPaths: null });
+    expect(stored()).toEqual({
+      accessTeamDomain: null,
+      accessAud: null,
+      accessBypassPaths: null,
+    });
     expect(auditActions()).toEqual(["domain.access_update", "domain.access_remove"]);
   });
 
@@ -227,6 +232,27 @@ describe("before migration 0016", () => {
   });
 });
 
+describe("before migration 0017", () => {
+  test("every route answers 503 not_available rather than 500", async () => {
+    testEnv.db.db.exec("ALTER TABLE project DROP COLUMN accessManaged");
+    const get = await req("GET", `/projects/${PROJECT_ID}/access`);
+    const put = await req("PUT", `/projects/${PROJECT_ID}/access`, {
+      teamDomain: TEAM_DOMAIN,
+      aud: AUD,
+    });
+    const managed = await req("PUT", `/projects/${PROJECT_ID}/access/managed`, {
+      emails: ["a@example.com"],
+    });
+    const del = await req("DELETE", `/projects/${PROJECT_ID}/access`);
+    for (const res of [get, put, managed, del]) {
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as any).error).toBe("not_available");
+    }
+    expect(stored().accessAud).toBeNull();
+    expect(auditActions()).toEqual([]);
+  });
+});
+
 describe("parsing", () => {
   test.each([
     ["acme", "acme.cloudflareaccess.com"],
@@ -240,14 +266,22 @@ describe("parsing", () => {
   test("the worker and the API agree on bypass paths", () => {
     // Mirrors dispatch-worker's isBypassPath table (access.test.ts).
     for (const bad of ["/", "/*", "//", "health", "/a?b", "/a*b", "/a/../b"]) {
-      expect(parseAccessBody({ teamDomain: TEAM_DOMAIN, aud: AUD, bypassPaths: [bad] }).ok).toBe(
-        false,
-      );
+      expect(
+        parseAccessBody({
+          teamDomain: TEAM_DOMAIN,
+          aud: AUD,
+          bypassPaths: [bad],
+        }).ok,
+      ).toBe(false);
     }
     for (const good of ["/health", "/health/", "/api/webhooks/*"]) {
-      expect(parseAccessBody({ teamDomain: TEAM_DOMAIN, aud: AUD, bypassPaths: [good] }).ok).toBe(
-        true,
-      );
+      expect(
+        parseAccessBody({
+          teamDomain: TEAM_DOMAIN,
+          aud: AUD,
+          bypassPaths: [good],
+        }).ok,
+      ).toBe(true);
     }
   });
 });

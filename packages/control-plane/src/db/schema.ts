@@ -173,6 +173,13 @@ export const project = sqliteTable(
     accessAud: text("accessAud"),
     /** JSON array of path prefixes the Access application bypasses. */
     accessBypassPaths: text("accessBypassPaths"),
+    /**
+     * JSON: the Access applications Creek created for this project in the
+     * team's Cloudflare account (migration 0017). Null when Creek manages none.
+     */
+    accessManaged: text("accessManaged"),
+    /** Epoch ms until which a request holds the lease on the Access settings (0017). */
+    accessLockedUntil: integer("accessLockedUntil"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
