@@ -18,11 +18,11 @@
  *   (CREEKD_TOKEN / CREEKCTL_TOKEN), never the creek.dev session.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveConfig, ConfigNotFoundError } from "@solcreek/sdk";
 import { AUTH_BREADCRUMBS, AGENT_SANDBOX_DEPLOY, type Breadcrumb } from "./output.js";
-import { isRepoUrl } from "./repo-url.js";
+import { isRepoUrl, RepoUrlError, validateSubpath } from "./repo-url.js";
 import { shellQuote } from "./shell-quote.js";
 
 /** How the invocation reaches its files. Mirrors the dispatch in deploy.ts. */
@@ -52,6 +52,10 @@ export interface DestinationInput {
   yes: boolean;
   /** The `<dir>` argument as typed (directory path), for messages. */
   dir?: string;
+  /** Validated relative monorepo subdirectory from `--path <subdir>`. */
+  subpath?: string;
+  /** `--path` validation failure (conflicting flags, invalid subpath, missing subdir). */
+  pathError?: { error: "conflicting_flags" | "invalid_path" | "not_found"; message: string };
   /** The `--template` name, for messages. */
   template?: string;
   /**
@@ -65,6 +69,8 @@ export interface DestinationInput {
 export type RefusalError =
   | "conflicting_flags"
   | "invalid_config"
+  | "invalid_path"
+  | "not_found"
   | "not_authenticated"
   | "prod_unsupported"
   | "sandbox_unsupported"
@@ -77,6 +83,24 @@ export type DeployDestination =
   | { kind: "refused"; error: RefusalError; message: string; breadcrumbs: Breadcrumb[] };
 
 const SANDBOX_ONLY: ReadonlySet<DeployPath> = new Set(["template", "directory", "build-output"]);
+
+function isSafeSubpath(value: string): boolean {
+  try {
+    validateSubpath(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function subpathDeployCmd(
+  subpath: string | undefined,
+  targetFlag: "--prod" | "--sandbox" | "--yes" | "--dry-run",
+): string {
+  return subpath
+    ? `creek deploy --path ${shellQuote(subpath)} ${targetFlag} --json`
+    : `creek deploy ${targetFlag} --json`;
+}
 
 function prodUnsupported(input: DestinationInput): DeployDestination {
   if (input.path === "template") {
@@ -101,24 +125,35 @@ function prodUnsupported(input: DestinationInput): DeployDestination {
     input.path === "directory"
       ? `\`creek deploy ${input.dir ?? "<dir>"}\` uploads that directory to a 60-minute sandbox`
       : "Without a project config, the build-output folder is uploaded to a 60-minute sandbox";
+  const breadcrumbs: Breadcrumb[] = [];
+  if (input.path === "directory" && input.dir && isSafeSubpath(input.dir)) {
+    breadcrumbs.push({
+      command: `creek deploy --path ${shellQuote(input.dir)} --prod --json`,
+      description:
+        "If this is a monorepo project subdir, deploy it to production with --path instead",
+    });
+  }
+  breadcrumbs.push(
+    {
+      command: "creek init --json",
+      description:
+        'In the project directory: write creek.toml (set [build] output to the built folder, and command = "" if it is prebuilt), then `creek deploy --prod --json`',
+    },
+    {
+      command:
+        input.path === "directory"
+          ? `creek deploy ${input.dir ? shellQuote(input.dir) : "<dir>"} --sandbox --json`
+          : input.subpath
+            ? subpathDeployCmd(input.subpath, "--sandbox")
+            : AGENT_SANDBOX_DEPLOY,
+      description: "Deploy to a 60-minute sandbox instead",
+    },
+  );
   return {
     kind: "refused",
     error: "prod_unsupported",
     message: `${where}; it has no production path. Production deploys run from a project directory with a config (creek.toml, wrangler, package.json or index.html).`,
-    breadcrumbs: [
-      {
-        command: "creek init --json",
-        description:
-          'In the project directory: write creek.toml (set [build] output to the built folder, and command = "" if it is prebuilt), then `creek deploy --prod --json`',
-      },
-      {
-        command:
-          input.path === "directory"
-            ? `creek deploy ${input.dir ? shellQuote(input.dir) : "<dir>"} --sandbox --json`
-            : AGENT_SANDBOX_DEPLOY,
-        description: "Deploy to a 60-minute sandbox instead",
-      },
-    ],
+    breadcrumbs,
   };
 }
 
@@ -129,6 +164,15 @@ export function deployDestination(input: DestinationInput): DeployDestination {
       kind: "refused",
       error: "conflicting_flags",
       message: "--prod and --sandbox are mutually exclusive. Pick one target.",
+      breadcrumbs: [],
+    };
+  }
+
+  if (input.pathError) {
+    return {
+      kind: "refused",
+      error: input.pathError.error,
+      message: input.pathError.message,
       breadcrumbs: [],
     };
   }
@@ -154,8 +198,14 @@ export function deployDestination(input: DestinationInput): DeployDestination {
           message:
             'This project targets creekd (creek.toml target = "creekd"), which has no sandbox: a deploy replaces the live app on your creekd. Nothing was deployed. Deploy to creekd explicitly, or preview with `creek dev`.',
           breadcrumbs: [
-            { command: "creek deploy --yes --json", description: "Deploy to your creekd" },
-            { command: "creek deploy --dry-run --json", description: "Preview the plan first" },
+            {
+              command: subpathDeployCmd(input.subpath, "--yes"),
+              description: "Deploy to your creekd",
+            },
+            {
+              command: subpathDeployCmd(input.subpath, "--dry-run"),
+              description: "Preview the plan first",
+            },
           ],
         };
       }
@@ -171,16 +221,22 @@ export function deployDestination(input: DestinationInput): DeployDestination {
       // runs from the project directory. Refuse rather than make `<dir>` mean
       // two things, or publish a self-hosted project's files to a sandbox.
       const dir = input.dir ?? "<dir>";
+      const breadcrumbs: Breadcrumb[] = [];
+      if (input.dir && isSafeSubpath(input.dir)) {
+        breadcrumbs.push({
+          command: `creek deploy --path ${shellQuote(input.dir)} --yes --json`,
+          description: "Deploy the monorepo subdirectory to creekd with --path",
+        });
+      }
+      breadcrumbs.push({
+        command: `cd ${input.dir ? shellQuote(input.dir) : "<dir>"} && creek deploy --yes --json`,
+        description: "Deploy the project to your creekd from its directory",
+      });
       return {
         kind: "refused",
         error: "creekd_dir_unsupported",
         message: `${dir} targets creekd (creek.toml target = "creekd"). creekd deploys run from the project directory, not as a directory upload.`,
-        breadcrumbs: [
-          {
-            command: `cd ${input.dir ? shellQuote(input.dir) : "<dir>"} && creek deploy --yes --json`,
-            description: "Deploy the project to your creekd from its directory",
-          },
-        ],
+        breadcrumbs,
       };
     }
   }
@@ -194,13 +250,15 @@ export function deployDestination(input: DestinationInput): DeployDestination {
           "--from-github deploys the production branch through the project's GitHub connection; it has no sandbox. Drop --from-github to preview local files in a sandbox.",
         breadcrumbs: [
           {
-            command: AGENT_SANDBOX_DEPLOY,
+            command: input.subpath
+              ? subpathDeployCmd(input.subpath, "--sandbox")
+              : AGENT_SANDBOX_DEPLOY,
             description: "Deploy local files to a 60-minute sandbox",
           },
         ],
       };
     }
-    if (!input.authenticated) return notAuthenticated("--from-github");
+    if (!input.authenticated) return notAuthenticated("--from-github", input.subpath);
     return {
       kind: "production",
       implicit: !input.prod,
@@ -225,7 +283,9 @@ export function deployDestination(input: DestinationInput): DeployDestination {
   // project / repo-url: production when signed in, sandbox otherwise.
   if (input.sandbox) return { kind: "sandbox", reason: "--sandbox" };
   if (!input.authenticated) {
-    if (input.prod) return notAuthenticated("--prod");
+    if (input.prod) {
+      return notAuthenticated("--prod", input.path === "repo-url" ? undefined : input.subpath);
+    }
     return { kind: "sandbox", reason: "not signed in: the only target without a session" };
   }
   return input.prod
@@ -238,14 +298,15 @@ export function deployDestination(input: DestinationInput): DeployDestination {
       };
 }
 
-function notAuthenticated(flag: string): DeployDestination {
+function notAuthenticated(flag: string, subpath?: string): DeployDestination {
+  const sandboxCmd = subpath ? subpathDeployCmd(subpath, "--sandbox") : AGENT_SANDBOX_DEPLOY;
   return {
     kind: "refused",
     error: "not_authenticated",
     message: `${flag} publishes to your team's production slot and requires sign-in. Not signed in, so nothing was deployed. Run \`creek login --token <KEY> --json\` (or \`creek login\`), or pass --sandbox for a 60-minute preview.`,
     breadcrumbs: [
       ...AUTH_BREADCRUMBS,
-      { command: AGENT_SANDBOX_DEPLOY, description: "Deploy to a 60-minute sandbox instead" },
+      { command: sandboxCmd, description: "Deploy to a 60-minute sandbox instead" },
     ],
   };
 }
@@ -269,14 +330,89 @@ function configTarget(dir: string): { target: "cf" | "creekd" | null; error?: st
  * filesystem; the decision itself is `deployDestination`).
  */
 export function inspectDeployPath(
-  args: { template?: unknown; "from-github"?: unknown; dir?: unknown },
+  args: { template?: unknown; "from-github"?: unknown; dir?: unknown; path?: unknown },
   cwd: string = process.cwd(),
-): Pick<DestinationInput, "path" | "localTarget" | "dir" | "template" | "configError"> {
+): Pick<
+  DestinationInput,
+  "path" | "localTarget" | "dir" | "subpath" | "template" | "configError" | "pathError"
+> {
   const template = typeof args.template === "string" ? args.template : undefined;
-  if (args.template) return { path: "template", localTarget: "cf", template };
-  if (args["from-github"]) return { path: "from-github", localTarget: "cf" };
   const dirArg = typeof args.dir === "string" && args.dir.length > 0 ? args.dir : undefined;
-  if (dirArg && isRepoUrl(dirArg)) return { path: "repo-url", localTarget: "cf" };
+  const hasPathArg = typeof args.path === "string";
+  const pathArg = hasPathArg ? (args.path as string) : undefined;
+  const isRemoteRepo = !!(dirArg && isRepoUrl(dirArg));
+
+  if (args.template) {
+    if (hasPathArg) {
+      return {
+        path: "template",
+        localTarget: "cf",
+        template,
+        pathError: {
+          error: "conflicting_flags",
+          message: "--path cannot be used with --template.",
+        },
+      };
+    }
+    return { path: "template", localTarget: "cf", template };
+  }
+
+  if (dirArg && !isRemoteRepo && hasPathArg) {
+    return {
+      path: "project",
+      localTarget: "cf",
+      pathError: {
+        error: "conflicting_flags",
+        message:
+          "--path selects a project subdirectory relative to the current directory and cannot be combined with a positional <dir>.",
+      },
+    };
+  }
+
+  let validatedSubpath: string | undefined;
+  if (hasPathArg) {
+    try {
+      validateSubpath(pathArg!);
+    } catch (err) {
+      return {
+        path: isRemoteRepo ? "repo-url" : args["from-github"] ? "from-github" : "project",
+        localTarget: "cf",
+        pathError: {
+          error: "invalid_path",
+          message: err instanceof RepoUrlError ? err.message : String(err),
+        },
+      };
+    }
+    validatedSubpath = pathArg!.replace(/\/+$/, "");
+  }
+
+  if (args["from-github"]) {
+    if (validatedSubpath) {
+      const targetDir = resolve(cwd, validatedSubpath);
+      if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+        return {
+          path: "from-github",
+          localTarget: "cf",
+          subpath: validatedSubpath,
+          pathError: {
+            error: "not_found",
+            message: `Subdirectory not found: ${validatedSubpath}`,
+          },
+        };
+      }
+      return { path: "from-github", localTarget: "cf", subpath: validatedSubpath };
+    }
+    return { path: "from-github", localTarget: "cf" };
+  }
+
+  if (isRemoteRepo) {
+    return {
+      path: "repo-url",
+      localTarget: "cf",
+      ...(validatedSubpath ? { subpath: validatedSubpath } : {}),
+    };
+  }
+
   if (dirArg) {
     const found = configTarget(resolve(cwd, dirArg));
     return {
@@ -286,14 +422,28 @@ export function inspectDeployPath(
       ...(found.error !== undefined ? { configError: found.error } : {}),
     };
   }
-  const found = configTarget(cwd);
-  if (found.error !== undefined) {
-    return { path: "project", localTarget: "cf", configError: found.error };
+
+  const projectCwd = validatedSubpath ? resolve(cwd, validatedSubpath) : cwd;
+  if (validatedSubpath && (!existsSync(projectCwd) || !statSync(projectCwd).isDirectory())) {
+    return {
+      path: "project",
+      localTarget: "cf",
+      subpath: validatedSubpath,
+      pathError: {
+        error: "not_found",
+        message: `Subdirectory not found: ${validatedSubpath}`,
+      },
+    };
   }
-  if (found.target) return { path: "project", localTarget: found.target };
-  if (BUILD_OUTPUT_DIRS.some((d) => existsSync(resolve(cwd, d)))) {
-    return { path: "build-output", localTarget: "cf" };
+  const subpathFields = validatedSubpath ? { subpath: validatedSubpath } : {};
+  const found = configTarget(projectCwd);
+  if (found.error !== undefined) {
+    return { path: "project", localTarget: "cf", configError: found.error, ...subpathFields };
+  }
+  if (found.target) return { path: "project", localTarget: found.target, ...subpathFields };
+  if (BUILD_OUTPUT_DIRS.some((d) => existsSync(resolve(projectCwd, d)))) {
+    return { path: "build-output", localTarget: "cf", ...subpathFields };
   }
   // Nothing deployable yet: plan it as the project it is about to become.
-  return { path: "project", localTarget: "cf" };
+  return { path: "project", localTarget: "cf", ...subpathFields };
 }
