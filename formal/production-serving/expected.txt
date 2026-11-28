@@ -1,0 +1,16 @@
+# scenario          expected outcome ("pass" or "violates <Invariant>")
+# A violation listed here is a known finding in the current code (README.md,
+# "Findings"), not a modelling error. When a fix lands, its scenario should
+# start passing: run.sh then reports CHANGED, and this line becomes "pass".
+# legacy-* scenarios run the old routing (RouteByPointer = FALSE). They must
+# keep failing: they show the check catches the bugs that routing caused.
+baseline            pass
+rollback            pass
+promote             pass
+concurrent          pass
+failures            pass
+failures-active     violates ProductionIsActive
+legacy-rollback     violates ServesProduction
+legacy-promote      violates ServesProduction
+legacy-concurrent   violates ServesProduction
+legacy-failures     violates ServesProduction
