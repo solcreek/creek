@@ -9,6 +9,8 @@ export type AuditAction =
   | "domain.activate"
   | "domain.set_primary"
   | "domain.redirect_update"
+  | "domain.access_update"
+  | "domain.access_remove"
   | "domain.remove"
   | "envvar.set"
   | "envvar.delete"

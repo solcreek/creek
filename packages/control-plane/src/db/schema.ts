@@ -163,6 +163,16 @@ export const project = sqliteTable(
     redirectToPrimaryDomain: integer("redirectToPrimaryDomain", { mode: "boolean" })
       .notNull()
       .default(true),
+    /**
+     * Cloudflare Access protection (migration 0016). Set together or not at
+     * all: when set, the dispatch worker serves the project, on every hostname,
+     * only to requests carrying a token from this Access team for this
+     * application. Managed by PUT/DELETE /projects/:projectId/access.
+     */
+    accessTeamDomain: text("accessTeamDomain"),
+    accessAud: text("accessAud"),
+    /** JSON array of path prefixes the Access application bypasses. */
+    accessBypassPaths: text("accessBypassPaths"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
