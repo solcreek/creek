@@ -1,11 +1,25 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { authClient, useActiveOrganization } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { useFeatures } from "@/lib/api-context";
+import { CloudflarePanel } from "./-components/CloudflarePanel";
+
+// The Cloudflare OAuth callback returns here with ?cloudflare=connected or ?cloudflare_error=<code>.
+interface SettingsSearch {
+  cloudflare?: string;
+  cloudflare_error?: string;
+}
+
 export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+    cloudflare: typeof search.cloudflare === "string" ? search.cloudflare : undefined,
+    cloudflare_error:
+      typeof search.cloudflare_error === "string" ? search.cloudflare_error : undefined,
+  }),
 });
 
 function SettingsPage() {
@@ -16,8 +30,27 @@ function SettingsPage() {
       <div className="max-w-lg space-y-8">
         <TeamSettings />
         <MembersList />
+        <CloudflareSettings />
       </div>
     </div>
+  );
+}
+
+function CloudflareSettings() {
+  const features = useFeatures();
+  const { data: activeOrg } = useActiveOrganization();
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  if (!features.teams) return null;
+  return (
+    <CloudflarePanel
+      teamId={activeOrg?.id ?? null}
+      callback={{
+        connected: search.cloudflare === "connected",
+        error: search.cloudflare_error,
+      }}
+      onDismissCallback={() => navigate({ to: "/settings", search: {}, replace: true })}
+    />
   );
 }
 
