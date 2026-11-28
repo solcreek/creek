@@ -318,7 +318,8 @@ describe("createKeyLookup", () => {
     for (let i = 0; i < 5; i++) {
       now += 1000;
       expect(await lookup(TEAM, KID)).not.toBeNull();
-      expect(await lookup(TEAM, `made-up-${i}`)).toBeNull();
+      // Possibly a rotated key we can't fetch now: 503, not 403.
+      await expect(lookup(TEAM, `made-up-${i}`)).rejects.toThrow(/recent fetch failed/);
     }
     expect(f.calls).toHaveLength(2);
     now += 30 * 1000;

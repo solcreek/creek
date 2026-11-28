@@ -321,7 +321,11 @@ export function createKeyLookup(
     }
     const key = set.keys.get(kid);
     if (key) return key;
-    if (now() - set.fetchedAt < UNKNOWN_KID_REFETCH_MS || coolingDown(teamDomain)) return null;
+    if (now() - set.fetchedAt < UNKNOWN_KID_REFETCH_MS) return null;
+    // The kid may be a rotated key we can't fetch right now: retryable, not a 403.
+    if (coolingDown(teamDomain)) {
+      throw new Error(`Access certs for ${teamDomain}: recent fetch failed`);
+    }
     set = await refresh(teamDomain);
     return set.keys.get(kid) ?? null;
   };
