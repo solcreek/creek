@@ -17,6 +17,7 @@ import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
 import { Menu, MenuPopup, MenuItem, MenuTrigger } from "@solcreek/ui/components/menu";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import {
   Empty,
   EmptyContent,
@@ -254,9 +255,9 @@ function DeploymentsTab() {
                         </span>
                       ))}
                     {isProduction && (
-                      <span className="ml-2 rounded bg-success/10 px-1.5 py-0.5 text-xs text-success-foreground">
+                      <Badge variant="success" className="ml-2">
                         Production
-                      </span>
+                      </Badge>
                     )}
                   </p>
                   {d.commitMessage && (

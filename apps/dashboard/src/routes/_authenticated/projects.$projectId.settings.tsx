@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
 import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { ExternalLink } from "lucide-react";
@@ -329,16 +330,13 @@ function ConnectionDetails({
 
 function Pill({ enabled, label }: { enabled: boolean; label: string }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
-        enabled
-          ? "border-success/30 bg-success/10 text-success-foreground"
-          : "border-border text-muted-foreground"
-      }`}
+    <Badge
+      variant={enabled ? "success" : "outline"}
+      className={enabled ? undefined : "text-muted-foreground"}
     >
       <span className={`size-1.5 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground"}`} />
       {label}
-    </span>
+    </Badge>
   );
 }
 

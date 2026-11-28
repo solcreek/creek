@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
 import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
@@ -86,18 +87,12 @@ function ResourceDetailPage() {
 
       <div className="mb-6 flex items-center gap-3">
         <h1 className="text-xl font-semibold font-mono">{data.name}</h1>
-        <span className="rounded border border-border bg-code-bg px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        <Badge variant="outline" size="sm">
           {data.kind}
-        </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] ${
-            data.status === "active"
-              ? "bg-success/10 text-success-foreground border border-success/30"
-              : "bg-warning/10 text-warning-foreground border border-warning/30"
-          }`}
-        >
+        </Badge>
+        <Badge variant={data.status === "active" ? "success" : "warning"} size="sm">
           {data.status}
-        </span>
+        </Badge>
       </div>
 
       <div className="max-w-2xl space-y-8">

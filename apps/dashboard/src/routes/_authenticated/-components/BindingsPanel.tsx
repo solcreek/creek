@@ -10,6 +10,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
 import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
@@ -178,9 +179,9 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-mono text-foreground">env.{b.bindingName}</span>
                 <span className="text-muted-foreground">→</span>
-                <span className="rounded border border-border bg-code-bg px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <Badge variant="outline" size="sm" className="font-mono">
                   {b.kind}
-                </span>
+                </Badge>
                 <span className="font-mono truncate">{b.name}</span>
               </div>
               <ConfirmAction

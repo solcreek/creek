@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -144,9 +145,7 @@ export function EnvVarsPanel({ projectId }: { projectId: string }) {
             >
               <div className="flex items-center gap-3">
                 <span className="font-mono text-sm">{v.key}</span>
-                <span className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {TARGET_LABELS[v.target ?? "all"]}
-                </span>
+                <Badge variant="outline">{TARGET_LABELS[v.target ?? "all"]}</Badge>
                 <span className="text-sm text-muted-foreground">{v.value}</span>
               </div>
               <button

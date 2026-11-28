@@ -13,6 +13,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
 import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
@@ -211,9 +212,9 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         {showKind && (
-          <span className="rounded border border-border bg-code-bg px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          <Badge variant="outline" size="sm" className="font-mono">
             {resource.kind}
-          </span>
+          </Badge>
         )}
         {renaming ? (
           <Input

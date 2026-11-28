@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { authClient, useCurrentTeam } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
+import { Badge } from "@solcreek/ui/components/badge";
 import { Input } from "@solcreek/ui/components/input";
 import { Card, CardPanel } from "@solcreek/ui/components/card";
 import { useFeatures } from "@/lib/api-context";
@@ -156,9 +157,9 @@ function MembersList() {
                   <p className="text-sm font-medium">{m.user?.name ?? m.userId}</p>
                   <p className="text-xs text-muted-foreground">{m.user?.email}</p>
                 </div>
-                <span className="rounded bg-secondary px-2 py-0.5 text-xs capitalize">
+                <Badge variant="secondary" className="capitalize">
                   {m.role}
-                </span>
+                </Badge>
               </div>
             ))}
           </div>
