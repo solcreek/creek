@@ -1,11 +1,25 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { authClient, useActiveOrganization } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { useFeatures } from "@/lib/api-context";
+import { CloudflarePanel } from "./-components/CloudflarePanel";
+
+// The Cloudflare OAuth callback returns here with ?cloudflare=connected or ?cloudflare_error=<code>.
+interface SettingsSearch {
+  cloudflare?: string;
+  cloudflare_error?: string;
+}
+
 export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+    cloudflare: typeof search.cloudflare === "string" ? search.cloudflare : undefined,
+    cloudflare_error:
+      typeof search.cloudflare_error === "string" ? search.cloudflare_error : undefined,
+  }),
 });
 
 function SettingsPage() {
@@ -16,8 +30,48 @@ function SettingsPage() {
       <div className="max-w-lg space-y-8">
         <TeamSettings />
         <MembersList />
+        <CloudflareSettings />
       </div>
     </div>
+  );
+}
+
+function CloudflareSettings() {
+  const features = useFeatures();
+  const { data: activeOrg, isPending: activePending } = useActiveOrganization();
+  const { data: orgs, isPending: orgsPending } = authClient.useListOrganizations();
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  if (!features.teams) return null;
+
+  // The team the sidebar shows: the active one, else the first. The API falls
+  // back the same way, but the panel names its team on every request anyway.
+  const team = activeOrg ?? orgs?.[0] ?? null;
+  if (!team) {
+    return (
+      <section>
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Cloudflare
+        </h2>
+        <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+          {activePending || orgsPending
+            ? "Loading…"
+            : "Select a team in the sidebar to connect Cloudflare."}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <CloudflarePanel
+      key={team.id}
+      team={{ id: team.id, slug: team.slug }}
+      callback={{
+        connected: search.cloudflare === "connected",
+        error: search.cloudflare_error,
+      }}
+      onDismissCallback={() => navigate({ to: "/settings", search: {}, replace: true })}
+    />
   );
 }
 
