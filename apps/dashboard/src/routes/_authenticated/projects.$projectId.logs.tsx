@@ -255,7 +255,9 @@ function LogsTab() {
           placeholder="Search messages, exceptions, URLs…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground"
+          // Own full-width row on narrow screens (last, under the buttons);
+          // inline and stretching on wider ones.
+          className="order-last min-w-0 basis-full rounded-md border border-border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground sm:order-none sm:basis-0 sm:flex-1"
         />
         <Button
           variant={live ? "default" : "ghost"}

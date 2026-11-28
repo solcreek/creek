@@ -62,7 +62,7 @@ function ProjectLayout() {
   const backLabel = mode === "creekd" ? "Apps" : "Projects";
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <div className="mb-6">
         <Link to="/projects" className="text-sm text-muted-foreground hover:text-foreground">
           &larr; {backLabel}
@@ -70,7 +70,8 @@ function ProjectLayout() {
         <h1 className="mt-2 text-xl font-semibold">{projectId}</h1>
       </div>
 
-      <div className="mb-6 flex gap-4 border-b border-border">
+      {/* Scrolls sideways on narrow screens instead of pushing the page wider. */}
+      <div className="mb-6 -mx-4 flex gap-4 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] md:mx-0 md:px-0">
         {tabs.map((tab) => (
           <TabLink key={tab.label} projectId={projectId} to={tab.to} active={tab.match(path)}>
             {tab.label}
@@ -94,7 +95,7 @@ function TabLink({
   active: boolean;
   children: React.ReactNode;
 }) {
-  const cls = `pb-2 text-sm ${active ? "border-b-2 border-foreground font-medium" : "text-muted-foreground hover:text-foreground"}`;
+  const cls = `shrink-0 whitespace-nowrap pb-2 text-sm ${active ? "border-b-2 border-foreground font-medium" : "text-muted-foreground hover:text-foreground"}`;
   if (to === "") {
     return (
       <Link to="/projects/$projectId" params={{ projectId }} className={cls}>

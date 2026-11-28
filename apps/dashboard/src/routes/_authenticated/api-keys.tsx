@@ -41,7 +41,7 @@ function ApiKeysPage() {
   const keys = ((data?.data as any)?.apiKeys as any[]) ?? [];
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <h1 className="mb-6 text-xl font-semibold">API Keys</h1>
 
       <p className="mb-4 text-sm text-muted-foreground">
