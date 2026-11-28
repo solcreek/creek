@@ -39,6 +39,8 @@ interface MockOptions {
   redirectToPrimaryDomain?: number;
   /** Simulates a database before migration 0016. */
   preAccessMigration?: boolean;
+  /** More projects in team "acme", by slug, with their Access columns. */
+  otherProjects?: Record<string, AccessCols>;
 }
 
 let d1Calls: string[];
@@ -84,13 +86,22 @@ function createMockD1(opts: MockOptions): D1Database {
             if (hostname !== "app.customer.com" && hostname !== "other.customer.com") return null;
             return { slug: "site", team_slug: "acme", ...cols } as T;
           }
-          if (sql.includes("FROM project p")) {
-            d1Calls.push("deploymentAccess");
-            return cols as T;
-          }
           return null;
         },
         async all<T>(): Promise<{ results: T[] }> {
+          if (sql.includes("p.slug IN")) {
+            const wantsAccess = sql.includes("p.accessTeamDomain");
+            if (wantsAccess && opts.preAccessMigration) {
+              throw new Error("D1_ERROR: no such column: p.accessTeamDomain: SQLITE_ERROR");
+            }
+            d1Calls.push("previewAccess");
+            const [, ...slugs] = bound as string[];
+            const projects: Record<string, AccessCols> = { site: access, ...opts.otherProjects };
+            const results = slugs
+              .filter((slug, i) => slugs.indexOf(slug) === i && slug in projects)
+              .map((slug) => ({ slug, ...(wantsAccess ? projects[slug] : {}) }));
+            return { results: results as unknown as T[] };
+          }
           if (sql.includes("FROM organization")) {
             d1Calls.push("orgs");
             return { results: [{ slug: "acme", plan: "pro" }] as unknown as T[] };
@@ -285,6 +296,53 @@ describe("protected project", () => {
     expect((await worker.fetch(get("https://app.customer.com/", token), env)).status).toBe(200);
     expect(d1Calls.length).toBe(calls);
     expect(certFetches).toHaveLength(1);
+  });
+});
+
+describe("a slug that reads like a preview", () => {
+  // `site-a1b2c3d4-acme` parses as deployment a1b2c3d4 of `site`, and
+  // `site-git-feature-acme` as branch `feature` of `site`; both script names are
+  // also the production scripts of projects slugged `site-a1b2c3d4` and
+  // `site-git-feature`.
+  test.each([
+    ["site-a1b2c3d4", "https://site-a1b2c3d4-acme.bycreek.com/"],
+    ["site-git-feature", "https://site-git-feature-acme.bycreek.com/"],
+  ])(
+    "protected project %s is not reachable through its own default hostname",
+    async (slug, url) => {
+      const res = await worker.fetch(
+        get(url),
+        makeEnv({ access: {}, otherProjects: { [slug]: PROTECTED } }),
+      );
+      expect(res.status).toBe(403);
+      expect(dispatched).toEqual([]);
+    },
+  );
+
+  test("its own token lets it through", async () => {
+    const token = await signer.sign(validClaims());
+    const res = await worker.fetch(
+      get("https://site-a1b2c3d4-acme.bycreek.com/", token),
+      makeEnv({ access: {}, otherProjects: { "site-a1b2c3d4": PROTECTED } }),
+    );
+    expect(res.status).toBe(200);
+    expect(dispatched.map((d) => d.name)).toEqual(["site-a1b2c3d4-acme"]);
+  });
+
+  test("a collision fails closed: the parsed owner's protection still applies", async () => {
+    const res = await worker.fetch(
+      get("https://site-a1b2c3d4-acme.bycreek.com/"),
+      makeEnv({ access: PROTECTED, otherProjects: { "site-a1b2c3d4": {} } }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("both unprotected: served", async () => {
+    const res = await worker.fetch(
+      get("https://site-a1b2c3d4-acme.bycreek.com/"),
+      makeEnv({ access: {}, otherProjects: { "site-a1b2c3d4": {} } }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

@@ -271,6 +271,42 @@ async function queryProduction(
   }
 }
 
+/**
+ * Access settings for a preview hostname `{name}-{team}`.
+ *
+ * The parse names an owner (`site` for `site-a1b2c3d4` or `site-git-feature`),
+ * but the script dispatched, `{name}-{team}`, is also the production script of
+ * any project whose slug is `{name}` itself: slugs may end in eight hex
+ * characters or contain `-git-`. Reading only the parsed owner would let such a
+ * protected project be reached through its own default hostname. So both are
+ * read, in one query, and either one's protection applies; the project that
+ * owns `{name}` as production comes first, since that is the script's
+ * long-lived owner. Where both exist and only the parsed owner is protected,
+ * the request still needs its token: a collision fails closed.
+ */
+async function previewAccess(
+  db: D1Database,
+  team: string,
+  owner: string,
+  name: string,
+): Promise<AccessConfig | null> {
+  const rows = await withAccessColumns((access) =>
+    db
+      .prepare(
+        `SELECT p.slug AS slug, ${access} FROM project p
+         JOIN organization t ON p.organizationId = t.id
+         WHERE t.slug = ? AND p.slug IN (?, ?)`,
+      )
+      .bind(team, owner, name)
+      .all<{ slug: string } & AccessColumns>(),
+  );
+  const configOf = (slug: string) => {
+    const row = rows.results.find((r) => r.slug === slug);
+    return row ? parseAccessConfig(row) : null;
+  };
+  return configOf(name) ?? configOf(owner);
+}
+
 async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<ResolvedRoute | null> {
   switch (parsed.type) {
     case "production": {
@@ -292,47 +328,35 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
     }
 
     case "branch": {
-      const row = await withAccessColumns((access) =>
-        db
-          .prepare(
-            `SELECT d.id, ${access} FROM deployment d
-             JOIN project p ON d.projectId = p.id
-             JOIN organization t ON p.organizationId = t.id
-             WHERE p.slug = ? AND t.slug = ? AND d.branch = ?
-               AND d.status = 'active'
-             ORDER BY d.createdAt DESC LIMIT 1`,
-          )
-          .bind(parsed.project, parsed.team, parsed.branch)
-          .first<{ id: string } & AccessColumns>(),
-      );
+      const row = await db
+        .prepare(
+          `SELECT d.id FROM deployment d
+           JOIN project p ON d.projectId = p.id
+           JOIN organization t ON p.organizationId = t.id
+           WHERE p.slug = ? AND t.slug = ? AND d.branch = ?
+             AND d.status = 'active'
+           ORDER BY d.createdAt DESC LIMIT 1`,
+        )
+        .bind(parsed.project, parsed.team, parsed.branch)
+        .first<{ id: string }>();
       if (!row) return null;
+      const name = `${parsed.project}-git-${parsed.branch}`;
       // Previews exist to be looked at, never to be found by a crawler.
       return {
-        scriptName: `${parsed.project}-git-${parsed.branch}-${parsed.team}`,
+        scriptName: `${name}-${parsed.team}`,
         redirectHost: null,
         noindex: true,
-        access: parseAccessConfig(row),
+        access: await previewAccess(db, parsed.team!, parsed.project!, name),
       };
     }
 
     case "deployment": {
-      // The script name needs no lookup, but a protected project's previews
-      // are as protected as its production: read its Access settings.
-      const row = await withAccessColumns((access) =>
-        db
-          .prepare(
-            `SELECT ${access} FROM project p
-             JOIN organization t ON p.organizationId = t.id
-             WHERE p.slug = ? AND t.slug = ?`,
-          )
-          .bind(parsed.project, parsed.team)
-          .first<AccessColumns>(),
-      );
+      const name = `${parsed.project}-${parsed.deployId}`;
       return {
-        scriptName: `${parsed.project}-${parsed.deployId}-${parsed.team}`,
+        scriptName: `${name}-${parsed.team}`,
         redirectHost: null,
         noindex: true,
-        access: row ? parseAccessConfig(row) : null,
+        access: await previewAccess(db, parsed.team!, parsed.project!, name),
       };
     }
 
