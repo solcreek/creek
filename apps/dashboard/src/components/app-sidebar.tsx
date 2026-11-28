@@ -139,7 +139,10 @@ export function AppSidebar() {
 
 function UserFooter() {
   const { data: session } = useSession();
+  const { setOpenMobile } = useSidebar();
   const user = session?.user;
+  // Same as the nav: picking the page already shown must still close the sheet.
+  const closeSheet = () => setOpenMobile(false);
   const initials =
     user?.name
       ?.split(" ")
@@ -183,11 +186,11 @@ function UserFooter() {
               </MenuGroup>
               <MenuSeparator />
               <MenuGroup>
-                <MenuItem render={<Link to="/settings" />}>
+                <MenuItem render={<Link to="/settings" />} onClick={closeSheet}>
                   <Settings className="mr-2 size-4" />
                   Settings
                 </MenuItem>
-                <MenuItem render={<Link to="/api-keys" />}>
+                <MenuItem render={<Link to="/api-keys" />} onClick={closeSheet}>
                   <Key className="mr-2 size-4" />
                   API Keys
                 </MenuItem>

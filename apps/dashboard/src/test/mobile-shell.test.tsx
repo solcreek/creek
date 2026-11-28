@@ -54,4 +54,18 @@ describe("dashboard shell on a phone-width screen", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
+
+  test("closes the sheet when the user menu's link to the current page is picked", async () => {
+    const user = userEvent.setup();
+    renderDashboardApp("/settings");
+
+    await user.click(await screen.findByRole("button", { name: "Toggle Sidebar" }));
+    const sheet = await screen.findByRole("dialog");
+    await user.click(await within(sheet).findByRole("button", { name: /Test User/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /Settings/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Sidebar" })).not.toBeInTheDocument(),
+    );
+  });
 });
