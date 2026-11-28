@@ -57,15 +57,19 @@ function loadTurnstileScript(): Promise<TurnstileApi> {
     const script = existing ?? document.createElement("script");
 
     const onLoad = () => {
+      script.removeEventListener("error", onErr);
+      scriptLoadPromise = null;
       if (window.turnstile) {
         resolve(window.turnstile);
       } else {
-        scriptLoadPromise = null;
+        script.remove();
         reject(new Error("Turnstile script loaded without window.turnstile"));
       }
     };
     const onErr = () => {
+      script.removeEventListener("load", onLoad);
       scriptLoadPromise = null;
+      script.remove();
       reject(new Error("Failed to load Cloudflare Turnstile script"));
     };
 

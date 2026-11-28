@@ -3,9 +3,13 @@ import { render, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "./turnstile-widget";
 
+const TURNSTILE_SCRIPT_SELECTOR =
+  'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"]';
+
 describe("TurnstileWidget", () => {
   afterEach(() => {
     delete window.turnstile;
+    document.querySelectorAll(TURNSTILE_SCRIPT_SELECTOR).forEach((el) => el.remove());
   });
 
   test("renders nothing when sitekey is empty", () => {
@@ -66,5 +70,86 @@ describe("TurnstileWidget", () => {
 
     unmount();
     expect(removeMock).toHaveBeenCalledWith("widget-2");
+  });
+
+  test("removes failed script on error so switching action or remounting retries", async () => {
+    const onToken = vi.fn();
+    const onError = vi.fn();
+
+    const { rerender } = render(
+      <TurnstileWidget sitekey="test-sitekey" action="login" onToken={onToken} onError={onError} />,
+    );
+
+    const firstScript = document.querySelector<HTMLScriptElement>(TURNSTILE_SCRIPT_SELECTOR);
+    expect(firstScript).not.toBeNull();
+
+    firstScript!.dispatchEvent(new Event("error"));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(document.querySelector(TURNSTILE_SCRIPT_SELECTOR)).toBeNull();
+
+    // Switching action retries by injecting a fresh <script> element
+    rerender(
+      <TurnstileWidget
+        sitekey="test-sitekey"
+        action="signup"
+        onToken={onToken}
+        onError={onError}
+      />,
+    );
+
+    const retryScript = document.querySelector<HTMLScriptElement>(TURNSTILE_SCRIPT_SELECTOR);
+    expect(retryScript).not.toBeNull();
+    expect(retryScript).not.toBe(firstScript);
+
+    const renderMock = vi.fn(() => "widget-retry");
+    window.turnstile = {
+      render: renderMock,
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    retryScript!.dispatchEvent(new Event("load"));
+
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
+    expect(renderMock).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({ sitekey: "test-sitekey", action: "signup" }),
+    );
+  });
+
+  test("removes script when load fires without window.turnstile so remounting retries", async () => {
+    const onToken = vi.fn();
+    const onError = vi.fn();
+
+    const { unmount } = render(
+      <TurnstileWidget sitekey="test-sitekey" action="login" onToken={onToken} onError={onError} />,
+    );
+
+    const firstScript = document.querySelector<HTMLScriptElement>(TURNSTILE_SCRIPT_SELECTOR);
+    expect(firstScript).not.toBeNull();
+
+    firstScript!.dispatchEvent(new Event("load"));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(document.querySelector(TURNSTILE_SCRIPT_SELECTOR)).toBeNull();
+    unmount();
+
+    render(
+      <TurnstileWidget sitekey="test-sitekey" action="login" onToken={onToken} onError={onError} />,
+    );
+
+    const retryScript = document.querySelector<HTMLScriptElement>(TURNSTILE_SCRIPT_SELECTOR);
+    expect(retryScript).not.toBeNull();
+    expect(retryScript).not.toBe(firstScript);
+
+    const renderMock = vi.fn(() => "widget-retry-2");
+    window.turnstile = {
+      render: renderMock,
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    retryScript!.dispatchEvent(new Event("load"));
+
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
   });
 });
