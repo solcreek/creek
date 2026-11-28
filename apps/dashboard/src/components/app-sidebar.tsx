@@ -66,6 +66,12 @@ export function AppSidebar() {
     setOpenMobile(false);
   }, [location.pathname, setOpenMobile]);
 
+  // Tapping the page already shown does not change the pathname, so the
+  // effect above never fires: close on any nav-link click as well.
+  const closeOnLinkClick = (event: React.MouseEvent) => {
+    if ((event.target as HTMLElement).closest("a")) setOpenMobile(false);
+  };
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -76,7 +82,7 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent onClick={closeOnLinkClick}>
         <SidebarGroup>
           <SidebarGroupLabel>{mode === "creekd" ? "Apps" : "Platform"}</SidebarGroupLabel>
           <SidebarMenu>

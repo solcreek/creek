@@ -42,4 +42,16 @@ describe("dashboard shell on a phone-width screen", () => {
     expect(await screen.findByRole("heading", { name: "API Keys" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
+
+  test("closes the sheet when the current page's link is tapped", async () => {
+    const user = userEvent.setup();
+    renderDashboardApp("/projects");
+
+    await user.click(await screen.findByRole("button", { name: "Toggle Sidebar" }));
+    const sheet = await screen.findByRole("dialog");
+    // Same route: the pathname does not change, so only the click can close it.
+    await user.click(await within(sheet).findByRole("link", { name: /^Projects$/ }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
 });
