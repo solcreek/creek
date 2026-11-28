@@ -195,21 +195,25 @@ function userEnv(): NodeJS.ProcessEnv {
  */
 function deploy(
   args: string[],
-  env: Record<string, string> = {},
+  env: Record<string, string | undefined> = {},
   cwd: string = app,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const childEnv: NodeJS.ProcessEnv = {
+    ...userEnv(),
+    HOME: home,
+    CREEK_SANDBOX_API_URL: base,
+    CREEK_API_URL: base,
+    CREEK_TOKEN: "",
+    NO_COLOR: "1",
+  };
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) delete childEnv[k];
+    else childEnv[k] = v;
+  }
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, [CLI, "deploy", ...args], {
       cwd,
-      env: {
-        ...userEnv(),
-        HOME: home,
-        CREEK_SANDBOX_API_URL: base,
-        CREEK_API_URL: base,
-        CREEK_TOKEN: "",
-        NO_COLOR: "1",
-        ...env,
-      },
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -332,6 +336,37 @@ describe.skipIf(!existsSync(CLI))(
       expect(String(out.message)).toContain("CREEK_TOKEN");
       expect(String(out.message)).toContain("quotes");
       expect(r.stdout).not.toContain("quotedSecretValue");
+    });
+
+    test("production and --from-github deploys block NUL saved tokens before fetch without leaking", async () => {
+      const nulHome = mkdtempSync(join(tmpdir(), "creek-nul-home-"));
+      try {
+        mkdirSync(join(nulHome, ".creek"), { recursive: true });
+        writeFileSync(
+          join(nulHome, ".creek", "config.json"),
+          JSON.stringify({ token: "crk_sk_live_secretNulDeploy\0tail", tokenApiUrl: base }),
+        );
+
+        for (const args of [
+          ["--prod", "--skip-build", "--json"],
+          ["--from-github", "--project", "app", "--prod", "--json"],
+        ]) {
+          const r = await deploy(args, { HOME: nulHome, CREEK_TOKEN: undefined });
+          const out = parseOnlyJson(r.stdout);
+          expect(r.code).toBe(1);
+          expect(out).toMatchObject({
+            ok: false,
+            error: "unauthorized",
+            tokenSource: "config",
+            tokenFormatIssue: "contains_nul",
+          });
+          expect(String(out.message)).toContain("could not be sent");
+          expect(r.stdout).not.toContain("secretNulDeploy");
+          expect(r.stderr).not.toContain("secretNulDeploy");
+        }
+      } finally {
+        rmSync(nulHome, { recursive: true, force: true });
+      }
     });
 
     test("production deploy reports key_unusable when key exists but cannot act", async () => {

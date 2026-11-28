@@ -31,6 +31,7 @@ import {
 } from "../utils/config.js";
 import {
   diagnoseTokenFormat,
+  isUnsendableTokenFormat,
   keyLines,
   lookupKey,
   type TokenFormatIssue,
@@ -445,13 +446,18 @@ function exitUnauthorizedToken(
   err?: CreekAuthError,
 ): never {
   const fromEnv = info.source === "env:CREEK_TOKEN";
-  const base = fromEnv
-    ? err
-      ? "The API key in CREEK_TOKEN was rejected. Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
-      : "The API key in CREEK_TOKEN was refused (revoked, expired or invalid). Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
-    : err
-      ? "Authentication failed. Run `creek login` to re-authenticate."
-      : "Token is invalid or expired. Run `creek login` to re-authenticate.";
+  const unsendable = isUnsendableTokenFormat(formatIssue);
+  const base = unsendable
+    ? fromEnv
+      ? "The API key in CREEK_TOKEN could not be sent."
+      : "The saved API key could not be sent."
+    : fromEnv
+      ? err
+        ? "The API key in CREEK_TOKEN was rejected. Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
+        : "The API key in CREEK_TOKEN was refused (revoked, expired or invalid). Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
+      : err
+        ? "Authentication failed. Run `creek login` to re-authenticate."
+        : "Token is invalid or expired. Run `creek login` to re-authenticate.";
   const message = formatIssue ? `${base} ${formatIssue.message}` : base;
   const breadcrumbs: Breadcrumb[] = fromEnv
     ? [
@@ -1708,6 +1714,11 @@ async function deployFromGithub(options: DeployFromGithubOptions): Promise<void>
     process.exit(1);
   }
 
+  const formatIssue = diagnoseTokenFormat(token);
+  if (isUnsendableTokenFormat(formatIssue)) {
+    exitUnauthorizedToken(jsonMode, getTokenSource(), formatIssue);
+  }
+
   const client = new CreekClient(getApiUrl(), token);
 
   // Snapshot the current newest deployment so we can detect the one this
@@ -2634,7 +2645,7 @@ async function deployAuthenticated(
   try {
     const tokenInfo = getTokenSource();
     const formatIssue = diagnoseTokenFormat(token);
-    if (formatIssue?.code === "contains_newline") {
+    if (isUnsendableTokenFormat(formatIssue)) {
       exitUnauthorizedToken(jsonMode, tokenInfo, formatIssue);
     }
 

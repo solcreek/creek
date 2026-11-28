@@ -11,7 +11,11 @@ import {
 } from "../utils/config.js";
 import { startAuthServer } from "../utils/auth-server.js";
 import { globalArgs, resolveJsonMode, jsonOutput, isTTY } from "../utils/output.js";
-import { envOverrideWarning, diagnoseTokenFormat } from "../utils/api-key.js";
+import {
+  envOverrideWarning,
+  diagnoseTokenFormat,
+  isUnsendableTokenFormat,
+} from "../utils/api-key.js";
 
 function openBrowser(url: string): void {
   try {
@@ -126,7 +130,7 @@ async function headlessLogin() {
  */
 async function saveAndVerify(apiKey: string, jsonMode = false) {
   const formatIssue = diagnoseTokenFormat(apiKey);
-  if (formatIssue?.code === "contains_newline") {
+  if (isUnsendableTokenFormat(formatIssue)) {
     const message = `Invalid API key. ${formatIssue.message}`;
     if (jsonMode)
       jsonOutput(

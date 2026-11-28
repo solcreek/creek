@@ -7,6 +7,7 @@ import {
   describeTokenSource,
   diagnoseTokenFormat,
   envOverrideWarning,
+  isUnsendableTokenFormat,
   keyLines,
   lookupKey,
 } from "../utils/api-key.js";
@@ -51,7 +52,7 @@ export const whoamiCommand = defineCommand({
       exitApiMismatch(jsonMode, info, "send it", { authenticated: false });
 
     const formatIssue = diagnoseTokenFormat(token);
-    if (formatIssue?.code === "contains_newline") {
+    if (isUnsendableTokenFormat(formatIssue)) {
       const base =
         info.source === "env:CREEK_TOKEN"
           ? "The API key in CREEK_TOKEN could not be sent."

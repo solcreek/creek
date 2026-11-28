@@ -241,8 +241,15 @@ function hasInvalidHeaderChar(token: string): boolean {
   return false;
 }
 
+export type UnsendableTokenFormatCode =
+  | "contains_newline"
+  | "contains_nul"
+  | "invalid_header_chars";
+
 /** True when sending the token in an HTTP header would crash fetch (possibly echoing it). */
-export function isUnsendableTokenFormat(issue: TokenFormatIssue | null): boolean {
+export function isUnsendableTokenFormat(
+  issue: TokenFormatIssue | null,
+): issue is TokenFormatIssue & { code: UnsendableTokenFormatCode } {
   return (
     issue?.code === "contains_newline" ||
     issue?.code === "contains_nul" ||

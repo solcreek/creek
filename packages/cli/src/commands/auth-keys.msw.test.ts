@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CreekApiError } from "@solcreek/sdk";
-import { diagnoseTokenFormat } from "../utils/api-key.js";
+import { diagnoseTokenFormat, isUnsendableTokenFormat } from "../utils/api-key.js";
 import {
   apiErrorFields,
   apiErrorHints,
@@ -840,9 +840,94 @@ describe("token format diagnosis and non-JSON 403 edge-block diagnostics", () =>
     expect(diagnoseTokenFormat(`${SCOPED_KEY}\n`)?.code).toBe("contains_newline");
     expect(diagnoseTokenFormat(`{"token":"x"}`)?.code).toBe("looks_like_json");
     expect(diagnoseTokenFormat(`crk_sk_live_a b`)?.code).toBe("contains_whitespace");
+    expect(diagnoseTokenFormat(`crk_sk_live_a\0b`)?.code).toBe("contains_nul");
+    expect(diagnoseTokenFormat(`crk_sk_live_a\x0bb`)?.code).toBe("invalid_header_chars");
+    expect(diagnoseTokenFormat(`crk_sk_live_a\x7fb`)?.code).toBe("invalid_header_chars");
+    expect(diagnoseTokenFormat(`crk_sk_live_a\u2028b`)?.code).toBe("invalid_header_chars");
+    expect(isUnsendableTokenFormat(diagnoseTokenFormat(`${SCOPED_KEY}\n`))).toBe(true);
+    expect(isUnsendableTokenFormat(diagnoseTokenFormat(`crk_sk_live_a\0b`))).toBe(true);
+    expect(isUnsendableTokenFormat(diagnoseTokenFormat(`crk_sk_live_a\u2028b`))).toBe(true);
+    expect(isUnsendableTokenFormat(diagnoseTokenFormat(`"${SCOPED_KEY}"`))).toBe(false);
+    expect(isUnsendableTokenFormat(null)).toBe(false);
     expect(diagnoseTokenFormat(SCOPED_KEY)).toBeNull();
     expect(diagnoseTokenFormat("test-token")).toBeNull();
     expect(diagnoseTokenFormat("tok")).toBeNull();
+  });
+
+  it("whoami, login, requireClient commands, and logout --revoke block NUL/control-char tokens before fetch without leaking", async () => {
+    const nulSecret = "crk_sk_live_secretNulAllPaths\0tail";
+    const ctrlSecret = "crk_sk_live_secretCtrlAllPaths\x7ftail";
+    saveConfig({ token: nulSecret });
+
+    // whoami with NUL saved token
+    expect(await run(whoamiCommand, {})).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "session_expired",
+      tokenSource: "config",
+      tokenFormatIssue: "contains_nul",
+    });
+    expect(stdout).not.toContain("secretNulAllPaths");
+
+    // login with NUL and control-char tokens
+    stdout = "";
+    expect(await run(loginCommand, { token: nulSecret, json: true })).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token",
+      tokenFormatIssue: "contains_nul",
+    });
+    expect(stdout).not.toContain("secretNulAllPaths");
+
+    stdout = "";
+    expect(await run(loginCommand, { token: ctrlSecret, json: true })).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token",
+      tokenFormatIssue: "invalid_header_chars",
+    });
+    expect(stdout).not.toContain("secretCtrlAllPaths");
+
+    // projects (requireClient) with NUL saved token
+    stdout = "";
+    expect(await run(projectsCommand, {})).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token_format",
+      tokenSource: "config",
+      tokenFormatIssue: "contains_nul",
+    });
+    expect(stdout).not.toContain("secretNulAllPaths");
+
+    // logout --revoke with NUL saved token keeps config intact and guides local removal
+    stdout = "";
+    expect(await run(logoutCommand, { revoke: true })).toBe(1);
+    const logoutOut = json();
+    expect(logoutOut).toMatchObject({
+      ok: false,
+      error: "invalid_token_format",
+      tokenSource: "config",
+      tokenFormatIssue: "contains_nul",
+      revoked: false,
+      mayHaveApplied: false,
+      configCleared: false,
+    });
+    expect(logoutOut.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
+      "creek logout --json",
+    );
+    expect(stdout).not.toContain("secretNulAllPaths");
+
+    // keys self (requireClient) with control-char env token
+    stdout = "";
+    process.env.CREEK_TOKEN = ctrlSecret;
+    expect(await run(sub("self"), {})).toBe(1);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token_format",
+      tokenSource: "env:CREEK_TOKEN",
+      tokenFormatIssue: "invalid_header_chars",
+    });
+    expect(stdout).not.toContain("secretCtrlAllPaths");
   });
 
   it("whoami flags quoted CREEK_TOKEN without leaking the secret", async () => {

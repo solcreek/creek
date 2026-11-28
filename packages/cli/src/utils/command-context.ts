@@ -20,7 +20,8 @@ import {
   type ResolvedConfig,
   type WranglerFormat,
 } from "@solcreek/sdk";
-import { getToken, getApiUrl } from "./config.js";
+import { getToken, getTokenSource, getApiUrl } from "./config.js";
+import { diagnoseTokenFormat, isUnsendableTokenFormat } from "./api-key.js";
 import { jsonOutput, AUTH_BREADCRUMBS, NO_PROJECT_BREADCRUMBS, type Breadcrumb } from "./output.js";
 import { apiErrorFields, apiErrorHints } from "./api-error.js";
 
@@ -43,6 +44,29 @@ export function requireClient(jsonMode: boolean): CreekClient {
         AUTH_BREADCRUMBS,
       );
     consola.error("Not authenticated. Run `creek login` first.");
+    process.exit(1);
+  }
+  const formatIssue = diagnoseTokenFormat(token);
+  if (isUnsendableTokenFormat(formatIssue)) {
+    const { source } = getTokenSource();
+    const base =
+      source === "env:CREEK_TOKEN"
+        ? "The API key in CREEK_TOKEN could not be sent."
+        : "The saved API key could not be sent.";
+    const message = `${base} ${formatIssue.message}`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "invalid_token_format",
+          message,
+          ...(source ? { tokenSource: source } : {}),
+          tokenFormatIssue: formatIssue.code,
+        },
+        1,
+        AUTH_BREADCRUMBS,
+      );
+    consola.error(message);
     process.exit(1);
   }
   return new CreekClient(getApiUrl(), token);

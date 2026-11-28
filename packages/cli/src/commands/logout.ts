@@ -8,8 +8,19 @@ import {
   getDashboardUrl,
   getTokenInfo,
 } from "../utils/config.js";
-import { globalArgs, resolveJsonMode, jsonOutput, type Breadcrumb } from "../utils/output.js";
-import { keyHint, revokeSelf } from "../utils/api-key.js";
+import {
+  globalArgs,
+  resolveJsonMode,
+  jsonOutput,
+  AUTH_BREADCRUMBS,
+  type Breadcrumb,
+} from "../utils/output.js";
+import {
+  diagnoseTokenFormat,
+  isUnsendableTokenFormat,
+  keyHint,
+  revokeSelf,
+} from "../utils/api-key.js";
 
 /**
  * `creek logout [--revoke]`.
@@ -196,6 +207,35 @@ async function revokeAndLogout(jsonMode: boolean): Promise<void> {
 
   const source =
     env !== undefined ? (isSaved ? "env:CREEK_TOKEN+config" : "env:CREEK_TOKEN") : "config";
+  const formatIssue = diagnoseTokenFormat(token);
+  if (isUnsendableTokenFormat(formatIssue)) {
+    const message = `The ${describe(source)} could not be sent to revoke it. ${formatIssue.message}${isSaved ? " Run `creek logout` (without --revoke) to remove the malformed saved key locally." : ""}`;
+    if (jsonMode)
+      jsonOutput(
+        {
+          ok: false,
+          error: "invalid_token_format",
+          message,
+          tokenSource: info.source,
+          source,
+          tokenFormatIssue: formatIssue.code,
+          revoked: false,
+          mayHaveApplied: false,
+          configCleared: false,
+        },
+        1,
+        isSaved
+          ? [
+              {
+                command: "creek logout --json",
+                description: "Remove the malformed saved key locally without revoking",
+              },
+            ]
+          : AUTH_BREADCRUMBS,
+      );
+    consola.error(message);
+    process.exit(1);
+  }
   const prefix = keyPrefix(token);
   const result = await revokeSelf(new CreekClient(getApiUrl(), token));
 
