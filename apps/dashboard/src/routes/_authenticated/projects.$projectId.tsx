@@ -28,6 +28,7 @@ function ProjectLayout() {
               !p.endsWith("/analytics") &&
               !p.endsWith("/logs") &&
               !p.endsWith("/env") &&
+              !p.endsWith("/domains") &&
               !p.endsWith("/settings"),
           },
           ...(features.analytics
@@ -46,6 +47,15 @@ function ProjectLayout() {
                   to: "env" as const,
                   label: "Environment",
                   match: (p: string) => p.endsWith("/env"),
+                },
+              ]
+            : []),
+          ...(features.customDomains
+            ? [
+                {
+                  to: "domains" as const,
+                  label: "Domains",
+                  match: (p: string) => p.endsWith("/domains"),
                 },
               ]
             : []),
@@ -120,6 +130,13 @@ function TabLink({
   if (to === "env") {
     return (
       <Link to="/projects/$projectId/env" params={{ projectId }} className={cls}>
+        {children}
+      </Link>
+    );
+  }
+  if (to === "domains") {
+    return (
+      <Link to="/projects/$projectId/domains" params={{ projectId }} className={cls}>
         {children}
       </Link>
     );

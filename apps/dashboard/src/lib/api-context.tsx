@@ -9,6 +9,7 @@ interface FeatureFlags {
   resources: boolean;
   analytics: boolean;
   envVars: boolean;
+  customDomains: boolean;
   apiKeys: boolean;
   appStats: boolean;
   volumes: boolean;
@@ -28,6 +29,7 @@ const HOSTED_FEATURES: FeatureFlags = {
   resources: true,
   analytics: true,
   envVars: true,
+  customDomains: true,
   apiKeys: true,
   appStats: false,
   volumes: false,
@@ -42,6 +44,7 @@ const CREEKD_FEATURES: FeatureFlags = {
   resources: false,
   analytics: false,
   envVars: false,
+  customDomains: false,
   apiKeys: false,
   appStats: true,
   volumes: true,
