@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConfirmAction } from "@/components/confirm-action";
 
 interface Resource {
@@ -154,12 +155,14 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading...</p>
       ) : !filtered?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet. Create
-            one above or via <code className="font-mono">{cliHint}</code>.
-          </p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-6 md:py-8">
+          <EmptyHeader>
+            <EmptyDescription>
+              No {kind ? KIND_LABELS[kind]?.toLowerCase() + " resources" : "resources"} yet. Create
+              one above or via <code className="font-mono">{cliHint}</code>.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border">
           {filtered.map((r) => (

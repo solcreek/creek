@@ -6,6 +6,7 @@ import { getAppLogs } from "@/lib/adapter";
 import { useApiMode } from "@/lib/api-context";
 import { ConnectionError } from "@/components/connection-error";
 import { Button } from "@solcreek/ui/components/button";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 
 /**
  * Logs tab — read the R2-archived per-tenant log stream + optional
@@ -121,9 +122,11 @@ function CreekdLogsTab() {
       {isLoading && !logs ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : parsed.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-muted-foreground">No log output yet.</p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-8 md:py-10">
+          <EmptyHeader>
+            <EmptyDescription>No log output yet.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : showRaw ? (
         <pre className="max-h-[600px] overflow-auto rounded-md bg-code-bg p-4 font-mono text-xs leading-relaxed">
           {logs}
@@ -303,11 +306,13 @@ function LogsTab() {
       ) : historical.error && merged.length === 0 ? (
         <ConnectionError error={historical.error} onRetry={() => historical.refetch()} />
       ) : merged.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            No log entries match. Try widening the range or clearing filters.
-          </p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-8 md:py-10">
+          <EmptyHeader>
+            <EmptyDescription>
+              No log entries match. Try widening the range or clearing filters.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-1">
           {merged.map((entry, i) => (

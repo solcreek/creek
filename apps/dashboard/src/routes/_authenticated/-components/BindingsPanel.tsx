@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConnectionError } from "@/components/connection-error";
 import { ConfirmAction } from "@/components/confirm-action";
 
@@ -157,11 +158,13 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
       ) : bindingsError ? (
         <ConnectionError error={bindingsError} onRetry={() => refetchBindings()} />
       ) : !bindings?.bindings?.length ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            No resources attached. Create one in team Settings → Resources, then attach it here.
-          </p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-6 md:py-8">
+          <EmptyHeader>
+            <EmptyDescription>
+              No resources attached. Create one in team Settings → Resources, then attach it here.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border">
           {bindings.bindings.map((b) => (

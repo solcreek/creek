@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { Empty, EmptyDescription, EmptyHeader } from "@solcreek/ui/components/empty";
 import { ConfirmAction } from "@/components/confirm-action";
 
 interface ResourceDetail {
@@ -331,12 +332,17 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
       )}
 
       {resource.bindings.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Not attached to any project. Click Attach above or use{" "}
-            <code className="font-mono">creek db attach {resource.name} --to &lt;project&gt;</code>.
-          </p>
-        </div>
+        <Empty className="rounded-xl border border-dashed py-6 md:py-8">
+          <EmptyHeader>
+            <EmptyDescription>
+              Not attached to any project. Click Attach above or use{" "}
+              <code className="font-mono">
+                creek db attach {resource.name} --to &lt;project&gt;
+              </code>
+              .
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="rounded-lg border border-border divide-y divide-border">
           {resource.bindings.map((b) => (

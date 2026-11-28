@@ -18,6 +18,13 @@ import { useApiMode } from "@/lib/api-context";
 import { Menu, MenuPopup, MenuItem, MenuTrigger } from "@solcreek/ui/components/menu";
 import { Button } from "@solcreek/ui/components/button";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@solcreek/ui/components/empty";
+import {
   MoreHorizontal,
   ArrowUpCircle,
   Rocket,
@@ -179,19 +186,23 @@ function DeploymentsTab() {
           {deployButton}
         </div>
         {deployError && <p className="text-sm text-destructive">Deploy failed: {deployError}</p>}
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <h3 className="font-semibold">No deployments yet</h3>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-            {hasGithub
-              ? "Click Deploy latest above to build the current HEAD of your production branch."
-              : "Connect a GitHub repository in Settings or run from the CLI:"}
-          </p>
+        <Empty className="gap-4 rounded-xl border border-dashed">
+          <EmptyHeader>
+            <EmptyTitle>No deployments yet</EmptyTitle>
+            <EmptyDescription>
+              {hasGithub
+                ? "Click Deploy latest above to build the current HEAD of your production branch."
+                : "Connect a GitHub repository in Settings or run from the CLI:"}
+            </EmptyDescription>
+          </EmptyHeader>
           {!hasGithub && (
-            <div className="mx-auto mt-3 max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
-              <span className="text-muted-foreground">$</span> npx creek deploy
-            </div>
+            <EmptyContent>
+              <div className="w-full max-w-xs rounded-md bg-code-bg px-3 py-2 text-left font-mono text-xs">
+                <span className="text-muted-foreground">$</span> npx creek deploy
+              </div>
+            </EmptyContent>
           )}
-        </div>
+        </Empty>
       </div>
     );
   }
