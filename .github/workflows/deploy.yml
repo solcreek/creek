@@ -186,6 +186,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build CLI
         run: pnpm turbo build --filter=creek
+      - name: Verify Creek auth
+        env:
+          CREEK_TOKEN: ${{ secrets.CREEK_TOKEN }}
+          CREEK_API_URL: https://api.creek.dev
+        run: |
+          if [ -z "$CREEK_TOKEN" ]; then
+            echo "::error::CREEK_TOKEN secret is not configured. Create a ci-deploy scoped API key and save it as the CREEK_TOKEN secret."
+            exit 1
+          fi
+          node packages/creek/bin.js doctor apps/dashboard --auth --prod --json
       - name: Build dashboard
         # Run pnpm directly (not via turbo) so Turbo v2 strict env mode
         # doesn't strip VITE_API_URL before Vite reads it.
@@ -204,13 +214,7 @@ jobs:
             exit 1
           fi
       - name: Deploy dashboard
-        working-directory: apps/dashboard
         env:
           CREEK_TOKEN: ${{ secrets.CREEK_TOKEN }}
           CREEK_API_URL: https://api.creek.dev
-        run: |
-          if [ -z "$CREEK_TOKEN" ]; then
-            echo "::error::CREEK_TOKEN secret is not configured. Create a ci-deploy scoped API key and save it as the CREEK_TOKEN secret."
-            exit 1
-          fi
-          node ../../packages/creek/bin.js deploy --prod --yes --skip-build --json --wait 5m
+        run: node packages/creek/bin.js deploy --path apps/dashboard --prod --yes --skip-build --json --wait 5m
