@@ -48,4 +48,12 @@ afterEach(() => {
 });
 
 // Clean up after all tests
-afterAll(() => server.close());
+afterAll(async () => {
+  // better-auth keeps the session in a nanostores atom, which runs its cleanup
+  // STORE_UNMOUNT_DELAY (1000ms) after the last component using it unmounts.
+  // That cleanup reads `window`. If the file ends first, jsdom is torn down and
+  // the timer throws "window is not defined" as an unhandled error, failing the
+  // run although every test passed. Let it run while jsdom still exists.
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  server.close();
+});
