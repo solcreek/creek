@@ -293,7 +293,13 @@ projectAccess.get(
     return c.json({
       ...status,
       hostnames,
-      managed: { ...managedView(managed), memberEmails: members, outOfSync },
+      managed: {
+        ...managedView(managed),
+        memberEmails: members,
+        // Who Cloudflare lets in by the team-member rule until the next sync.
+        appliedMemberEmails: managed.teamMembers ? managed.appliedMemberEmails : null,
+        outOfSync,
+      },
       noMailDomains: mail.noMail,
       noMxDomains: mail.noMx,
     });

@@ -15,6 +15,8 @@ export interface ManagedAccessView {
   teamMembers: boolean;
   /** The team's members today, when teamMembers is on. */
   memberEmails: string[];
+  /** The members Cloudflare lets in until the next sync; null when unknown or teamMembers is off. */
+  appliedMemberEmails: string[] | null;
   /** Whether Cloudflare still has the domains and members of the last sync. */
   outOfSync: { hostnames: boolean; members: boolean };
 }
@@ -382,6 +384,10 @@ function ManagedSummary({
                   <span className="block font-mono text-xs text-muted-foreground">
                     {m.memberEmails.length ? m.memberEmails.join(", ") : "No members with an email"}
                   </span>
+                  <MemberDrift
+                    today={m.memberEmails}
+                    applied={m.outOfSync.members ? m.appliedMemberEmails : null}
+                  />
                 </li>
               )}
               {m.emails.map((e) => (
@@ -414,6 +420,32 @@ function ManagedSummary({
         this list: anyone else is told a code was sent, but gets nothing.
       </p>
     </div>
+  );
+}
+
+/**
+ * Until Cloudflare is updated, it lets in the members of the last sync: name
+ * who is listed but cannot sign in yet, and who left but still can.
+ */
+function MemberDrift({ today, applied }: { today: string[]; applied: string[] | null }) {
+  if (!applied) return null;
+  const notYet = today.filter((e) => !applied.includes(e));
+  const stillIn = applied.filter((e) => !today.includes(e));
+  return (
+    <>
+      {notYet.length > 0 && (
+        <span className="block text-xs text-warning-foreground">
+          Can't sign in until you update Cloudflare:{" "}
+          <span className="font-mono">{notYet.join(", ")}</span>
+        </span>
+      )}
+      {stillIn.length > 0 && (
+        <span className="block text-xs text-warning-foreground">
+          No longer on the team, but can still sign in until you update Cloudflare:{" "}
+          <span className="font-mono">{stillIn.join(", ")}</span>
+        </span>
+      )}
+    </>
   );
 }
 

@@ -713,6 +713,7 @@ describe("GET /projects/:id/access on a managed project", () => {
       emailDomains: [],
       teamMembers: true,
       memberEmails: [TEST_USER.email],
+      appliedMemberEmails: [TEST_USER.email],
       outOfSync: { hostnames: false, members: false },
     });
     expect(body.noMailDomains).toEqual([]);
@@ -728,6 +729,8 @@ describe("GET /projects/:id/access on a managed project", () => {
     const body = await get();
     expect(body.hostnames).toEqual(["app.acme.com", "www.acme.com"]);
     expect(body.managed.memberEmails).toEqual(["new@acme.com", TEST_USER.email]);
+    // Cloudflare still has the members of the last sync.
+    expect(body.managed.appliedMemberEmails).toEqual([TEST_USER.email]);
     expect(body.managed.outOfSync).toEqual({ hostnames: true, members: true });
 
     // Saving again syncs both.
@@ -742,6 +745,7 @@ describe("GET /projects/:id/access on a managed project", () => {
 
     const body = await get();
     expect(body.managed.memberEmails).toEqual([]);
+    expect(body.managed.appliedMemberEmails).toBeNull();
     expect(body.managed.outOfSync.members).toBe(false);
   });
 

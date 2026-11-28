@@ -36,6 +36,7 @@ const MANAGED: AccessStatus = {
     emailDomains: ["acme.com"],
     teamMembers: true,
     memberEmails: ["owner@acme.com"],
+    appliedMemberEmails: ["owner@acme.com"],
     outOfSync: { hostnames: false, members: false },
   },
   noMailDomains: [],
@@ -206,6 +207,32 @@ describe("ProtectionPanel", () => {
       teamMembers: true,
       bypassPaths: ["/health"],
     });
+  });
+
+  test("members out of sync: names who can't sign in yet and who still can", async () => {
+    mock({
+      ...MANAGED,
+      managed: {
+        ...(MANAGED as any).managed,
+        memberEmails: ["new@acme.com", "owner@acme.com"],
+        appliedMemberEmails: ["left@acme.com", "owner@acme.com"],
+        outOfSync: { hostnames: false, members: true },
+      },
+    } as AccessStatus);
+    const panel = await openPanel();
+
+    const notYet = await panel.findByText(/Can't sign in until you update Cloudflare/);
+    expect(notYet).toHaveTextContent("new@acme.com");
+    expect(notYet).not.toHaveTextContent("owner@acme.com");
+    const stillIn = panel.getByText(/No longer on the team, but can still sign in/);
+    expect(stillIn).toHaveTextContent("left@acme.com");
+  });
+
+  test("members in sync: no drift lines", async () => {
+    mock(MANAGED);
+    const panel = await openPanel();
+    expect(await panel.findByText("owner@acme.com")).toBeInTheDocument();
+    expect(panel.queryByText(/until you update Cloudflare/)).toBeNull();
   });
 
   test("a refused update keeps the Cloudflare setup link", async () => {
