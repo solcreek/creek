@@ -305,7 +305,10 @@ describe("PUT /projects/:id/access/managed", () => {
       bypassPaths: ["/health", "/api/hooks/*"],
     });
 
-    const bypass = cf.apps.get("app-2")!;
+    const { bypassAppId, appId } = readManaged(stored().accessManaged)!;
+    expect(bypassAppId).not.toBeNull();
+    expect(cf.apps.get(appId)!.body.policies[0].decision).toBe("allow");
+    const bypass = cf.apps.get(bypassAppId!)!;
     expect(bypass.body.destinations.map((d: any) => d.uri)).toEqual([
       "app.acme.com/health",
       "app.acme.com/api/hooks/*",
@@ -319,10 +322,10 @@ describe("PUT /projects/:id/access/managed", () => {
       }),
     ]);
     expect(stored().accessBypassPaths).toBe('["/health","/api/hooks/*"]');
-    expect(readManaged(stored().accessManaged)!.bypassAppId).toBe("app-2");
 
     await put({ emails: ["a@example.com"] });
-    expect(cf.apps.has("app-2")).toBe(false);
+    expect(cf.apps.has(bypassAppId!)).toBe(false);
+    expect(cf.apps.has(appId)).toBe(true);
     expect(readManaged(stored().accessManaged)!.bypassAppId).toBeNull();
     expect(stored().accessBypassPaths).toBe("[]");
   });
@@ -522,6 +525,82 @@ describe("PUT /projects/:id/access/managed", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).message).toContain(message);
     expect(cf.calls).toEqual([]);
+  });
+});
+
+describe("ordering and the lease", () => {
+  test("a failure at the bypass step leaves the allow-list as it was", async () => {
+    await connect();
+    await put({ emails: ["a@example.com"], bypassPaths: ["/health"] });
+    const { appId, bypassAppId } = readManaged(stored().accessManaged)!;
+    cf.fail = { method: "PUT", path: new RegExp(`/apps/${bypassAppId}$`), status: 400 };
+
+    const res = await put({ emails: ["b@example.com"], bypassPaths: ["/status"] });
+    expect(res.status).toBe(400);
+    expect(cf.apps.get(appId)!.body.policies[0].include).toEqual([
+      { email: { email: "a@example.com" } },
+    ]);
+  });
+
+  test("a change while another holds the lease: 409 busy, Cloudflare untouched", async () => {
+    await connect();
+    testEnv.db.db
+      .prepare("UPDATE project SET accessLockedUntil = ? WHERE id = ?")
+      .run(Date.now() + 60_000, PROJECT_ID);
+    for (const res of [
+      await put({ emails: ["a@example.com"] }),
+      await req("PUT", `/projects/${PROJECT_ID}/access`, {
+        teamDomain: TEAM_DOMAIN,
+        aud: "cd".repeat(32),
+      }),
+      await req("DELETE", `/projects/${PROJECT_ID}/access`),
+    ]) {
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as any).error).toBe("busy");
+    }
+    expect(cf.calls).toEqual([]);
+  });
+
+  test("an expired lease is taken over, and every change gives its lease back", async () => {
+    await connect();
+    const lease = () =>
+      (
+        testEnv.db.db
+          .prepare("SELECT accessLockedUntil FROM project WHERE id = ?")
+          .get(PROJECT_ID) as any
+      ).accessLockedUntil;
+    testEnv.db.db
+      .prepare("UPDATE project SET accessLockedUntil = ? WHERE id = ?")
+      .run(Date.now() - 1, PROJECT_ID);
+    expect((await put({ emails: ["a@example.com"] })).status).toBe(200);
+    expect(lease()).toBeNull();
+
+    cf.fail = { method: "PUT", path: /\/apps\//, status: 400 };
+    expect((await put({ emails: ["b@example.com"] })).status).toBe(400);
+    expect(lease()).toBeNull();
+  });
+});
+
+describe("DELETE /projects/:id (the project itself)", () => {
+  test("deletes Creek's Access applications with the project", async () => {
+    await connect();
+    await put({ emails: ["a@example.com"], bypassPaths: ["/health"] });
+    const res = await req("DELETE", `/projects/${PROJECT_ID}`);
+    expect(res.status).toBe(200);
+    expect(cf.apps.size).toBe(0);
+  });
+
+  test("keeps the project when the applications cannot be deleted", async () => {
+    await connect();
+    await put({ emails: ["a@example.com"] });
+    cf.fail = { method: "DELETE", path: /\/apps\//, status: 500 };
+    const res = await req("DELETE", `/projects/${PROJECT_ID}`);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as any;
+    expect(body).toMatchObject({ error: "access_cleanup_failed", accountId: ACCOUNT });
+    expect(body.appIds).toHaveLength(1);
+    expect(cf.apps.size).toBe(1);
+    expect(stored().accessManaged).not.toBeNull();
   });
 });
 

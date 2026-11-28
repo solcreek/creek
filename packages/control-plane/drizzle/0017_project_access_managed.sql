@@ -9,3 +9,8 @@
 -- (0016) either way. This column is how Creek finds the applications again to
 -- update or delete them.
 ALTER TABLE project ADD COLUMN `accessManaged` text;
+
+-- A lease (epoch ms) held while a request changes the project's Access
+-- settings, so two changes never interleave their Cloudflare calls and D1
+-- writes. NULL or past: free.
+ALTER TABLE project ADD COLUMN `accessLockedUntil` integer;

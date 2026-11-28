@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import type { Env, AuthUser } from "../../types.js";
 import type { AuditRequestContext } from "../audit/types.js";
 import { recordAudit } from "../audit/service.js";
@@ -7,7 +7,9 @@ import { resolveProject } from "../tenant/resolve-project.js";
 import { requireScopes } from "../tenant/scope-guard.js";
 import {
   ProvisionError,
+  acquireAccessLease,
   deleteCreated,
+  releaseAccessLease,
   parseManagedInput,
   provisionManagedAccess,
   readManaged,
@@ -160,6 +162,39 @@ function concurrentChange(c: { json: (b: unknown, s: 409) => Response }) {
   );
 }
 
+/**
+ * Every change to a project's Access settings holds the project's lease, so
+ * two changes never interleave their Cloudflare calls and D1 writes (which
+ * could leave Cloudflare enforcing one allow-list while Creek shows another).
+ * A second change meanwhile gets 409 busy.
+ */
+const accessLease: MiddlewareHandler<AccessEnv> = async (c, next) => {
+  const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
+  if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);
+  let until: number | null;
+  try {
+    until = await acquireAccessLease(c.env.DB, project.id);
+  } catch (err) {
+    if (isMissingAccessColumn(err)) return migrationPending(c);
+    throw err;
+  }
+  if (until === null) {
+    return c.json(
+      {
+        error: "busy",
+        message:
+          "Another change to this project's Access settings is in progress: try again in a moment",
+      },
+      409,
+    );
+  }
+  try {
+    await next();
+  } finally {
+    await releaseAccessLease(c.env.DB, project.id, until);
+  }
+};
+
 interface AccessRow {
   accessTeamDomain: string | null;
   accessAud: string | null;
@@ -227,6 +262,7 @@ projectAccess.put(
   "/:projectId/access",
   requireScopes("domain:write"),
   requirePermission("domain:manage"),
+  accessLease,
   async (c) => {
     const body = await c.req.json<unknown>().catch(() => null);
     const parsed = parseAccessBody(body);
@@ -326,6 +362,7 @@ projectAccess.put(
   "/:projectId/access/managed",
   requireScopes("domain:write"),
   requirePermission("domain:manage"),
+  accessLease,
   async (c) => {
     const body = await c.req.json<unknown>().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -446,6 +483,7 @@ projectAccess.delete(
   "/:projectId/access",
   requireScopes("domain:write"),
   requirePermission("domain:manage"),
+  accessLease,
   async (c) => {
     const project = await resolveProject(c.env.DB, c.req.param("projectId")!, c.get("teamId"));
     if (!project) return c.json({ error: "not_found", message: "Project not found" }, 404);

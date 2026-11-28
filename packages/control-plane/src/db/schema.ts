@@ -178,6 +178,8 @@ export const project = sqliteTable(
      * team's Cloudflare account (migration 0017). Null when Creek manages none.
      */
     accessManaged: text("accessManaged"),
+    /** Epoch ms until which a request holds the lease on the Access settings (0017). */
+    accessLockedUntil: integer("accessLockedUntil"),
     createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },

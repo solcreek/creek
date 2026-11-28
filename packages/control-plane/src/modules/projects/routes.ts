@@ -7,6 +7,7 @@ import { projectCleanupStatement } from "../resources/service.js";
 import { requirePermission } from "../tenant/permissions.js";
 import { resolveProject } from "../tenant/resolve-project.js";
 import { requireScopes } from "../tenant/scope-guard.js";
+import { managedAccessOf, removeManagedApps } from "../domains/access-managed.js";
 
 type ProjectEnv = {
   Bindings: Env;
@@ -173,6 +174,26 @@ projects.delete(
 
     if (!project) {
       return c.json({ error: "not_found", message: "Project not found" }, 404);
+    }
+
+    // Creek-made Access applications live in the team's Cloudflare account and
+    // only this row knows their ids: delete them first. If that fails, keep
+    // the project; DELETE /projects/:id/access always takes protection off
+    // and names whatever it could not delete.
+    const managedAccess = await managedAccessOf(c.env.DB, project.id);
+    if (managedAccess) {
+      const cleanup = await removeManagedApps(c.env, teamId, managedAccess);
+      if (!cleanup.ok) {
+        return c.json(
+          {
+            error: "access_cleanup_failed",
+            message: `Creek could not delete this project's Cloudflare Access applications (${cleanup.message}). Remove Access protection first, then delete the project.`,
+            accountId: managedAccess.accountId,
+            appIds: cleanup.appIds,
+          },
+          409,
+        );
+      }
     }
 
     // Delete the project's child rows before the project itself. D1 enforces the

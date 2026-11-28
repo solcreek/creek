@@ -51,6 +51,54 @@ const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 /** The scope that lets Creek set up Zero Trust and its login method. */
 export const ORG_WRITE_SCOPE = "access-acct.write";
 
+/**
+ * How long a request may hold a project's Access lease. Longer than the worst
+ * case of one change: a token refresh (20 s) plus a handful of Cloudflare
+ * calls at 15 s each. If it ever runs out mid-change, the conditional save in
+ * the routes still refuses to overwrite a row another request changed.
+ */
+export const ACCESS_LEASE_MS = 3 * 60 * 1000;
+
+/** Take the project's Access lease; returns its expiry, or null when someone holds it. */
+export async function acquireAccessLease(db: Env["DB"], projectId: string): Promise<number | null> {
+  const now = Date.now();
+  const until = now + ACCESS_LEASE_MS;
+  const res = await db
+    .prepare(
+      `UPDATE project SET accessLockedUntil = ?
+       WHERE id = ? AND (accessLockedUntil IS NULL OR accessLockedUntil < ?)`,
+    )
+    .bind(until, projectId, now)
+    .run();
+  return res.meta.changes ? until : null;
+}
+
+/** Give the lease back, unless it expired and someone else took it. */
+export async function releaseAccessLease(db: Env["DB"], projectId: string, until: number) {
+  await db
+    .prepare("UPDATE project SET accessLockedUntil = NULL WHERE id = ? AND accessLockedUntil = ?")
+    .bind(projectId, until)
+    .run()
+    .catch((err) => console.error(`[access] could not release the lease on ${projectId}:`, err));
+}
+
+/** project.accessManaged for a project, or null (also before migration 0017). */
+export async function managedAccessOf(
+  db: Env["DB"],
+  projectId: string,
+): Promise<ManagedAccess | null> {
+  try {
+    const row = await db
+      .prepare("SELECT accessManaged FROM project WHERE id = ?")
+      .bind(projectId)
+      .first<{ accessManaged: string | null }>();
+    return readManaged(row?.accessManaged);
+  } catch (err) {
+    if (/no such column/i.test(String(err))) return null;
+    throw err;
+  }
+}
+
 /** A refusal the route turns into a JSON error. */
 export class ProvisionError extends Error {
   constructor(
@@ -390,14 +438,11 @@ export async function provisionManagedAccess(
     const teamDomain = await ensureZeroTrust(token, accountId, accountName ?? ctx.teamSlug, scopes);
 
     const label = `Creek · ${ctx.teamSlug}/${ctx.project.slug}`;
-    const app = await upsertApp(
-      token,
-      accountId,
-      ctx.previous?.appId ?? null,
-      { name: label, destinations: hostnames, decision: "allow", include },
-      created,
-    );
 
+    // Bypass first, the allow-list last: once an existing application's
+    // allow-list changes it is live, so nothing else at Cloudflare may fail
+    // after it. A bypass change that is left half-done fails closed, because
+    // the dispatch worker still only exempts the paths saved in D1.
     let bypassAppId: string | null = null;
     if (ctx.bypassPaths.length) {
       const destinations = hostnames.flatMap((h) => ctx.bypassPaths.map((p) => `${h}${p}`));
@@ -417,6 +462,14 @@ export async function provisionManagedAccess(
     } else if (ctx.previous?.bypassAppId) {
       await deleteApp(token, accountId, ctx.previous.bypassAppId);
     }
+
+    const app = await upsertApp(
+      token,
+      accountId,
+      ctx.previous?.appId ?? null,
+      { name: label, destinations: hostnames, decision: "allow", include },
+      created,
+    );
 
     return {
       teamDomain,
