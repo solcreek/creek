@@ -31,6 +31,7 @@ import { Route as AuthenticatedProjectsProjectIdIndexRouteImport } from './route
 import { Route as AuthenticatedProjectsProjectIdSettingsRouteImport } from './routes/_authenticated/projects.$projectId.settings'
 import { Route as AuthenticatedProjectsProjectIdLogsRouteImport } from './routes/_authenticated/projects.$projectId.logs'
 import { Route as AuthenticatedProjectsProjectIdEnvRouteImport } from './routes/_authenticated/projects.$projectId.env'
+import { Route as AuthenticatedProjectsProjectIdDomainsRouteImport } from './routes/_authenticated/projects.$projectId.domains'
 import { Route as AuthenticatedProjectsProjectIdAnalyticsRouteImport } from './routes/_authenticated/projects.$projectId.analytics'
 
 const LoginRoute = LoginRouteImport.update({
@@ -155,6 +156,12 @@ const AuthenticatedProjectsProjectIdEnvRoute =
     path: '/env',
     getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
   } as any)
+const AuthenticatedProjectsProjectIdDomainsRoute =
+  AuthenticatedProjectsProjectIdDomainsRouteImport.update({
+    id: '/domains',
+    path: '/domains',
+    getParentRoute: () => AuthenticatedProjectsProjectIdRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdAnalyticsRoute =
   AuthenticatedProjectsProjectIdAnalyticsRouteImport.update({
     id: '/analytics',
@@ -181,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/new/': typeof AuthenticatedNewIndexRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
+  '/projects/$projectId/domains': typeof AuthenticatedProjectsProjectIdDomainsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -203,6 +211,7 @@ export interface FileRoutesByTo {
   '/new': typeof AuthenticatedNewIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
+  '/projects/$projectId/domains': typeof AuthenticatedProjectsProjectIdDomainsRoute
   '/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
   '/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -229,6 +238,7 @@ export interface FileRoutesById {
   '/_authenticated/new/': typeof AuthenticatedNewIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/projects/$projectId/analytics': typeof AuthenticatedProjectsProjectIdAnalyticsRoute
+  '/_authenticated/projects/$projectId/domains': typeof AuthenticatedProjectsProjectIdDomainsRoute
   '/_authenticated/projects/$projectId/env': typeof AuthenticatedProjectsProjectIdEnvRoute
   '/_authenticated/projects/$projectId/logs': typeof AuthenticatedProjectsProjectIdLogsRoute
   '/_authenticated/projects/$projectId/settings': typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/new/'
     | '/projects/'
     | '/projects/$projectId/analytics'
+    | '/projects/$projectId/domains'
     | '/projects/$projectId/env'
     | '/projects/$projectId/logs'
     | '/projects/$projectId/settings'
@@ -277,6 +288,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/projects'
     | '/projects/$projectId/analytics'
+    | '/projects/$projectId/domains'
     | '/projects/$projectId/env'
     | '/projects/$projectId/logs'
     | '/projects/$projectId/settings'
@@ -302,6 +314,7 @@ export interface FileRouteTypes {
     | '/_authenticated/new/'
     | '/_authenticated/projects/'
     | '/_authenticated/projects/$projectId/analytics'
+    | '/_authenticated/projects/$projectId/domains'
     | '/_authenticated/projects/$projectId/env'
     | '/_authenticated/projects/$projectId/logs'
     | '/_authenticated/projects/$projectId/settings'
@@ -471,6 +484,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdEnvRouteImport
       parentRoute: typeof AuthenticatedProjectsProjectIdRoute
     }
+    '/_authenticated/projects/$projectId/domains': {
+      id: '/_authenticated/projects/$projectId/domains'
+      path: '/domains'
+      fullPath: '/projects/$projectId/domains'
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdDomainsRouteImport
+      parentRoute: typeof AuthenticatedProjectsProjectIdRoute
+    }
     '/_authenticated/projects/$projectId/analytics': {
       id: '/_authenticated/projects/$projectId/analytics'
       path: '/analytics'
@@ -483,6 +503,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedProjectsProjectIdRouteChildren {
   AuthenticatedProjectsProjectIdAnalyticsRoute: typeof AuthenticatedProjectsProjectIdAnalyticsRoute
+  AuthenticatedProjectsProjectIdDomainsRoute: typeof AuthenticatedProjectsProjectIdDomainsRoute
   AuthenticatedProjectsProjectIdEnvRoute: typeof AuthenticatedProjectsProjectIdEnvRoute
   AuthenticatedProjectsProjectIdLogsRoute: typeof AuthenticatedProjectsProjectIdLogsRoute
   AuthenticatedProjectsProjectIdSettingsRoute: typeof AuthenticatedProjectsProjectIdSettingsRoute
@@ -493,6 +514,8 @@ const AuthenticatedProjectsProjectIdRouteChildren: AuthenticatedProjectsProjectI
   {
     AuthenticatedProjectsProjectIdAnalyticsRoute:
       AuthenticatedProjectsProjectIdAnalyticsRoute,
+    AuthenticatedProjectsProjectIdDomainsRoute:
+      AuthenticatedProjectsProjectIdDomainsRoute,
     AuthenticatedProjectsProjectIdEnvRoute:
       AuthenticatedProjectsProjectIdEnvRoute,
     AuthenticatedProjectsProjectIdLogsRoute:
