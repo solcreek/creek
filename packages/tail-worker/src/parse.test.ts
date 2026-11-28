@@ -183,18 +183,25 @@ describe("servedType", () => {
     ],
     ["the production hostname", "https://my-app-acme-corp.bycreek.com/", "production"],
     ["a custom domain", "https://app.example.com/", "production"],
+    [
+      "a custom domain whose first label matches the preview",
+      "https://my-app-a1b2c3d4-acme-corp.example.com/",
+      "production",
+    ],
   ])("a deployment script serving %s", (_, url, expected) => {
-    expect(servedType(deployment, url)).toBe(expected);
+    expect(servedType(deployment, url, "bycreek.com")).toBe(expected);
   });
 
   test("an event with no request stays a deployment trace", () => {
-    expect(servedType(deployment, undefined)).toBe("deployment");
+    expect(servedType(deployment, undefined, "bycreek.com")).toBe("deployment");
   });
 
   test("production and branch scripts keep their type", () => {
     const branch = { type: "branch" as const, team: "acme", project: "app", branch: "x" };
-    expect(servedType(branch, "https://app.example.com/")).toBe("branch");
+    expect(servedType(branch, "https://app.example.com/", "bycreek.com")).toBe("branch");
     const prod = { type: "production" as const, team: "acme", project: "app" };
-    expect(servedType(prod, "https://app-git-x-acme.bycreek.com/")).toBe("production");
+    expect(servedType(prod, "https://app-git-x-acme.bycreek.com/", "bycreek.com")).toBe(
+      "production",
+    );
   });
 });

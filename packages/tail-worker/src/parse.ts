@@ -92,12 +92,17 @@ export function parseScriptName(scriptName: string, teams: TeamInfo[]): ParsedSc
  * The dispatch worker serves production (the default hostname and custom
  * domains) from the immutable `{project}-{shortDeployId}-{team}` script of
  * the production deployment, the same script that answers that deployment's
- * preview URL `{project}-{shortDeployId}-{team}.<domain>`. The script name
+ * preview URL `{project}-{shortDeployId}-{team}.{domain}`. The script name
  * alone can't tell them apart; the request's hostname can. A request on any
- * other hostname reached the script as production. An event with no request
- * (none reaches a deployment script today) stays a deployment trace.
+ * other hostname, including a custom domain whose first label happens to
+ * match, reached the script as production. An event with no request (none
+ * reaches a deployment script today) stays a deployment trace.
  */
-export function servedType(parsed: ParsedScriptName, requestUrl: string | undefined): ScriptType {
+export function servedType(
+  parsed: ParsedScriptName,
+  requestUrl: string | undefined,
+  domain: string,
+): ScriptType {
   if (parsed.type !== "deployment" || !requestUrl) return parsed.type;
   let hostname: string;
   try {
@@ -105,6 +110,6 @@ export function servedType(parsed: ParsedScriptName, requestUrl: string | undefi
   } catch {
     return parsed.type;
   }
-  const previewLabel = `${parsed.project}-${parsed.deployId}-${parsed.team}`;
-  return hostname.split(".")[0] === previewLabel ? "deployment" : "production";
+  const previewHost = `${parsed.project}-${parsed.deployId}-${parsed.team}.${domain}`.toLowerCase();
+  return hostname === previewHost ? "deployment" : "production";
 }

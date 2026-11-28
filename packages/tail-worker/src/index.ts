@@ -160,7 +160,7 @@ export default {
         timestamp: event.eventTimestamp,
         team: parsed.team,
         project: parsed.project,
-        scriptType: servedType(parsed, event.event?.request?.url),
+        scriptType: servedType(parsed, event.event?.request?.url, env.CREEK_DOMAIN),
         ...(parsed.branch ? { branch: parsed.branch } : {}),
         ...(parsed.deployId ? { deployId: parsed.deployId } : {}),
         outcome: event.outcome,
