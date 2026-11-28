@@ -295,7 +295,7 @@ describe("creek doctor --auth", () => {
     });
     expect(out.checks.every((c: { status: string }) => c.status === "pass")).toBe(true);
     expect(out.breadcrumbs.map((b: { command: string }) => b.command)).toContain(
-      "creek deploy --prod --json",
+      "creek deploy --path apps/web --prod --json",
     );
   });
 
@@ -446,8 +446,9 @@ describe("creek doctor --auth", () => {
     });
     expect(out.checks.find((c: { id: string }) => c.id === "scopes")).toMatchObject({
       status: "pass",
-      code: "legacy_full_access",
+      code: "legacy_key_unscoped",
     });
+    expect(out.breadcrumbs ?? []).toEqual([]);
   });
 
   it("validates flag combinations and missing directory paths", async () => {
@@ -503,5 +504,186 @@ describe("creek doctor --auth", () => {
     );
     expect(code).toBe(1);
     expect(stdout).toBe("");
+  });
+
+  it("rejects NUL-containing saved tokens before fetch without leaking the secret", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${API}/*`, () => {
+        calls++;
+        return HttpResponse.json(SESSION);
+      }),
+    );
+    let stderr = "";
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
+      stderr += typeof chunk === "string" ? chunk : chunk.toString();
+      return true;
+    });
+    saveConfig({ token: "crk_sk_live_secretNulLeak\0tail" });
+
+    expect(await runDoctorCmd({ auth: true, json: true })).toBe(1);
+    expect(calls).toBe(0);
+    expect(json()).toMatchObject({
+      ok: false,
+      error: "invalid_token_format",
+      tokenFormatIssue: "contains_nul",
+      tokenSource: "config",
+    });
+    expect(stdout).not.toContain("secretNulLeak");
+    expect(stderr).not.toContain("secretNulLeak");
+  });
+
+  it("fails --auth --prod when /api-keys/self errors after a valid session, while preserving server_unsupported compat", async () => {
+    process.env.CREEK_TOKEN = TOKEN_CI;
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(SESSION)),
+      http.get(`${API}/api-keys/self`, () =>
+        HttpResponse.json({ error: "service_unavailable" }, { status: 503 }),
+      ),
+    );
+
+    expect(await runDoctorCmd({ auth: true, prod: true, json: true })).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: false,
+      error: "lookup_failed",
+      status: 503,
+    });
+    expect(out.checks.find((c: { id: string }) => c.id === "key")).toMatchObject({
+      status: "fail",
+      code: "lookup_failed",
+    });
+    expect(out.checks.find((c: { id: string }) => c.id === "scopes")).toMatchObject({
+      status: "skip",
+      code: "key_lookup_failed",
+    });
+
+    // Compatibility with older control-planes without /api-keys/self still passes.
+    stdout = "";
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(SESSION)),
+      http.get(`${API}/api-keys/self`, () =>
+        HttpResponse.json({ error: "not_found" }, { status: 404 }),
+      ),
+    );
+    expect(await runDoctorCmd({ auth: true, prod: true, json: true })).toBe(0);
+    const compat = json();
+    expect(compat.ok).toBe(true);
+    expect(compat.checks.find((c: { id: string }) => c.id === "key")).toMatchObject({
+      status: "skip",
+      code: "server_unsupported",
+    });
+  });
+
+  it("reports /api-keys/self edge blocks and 503 lookup_failed separately when session returns null", async () => {
+    process.env.CREEK_TOKEN = TOKEN_CI;
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(null, { status: 401 })),
+      http.get(
+        `${API}/api-keys/self`,
+        () =>
+          new HttpResponse("<html>WAF blocked</html>", {
+            status: 403,
+            headers: { "content-type": "text/html", "cf-ray": "ray-self-1" },
+          }),
+      ),
+    );
+
+    expect(await runDoctorCmd({ auth: true, json: true })).toBe(1);
+    const blocked = json();
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: "edge_blocked",
+      status: 403,
+      details: { nonJson: true, cfRay: "ray-self-1" },
+    });
+    expect(blocked.breadcrumbs ?? []).toEqual([]);
+
+    stdout = "";
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(null, { status: 401 })),
+      http.get(`${API}/api-keys/self`, () =>
+        HttpResponse.json({ error: "unavailable" }, { status: 503 }),
+      ),
+    );
+    expect(await runDoctorCmd({ auth: true, json: true })).toBe(1);
+    const lookupOut = json();
+    expect(lookupOut).toMatchObject({
+      ok: false,
+      error: "lookup_failed",
+      status: 503,
+    });
+    expect(lookupOut.breadcrumbs ?? []).toEqual([]);
+  });
+
+  it("preserves checked path and --project in follow-ups and suppresses unsafe deploy breadcrumbs", async () => {
+    mkdirSync(join(workDir, "apps/web"), { recursive: true });
+    writeFileSync(join(workDir, "apps/web/creek.toml"), '[project]\nname = "web"\n');
+    process.env.CREEK_TOKEN = TOKEN_CI;
+
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(SESSION)),
+      http.get(`${API}/api-keys/self`, () => HttpResponse.json(makeKeySelf({}))),
+      http.get(`${API}/projects/web`, () =>
+        HttpResponse.json({ id: "proj-web", slug: "web", name: "web" }),
+      ),
+      http.get(`${API}/projects/other-app`, () =>
+        HttpResponse.json({ id: "proj-other", slug: "other-app", name: "other-app" }),
+      ),
+    );
+
+    // Non-prod check on subdir preserves path in --prod follow-up.
+    expect(await runDoctorCmd({ path: "apps/web", auth: true, json: true })).toBe(0);
+    expect(json().breadcrumbs[0].command).toBe("creek doctor apps/web --auth --prod --json");
+
+    // Non-prod check with --project preserves --project in --prod follow-up.
+    stdout = "";
+    expect(await runDoctorCmd({ project: "web", auth: true, json: true })).toBe(0);
+    expect(json().breadcrumbs[0].command).toBe("creek doctor --project web --auth --prod --json");
+
+    // --prod with explicit --project pointing at a different slug suppresses bare deploy breadcrumb.
+    stdout = "";
+    process.chdir(join(workDir, "apps/web"));
+    expect(await runDoctorCmd({ project: "other-app", auth: true, prod: true, json: true })).toBe(
+      0,
+    );
+    const suppressed = json();
+    expect(suppressed.breadcrumbs ?? []).toEqual([]);
+  });
+
+  it("warns legacy_role_unverified when checking --auth --prod for a legacy key on a missing project", async () => {
+    writeFileSync(join(workDir, "creek.toml"), '[project]\nname = "brand-new"\n');
+    process.env.CREEK_TOKEN = TOKEN_LEGACY;
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(SESSION)),
+      http.get(`${API}/api-keys/self`, () =>
+        HttpResponse.json(
+          makeKeySelf({
+            id: "key-legacy",
+            name: null,
+            legacy: true,
+            team: null,
+            scopes: null,
+            role: null,
+            effectiveScopes: null,
+            access: "full",
+          }),
+        ),
+      ),
+      http.get(`${API}/projects/brand-new`, () =>
+        HttpResponse.json({ error: "not_found" }, { status: 404 }),
+      ),
+    );
+
+    expect(await runDoctorCmd({ auth: true, prod: true, json: true })).toBe(0);
+    const out = json();
+    expect(out.ok).toBe(true);
+    expect(out.checks.find((c: { id: string }) => c.id === "scopes")).toMatchObject({
+      status: "warn",
+      code: "legacy_role_unverified",
+      details: {
+        unverifiedPermissions: ["project:create"],
+      },
+    });
   });
 });

@@ -99,6 +99,7 @@ export const doctorCommand = defineCommand({
       }
       await runAuthDoctor({
         cwd,
+        rawPath: typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined,
         project: args.project,
         prod: args.prod === true,
         jsonMode,

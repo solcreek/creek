@@ -1,10 +1,18 @@
 import consola from "consola";
 import { CreekApiError, CreekClient } from "@solcreek/sdk";
-import { describeTokenSource, diagnoseTokenFormat, lookupKey, type KeySummary } from "./api-key.js";
+import {
+  describeTokenSource,
+  diagnoseTokenFormat,
+  isUnsendableTokenFormat,
+  lookupKey,
+  type KeySummary,
+} from "./api-key.js";
 import { apiErrorFields, apiErrorHints, isEdgeBlockedError } from "./api-error.js";
-import { readDirectoryProject, type ProjectSource } from "./command-context.js";
+import { bareDeployShips, readDirectoryProject, type ProjectSource } from "./command-context.js";
 import { getApiUrl, getToken, getTokenSource, type TokenSource } from "./config.js";
 import { AUTH_BREADCRUMBS, jsonOutput, type Breadcrumb } from "./output.js";
+import { validateSubpath } from "./repo-url.js";
+import { shellQuote } from "./shell-quote.js";
 
 export type AuthCheckStatus = "pass" | "warn" | "fail" | "skip";
 
@@ -18,6 +26,7 @@ export interface AuthCheck {
 
 export interface AuthDoctorOptions {
   cwd: string;
+  rawPath?: string;
   project: string | undefined;
   prod: boolean;
   jsonMode: boolean;
@@ -100,7 +109,14 @@ function printHumanReport(opts: {
 }
 
 function failureBreadcrumbs(errorCode: string): Breadcrumb[] {
-  if (errorCode === "edge_blocked" || errorCode === "api_unreachable") return [];
+  if (
+    errorCode === "edge_blocked" ||
+    errorCode === "api_unreachable" ||
+    errorCode === "lookup_failed" ||
+    errorCode === "api_error"
+  ) {
+    return [];
+  }
   if (errorCode === "key_unusable") {
     return [
       { command: "creek keys revoke --self --json", description: "Revoke this unusable key" },
@@ -116,6 +132,46 @@ function failureBreadcrumbs(errorCode: string): Breadcrumb[] {
   return AUTH_BREADCRUMBS;
 }
 
+function buildSuccessBreadcrumbs(opts: {
+  prod: boolean;
+  rawPath?: string;
+  project?: string;
+  canDeployCheckedDir: boolean;
+}): Breadcrumb[] {
+  if (!opts.prod) {
+    const cmd =
+      opts.rawPath && opts.project
+        ? `creek doctor ${shellQuote(opts.rawPath)} --project ${shellQuote(opts.project)} --auth --prod --json`
+        : opts.rawPath
+          ? `creek doctor ${shellQuote(opts.rawPath)} --auth --prod --json`
+          : opts.project
+            ? `creek doctor --project ${shellQuote(opts.project)} --auth --prod --json`
+            : "creek doctor --auth --prod --json";
+    return [{ command: cmd, description: "Verify production deploy scopes specifically" }];
+  }
+  if (!opts.canDeployCheckedDir) return [];
+  if (opts.rawPath) {
+    try {
+      validateSubpath(opts.rawPath);
+      const sub = opts.rawPath.replace(/\/+$/, "");
+      return [
+        {
+          command: `creek deploy --path ${shellQuote(sub)} --prod --json`,
+          description: "Deploy to production",
+        },
+      ];
+    } catch {
+      return [
+        {
+          command: `cd ${shellQuote(opts.rawPath)} && creek deploy --prod --json`,
+          description: "Deploy to production from the checked directory",
+        },
+      ];
+    }
+  }
+  return [{ command: "creek deploy --prod --json", description: "Deploy to production" }];
+}
+
 function finishAuthReport(opts: {
   doctor: AuthDoctorOptions;
   apiUrl: string;
@@ -128,6 +184,7 @@ function finishAuthReport(opts: {
   checks: AuthCheck[];
   extraErrorFields?: Record<string, unknown>;
   overrideError?: { code: string; message: string; breadcrumbs?: Breadcrumb[] };
+  successBreadcrumbs?: Breadcrumb[];
   hints?: string[];
 }): never | void {
   const target = opts.doctor.prod ? "production" : "general";
@@ -140,14 +197,13 @@ function finishAuthReport(opts: {
     failedCheck?.message;
 
   const breadcrumbs: Breadcrumb[] = ok
-    ? opts.doctor.prod
-      ? [{ command: "creek deploy --prod --json", description: "Deploy to production" }]
-      : [
-          {
-            command: "creek doctor --auth --prod --json",
-            description: "Verify production deploy scopes specifically",
-          },
-        ]
+    ? (opts.successBreadcrumbs ??
+      buildSuccessBreadcrumbs({
+        prod: opts.doctor.prod,
+        rawPath: opts.doctor.rawPath,
+        project: opts.doctor.project,
+        canDeployCheckedDir: false,
+      }))
     : (opts.overrideError?.breadcrumbs ?? failureBreadcrumbs(errorCode ?? "auth_failed"));
 
   if (opts.doctor.jsonMode) {
@@ -232,25 +288,26 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   });
 
   const formatIssue = diagnoseTokenFormat(token);
-  if (formatIssue?.code === "contains_newline") {
+  if (isUnsendableTokenFormat(formatIssue)) {
+    const issue = formatIssue!;
     const base =
       tokenSourceInfo.source === "env:CREEK_TOKEN"
         ? "The API key in CREEK_TOKEN could not be sent."
         : "The saved API key could not be sent.";
-    const message = `${base} ${formatIssue.message}`;
+    const message = `${base} ${issue.message}`;
     checks.push({
       id: "format",
       status: "fail",
       code: "invalid_token_format",
       message,
-      details: { issue: formatIssue.code },
+      details: { issue: issue.code },
     });
     finishAuthReport({
       doctor: opts,
       apiUrl,
       tokenSource: tokenSourceInfo.source,
       warning,
-      tokenFormatIssue: formatIssue.code,
+      tokenFormatIssue: issue.code,
       user: null,
       key: null,
       project: null,
@@ -346,6 +403,44 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
       return;
     }
 
+    if (lookup.error === "lookup_failed") {
+      const err = lookup.cause ?? new Error(lookup.message);
+      const apiFields = apiErrorFields(err);
+      const errorCode = isEdgeBlockedError(err)
+        ? "edge_blocked"
+        : (apiFields.error ?? "lookup_failed");
+      const message =
+        apiFields.message ?? `Could not verify API key via GET /api-keys/self: ${lookup.message}`;
+      checks.push({
+        id: "session",
+        status: "fail",
+        code: "session_unverified",
+        message: "Session check returned no user while API key metadata lookup failed.",
+      });
+      checks.push({
+        id: "key",
+        status: "fail",
+        code: errorCode,
+        message,
+        ...(apiFields.details ? { details: apiFields.details } : {}),
+      });
+      finishAuthReport({
+        doctor: opts,
+        apiUrl,
+        tokenSource: tokenSourceInfo.source,
+        warning,
+        tokenFormatIssue: formatIssue?.code,
+        user: null,
+        key: null,
+        project: null,
+        checks,
+        extraErrorFields: apiFields,
+        overrideError: { code: errorCode, message, breadcrumbs: failureBreadcrumbs(errorCode) },
+        hints: apiErrorHints(err),
+      });
+      return;
+    }
+
     const base =
       tokenSourceInfo.source === "env:CREEK_TOKEN"
         ? "The API key in CREEK_TOKEN was refused (revoked, expired or invalid). Set a valid key, or unset CREEK_TOKEN to use the key saved by `creek login`."
@@ -380,6 +475,11 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   });
 
   let key: KeySummary | null = null;
+  let keyLookupFailed = false;
+  let keyErrorCode: string | undefined;
+  let keyErrorFields: Record<string, unknown> | undefined;
+  let keyHints: string[] | undefined;
+
   if (lookup.ok) {
     key = lookup.key;
     if (key.expired || key.access === "none") {
@@ -397,7 +497,7 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
         id: "key",
         status: "pass",
         code: "legacy_key",
-        message: "Legacy key (full access in every team you belong to).",
+        message: "Legacy key (unscoped; acts with your team role permissions).",
         details: { kind: key.kind, access: key.access },
       });
     } else {
@@ -430,12 +530,28 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   } else if (lookup.error === "server_unsupported") {
     checks.push({ id: "key", status: "skip", code: "server_unsupported", message: lookup.message });
   } else {
+    keyLookupFailed = true;
+    const err = lookup.cause ?? new Error(lookup.message);
+    const fields = apiErrorFields(err);
+    keyErrorCode = isEdgeBlockedError(err) ? "edge_blocked" : (fields.error ?? lookup.error);
+    const message =
+      fields.message ??
+      (opts.prod
+        ? `Cannot verify required production scopes because GET /api-keys/self failed: ${lookup.message}`
+        : lookup.message);
+    if (opts.prod) {
+      keyErrorFields = fields;
+      keyHints = apiErrorHints(err);
+    }
     checks.push({
       id: "key",
-      status: "warn",
-      code: lookup.error,
-      message: lookup.message,
-      ...(lookup.status !== undefined ? { details: { status: lookup.status } } : {}),
+      status: opts.prod ? "fail" : "warn",
+      code: keyErrorCode,
+      message,
+      details: {
+        ...(lookup.status !== undefined ? { status: lookup.status } : {}),
+        ...fields.details,
+      },
     });
   }
 
@@ -523,7 +639,7 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
           id: "project",
           status: "warn",
           code: "project_not_found",
-          message: `Project "${targetProject.slug}" was not found${teamHint} (a first deploy auto-creates it if the key holds project:write).`,
+          message: `Project "${targetProject.slug}" was not found${teamHint} (a first deploy requires creating it: project:write scope and project:create team role permission).`,
           details: { slug: targetProject.slug, source: targetProject.source, status: 404 },
         });
       } else {
@@ -564,8 +680,10 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
     checks.push({
       id: "scopes",
       status: "skip",
-      code: "key_unavailable",
-      message: "Key scope details unavailable from this API.",
+      code: keyLookupFailed ? "key_lookup_failed" : "key_unavailable",
+      message: keyLookupFailed
+        ? "Skipped scope check because GET /api-keys/self failed."
+        : "Key scope details unavailable from this API.",
     });
   } else if (key.access === "none" || key.expired) {
     checks.push({
@@ -575,12 +693,26 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
       message: "API key has no active access.",
     });
   } else if (key.kind === "legacy") {
-    checks.push({
-      id: "scopes",
-      status: "pass",
-      code: "legacy_full_access",
-      message: "Legacy key has full access (all deploy scopes included).",
-    });
+    if (opts.prod && projectInfo?.exists === false) {
+      checks.push({
+        id: "scopes",
+        status: "warn",
+        code: "legacy_role_unverified",
+        message: `Legacy key bypasses API-key scopes, not team role permissions. Project "${projectInfo.slug}" does not exist yet: creating it on first deploy requires team role permission "project:create" (admin or owner), which cannot be verified for a legacy key.`,
+        details: {
+          unverifiedPermissions: ["project:create"],
+          reason: "legacy_key_has_no_role_metadata",
+        },
+      });
+    } else {
+      checks.push({
+        id: "scopes",
+        status: "pass",
+        code: "legacy_key_unscoped",
+        message:
+          "Legacy key bypasses API-key scopes (team role permissions are still enforced by the API).",
+      });
+    }
   } else {
     const effective = new Set(key.effectiveScopes ?? []);
     const stored = new Set(key.scopes ?? []);
@@ -651,6 +783,34 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   }
 
   const failed = checks.find((ch) => ch.status === "fail");
+  const canDeployCheckedDir =
+    !!targetProject && !targetProject.isCreekd && bareDeployShips(targetProject.slug, opts.cwd);
+  const successBreadcrumbs = buildSuccessBreadcrumbs({
+    prod: opts.prod,
+    rawPath: opts.rawPath,
+    project: opts.project,
+    canDeployCheckedDir,
+  });
+
+  const errorMeta =
+    failed?.id === "key" && keyErrorFields
+      ? {
+          extraErrorFields: keyErrorFields,
+          hints: keyHints,
+          ...(keyErrorCode
+            ? {
+                overrideError: {
+                  code: keyErrorCode,
+                  message: failed.message,
+                  breadcrumbs: failureBreadcrumbs(keyErrorCode),
+                },
+              }
+            : {}),
+        }
+      : failed?.id === "project" && projectErrorFields
+        ? { extraErrorFields: projectErrorFields, hints: projectHints }
+        : {};
+
   finishAuthReport({
     doctor: opts,
     apiUrl,
@@ -661,8 +821,7 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
     key,
     project: projectInfo,
     checks,
-    ...(failed?.id === "project" && projectErrorFields
-      ? { extraErrorFields: projectErrorFields, hints: projectHints }
-      : {}),
+    successBreadcrumbs,
+    ...errorMeta,
   });
 }
