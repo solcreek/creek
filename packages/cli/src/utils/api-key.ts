@@ -207,7 +207,7 @@ export function keyLines(key: KeySummary): string[] {
   return lines;
 }
 
-export function describeTokenSource(info: TokenInfo): string {
+export function describeTokenSource(info: Pick<TokenInfo, "source">): string {
   return info.source === "env:CREEK_TOKEN"
     ? "CREEK_TOKEN environment variable"
     : "~/.creek/config.json (creek login)";
