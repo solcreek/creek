@@ -38,13 +38,34 @@ function SettingsPage() {
 
 function CloudflareSettings() {
   const features = useFeatures();
-  const { data: activeOrg } = useActiveOrganization();
+  const { data: activeOrg, isPending: activePending } = useActiveOrganization();
+  const { data: orgs, isPending: orgsPending } = authClient.useListOrganizations();
   const search = Route.useSearch();
   const navigate = useNavigate();
   if (!features.teams) return null;
+
+  // The team the sidebar shows: the active one, else the first. The API falls
+  // back the same way, but the panel names its team on every request anyway.
+  const team = activeOrg ?? orgs?.[0] ?? null;
+  if (!team) {
+    return (
+      <section>
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Cloudflare
+        </h2>
+        <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+          {activePending || orgsPending
+            ? "Loading…"
+            : "Select a team in the sidebar to connect Cloudflare."}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <CloudflarePanel
-      teamId={activeOrg?.id ?? null}
+      key={team.id}
+      team={{ id: team.id, slug: team.slug }}
       callback={{
         connected: search.cloudflare === "connected",
         error: search.cloudflare_error,

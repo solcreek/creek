@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { renderDashboardApp, renderWithProviders } from "./render.js";
 import { server } from "./mocks/server.js";
+import { authClient } from "../lib/auth.js";
 import {
   CloudflarePanel,
   type CloudflareStatus,
@@ -11,6 +12,7 @@ import {
 
 const API_URL = "http://localhost:8787";
 const STATUS_URL = `${API_URL}/integrations/cloudflare`;
+const TEAM = { id: "team-1", slug: "team-one" };
 
 const CONNECTED = {
   configured: true,
@@ -27,6 +29,29 @@ function status(body: CloudflareStatus) {
   server.use(http.get(STATUS_URL, () => HttpResponse.json(body)));
 }
 
+/** A session with no active organization (signup creates one without activating it). */
+function noActiveTeam() {
+  server.use(
+    http.get(`${API_URL}/api/auth/get-session`, () =>
+      HttpResponse.json({
+        user: { id: "user-1", name: "Test User", email: "test@creek.dev", emailVerified: false },
+        session: { id: "session-1", userId: "user-1", activeOrganizationId: null },
+      }),
+    ),
+    http.get(`${API_URL}/api/auth/organization/get-full-organization`, () =>
+      HttpResponse.json(null),
+    ),
+  );
+  reloadAuthStores();
+}
+
+/** better-auth keeps session and organization state in module-level stores: refetch them for this test's mocks. */
+function reloadAuthStores() {
+  for (const signal of ["$sessionSignal", "$activeOrgSignal", "$listOrg"] as const) {
+    authClient.$store.notify(signal);
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -34,7 +59,7 @@ afterEach(() => {
 describe("CloudflarePanel", () => {
   test("instance without the integration says so and offers no button", async () => {
     status({ configured: false, connected: false });
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
 
     expect(await screen.findByText(/not available on this Creek instance/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Cloudflare" })).toBeNull();
@@ -52,7 +77,7 @@ describe("CloudflarePanel", () => {
     const assign = vi.fn();
     vi.stubGlobal("location", { ...window.location, assign });
 
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
     await userEvent.click(await screen.findByRole("button", { name: "Connect Cloudflare" }));
 
     await waitFor(() =>
@@ -68,7 +93,7 @@ describe("CloudflarePanel", () => {
         HttpResponse.json({ error: "forbidden", message: "nope" }, { status: 403 }),
       ),
     );
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
     await userEvent.click(await screen.findByRole("button", { name: "Connect Cloudflare" }));
 
     expect(await screen.findByText(/don't have permission/)).toBeInTheDocument();
@@ -81,7 +106,7 @@ describe("CloudflarePanel", () => {
         HttpResponse.json({ ok: true, accounts: [{ id: "acc-1", name: "Acme" }] }),
       ),
     );
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
 
     expect(await screen.findByText("Connected")).toBeInTheDocument();
     expect(screen.getByText(/Acme/)).toBeInTheDocument();
@@ -106,7 +131,7 @@ describe("CloudflarePanel", () => {
         ),
       ),
     );
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Test connection" }));
 
@@ -127,7 +152,7 @@ describe("CloudflarePanel", () => {
         return HttpResponse.json({ ok: true, revoked: true });
       }),
     );
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
     expect(deletes).toBe(0);
@@ -141,7 +166,7 @@ describe("CloudflarePanel", () => {
   test("a disconnect Cloudflare did not confirm tells the user to revoke it there", async () => {
     status(CONNECTED);
     server.use(http.delete(STATUS_URL, () => HttpResponse.json({ ok: true, revoked: false })));
-    renderWithProviders(<CloudflarePanel teamId="team-1" />);
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm disconnect" }));
@@ -153,11 +178,7 @@ describe("CloudflarePanel", () => {
     status(CONNECTED);
     const dismiss = vi.fn();
     renderWithProviders(
-      <CloudflarePanel
-        teamId="team-1"
-        callback={{ error: "denied" }}
-        onDismissCallback={dismiss}
-      />,
+      <CloudflarePanel team={TEAM} callback={{ error: "denied" }} onDismissCallback={dismiss} />,
     );
 
     expect(await screen.findByText(/declined the authorization/)).toBeInTheDocument();
@@ -167,7 +188,7 @@ describe("CloudflarePanel", () => {
 
   test("an unknown callback error code is still shown", async () => {
     status({ configured: true, connected: false });
-    renderWithProviders(<CloudflarePanel teamId="team-1" callback={{ error: "weird_code" }} />);
+    renderWithProviders(<CloudflarePanel team={TEAM} callback={{ error: "weird_code" }} />);
 
     expect(await screen.findByText(/failed \(weird_code\)/)).toBeInTheDocument();
   });
@@ -190,5 +211,110 @@ describe("Settings page: Cloudflare callback", () => {
     renderDashboardApp("/settings?cloudflare_error=session_mismatch");
 
     expect(await screen.findByText(/different signed-in user/)).toBeInTheDocument();
+  });
+
+  test.each(["__proto__", "constructor", "toString"])(
+    "an inherited name (%s) gets the unknown-code message",
+    async (code) => {
+      status({ configured: true, connected: false });
+      renderDashboardApp(`/settings?cloudflare_error=${code}`);
+
+      expect(
+        await screen.findByText(`Connecting Cloudflare failed (${code}).`),
+      ).toBeInTheDocument();
+    },
+  );
+});
+
+describe("Cloudflare panel: which team", () => {
+  test("every request names the team the panel shows", async () => {
+    const seen: string[] = [];
+    const record = (request: Request) => {
+      seen.push(`${request.method} ${request.headers.get("x-creek-team")}`);
+    };
+    let connected = true;
+    server.use(
+      http.get(STATUS_URL, ({ request }) => {
+        record(request);
+        return HttpResponse.json(connected ? CONNECTED : { configured: true, connected: false });
+      }),
+      http.post(`${STATUS_URL}/verify`, ({ request }) => {
+        record(request);
+        return HttpResponse.json({ ok: true, accounts: [] });
+      }),
+      http.delete(STATUS_URL, ({ request }) => {
+        record(request);
+        connected = false;
+        return HttpResponse.json({ ok: true, revoked: true });
+      }),
+      http.post(`${STATUS_URL}/authorize`, ({ request }) => {
+        record(request);
+        return HttpResponse.json({ url: "https://dash.cloudflare.com/oauth2/auth" });
+      }),
+    );
+    vi.stubGlobal("location", { ...window.location, assign: vi.fn() });
+    renderWithProviders(<CloudflarePanel team={TEAM} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Test connection" }));
+    await screen.findByText(/It reaches 0 accounts/);
+    await userEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm disconnect" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Connect Cloudflare" }));
+
+    await waitFor(() => expect(seen).toContain("POST team-one"));
+    expect(new Set(seen)).toEqual(new Set(["GET team-one", "POST team-one", "DELETE team-one"]));
+    expect(seen.filter((s) => s === "POST team-one")).toHaveLength(2); // verify + authorize
+  });
+
+  test("with no active team, Settings uses the team the sidebar shows (the first)", async () => {
+    const teams: (string | null)[] = [];
+    noActiveTeam();
+    server.use(
+      http.get(`${API_URL}/api/auth/organization/list`, () =>
+        HttpResponse.json([{ id: "org-2", name: "Second Team", slug: "second-team" }]),
+      ),
+      http.get(STATUS_URL, ({ request }) => {
+        teams.push(request.headers.get("x-creek-team"));
+        return HttpResponse.json({ configured: true, connected: false });
+      }),
+    );
+    renderDashboardApp("/settings");
+
+    expect(await screen.findByRole("button", { name: "Connect Cloudflare" })).toBeInTheDocument();
+    expect(teams).toEqual(["second-team"]);
+  });
+
+  test("with no team at all, Settings says to select one instead of loading forever", async () => {
+    noActiveTeam();
+    server.use(http.get(`${API_URL}/api/auth/organization/list`, () => HttpResponse.json([])));
+    renderDashboardApp("/settings");
+
+    expect(await screen.findByText(/Select a team in the sidebar/)).toBeInTheDocument();
+  });
+
+  test("switching teams resets the panel: no leftover disconnect confirmation", async () => {
+    let active = { id: "org-1", name: "Test Team", slug: "test-team" };
+    server.use(
+      http.get(`${API_URL}/api/auth/organization/get-full-organization`, () =>
+        HttpResponse.json(active),
+      ),
+      http.post(`${API_URL}/api/auth/organization/set-active`, () => {
+        active = { id: "org-2", name: "Second Team", slug: "second-team" };
+        return HttpResponse.json(active);
+      }),
+    );
+    status(CONNECTED);
+    reloadAuthStores();
+    renderDashboardApp("/settings");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(screen.getByRole("button", { name: "Confirm disconnect" })).toBeInTheDocument();
+
+    await authClient.organization.setActive({ organizationId: "org-2" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Confirm disconnect" })).toBeNull(),
+    );
+    expect(await screen.findByRole("button", { name: "Disconnect" })).toBeInTheDocument();
   });
 });

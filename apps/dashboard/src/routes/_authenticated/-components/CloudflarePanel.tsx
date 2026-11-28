@@ -48,6 +48,18 @@ const CALLBACK_ERRORS: Record<string, string> = {
 
 const STATUS_KEY = ["integrations", "cloudflare"] as const;
 
+export interface CloudflareTeam {
+  id: string;
+  slug: string;
+}
+
+/** The query string is user-controlled: only own keys, so `__proto__` or `constructor` gets the fallback. */
+function callbackErrorMessage(code: string): string {
+  return Object.hasOwn(CALLBACK_ERRORS, code)
+    ? CALLBACK_ERRORS[code]
+    : `Connecting Cloudflare failed (${code}).`;
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return "You don't have permission to do this on this team.";
@@ -61,28 +73,34 @@ function errorMessage(err: unknown): string {
  * DNS changes are made in that account, so its owner is billed, not Creek.
  */
 export function CloudflarePanel({
-  teamId,
+  team,
   callback,
   onDismissCallback,
 }: {
-  /** Re-fetches when the active team changes. */
-  teamId: string | null;
+  /**
+   * The team this panel shows and acts on. Every request names it with
+   * x-creek-team rather than relying on the session's active organization,
+   * which another tab can change while this one still shows the old team.
+   * Render with key={team.id} so a team switch starts from clean state.
+   */
+  team: CloudflareTeam;
   callback?: CloudflareCallbackResult;
   onDismissCallback?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const statusKey = [...STATUS_KEY, team.id];
 
   const status = useQuery({
-    queryKey: [...STATUS_KEY, teamId],
-    queryFn: () => api<CloudflareStatus>("/integrations/cloudflare"),
-    enabled: teamId !== null,
+    queryKey: statusKey,
+    queryFn: () => api<CloudflareStatus>("/integrations/cloudflare", { team: team.slug }),
   });
 
   const authorize = useMutation({
     mutationFn: () =>
       api<{ url: string }>("/integrations/cloudflare/authorize", {
         method: "POST",
+        team: team.slug,
         body: JSON.stringify({ returnTo: "/settings" }),
       }),
     onSuccess: ({ url }) => {
@@ -91,22 +109,26 @@ export function CloudflarePanel({
   });
 
   const verify = useMutation({
-    mutationFn: () => api<VerifyResult>("/integrations/cloudflare/verify", { method: "POST" }),
+    mutationFn: () =>
+      api<VerifyResult>("/integrations/cloudflare/verify", { method: "POST", team: team.slug }),
     // A 409 means the grant can no longer be renewed: show the reconnect state.
     onError: (err) => {
       if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
-        void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
+        void queryClient.invalidateQueries({ queryKey: statusKey });
       }
     },
   });
 
   const disconnect = useMutation({
     mutationFn: () =>
-      api<{ ok: true; revoked: boolean }>("/integrations/cloudflare", { method: "DELETE" }),
+      api<{ ok: true; revoked: boolean }>("/integrations/cloudflare", {
+        method: "DELETE",
+        team: team.slug,
+      }),
     onSettled: () => {
       setConfirmingDisconnect(false);
       verify.reset();
-      void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
+      void queryClient.invalidateQueries({ queryKey: statusKey });
     },
   });
 
@@ -130,11 +152,11 @@ export function CloudflarePanel({
         )}
         {callback?.error && (
           <Notice tone="error" onDismiss={onDismissCallback}>
-            {CALLBACK_ERRORS[callback.error] ?? `Connecting Cloudflare failed (${callback.error}).`}
+            {callbackErrorMessage(callback.error)}
           </Notice>
         )}
 
-        {status.isLoading || teamId === null ? (
+        {status.isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Loading…
           </p>
