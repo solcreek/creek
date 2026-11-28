@@ -208,6 +208,29 @@ describe("ProtectionPanel", () => {
     });
   });
 
+  test("a refused update keeps the Cloudflare setup link", async () => {
+    const stale = {
+      ...MANAGED,
+      managed: { ...(MANAGED as any).managed, outOfSync: { hostnames: true, members: false } },
+    } as AccessStatus;
+    mock(stale);
+    const setupUrl = `https://dash.cloudflare.com/${ACCOUNT}/one/settings/authentication`;
+    server.use(
+      http.put(`${ACCESS_URL}/managed`, () =>
+        HttpResponse.json(
+          { error: "login_method_required", message: "Add a login method.", setupUrl },
+          { status: 409 },
+        ),
+      ),
+    );
+    const panel = await openPanel();
+
+    await userEvent.click(await panel.findByRole("button", { name: "Update Cloudflare" }));
+
+    expect(await panel.findByText(/Update failed: Add a login method\./)).toBeInTheDocument();
+    expect(panel.getByRole("link", { name: /Open Cloudflare/ })).toHaveAttribute("href", setupUrl);
+  });
+
   test("edit starts from the saved settings", async () => {
     mock(MANAGED);
     const panel = await openPanel();

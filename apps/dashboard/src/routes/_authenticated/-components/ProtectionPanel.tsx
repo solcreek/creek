@@ -349,7 +349,7 @@ function ManagedSummary({
           </Button>
         </Notice>
       )}
-      {!!syncError && <Notice tone="error">Update failed: {errorMessage(syncError)}</Notice>}
+      {!!syncError && <SaveError error={syncError} prefix="Update failed: " />}
 
       {status.noMailDomains.length > 0 && (
         <Notice tone="warn">
@@ -487,8 +487,6 @@ function ProtectionForm({
     onSubmit(accountId ? { ...body, accountId } : body);
   };
 
-  const setupUrl = setupUrlOf(error);
-
   return (
     <form className="space-y-4" onSubmit={submit}>
       {accounts.length > 1 && (
@@ -572,21 +570,7 @@ function ProtectionForm({
       </div>
 
       {localError && <Notice tone="error">{localError}</Notice>}
-      {!!error && (
-        <Notice tone="error">
-          {errorMessage(error)}
-          {setupUrl && (
-            <a
-              href={setupUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 flex items-center gap-1 underline"
-            >
-              Open Cloudflare <ExternalLink className="size-3" />
-            </a>
-          )}
-        </Notice>
-      )}
+      {!!error && <SaveError error={error} />}
 
       <div className="flex items-center gap-2">
         <Button size="sm" type="submit" disabled={pending}>
@@ -601,6 +585,27 @@ function ProtectionForm({
         effect within about a minute.
       </p>
     </form>
+  );
+}
+
+/** A refused save, with the Cloudflare setup link when the refusal carries one. */
+function SaveError({ error, prefix = "" }: { error: unknown; prefix?: string }) {
+  const setupUrl = setupUrlOf(error);
+  return (
+    <Notice tone="error">
+      {prefix}
+      {errorMessage(error)}
+      {setupUrl && (
+        <a
+          href={setupUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 flex items-center gap-1 underline"
+        >
+          Open Cloudflare <ExternalLink className="size-3" />
+        </a>
+      )}
+    </Notice>
   );
 }
 
