@@ -208,6 +208,53 @@ describe("POST /projects/:id/rollback", () => {
     const body = await res.json<any>();
     expect(body.error).toBe("invalid_target");
   });
+
+  // Production serves the script of the deployment the pointer names, and a
+  // rollback row has none: pointing production at one would serve nothing.
+  test("rejects rollback to a rollback record", async () => {
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment("deploy-rollback-row", "active", 2, "rollback");
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/rollback`, {
+      deploymentId: "deploy-rollback-row",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json<any>()).error).toBe("invalid_target");
+    const project = testEnv.db.db
+      .prepare("SELECT productionDeploymentId FROM project WHERE id = ?")
+      .get(PROJECT_ID) as { productionDeploymentId: string };
+    expect(project.productionDeploymentId).toBe(CURRENT_DEPLOY);
+  });
+});
+
+describe("POST /projects/:id/deployments/:deploymentId/promote", () => {
+  test("promotes an active deployment", async () => {
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment(PREVIOUS_DEPLOY, "active", 2);
+
+    const res = await req("POST", `/projects/${PROJECT_ID}/deployments/${PREVIOUS_DEPLOY}/promote`);
+    expect(res.status).toBe(200);
+    expect((await res.json<any>()).productionDeploymentId).toBe(PREVIOUS_DEPLOY);
+  });
+
+  test("rejects promoting a rollback record", async () => {
+    setupProject();
+    setupDeployment(CURRENT_DEPLOY, "active", 1);
+    setupDeployment("deploy-rollback-row", "active", 2, "rollback");
+
+    const res = await req(
+      "POST",
+      `/projects/${PROJECT_ID}/deployments/deploy-rollback-row/promote`,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json<any>()).error).toBe("invalid_target");
+    const project = testEnv.db.db
+      .prepare("SELECT productionDeploymentId FROM project WHERE id = ?")
+      .get(PROJECT_ID) as { productionDeploymentId: string };
+    expect(project.productionDeploymentId).toBe(CURRENT_DEPLOY);
+  });
 });
 
 describe("GET /projects/:id/rollback", () => {

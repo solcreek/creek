@@ -106,6 +106,87 @@ describe("GET /projects/:id/analytics", () => {
     expect(body.query).toContain("datetimeHour");
   });
 
+  // Production traffic runs on the production deployment's own script, so the
+  // query must cover those scripts, not only `{project}-{team}`.
+  test("queries the production deployments' scripts, not previews or rollback records", async () => {
+    const projectId = seedProject(testEnv, "my-app");
+    const now = Date.now();
+    const insert = (
+      id: string,
+      branch: string | null,
+      status: string,
+      trigger: string,
+      at: number,
+    ) =>
+      testEnv.db.db.exec(
+        `INSERT INTO deployment (id, projectId, version, status, branch, triggerType, createdAt, updatedAt)
+         VALUES ('${id}', '${projectId}', 1, '${status}', ${branch === null ? "NULL" : `'${branch}'`}, '${trigger}', ${at}, ${at})`,
+      );
+    insert("aaaa1111-old-prod", null, "active", "cli", now - 3000);
+    insert("bbbb2222-new-prod", "main", "active", "github", now - 2000);
+    insert("cccc3333-feature", "feature-x", "active", "github", now - 1000);
+    insert("dddd4444-failed", "main", "failed", "cli", now - 500);
+    insert("eeee5555-rollback", null, "active", "rollback", now);
+    testEnv.db.db.exec(
+      `UPDATE project SET productionDeploymentId = 'aaaa1111-old-prod' WHERE id = '${projectId}'`,
+    );
+
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { viewer: { accounts: [{ series: [], totals: [] }] } } }),
+        ),
+      );
+
+    const res = await req("/projects/my-app/analytics");
+    const json = (await res.json()) as any;
+    const team = TEST_TEAM.slug;
+    expect(json.scriptNames).toEqual([
+      `my-app-${team}`,
+      `my-app-bbbb2222-${team}`,
+      `my-app-aaaa1111-${team}`,
+    ]);
+    const query = JSON.parse((globalThis.fetch as any).mock.calls[0][1].body).query as string;
+    expect(query).toContain(`scriptName_in: ${JSON.stringify(json.scriptNames)}`);
+    expect(query).not.toContain(`scriptName: "`);
+  });
+
+  test("falls back to the production script alone if Cloudflare refuses the list filter", async () => {
+    seedProject(testEnv, "my-app");
+    const ok = {
+      data: {
+        viewer: {
+          accounts: [
+            {
+              series: [],
+              totals: [
+                {
+                  sum: { requests: 7, errors: 0, subrequests: 0 },
+                  quantiles: { cpuTimeP50: 1, cpuTimeP99: 2 },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ data: null, errors: [{ message: "unknown field scriptName_in" }] }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(ok)));
+
+    const json = (await (await req("/projects/my-app/analytics")).json()) as any;
+    expect(json.totals.requests).toBe(7);
+    expect(json.scriptNames).toEqual([`my-app-${TEST_TEAM.slug}`]);
+    const second = JSON.parse((globalThis.fetch as any).mock.calls[1][1].body).query as string;
+    expect(second).toContain(`scriptName: "my-app-${TEST_TEAM.slug}"`);
+  });
+
   test("returns empty data when CF API fails", async () => {
     seedProject(testEnv, "my-app");
 
