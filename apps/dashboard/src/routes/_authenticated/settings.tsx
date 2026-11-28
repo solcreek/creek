@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { authClient, useActiveOrganization } from "@/lib/auth";
+import { authClient, useCurrentTeam } from "@/lib/auth";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
 import { useFeatures } from "@/lib/api-context";
@@ -38,15 +38,13 @@ function SettingsPage() {
 
 function CloudflareSettings() {
   const features = useFeatures();
-  const { data: activeOrg, isPending: activePending } = useActiveOrganization();
-  const { data: orgs, isPending: orgsPending } = authClient.useListOrganizations();
+  // The team the sidebar shows: the active one, else the first. The API falls
+  // back the same way, but the panel names its team on every request anyway.
+  const { team, isPending } = useCurrentTeam();
   const search = Route.useSearch();
   const navigate = useNavigate();
   if (!features.teams) return null;
 
-  // The team the sidebar shows: the active one, else the first. The API falls
-  // back the same way, but the panel names its team on every request anyway.
-  const team = activeOrg ?? orgs?.[0] ?? null;
   if (!team) {
     return (
       <section>
@@ -54,9 +52,7 @@ function CloudflareSettings() {
           Cloudflare
         </h2>
         <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-          {activePending || orgsPending
-            ? "Loading…"
-            : "Select a team in the sidebar to connect Cloudflare."}
+          {isPending ? "Loading…" : "Select a team in the sidebar to connect Cloudflare."}
         </p>
       </section>
     );
@@ -76,9 +72,9 @@ function CloudflareSettings() {
 }
 
 function TeamSettings() {
-  const { data: activeOrg } = useActiveOrganization();
+  const { team } = useCurrentTeam();
   // Keyed on the organisation so the form starts from its values and resets on switch.
-  return <TeamForm key={activeOrg?.id ?? "none"} activeOrg={activeOrg ?? null} />;
+  return <TeamForm key={team?.id ?? "none"} activeOrg={team} />;
 }
 
 function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: string } | null }) {
@@ -117,7 +113,7 @@ function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: 
           <Button size="sm" onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
             {updateOrg.isPending ? "Saving..." : "Save"}
           </Button>
-          {saved && <span className="text-sm text-green-400">Saved</span>}
+          {saved && <span className="text-sm text-success-foreground">Saved</span>}
         </div>
       </div>
     </section>
@@ -125,19 +121,17 @@ function TeamForm({ activeOrg }: { activeOrg: { id: string; name: string; slug: 
 }
 
 function MembersList() {
-  const { data: activeOrg } = useActiveOrganization();
+  const { team } = useCurrentTeam();
 
   // Better Auth listMembers returns { members: [...] }
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[] | null>(null);
 
   useEffect(() => {
-    if (!activeOrg?.id) return;
-    authClient.organization
-      .listMembers({ query: { organizationId: activeOrg.id } })
-      .then((res: any) => {
-        setMembers(res.data?.members ?? []);
-      });
-  }, [activeOrg?.id]);
+    if (!team?.id) return;
+    authClient.organization.listMembers({ query: { organizationId: team.id } }).then((res: any) => {
+      setMembers(res.data?.members ?? []);
+    });
+  }, [team?.id]);
 
   return (
     <section>
@@ -145,7 +139,9 @@ function MembersList() {
         Members
       </h2>
       <div className="rounded-lg border border-border">
-        {members.length === 0 ? (
+        {members === null ? (
+          <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+        ) : members.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">No members found.</p>
         ) : (
           <div className="divide-y divide-border">

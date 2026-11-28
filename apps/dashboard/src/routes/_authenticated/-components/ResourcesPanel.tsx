@@ -143,7 +143,7 @@ export function ResourcesPanel({ kind }: { kind?: string } = {}) {
           </div>
           {createError && <p className="text-xs text-destructive">{createError}</p>}
           {newName && !NAME_RE.test(newName) && (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning-foreground">
               Name must be lowercase, start with a letter, &le;63 chars; hyphen and underscore OK.
             </p>
           )}

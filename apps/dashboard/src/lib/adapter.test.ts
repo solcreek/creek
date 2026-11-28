@@ -283,7 +283,9 @@ describe("hosted adapter functions", () => {
     const apps = await listApps();
 
     expect(apps).toHaveLength(1);
-    expect(apps[0].id).toBe("proj-1");
+    // The slug, not the UUID: project routes and /projects/:slug/{bindings,logs,metrics}
+    // key on it, and it is the name users recognise.
+    expect(apps[0].id).toBe("my-site");
     expect(apps[0].status).toBe("running");
     expect(apps[0].runtime).toBe("next");
   });

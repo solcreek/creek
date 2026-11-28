@@ -15,12 +15,7 @@ import {
 import { useStatsRingBuffer } from "@/lib/use-stats-history";
 import { Sparkline } from "@/components/sparkline";
 import { useApiMode } from "@/lib/api-context";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@solcreek/ui/components/dropdown-menu";
+import { Menu, MenuPopup, MenuItem, MenuTrigger } from "@solcreek/ui/components/menu";
 import { Button } from "@solcreek/ui/components/button";
 import {
   MoreHorizontal,
@@ -61,12 +56,12 @@ interface Deployment {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: "bg-green-500",
-  queued: "bg-yellow-500",
-  uploading: "bg-blue-500",
-  provisioning: "bg-blue-500",
-  deploying: "bg-blue-500",
-  failed: "bg-red-500",
+  active: "bg-success",
+  queued: "bg-warning",
+  uploading: "bg-info",
+  provisioning: "bg-info",
+  deploying: "bg-info",
+  failed: "bg-destructive",
   cancelled: "bg-gray-500",
 };
 
@@ -246,7 +241,7 @@ function DeploymentsTab() {
                         </span>
                       ))}
                     {isProduction && (
-                      <span className="ml-2 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-400">
+                      <span className="ml-2 rounded bg-success/10 px-1.5 py-0.5 text-xs text-success-foreground">
                         Production
                       </span>
                     )}
@@ -292,24 +287,21 @@ function DeploymentsTab() {
                   <ScrollText className="size-4" />
                 </Button>
                 {canPromote && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
+                  <Menu>
+                    <MenuTrigger
                       render={
                         <Button variant="ghost" size="icon-xs">
                           <MoreHorizontal className="size-4" />
                         </Button>
                       }
                     />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => promote.mutate(d.id)}
-                        disabled={promote.isPending}
-                      >
+                    <MenuPopup align="end">
+                      <MenuItem onClick={() => promote.mutate(d.id)} disabled={promote.isPending}>
                         <ArrowUpCircle className="mr-2 size-4" />
                         {promote.isPending ? "Promoting..." : "Promote to Production"}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
                 )}
               </div>
             </div>
@@ -366,10 +358,10 @@ function fmtDuration(ms: number): string {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  running: "bg-green-500/10 text-green-400 border-green-500/30",
-  starting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
-  crash_loop: "bg-red-500/10 text-red-400 border-red-500/30",
-  stopping: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  running: "bg-success/10 text-success-foreground border-success/30",
+  starting: "bg-warning/10 text-warning-foreground border-warning/30",
+  crash_loop: "bg-destructive/10 text-destructive-foreground border-destructive/30",
+  stopping: "bg-warning/10 text-warning-foreground border-warning/30",
   stopped: "bg-gray-500/10 text-gray-400 border-gray-500/30",
 };
 
@@ -576,8 +568,8 @@ const CONDITION_ICON: Record<string, { true: string; false: string; unknown: str
 };
 
 const CONDITION_ROW_STYLE: Record<string, Record<string, string>> = {
-  Ready: { True: "", False: "bg-red-500/5", Unknown: "bg-yellow-500/5" },
-  Degraded: { True: "bg-amber-500/5", False: "", Unknown: "" },
+  Ready: { True: "", False: "bg-destructive/5", Unknown: "bg-warning/5" },
+  Degraded: { True: "bg-warning/5", False: "", Unknown: "" },
 };
 
 function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
@@ -605,11 +597,11 @@ function ConditionsPanel({ conditions }: { conditions: Condition[] }) {
               <span
                 className={`w-16 ${
                   c.status === "True" && c.type === "Degraded"
-                    ? "text-amber-400"
+                    ? "text-warning-foreground"
                     : c.status === "True"
-                      ? "text-green-400"
+                      ? "text-success-foreground"
                       : c.status === "False" && c.type === "Ready"
-                        ? "text-red-400"
+                        ? "text-destructive-foreground"
                         : "text-muted-foreground"
                 }`}
               >
@@ -656,7 +648,7 @@ function StatCard({
   return (
     <div className="rounded-lg border border-border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${alert ? "text-amber-400" : ""}`}>
+      <p className={`mt-1 text-lg font-semibold ${alert ? "text-warning-foreground" : ""}`}>
         {value}
         {sub && <span className="text-sm font-normal text-muted-foreground"> {sub}</span>}
       </p>

@@ -69,7 +69,7 @@ function ApiKeysPage() {
 
       {/* Show newly created key */}
       {createdKey && (
-        <div className="mb-6 rounded-lg border border-accent/30 bg-accent/5 p-4">
+        <div className="mb-6 rounded-lg border border-success/30 bg-success/5 p-4">
           <p className="mb-2 text-sm font-medium">
             Key created. Copy it now — you won't see it again.
           </p>

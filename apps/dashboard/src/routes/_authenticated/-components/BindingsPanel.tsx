@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { ConnectionError } from "@/components/connection-error";
 
 interface Resource {
   id: string;
@@ -42,7 +43,12 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
     queryFn: () => api<{ resources: Resource[] }>("/resources"),
   });
 
-  const { data: bindings, isLoading } = useQuery({
+  const {
+    data: bindings,
+    isLoading,
+    error: bindingsError,
+    refetch: refetchBindings,
+  } = useQuery({
     queryKey: ["bindings", projectId],
     queryFn: () => api<{ bindings: Binding[] }>(`/projects/${projectId}/bindings`),
   });
@@ -138,7 +144,7 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
           </div>
           {attachError && <p className="text-xs text-destructive">{attachError}</p>}
           {bindingName && !BINDING_NAME_RE.test(bindingName) && (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning-foreground">
               Binding name must be uppercase, start with a letter, ≤63 chars.
             </p>
           )}
@@ -147,6 +153,8 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
 
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : bindingsError ? (
+        <ConnectionError error={bindingsError} onRetry={() => refetchBindings()} />
       ) : !bindings?.bindings?.length ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-xs text-muted-foreground">

@@ -180,7 +180,7 @@ export function CloudflarePanel({
               </Notice>
             ) : (
               <p className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="size-4 text-green-400" /> Connected
+                <CheckCircle2 className="size-4 text-success-foreground" /> Connected
               </p>
             )}
 
@@ -290,13 +290,14 @@ function Notice({
       className={
         "flex items-start gap-2 rounded-md border p-3 text-sm " +
         (tone === "ok"
-          ? "border-green-500/30 bg-green-500/5"
+          ? "border-success/30 bg-success/5"
           : "border-destructive/30 bg-destructive/5")
       }
     >
       <Icon
         className={
-          "mt-0.5 size-4 shrink-0 " + (tone === "ok" ? "text-green-400" : "text-destructive")
+          "mt-0.5 size-4 shrink-0 " +
+          (tone === "ok" ? "text-success-foreground" : "text-destructive")
         }
       />
       <div className="flex-1">{children}</div>
