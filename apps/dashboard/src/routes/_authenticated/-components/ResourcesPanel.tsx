@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { ConfirmAction } from "@/components/confirm-action";
 
 interface Resource {
   id: string;
@@ -259,19 +260,24 @@ function ResourceRow({ resource, showKind = true }: { resource: Resource; showKi
             <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
               Rename
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
+            <ConfirmAction
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title={
+                    attachedTo.length > 0 ? "Detach from all projects before deleting" : undefined
+                  }
+                />
+              }
               disabled={attachedTo.length > 0 || del.isPending}
-              title={attachedTo.length > 0 ? "Detach from all projects before deleting" : undefined}
-              onClick={() => {
-                if (confirm(`Delete "${resource.name}"? This cannot be undone.`)) {
-                  del.mutate();
-                }
-              }}
+              title={`Delete "${resource.name}"?`}
+              description="The backing Cloudflare resource will be scheduled for cleanup, and its data cannot be recovered. This cannot be undone."
+              confirmLabel="Delete"
+              onConfirm={() => del.mutate()}
             >
               Delete
-            </Button>
+            </ConfirmAction>
           </>
         )}
       </div>

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
+import { ConfirmAction } from "@/components/confirm-action";
 
 interface ResourceDetail {
   id: string;
@@ -353,18 +354,24 @@ function BindingsSection({ resource }: { resource: ResourceDetail }) {
                 </Link>
                 <span className="text-xs text-muted-foreground">env.{b.bindingName}</span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
+              <ConfirmAction
+                trigger={<Button variant="ghost" size="sm" />}
                 disabled={detach.isPending}
-                onClick={() => {
-                  if (confirm(`Detach env.${b.bindingName} from ${b.projectSlug}?`)) {
-                    detach.mutate({ projectSlug: b.projectSlug, bindingName: b.bindingName });
-                  }
-                }}
+                title={`Detach env.${b.bindingName} from ${b.projectSlug}?`}
+                description={
+                  <>
+                    Removes this resource's binding from{" "}
+                    <span className="font-mono">{b.projectSlug}</span>. The resource and its data
+                    are kept.
+                  </>
+                }
+                confirmLabel="Detach"
+                onConfirm={() =>
+                  detach.mutate({ projectSlug: b.projectSlug, bindingName: b.bindingName })
+                }
               >
                 Detach
-              </Button>
+              </ConfirmAction>
             </div>
           ))}
         </div>

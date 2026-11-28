@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { Button } from "@solcreek/ui/components/button";
 import { Input } from "@solcreek/ui/components/input";
 import { ConnectionError } from "@/components/connection-error";
+import { ConfirmAction } from "@/components/confirm-action";
 
 interface Resource {
   id: string;
@@ -176,17 +177,20 @@ export function BindingsPanel({ projectId }: { projectId: string }) {
                 </span>
                 <span className="font-mono truncate">{b.name}</span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (confirm(`Detach env.${b.bindingName}?`)) {
-                    detach.mutate(b.bindingName);
-                  }
-                }}
+              <ConfirmAction
+                trigger={<Button variant="ghost" size="sm" />}
+                title={`Detach env.${b.bindingName}?`}
+                description={
+                  <>
+                    Removes the binding to <span className="font-mono">{b.name}</span> from this
+                    project. The resource and its data are kept.
+                  </>
+                }
+                confirmLabel="Detach"
+                onConfirm={() => detach.mutate(b.bindingName)}
               >
                 Detach
-              </Button>
+              </ConfirmAction>
             </li>
           ))}
         </ul>
