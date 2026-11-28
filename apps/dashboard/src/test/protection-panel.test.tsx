@@ -313,6 +313,77 @@ describe("ProtectionPanel", () => {
   });
 });
 
+describe("ProtectionPanel: which team and project", () => {
+  test("every request names the team the page shows", async () => {
+    const seen: string[] = [];
+    const record = (request: Request) =>
+      seen.push(
+        `${request.method} ${new URL(request.url).pathname} ${request.headers.get("x-creek-team")}`,
+      );
+    let protectedNow = false;
+    server.use(
+      http.get(ACCESS_URL, ({ request }) => {
+        record(request);
+        return HttpResponse.json(
+          protectedNow ? MANAGED : { protected: false, hostnames: ["app.acme.com"] },
+        );
+      }),
+      http.get(`${API_URL}/integrations/cloudflare`, ({ request }) => {
+        record(request);
+        return HttpResponse.json(CONNECTED);
+      }),
+      http.put(`${ACCESS_URL}/managed`, ({ request }) => {
+        record(request);
+        protectedNow = true;
+        return HttpResponse.json({ ok: true });
+      }),
+      http.delete(ACCESS_URL, ({ request }) => {
+        record(request);
+        protectedNow = false;
+        return HttpResponse.json({ ok: true, protected: false });
+      }),
+    );
+    const panel = await openPanel();
+
+    await userEvent.click(
+      await panel.findByRole("button", { name: "Protect with Cloudflare Access" }),
+    );
+    await userEvent.click(panel.getByRole("button", { name: "Turn on protection" }));
+    await userEvent.click(await panel.findByRole("button", { name: "Turn off protection" }));
+    await userEvent.click(panel.getByRole("button", { name: "Confirm: turn off protection" }));
+    await panel.findByRole("button", { name: "Protect with Cloudflare Access" });
+
+    expect(seen).toContain("PUT /projects/proj-1/access/managed test-team");
+    expect(seen).toContain("DELETE /projects/proj-1/access test-team");
+    expect(seen.every((s) => s.endsWith(" test-team"))).toBe(true);
+  });
+
+  test("moving to another project drops an open form", async () => {
+    server.use(
+      http.get(`${API_URL}/projects/:projectId/access`, () =>
+        HttpResponse.json({ protected: false, hostnames: ["app.acme.com"] }),
+      ),
+      http.get(`${API_URL}/integrations/cloudflare`, () => HttpResponse.json(CONNECTED)),
+    );
+    const { router } = renderDashboardApp("/projects/proj-1/settings");
+    const section = () =>
+      within(screen.getByRole("heading", { name: "Protection" }).closest("section")!);
+
+    await screen.findByRole("heading", { name: "Protection" });
+    await userEvent.click(
+      await section().findByRole("button", { name: "Protect with Cloudflare Access" }),
+    );
+    await userEvent.type(section().getByLabelText("Other people's emails"), "a@x.io");
+
+    await router.navigate({ to: "/projects/$projectId/settings", params: { projectId: "proj-2" } });
+
+    expect(
+      await section().findByRole("button", { name: "Protect with Cloudflare Access" }),
+    ).toBeInTheDocument();
+    expect(section().queryByLabelText("Other people's emails")).toBeNull();
+  });
+});
+
 describe("splitList", () => {
   test("splits on lines and commas, trims, drops empties", () => {
     expect(splitList(" a@x.io,\n\n b@y.io ,")).toEqual(["a@x.io", "b@y.io"]);

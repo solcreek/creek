@@ -5,7 +5,7 @@ import { Button } from "@solcreek/ui/components/button";
 import { Textarea } from "@solcreek/ui/components/textarea";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, ShieldCheck } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { CloudflareStatus } from "./CloudflarePanel";
+import type { CloudflareStatus, CloudflareTeam } from "./CloudflarePanel";
 
 /** Who a Creek-managed setup lets in, as GET /projects/:id/access reports it. */
 export interface ManagedAccessView {
@@ -87,25 +87,39 @@ function setupUrlOf(err: unknown): string | null {
  * applications in the team's connected Cloudflare account and keeps them in
  * line with who may get in.
  */
-export function ProtectionPanel({ projectId }: { projectId: string }) {
+export function ProtectionPanel({
+  team,
+  projectId,
+}: {
+  /**
+   * The team the page shows. Every request names it with x-creek-team, and
+   * every cache entry is keyed by it, so a team switch in another tab can
+   * neither show another team's Cloudflare connection nor change a project
+   * of the same name in another team. Render with key={team and project}.
+   */
+  team: CloudflareTeam;
+  projectId: string;
+}) {
   const queryClient = useQueryClient();
-  const accessKey = ["project", projectId, "access"];
+  const accessKey = ["project", projectId, "access", team.id];
   const [editing, setEditing] = useState(false);
   const [confirmingOff, setConfirmingOff] = useState(false);
 
   const access = useQuery({
     queryKey: accessKey,
-    queryFn: () => api<AccessStatus>(`/projects/${projectId}/access`),
+    queryFn: () => api<AccessStatus>(`/projects/${projectId}/access`, { team: team.slug }),
   });
+  // Shares CloudflarePanel's cache entry for this team.
   const cloudflare = useQuery({
-    queryKey: ["integrations", "cloudflare", "active-team"],
-    queryFn: () => api<CloudflareStatus>("/integrations/cloudflare"),
+    queryKey: ["integrations", "cloudflare", team.id],
+    queryFn: () => api<CloudflareStatus>("/integrations/cloudflare", { team: team.slug }),
   });
 
   const save = useMutation({
     mutationFn: (body: ManagedBody) =>
       api<unknown>(`/projects/${projectId}/access/managed`, {
         method: "PUT",
+        team: team.slug,
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
@@ -115,7 +129,8 @@ export function ProtectionPanel({ projectId }: { projectId: string }) {
   });
 
   const remove = useMutation({
-    mutationFn: () => api<RemoveResult>(`/projects/${projectId}/access`, { method: "DELETE" }),
+    mutationFn: () =>
+      api<RemoveResult>(`/projects/${projectId}/access`, { method: "DELETE", team: team.slug }),
     onSettled: () => {
       setConfirmingOff(false);
       void queryClient.invalidateQueries({ queryKey: accessKey });
@@ -362,8 +377,7 @@ function ManagedSummary({
       {status.noMxDomains.length > 0 && (
         <Notice tone="warn">
           These domains have no mail server (MX) record, so a sign-in code sent to them most likely
-          never arrives:{" "}
-          <span className="font-mono text-xs">{status.noMxDomains.join(", ")}</span>
+          never arrives: <span className="font-mono text-xs">{status.noMxDomains.join(", ")}</span>
         </Notice>
       )}
 
