@@ -138,3 +138,30 @@ describe("production follows productionDeploymentId", () => {
     expect(dispatched).toEqual([]);
   });
 });
+
+// Slugs may end in eight hex characters or contain `-git-`, so a project's own
+// default hostname can parse as a preview. It must follow its own pointer.
+describe("a project whose slug looks like a preview", () => {
+  test.each([
+    ["eight hex characters", "site-a1b2c3d4"],
+    ["-git-", "app-git-feature"],
+  ])("a slug ending in %s serves its production deployment", async (_, slug) => {
+    vi.useFakeTimers();
+    const state: State = { pointers: { [slug]: DEPLOY_2 }, customDomains: {} };
+    const env = makeEnv(state);
+    await worker.fetch(new Request(`https://${slug}-acme.bycreek.com/`), env);
+
+    state.pointers[slug] = DEPLOY_1; // rollback
+    vi.advanceTimersByTime(61_000);
+    await worker.fetch(new Request(`https://${slug}-acme.bycreek.com/`), env);
+
+    expect(dispatched).toEqual([`${slug}-2222bbbb-acme`, `${slug}-1111aaaa-acme`]);
+  });
+
+  test("with no such project, the hostname is still the deployment preview", async () => {
+    const env = makeEnv({ pointers: { site: DEPLOY_2 }, customDomains: {} });
+    await worker.fetch(new Request("https://site-a1b2c3d4-acme.bycreek.com/"), env);
+
+    expect(dispatched).toEqual(["site-a1b2c3d4-acme"]);
+  });
+});
