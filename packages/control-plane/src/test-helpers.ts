@@ -5,6 +5,7 @@ import { projects } from "./modules/projects/routes.js";
 import { resolveTeam } from "./modules/tenant/resolve.js";
 import { deployments } from "./modules/deployments/routes.js";
 import { domains } from "./modules/domains/routes.js";
+import { projectAccess } from "./modules/domains/access.js";
 import { envVars } from "./modules/env/routes.js";
 import { instantDeploy } from "./modules/deployments/instant-deploy.js";
 import { resources, resourceBindings } from "./modules/resources/routes.js";
@@ -219,6 +220,7 @@ export function createTestApp(user: AuthUser, teamId: string, teamSlug: string) 
   app.route("/projects", deployments);
   app.route("/projects", buildLogsRead);
   app.route("/projects", domains);
+  app.route("/projects", projectAccess);
   app.route("/projects", envVars);
   app.route("/projects", resourceBindings);
   app.route("/resources", resources);

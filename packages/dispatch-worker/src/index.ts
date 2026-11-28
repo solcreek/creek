@@ -6,6 +6,16 @@ import {
   parseHostnameWithTeams,
 } from "./parse.js";
 import { inferContentType } from "@solcreek/deploy-core/content-type";
+import {
+  ACCESS_JWT_HEADER,
+  type AccessConfig,
+  accessDenied,
+  accessUnavailable,
+  createKeyLookup,
+  isBypassed,
+  parseAccessConfig,
+  verifyAccessJwt,
+} from "./access.js";
 
 interface Env {
   DISPATCHER: {
@@ -123,6 +133,8 @@ interface RouteEntry {
   redirectHost: string | null;
   /** Whether responses are marked `X-Robots-Tag: noindex`. */
   noindex: boolean;
+  /** The project's Access settings; see ResolvedRoute. */
+  access: AccessConfig | null;
   expires: number;
 }
 
@@ -131,6 +143,12 @@ interface ResolvedRoute {
   scriptName: string;
   redirectHost: string | null;
   noindex: boolean;
+  /**
+   * The project's Cloudflare Access settings, or null when it is not
+   * protected. Cached with the route, so turning protection on or off takes
+   * effect within ROUTE_CACHE_TTL.
+   */
+  access: AccessConfig | null;
 }
 
 const routeCache = new Map<string, RouteEntry>();
@@ -177,10 +195,39 @@ async function parseHostname(
 
 // --- Route resolution ---
 
-interface ProductionRow {
+interface AccessColumns {
+  accessTeamDomain?: string | null;
+  accessAud?: string | null;
+  accessBypassPaths?: string | null;
+}
+
+interface ProductionRow extends AccessColumns {
   productionDeploymentId: string | null;
   redirectToPrimaryDomain?: number | null;
   primaryDomain?: string | null;
+}
+
+// The project's Access settings ride along on every routing query (no extra
+// round trip). Before migration 0016 the columns don't exist; the same query
+// runs again with NULLs in their place, so routing never depends on them.
+const ACCESS_COLUMNS = "p.accessTeamDomain, p.accessAud, p.accessBypassPaths";
+const NO_ACCESS_COLUMNS = "NULL AS accessTeamDomain, NULL AS accessAud, NULL AS accessBypassPaths";
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function isMissingColumn(e: unknown): boolean {
+  return /no such column/i.test(errorText(e));
+}
+
+async function withAccessColumns<T>(run: (columns: string) => Promise<T>): Promise<T> {
+  try {
+    return await run(ACCESS_COLUMNS);
+  } catch (e: unknown) {
+    if (!(isMissingColumn(e) && /access/i.test(errorText(e)))) throw e;
+    return run(NO_ACCESS_COLUMNS);
+  }
 }
 
 const PRODUCTION_FROM = `FROM project p
@@ -202,23 +249,62 @@ async function queryProduction(
   team: string,
 ): Promise<ProductionRow | null> {
   try {
-    return await db
-      .prepare(
-        `SELECT p.productionDeploymentId, p.redirectToPrimaryDomain,
-                (SELECT cd.hostname FROM custom_domain cd
-                 WHERE cd.projectId = p.id AND cd.isPrimary = 1 AND cd.status = 'active'
-                 LIMIT 1) AS primaryDomain
-           ${PRODUCTION_FROM}`,
-      )
-      .bind(project, team)
-      .first<ProductionRow>();
+    return await withAccessColumns((access) =>
+      db
+        .prepare(
+          `SELECT p.productionDeploymentId, p.redirectToPrimaryDomain,
+                  (SELECT cd.hostname FROM custom_domain cd
+                   WHERE cd.projectId = p.id AND cd.isPrimary = 1 AND cd.status = 'active'
+                   LIMIT 1) AS primaryDomain, ${access}
+             ${PRODUCTION_FROM}`,
+        )
+        .bind(project, team)
+        .first<ProductionRow>(),
+    );
   } catch (e: unknown) {
-    if (!/no such column/i.test(e instanceof Error ? e.message : String(e))) throw e;
+    if (!isMissingColumn(e)) throw e;
+    // Before 0014 there is no 0016 either: the plain lookup, unprotected.
     return db
       .prepare(`SELECT p.productionDeploymentId ${PRODUCTION_FROM}`)
       .bind(project, team)
       .first<ProductionRow>();
   }
+}
+
+/**
+ * Access settings for a preview hostname `{name}-{team}`.
+ *
+ * The parse names an owner (`site` for `site-a1b2c3d4` or `site-git-feature`),
+ * but the script dispatched, `{name}-{team}`, is also the production script of
+ * any project whose slug is `{name}` itself: slugs may end in eight hex
+ * characters or contain `-git-`. Reading only the parsed owner would let such a
+ * protected project be reached through its own default hostname. So both are
+ * read, in one query, and either one's protection applies; the project that
+ * owns `{name}` as production comes first, since that is the script's
+ * long-lived owner. Where both exist and only the parsed owner is protected,
+ * the request still needs its token: a collision fails closed.
+ */
+async function previewAccess(
+  db: D1Database,
+  team: string,
+  owner: string,
+  name: string,
+): Promise<AccessConfig | null> {
+  const rows = await withAccessColumns((access) =>
+    db
+      .prepare(
+        `SELECT p.slug AS slug, ${access} FROM project p
+         JOIN organization t ON p.organizationId = t.id
+         WHERE t.slug = ? AND p.slug IN (?, ?)`,
+      )
+      .bind(team, owner, name)
+      .all<{ slug: string } & AccessColumns>(),
+  );
+  const configOf = (slug: string) => {
+    const row = rows.results.find((r) => r.slug === slug);
+    return row ? parseAccessConfig(row) : null;
+  };
+  return configOf(name) ?? configOf(owner);
 }
 
 async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<ResolvedRoute | null> {
@@ -237,6 +323,7 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
         scriptName: `${parsed.project}-${parsed.team}`,
         redirectHost: redirects ? primary : null,
         noindex: Boolean(primary) && !redirects,
+        access: parseAccessConfig(row),
       };
     }
 
@@ -253,33 +340,45 @@ async function resolveRoute(parsed: ParsedHostname, db: D1Database): Promise<Res
         .bind(parsed.project, parsed.team, parsed.branch)
         .first<{ id: string }>();
       if (!row) return null;
+      const name = `${parsed.project}-git-${parsed.branch}`;
       // Previews exist to be looked at, never to be found by a crawler.
       return {
-        scriptName: `${parsed.project}-git-${parsed.branch}-${parsed.team}`,
+        scriptName: `${name}-${parsed.team}`,
         redirectHost: null,
         noindex: true,
+        access: await previewAccess(db, parsed.team!, parsed.project!, name),
       };
     }
 
-    case "deployment":
+    case "deployment": {
+      const name = `${parsed.project}-${parsed.deployId}`;
       return {
-        scriptName: `${parsed.project}-${parsed.deployId}-${parsed.team}`,
+        scriptName: `${name}-${parsed.team}`,
         redirectHost: null,
         noindex: true,
+        access: await previewAccess(db, parsed.team!, parsed.project!, name),
       };
+    }
 
     case "custom": {
-      const row = await db
-        .prepare(
-          `SELECT p.slug, t.slug as team_slug FROM custom_domain cd
-           JOIN project p ON cd.projectId = p.id
-           JOIN organization t ON p.organizationId = t.id
-           WHERE cd.hostname = ? AND cd.status = 'active'`,
-        )
-        .bind(parsed.customHostname)
-        .first<{ slug: string; team_slug: string }>();
+      const row = await withAccessColumns((access) =>
+        db
+          .prepare(
+            `SELECT p.slug, t.slug as team_slug, ${access} FROM custom_domain cd
+             JOIN project p ON cd.projectId = p.id
+             JOIN organization t ON p.organizationId = t.id
+             WHERE cd.hostname = ? AND cd.status = 'active'`,
+          )
+          .bind(parsed.customHostname)
+          .first<{ slug: string; team_slug: string } & AccessColumns>(),
+      );
       if (!row) return null;
-      return { scriptName: `${row.slug}-${row.team_slug}`, redirectHost: null, noindex: false };
+      return {
+        scriptName: `${row.slug}-${row.team_slug}`,
+        redirectHost: null,
+        noindex: false,
+        access: parseAccessConfig(row),
+      };
     }
   }
 }
@@ -397,6 +496,40 @@ function redirectToCanonical(requestUrl: URL, host: string): Response {
   });
 }
 
+// --- Cloudflare Access ---
+
+/** Team signing keys, cached per isolate. */
+const accessKeys = createKeyLookup();
+
+/**
+ * The response refusing this request, or null to let it through. Runs on
+ * every hostname of a protected project: only the customer's Access, on the
+ * customer's own domain, can produce a token that passes.
+ */
+async function enforceAccess(
+  request: Request,
+  url: URL,
+  access: AccessConfig,
+  isCustomDomain: boolean,
+): Promise<Response | null> {
+  if (isBypassed(url.pathname, access.bypassPaths)) return null;
+  try {
+    const result = await verifyAccessJwt(
+      request.headers.get(ACCESS_JWT_HEADER),
+      access,
+      accessKeys,
+    );
+    if (result.ok) return null;
+    if (result.reason === "config") {
+      console.error(`[dispatch] Access settings unusable for ${url.hostname}; refusing`);
+    }
+  } catch (e: unknown) {
+    console.error(`[dispatch] Access keys for ${access.teamDomain} unavailable: ${errorText(e)}`);
+    return accessUnavailable();
+  }
+  return accessDenied(isCustomDomain);
+}
+
 // --- Main handler ---
 
 export default {
@@ -466,6 +599,14 @@ export default {
     // host that is redirecting to it.
     if (route.redirectHost && route.redirectHost !== hostname) {
       return redirectToCanonical(url, route.redirectHost);
+    }
+
+    // A protected project answers nothing without its Access token. This runs
+    // after the canonical redirect, which reveals nothing and sends the visitor
+    // to the domain Access guards.
+    if (route.access) {
+      const denied = await enforceAccess(request, url, route.access, isCustomDomain);
+      if (denied) return denied;
     }
 
     // Resolve plan-based limits
