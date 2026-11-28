@@ -1,5 +1,5 @@
 import consola from "consola";
-import { CreekApiError, CreekClient } from "@solcreek/sdk";
+import { CreekApiError, CreekClient, resolveConfig } from "@solcreek/sdk";
 import {
   describeTokenSource,
   diagnoseTokenFormat,
@@ -8,7 +8,7 @@ import {
   type KeySummary,
 } from "./api-key.js";
 import { apiErrorFields, apiErrorHints, isEdgeBlockedError } from "./api-error.js";
-import { bareDeployShips, readDirectoryProject, type ProjectSource } from "./command-context.js";
+import { readDirectoryProject, type ProjectSource } from "./command-context.js";
 import { getApiUrl, getToken, getTokenSource, type TokenSource } from "./config.js";
 import { AUTH_BREADCRUMBS, jsonOutput, type Breadcrumb } from "./output.js";
 import { validateSubpath } from "./repo-url.js";
@@ -172,6 +172,39 @@ function buildSuccessBreadcrumbs(opts: {
   return [{ command: "creek deploy --prod --json", description: "Deploy to production" }];
 }
 
+/**
+ * Whether `creek deploy --prod` run against `cwd` would deploy `slug` to Creek Cloud
+ * (as opposed to a different project, a missing/unreadable config, or a `creekd` target
+ * that uses CREEKD_TOKEN / CREEKCTL_TOKEN).
+ */
+function checkedDirDeploysCloudProject(slug: string, cwd: string): boolean {
+  try {
+    const config = resolveConfig(cwd);
+    return config.target === "cf" && config.projectName === slug;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Scrub the active API key from any unexpected error message or hint so raw
+ * credentials can never leak into JSON or human diagnostic output.
+ */
+function redactToken(text: string, token: string): string {
+  if (token.length < 6) return text;
+  let redacted = text.replaceAll(token, "[REDACTED]");
+  const trimmed = token.trim();
+  if (trimmed.length >= 6 && trimmed !== token) {
+    redacted = redacted.replaceAll(trimmed, "[REDACTED]");
+  }
+  return redacted;
+}
+
+function redactErrorFields<T extends { message?: string }>(fields: T, token: string): T {
+  if (typeof fields.message !== "string") return fields;
+  return { ...fields, message: redactToken(fields.message, token) };
+}
+
 function finishAuthReport(opts: {
   doctor: AuthDoctorOptions;
   apiUrl: string;
@@ -288,8 +321,15 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   });
 
   const formatIssue = diagnoseTokenFormat(token);
-  if (isUnsendableTokenFormat(formatIssue)) {
-    const issue = formatIssue!;
+  // Reject newlines, NUL bytes, control chars, and non-ByteString chars before
+  // constructing any HTTP request: Node's fetch/Headers rejects them with an
+  // error message that echoes the raw header value.
+  if (token.includes("\0") || isUnsendableTokenFormat(formatIssue)) {
+    const issue = formatIssue ?? {
+      code: "contains_nul" as const,
+      message:
+        "The API key contains a NUL character; re-save or re-export the raw key without binary/NUL bytes.",
+    };
     const base =
       tokenSourceInfo.source === "env:CREEK_TOKEN"
         ? "The API key in CREEK_TOKEN could not be sent."
@@ -343,13 +383,15 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   }
 
   if (sessionErr !== undefined) {
-    const apiFields = apiErrorFields(sessionErr);
+    const apiFields = redactErrorFields(apiErrorFields(sessionErr), token);
     const errorCode = isEdgeBlockedError(sessionErr)
       ? "edge_blocked"
       : (apiFields.error ?? "api_error");
-    const message =
+    const message = redactToken(
       apiFields.message ??
-      (sessionErr instanceof Error ? sessionErr.message : "Failed to reach Creek API.");
+        (sessionErr instanceof Error ? sessionErr.message : "Failed to reach Creek API."),
+      token,
+    );
     checks.push({
       id: "session",
       status: "fail",
@@ -369,7 +411,7 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
       checks,
       extraErrorFields: apiFields,
       overrideError: { code: errorCode, message, breadcrumbs: failureBreadcrumbs(errorCode) },
-      hints: apiErrorHints(sessionErr),
+      hints: apiErrorHints(sessionErr).map((h) => redactToken(h, token)),
     });
     return;
   }
@@ -405,12 +447,14 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
 
     if (lookup.error === "lookup_failed") {
       const err = lookup.cause ?? new Error(lookup.message);
-      const apiFields = apiErrorFields(err);
+      const apiFields = redactErrorFields(apiErrorFields(err), token);
       const errorCode = isEdgeBlockedError(err)
         ? "edge_blocked"
         : (apiFields.error ?? "lookup_failed");
-      const message =
-        apiFields.message ?? `Could not verify API key via GET /api-keys/self: ${lookup.message}`;
+      const message = redactToken(
+        apiFields.message ?? `Could not verify API key via GET /api-keys/self: ${lookup.message}`,
+        token,
+      );
       checks.push({
         id: "session",
         status: "fail",
@@ -436,7 +480,7 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
         checks,
         extraErrorFields: apiFields,
         overrideError: { code: errorCode, message, breadcrumbs: failureBreadcrumbs(errorCode) },
-        hints: apiErrorHints(err),
+        hints: apiErrorHints(err).map((h) => redactToken(h, token)),
       });
       return;
     }
@@ -532,16 +576,18 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
   } else {
     keyLookupFailed = true;
     const err = lookup.cause ?? new Error(lookup.message);
-    const fields = apiErrorFields(err);
+    const fields = redactErrorFields(apiErrorFields(err), token);
     keyErrorCode = isEdgeBlockedError(err) ? "edge_blocked" : (fields.error ?? lookup.error);
-    const message =
+    const message = redactToken(
       fields.message ??
-      (opts.prod
-        ? `Cannot verify required production scopes because GET /api-keys/self failed: ${lookup.message}`
-        : lookup.message);
+        (opts.prod
+          ? `Cannot verify required production scopes because GET /api-keys/self failed: ${lookup.message}`
+          : lookup.message),
+      token,
+    );
     if (opts.prod) {
       keyErrorFields = fields;
-      keyHints = apiErrorHints(err);
+      keyHints = apiErrorHints(err).map((h) => redactToken(h, token));
     }
     checks.push({
       id: "key",
@@ -643,18 +689,22 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
           details: { slug: targetProject.slug, source: targetProject.source, status: 404 },
         });
       } else {
-        const fields = apiErrorFields(err);
+        const fields = redactErrorFields(apiErrorFields(err), token);
         projectErrorFields = fields;
-        projectHints = apiErrorHints(err);
+        projectHints = apiErrorHints(err).map((h) => redactToken(h, token));
         const code = isEdgeBlockedError(err)
           ? "edge_blocked"
           : err instanceof CreekApiError &&
               (err.code === "insufficient_scope" || err.code === "insufficient_role")
             ? err.code
             : (fields.error ?? "api_error");
-        const message =
+        const message = redactToken(
           fields.message ??
-          (err instanceof Error ? err.message : `Failed to read project "${targetProject.slug}".`);
+            (err instanceof Error
+              ? err.message
+              : `Failed to read project "${targetProject.slug}".`),
+          token,
+        );
         projectInfo = {
           slug: targetProject.slug,
           source: targetProject.source,
@@ -784,7 +834,9 @@ export async function runAuthDoctor(opts: AuthDoctorOptions): Promise<void> {
 
   const failed = checks.find((ch) => ch.status === "fail");
   const canDeployCheckedDir =
-    !!targetProject && !targetProject.isCreekd && bareDeployShips(targetProject.slug, opts.cwd);
+    !!targetProject &&
+    !targetProject.isCreekd &&
+    checkedDirDeploysCloudProject(targetProject.slug, opts.cwd);
   const successBreadcrumbs = buildSuccessBreadcrumbs({
     prod: opts.prod,
     rawPath: opts.rawPath,

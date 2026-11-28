@@ -5,6 +5,7 @@ import consola from "consola";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CreekClient } from "@solcreek/sdk";
 import { doctorCommand } from "./doctor.js";
 import { runAuthDoctor } from "../utils/doctor-auth.js";
 
@@ -519,6 +520,7 @@ describe("creek doctor --auth", () => {
       stderr += typeof chunk === "string" ? chunk : chunk.toString();
       return true;
     });
+    const logSpy = vi.spyOn(consola, "log").mockImplementation(() => {});
     saveConfig({ token: "crk_sk_live_secretNulLeak\0tail" });
 
     expect(await runDoctorCmd({ auth: true, json: true })).toBe(1);
@@ -531,6 +533,57 @@ describe("creek doctor --auth", () => {
     });
     expect(stdout).not.toContain("secretNulLeak");
     expect(stderr).not.toContain("secretNulLeak");
+
+    stdout = "";
+    const code = await runExit(
+      runAuthDoctor({ cwd: workDir, project: undefined, prod: false, jsonMode: false }),
+    );
+    expect(code).toBe(1);
+    expect(calls).toBe(0);
+    expect(stdout).toBe("");
+    expect(stderr).not.toContain("secretNulLeak");
+    expect(logSpy.mock.calls.flat().join("\n")).not.toContain("secretNulLeak");
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("NUL character");
+  });
+
+  it("redacts the active token if an unexpected header/fetch error echoes it", async () => {
+    process.env.CREEK_TOKEN = TOKEN_CI;
+    let stderr = "";
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
+      stderr += typeof chunk === "string" ? chunk : chunk.toString();
+      return true;
+    });
+    const logSpy = vi.spyOn(consola, "log").mockImplementation(() => {});
+    const spy = vi
+      .spyOn(CreekClient.prototype, "getSession")
+      .mockRejectedValueOnce(
+        new TypeError(`Headers.append: "${TOKEN_CI}" is an invalid header value.`),
+      )
+      .mockRejectedValueOnce(
+        new TypeError(`Headers.append: "${TOKEN_CI}" is an invalid header value.`),
+      );
+
+    expect(await runDoctorCmd({ auth: true, json: true })).toBe(1);
+    const out = json();
+    expect(out).toMatchObject({
+      ok: false,
+      error: "api_error",
+    });
+    expect(String(out.message)).toContain("[REDACTED]");
+    expect(stdout).not.toContain(TOKEN_CI);
+    expect(stderr).not.toContain(TOKEN_CI);
+
+    stdout = "";
+    const code = await runExit(
+      runAuthDoctor({ cwd: workDir, project: undefined, prod: false, jsonMode: false }),
+    );
+    expect(code).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(stdout).toBe("");
+    expect(stderr).not.toContain(TOKEN_CI);
+    const humanOut = logSpy.mock.calls.flat().join("\n");
+    expect(humanOut).toContain("[REDACTED]");
+    expect(humanOut).not.toContain(TOKEN_CI);
   });
 
   it("fails --auth --prod when /api-keys/self errors after a valid session, while preserving server_unsupported compat", async () => {
@@ -685,5 +738,62 @@ describe("creek doctor --auth", () => {
         unverifiedPermissions: ["project:create"],
       },
     });
+  });
+
+  it("suppresses cloud deploy breadcrumbs for creekd targets even when --project matches", async () => {
+    writeFileSync(
+      join(workDir, "creek.toml"),
+      '[project]\nname = "self-hosted"\ntarget = "creekd"\n',
+    );
+    mkdirSync(join(workDir, "apps/self-hosted"), { recursive: true });
+    writeFileSync(
+      join(workDir, "apps/self-hosted/creek.toml"),
+      '[project]\nname = "self-hosted"\ntarget = "creekd"\n',
+    );
+    process.env.CREEK_TOKEN = TOKEN_CI;
+    server.use(
+      http.get(`${API}/api/auth/get-session`, () => HttpResponse.json(SESSION)),
+      http.get(`${API}/api-keys/self`, () => HttpResponse.json(makeKeySelf({}))),
+      http.get(`${API}/projects/self-hosted`, () =>
+        HttpResponse.json({ id: "proj-sh", slug: "self-hosted", name: "self-hosted" }),
+      ),
+    );
+
+    // Explicit --project matching cwd's creekd project name must not emit `creek deploy --prod --json`.
+    expect(await runDoctorCmd({ project: "self-hosted", auth: true, prod: true, json: true })).toBe(
+      0,
+    );
+    const cwdMatchOut = json();
+    expect(cwdMatchOut).toMatchObject({
+      ok: true,
+      project: { slug: "self-hosted", exists: true, canAccess: true },
+    });
+    expect(cwdMatchOut.breadcrumbs ?? []).toEqual([]);
+
+    // Explicit --project matching checked [path] subdirectory's creekd project must also suppress deploy breadcrumb.
+    stdout = "";
+    expect(
+      await runDoctorCmd({
+        path: "apps/self-hosted",
+        project: "self-hosted",
+        auth: true,
+        prod: true,
+        json: true,
+      }),
+    ).toBe(0);
+    const subpathMatchOut = json();
+    expect(subpathMatchOut.ok).toBe(true);
+    expect(subpathMatchOut.breadcrumbs ?? []).toEqual([]);
+
+    // Without --project, creekd target skips cloud project lookup and emits no cloud deploy breadcrumb.
+    stdout = "";
+    expect(await runDoctorCmd({ auth: true, prod: true, json: true })).toBe(0);
+    const implicitOut = json();
+    expect(implicitOut.ok).toBe(true);
+    expect(implicitOut.checks.find((c: { id: string }) => c.id === "project")).toMatchObject({
+      status: "skip",
+      code: "creekd_target",
+    });
+    expect(implicitOut.breadcrumbs ?? []).toEqual([]);
   });
 });
