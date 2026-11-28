@@ -152,7 +152,35 @@ describe("GET /projects/:id/analytics", () => {
     expect(query).not.toContain(`scriptName: "`);
   });
 
-  test("falls back to the production script alone if Cloudflare refuses the list filter", async () => {
+  const REFUSED = { data: null, errors: [{ message: "unknown field scriptName_in" }] };
+
+  test("falls back to the production deployment's script if Cloudflare refuses the list filter", async () => {
+    const projectId = seedProject(testEnv, "my-app");
+    const now = Date.now();
+    testEnv.db.db.exec(
+      `INSERT INTO deployment (id, projectId, version, status, triggerType, createdAt, updatedAt)
+       VALUES ('aaaa1111-prod', '${projectId}', 1, 'active', 'cli', ${now}, ${now})`,
+    );
+    testEnv.db.db.exec(
+      `UPDATE project SET productionDeploymentId = 'aaaa1111-prod' WHERE id = '${projectId}'`,
+    );
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(REFUSED)))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ data: { viewer: { accounts: [{ series: [], totals: [] }] } } }),
+        ),
+      );
+
+    const json = (await (await req("/projects/my-app/analytics")).json()) as any;
+    const script = `my-app-aaaa1111-${TEST_TEAM.slug}`;
+    expect(json.scriptNames).toEqual([script]);
+    const second = JSON.parse((globalThis.fetch as any).mock.calls[1][1].body).query as string;
+    expect(second).toContain(`scriptName: "${script}"`);
+  });
+
+  test("falls back to the mutable script for a project with no production deployment", async () => {
     seedProject(testEnv, "my-app");
     const ok = {
       data: {

@@ -1246,11 +1246,16 @@ deployments.get("/:projectId/analytics", requireScopes("logs:read"), async (c) =
   try {
     let data = await run(`scriptName_in: ${JSON.stringify(scriptNames)}`);
     // Cloudflare documents `_in` for scalar fields but says operator support
-    // varies by dataset. If it refuses the list, fall back to the mutable
-    // script alone, which is what this route read before.
+    // varies by dataset. If it refuses the list, fall back to one script: the
+    // current production deployment's, which serves production HTTP traffic
+    // now (the mutable script only runs cron and queue events). A project
+    // with no production deployment falls back to the mutable script.
     if (Array.isArray(data?.errors) && data.errors.length > 0) {
-      scriptNames = [scriptName];
-      data = await run(`scriptName: ${JSON.stringify(scriptName)}`);
+      const fallback = project.productionDeploymentId
+        ? `${project.slug}-${shortDeployId(project.productionDeploymentId)}-${teamSlug}`
+        : scriptName;
+      scriptNames = [fallback];
+      data = await run(`scriptName: ${JSON.stringify(fallback)}`);
     }
     const account = data?.data?.viewer?.accounts?.[0];
     const series = account?.series ?? [];
