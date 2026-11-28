@@ -463,5 +463,48 @@ describe.skipIf(!existsSync(CLI))(
         rmSync(emptyApp, { recursive: true, force: true });
       }
     });
+
+    test("static-site monorepo sandbox deploys emit buildSkipped, buildTimeS: null, and deployTimeS", async () => {
+      const repo = mkdtempSync(join(tmpdir(), "creek-static-monorepo-e2e-"));
+      try {
+        // Pure index.html path (resolved.source === "index.html")
+        mkdirSync(join(repo, "apps/site"), { recursive: true });
+        writeFileSync(join(repo, "apps/site/index.html"), "<!doctype html><title>static</title>");
+
+        const pure = await deploy(
+          ["--path", "apps/site", "--sandbox", "--skip-build", "--json"],
+          {},
+          repo,
+        );
+        expect(pure.code, pure.stderr).toBe(0);
+        const pureOut = parseOnlyJson(pure.stdout);
+        expect(pureOut).toMatchObject({
+          ok: true,
+          mode: "sandbox",
+          buildSkipped: true,
+          buildTimeS: null,
+        });
+        expect(typeof pureOut.deployTimeS).toBe("number");
+
+        // No-package.json static fallback (creek.toml + index.html, no package.json)
+        writeFileSync(
+          join(repo, "apps/site/creek.toml"),
+          '[project]\nname = "site"\n\n[build]\ncommand = "npm run build"\noutput = "."\n',
+        );
+
+        const fallback = await deploy(["--path", "apps/site", "--sandbox", "--json"], {}, repo);
+        expect(fallback.code, fallback.stderr).toBe(0);
+        const fallbackOut = parseOnlyJson(fallback.stdout);
+        expect(fallbackOut).toMatchObject({
+          ok: true,
+          mode: "sandbox",
+          buildSkipped: false,
+          buildTimeS: null,
+        });
+        expect(typeof fallbackOut.deployTimeS).toBe("number");
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
   },
 );

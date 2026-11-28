@@ -1272,7 +1272,7 @@ export const deployCommand = defineCommand({
         consola.error(`Directory not found: ${args.dir}`);
         process.exit(1);
       }
-      return await deployHandlers.deployDirectory(cwd, jsonMode, tos);
+      return await deployHandlers.deployDirectory(cwd, jsonMode, tos, args["skip-build"]);
     }
 
     // --- Try auto-detection (creek.toml → wrangler.* → package.json → index.html) ---
@@ -1351,7 +1351,7 @@ export const deployCommand = defineCommand({
       const fullPath = resolve(cwd, dir);
       if (existsSync(fullPath)) {
         if (!jsonMode) consola.info(`Found build output: ${dir}/`);
-        return await deployHandlers.deployDirectory(fullPath, jsonMode, tos);
+        return await deployHandlers.deployDirectory(fullPath, jsonMode, tos, args["skip-build"]);
       }
     }
 
@@ -1441,7 +1441,7 @@ async function deployCreekd(
   }
 
   // 3. Detect entry point + runtime
-  const entryPoint = resolved.workerEntry ?? resolved.buildOutput + "/index.js";
+  const entryPoint = resolve(cwd, resolved.workerEntry ?? `${resolved.buildOutput}/index.js`);
   const runtime = "bun"; // default; could read from creek.toml [app].runtime
   const port = 3000; // TODO: auto-assign or read from config
 
@@ -2122,7 +2122,12 @@ async function deployRepoUrl(input: string, options: RepoDeployOptions) {
 // Directory deploy — deploy pre-built static files directly
 // ============================================================================
 
-async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptance) {
+async function deployDirectory(
+  dir: string,
+  jsonMode: boolean,
+  tos?: TosAcceptance,
+  skipBuild = false,
+) {
   if (!jsonMode) section("Upload");
   const { assets, fileList } = collectAssets(dir);
 
@@ -2146,10 +2151,12 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
     consola.start("  Deploying to edge...");
   }
 
+  const deployStartedAt = Date.now();
   let result: Awaited<ReturnType<typeof sandboxDeploy>> | undefined;
   try {
     result = await sandboxDeploy({ assets, source: "cli" }, { tos });
     const status = await pollSandboxStatus(result.statusUrl);
+    const deployMs = status.deployDurationMs ?? Date.now() - deployStartedAt;
 
     const proof = await attachProof(status.previewUrl);
     if (jsonMode) {
@@ -2162,6 +2169,9 @@ async function deployDirectory(dir: string, jsonMode: boolean, tos?: TosAcceptan
           sandboxId: result.sandboxId,
           url: status.previewUrl,
           deployDurationMs: status.deployDurationMs,
+          buildSkipped: skipBuild,
+          buildTimeS: null,
+          deployTimeS: formatSeconds(deployMs),
           expiresAt: result.expiresAt,
           expiresInMinutes: expiresInMinutes(result.expiresAt),
           assetCount: fileList.length,
@@ -2252,7 +2262,7 @@ async function deploySandbox(
   //     echo '<h1>Hi</h1>' > index.html
   //     npx creek deploy
   if (resolved?.source === "index.html") {
-    return deployDirectory(staticSiteUploadDir(cwd, resolved), jsonMode, tos);
+    return deployDirectory(staticSiteUploadDir(cwd, resolved), jsonMode, tos, skipBuild);
   }
 
   // Framework path: package.json should exist because resolveConfig picked a
@@ -2280,7 +2290,7 @@ async function deploySandbox(
       if (!jsonMode) {
         consola.info("  No package.json found — deploying as static site (no build step).");
       }
-      return deployDirectory(staticDir, jsonMode, tos);
+      return deployDirectory(staticDir, jsonMode, tos, skipBuild);
     }
     const message = `Expected package.json in ${cwd} but none found.`;
     if (jsonMode) {
@@ -3465,7 +3475,8 @@ export async function tryTurboDeploy(
 
       if (TERMINAL.has(s)) {
         if (s === "active") {
-          const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+          const deployMs = Date.now() - start;
+          const elapsed = (deployMs / 1000).toFixed(1);
           const prodUrl = status.url ?? status.previewUrl;
           await finishProductionSuccess({
             jsonMode,
@@ -3477,6 +3488,9 @@ export async function tryTurboDeploy(
               project: project.slug,
               mode: "production",
               ...customDomainFields(status),
+              buildSkipped: false,
+              buildTimeS: null,
+              deployTimeS: formatSeconds(deployMs),
               turbo: true,
               elapsed: `${elapsed}s`,
             },
